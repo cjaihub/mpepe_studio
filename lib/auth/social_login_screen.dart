@@ -2,12 +2,14 @@ import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import '../shared/theme/app_theme.dart';
 import '../shared/widgets/components.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'auth_repository.dart';
 
-class SocialLoginScreen extends StatelessWidget {
+class SocialLoginScreen extends ConsumerWidget {
   const SocialLoginScreen({super.key});
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
     return Scaffold(
       body: Center(
         child: Padding(
@@ -120,8 +122,20 @@ class SocialLoginScreen extends StatelessWidget {
                   label: 'Continue with Google',
                   icon: Icons.account_circle,
                   variant: MpepeButtonVariant.white,
-                  onPressed: () {
-                    context.go('/yt/dashboard');
+                  onPressed: () async {
+                    try {
+                      final authRepo = ref.read(authRepositoryProvider);
+                      final user = await authRepo.signInWithGoogle();
+                      if (user != null && context.mounted) {
+                        context.go('/yt/dashboard');
+                      }
+                    } catch (e) {
+                      if (context.mounted) {
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          SnackBar(content: Text('Failed to sign in: $e')),
+                        );
+                      }
+                    }
                   },
                 ),
               ),
