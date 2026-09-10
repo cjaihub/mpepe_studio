@@ -1,4 +1,5 @@
 import 'dart:io';
+import 'package:flutter/foundation.dart';
 import 'package:googleapis/youtube/v3.dart' as youtube;
 import 'package:http/http.dart' as http;
 
@@ -34,7 +35,7 @@ class YouTubeUploadService {
       );
       return response;
     } catch (e) {
-      print('Error uploading video: $e');
+      debugPrint('Error uploading video: $e');
       rethrow;
     }
   }

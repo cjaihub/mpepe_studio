@@ -1,29 +1,98 @@
 import 'package:flutter/material.dart';
 import '../theme/app_theme.dart';
-
-class MpepeCard extends StatelessWidget {
+class MpepeCard extends StatefulWidget {
   final Widget child;
   final EdgeInsetsGeometry padding;
   final Color? borderColor;
+  final VoidCallback? onTap;
 
   const MpepeCard({
     super.key,
     required this.child,
     this.padding = const EdgeInsets.all(16),
     this.borderColor,
+    this.onTap,
   });
 
   @override
+  State<MpepeCard> createState() => _MpepeCardState();
+}
+
+class _MpepeCardState extends State<MpepeCard> {
+  bool _isHovered = false;
+  bool _isPressed = false;
+
+  @override
   Widget build(BuildContext context) {
-    return Container(
-      padding: padding,
+    final theme = Theme.of(context);
+    final isDark = theme.brightness == Brightness.dark;
+
+    Widget card = AnimatedContainer(
+      duration: const Duration(milliseconds: 300),
+      curve: Curves.easeOutCubic,
       decoration: BoxDecoration(
-        color: AppColors.surface,
-        borderRadius: BorderRadius.circular(18),
-        border: Border.all(color: borderColor ?? AppColors.lineSoft),
+        borderRadius: BorderRadius.circular(24),
+        border: Border.all(
+          color: widget.borderColor ?? 
+                 (isDark ? Colors.white.withValues(alpha: 0.15) : Colors.black.withValues(alpha: 0.05)),
+          width: 1,
+        ),
+        boxShadow: [
+          BoxShadow(
+            color: isDark ? (widget.borderColor?.withValues(alpha: _isHovered ? 0.3 : 0.0) ?? Colors.black.withValues(alpha: 0.4)) : Colors.black.withValues(alpha: _isHovered ? 0.08 : 0.04),
+            blurRadius: _isHovered ? 30 : 15,
+            spreadRadius: _isHovered ? 2 : 0,
+            offset: _isHovered ? const Offset(0, 15) : const Offset(0, 8),
+          ),
+        ],
       ),
-      child: child,
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(24),
+        child: Container(
+            padding: widget.padding,
+            decoration: BoxDecoration(
+              color: isDark 
+                  ? theme.colorScheme.surface.withValues(alpha: 0.85)
+                  : theme.colorScheme.surface.withValues(alpha: 0.95),
+              border: Border(
+                top: BorderSide(color: Colors.white.withValues(alpha: isDark ? 0.06 : 0.3)),
+                left: BorderSide(color: Colors.white.withValues(alpha: isDark ? 0.06 : 0.3)),
+              ),
+            ),
+            child: widget.child,
+        ),
+      ),
     );
+
+    if (widget.onTap != null) {
+      card = GestureDetector(
+        onTapDown: (_) => setState(() => _isPressed = true),
+        onTapUp: (_) {
+          setState(() => _isPressed = false);
+          widget.onTap!();
+        },
+        onTapCancel: () => setState(() => _isPressed = false),
+        child: MouseRegion(
+          cursor: SystemMouseCursors.click,
+          onEnter: (_) => setState(() => _isHovered = true),
+          onExit: (_) => setState(() => _isHovered = false),
+          child: AnimatedScale(
+            scale: _isPressed ? 0.96 : (_isHovered ? 1.02 : 1.0),
+            duration: const Duration(milliseconds: 250),
+            curve: Curves.easeOutCubic,
+            child: card,
+          ),
+        ),
+      );
+    } else {
+      card = MouseRegion(
+        onEnter: (_) => setState(() => _isHovered = true),
+        onExit: (_) => setState(() => _isHovered = false),
+        child: card,
+      );
+    }
+
+    return card;
   }
 }
 
@@ -49,13 +118,13 @@ class MpepeAvatar extends StatelessWidget {
       decoration: BoxDecoration(
         shape: BoxShape.circle,
         gradient: gradient,
-        color: gradient == null ? (backgroundColor ?? AppColors.surface2) : null,
+        color: gradient == null ? (backgroundColor ?? Theme.of(context).scaffoldBackgroundColor) : null,
       ),
       alignment: Alignment.center,
       child: Text(
         text,
         style: TextStyle(
-          color: Colors.white,
+          color: gradient == null ? Theme.of(context).colorScheme.onSurface : Colors.white,
           fontWeight: FontWeight.bold,
           fontSize: size * 0.4,
         ),
@@ -69,6 +138,8 @@ class MpepePill extends StatelessWidget {
   final bool isOutline;
   final bool isLive;
   final bool isAi;
+  final bool isGhost;
+  final Color? color;
 
   const MpepePill({
     super.key,
@@ -76,12 +147,14 @@ class MpepePill extends StatelessWidget {
     this.isOutline = false,
     this.isLive = false,
     this.isAi = false,
+    this.isGhost = false,
+    this.color,
   });
 
   @override
   Widget build(BuildContext context) {
-    Color bgColor = Colors.transparent;
-    Color textColor = AppColors.primaryText;
+    Color bgColor = isGhost ? (color?.withValues(alpha: 0.15) ?? Colors.transparent) : (color ?? Colors.transparent);
+    Color textColor = isGhost ? (color ?? Theme.of(context).colorScheme.onSurface) : Theme.of(context).colorScheme.surface;
     Border? border;
 
     if (isAi) {
@@ -94,12 +167,12 @@ class MpepePill extends StatelessWidget {
         child: Text(text, style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w700, color: Colors.white)),
       );
     } else if (isLive) {
-      bgColor = const Color(0x24FF0000);
-      textColor = AppColors.ytAccent;
-      border = Border.all(color: const Color(0x4DFF0000));
+      bgColor = Theme.of(context).colorScheme.primary.withValues(alpha: 0.1);
+      textColor = Theme.of(context).colorScheme.primary;
+      border = Border.all(color: Theme.of(context).colorScheme.primary.withValues(alpha: 0.3));
     } else if (isOutline) {
-      textColor = AppColors.ashText;
-      border = Border.all(color: AppColors.line);
+      textColor = Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.6);
+      border = Border.all(color: Theme.of(context).colorScheme.outline);
     }
 
     return Container(
@@ -121,11 +194,12 @@ class MpepePill extends StatelessWidget {
   }
 }
 
-class MpepeButton extends StatelessWidget {
+class MpepeButton extends StatefulWidget {
   final String text;
   final VoidCallback onPressed;
   final bool isPrimary;
   final IconData? icon;
+  final Widget? customIconWidget;
 
   const MpepeButton({
     super.key,
@@ -133,25 +207,71 @@ class MpepeButton extends StatelessWidget {
     required this.onPressed,
     this.isPrimary = true,
     this.icon,
+    this.customIconWidget,
   });
 
   @override
+  State<MpepeButton> createState() => _MpepeButtonState();
+}
+
+class _MpepeButtonState extends State<MpepeButton> {
+  bool _isPressed = false;
+  bool _isHovered = false;
+
+  @override
   Widget build(BuildContext context) {
-    return ElevatedButton(
-      style: ElevatedButton.styleFrom(
-        backgroundColor: isPrimary ? AppColors.ytAccent : Colors.white,
-        foregroundColor: isPrimary ? Colors.white : AppColors.ink,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(999)),
-        padding: const EdgeInsets.symmetric(vertical: 14, horizontal: 24),
-        elevation: 0,
-      ),
-      onPressed: onPressed,
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          if (icon != null) ...[Icon(icon, size: 18), const SizedBox(width: 8)],
-          Text(text, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14.5)),
-        ],
+    final theme = Theme.of(context);
+
+    return MouseRegion(
+      cursor: SystemMouseCursors.click,
+      onEnter: (_) => setState(() => _isHovered = true),
+      onExit: (_) => setState(() => _isHovered = false),
+      child: GestureDetector(
+        onTapDown: (_) => setState(() => _isPressed = true),
+        onTapUp: (_) {
+          setState(() => _isPressed = false);
+          widget.onPressed();
+        },
+        onTapCancel: () => setState(() => _isPressed = false),
+        child: AnimatedScale(
+          scale: _isPressed ? 0.95 : (_isHovered ? 1.02 : 1.0),
+          duration: const Duration(milliseconds: 150),
+          curve: Curves.easeOutCubic,
+          child: AnimatedContainer(
+            duration: const Duration(milliseconds: 200),
+            padding: const EdgeInsets.symmetric(vertical: 14, horizontal: 24),
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(999),
+              color: widget.isPrimary ? AppColors.mpepeMaroon : theme.colorScheme.surface,
+              border: widget.isPrimary 
+                  ? null 
+                  : Border.all(color: theme.colorScheme.outline),
+              boxShadow: widget.isPrimary && (_isHovered || _isPressed) ? [
+                BoxShadow(
+                  color: AppColors.neonPink.withValues(alpha: 0.4),
+                  blurRadius: 20,
+                  spreadRadius: 2,
+                  offset: const Offset(0, 4),
+                )
+              ] : [],
+            ),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                if (widget.customIconWidget != null) ...[widget.customIconWidget!, const SizedBox(width: 8)]
+                else if (widget.icon != null) ...[Icon(widget.icon, size: 18, color: widget.isPrimary ? Colors.white : theme.colorScheme.onSurface), const SizedBox(width: 8)],
+                Text(
+                  widget.text, 
+                  style: TextStyle(
+                    fontWeight: FontWeight.bold, 
+                    fontSize: 14.5,
+                    color: widget.isPrimary ? Colors.white : theme.colorScheme.onSurface,
+                  )
+                ),
+              ],
+            ),
+          ),
+        ),
       ),
     );
   }
@@ -173,16 +293,99 @@ class StepProgressIndicator extends StatelessWidget {
       mainAxisSize: MainAxisSize.min,
       children: List.generate(totalSteps, (index) {
         final isCompleted = index < completedSteps;
-        return Container(
-          width: 14,
+        final theme = Theme.of(context);
+        final isDark = theme.brightness == Brightness.dark;
+        
+        return AnimatedContainer(
+          duration: const Duration(milliseconds: 400),
+          curve: Curves.easeOutCubic,
+          width: isCompleted ? 18 : 10,
           height: 6,
-          margin: EdgeInsets.only(right: index == totalSteps - 1 ? 0 : 4),
+          margin: EdgeInsets.only(right: index == totalSteps - 1 ? 0 : 5),
           decoration: BoxDecoration(
-            color: isCompleted ? AppColors.violet : AppColors.surface2,
-            borderRadius: BorderRadius.circular(3),
+            color: isCompleted 
+                ? theme.colorScheme.primary 
+                : (isDark ? Colors.white.withValues(alpha: 0.1) : theme.colorScheme.outline.withValues(alpha: 0.5)),
+            borderRadius: BorderRadius.circular(4),
+            boxShadow: isCompleted ? [
+              BoxShadow(
+                color: theme.colorScheme.primary.withValues(alpha: 0.3),
+                blurRadius: 4,
+                offset: const Offset(0, 2),
+              )
+            ] : null,
           ),
         );
       }),
+    );
+  }
+}
+
+class MpepeInputField extends StatelessWidget {
+  final TextEditingController? controller;
+  final String hintText;
+  final IconData? prefixIcon;
+  final TextInputType keyboardType;
+  final bool obscureText;
+  final TextAlign textAlign;
+  final TextStyle? style;
+
+  const MpepeInputField({
+    super.key,
+    this.controller,
+    required this.hintText,
+    this.prefixIcon,
+    this.keyboardType = TextInputType.text,
+    this.obscureText = false,
+    this.textAlign = TextAlign.start,
+    this.style,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      decoration: BoxDecoration(
+        color: Theme.of(context).colorScheme.surface,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(
+          color: Theme.of(context).colorScheme.outline,
+          width: 1,
+        ),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.02),
+            blurRadius: 4,
+            offset: const Offset(0, 2),
+          ),
+        ],
+      ),
+      child: TextField(
+        controller: controller,
+        keyboardType: keyboardType,
+        obscureText: obscureText,
+        textAlign: textAlign,
+        style: style ?? TextStyle(color: Theme.of(context).colorScheme.onSurface, fontSize: 16),
+        decoration: InputDecoration(
+          hintText: hintText,
+          hintStyle: TextStyle(color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.5), fontSize: 16),
+          filled: true,
+          fillColor: Colors.transparent,
+          contentPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
+          prefixIcon: prefixIcon != null ? Icon(prefixIcon, color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.5)) : null,
+          border: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(16),
+            borderSide: BorderSide.none,
+          ),
+          enabledBorder: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(16),
+            borderSide: BorderSide.none,
+          ),
+          focusedBorder: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(16),
+            borderSide: BorderSide(color: Theme.of(context).colorScheme.primary, width: 1.5),
+          ),
+        ),
+      ),
     );
   }
 }

@@ -1,0 +1,50 @@
+syntax = "proto3";
+package cj_grader.ledger;
+
+service GradeLedger {
+  rpc RecordAction(RecordRequest) returns (RecordResponse);
+  rpc GetHistory(HistoryRequest) returns (HistoryResponse);
+  rpc UndoAction(UndoRequest) returns (UndoResponse);
+}
+
+message RecordRequest {
+  string timeline_id = 1;
+  int32 track_index = 2;
+  int32 clip_index = 3;
+  int32 node_index = 4;
+  string action_type = 5;
+  string payload_json = 6;
+  string agent_id = 7;
+}
+
+message RecordResponse {
+  bool success = 1;
+}
+
+message UndoRequest {
+  string timeline_id = 1;
+  int32 track_index = 2;
+  int32 clip_index = 3;
+}
+
+message UndoResponse {
+  bool success = 1;
+  string message = 2;
+}
+
+message HistoryRequest {
+  string timeline_id = 1;
+  int32 track_index = 2;
+  int32 clip_index = 3;
+}
+
+message HistoryResponse {
+  repeated ActionEntry entries = 1;
+}
+
+message ActionEntry {
+  string timestamp = 1;
+  string action_type = 2;
+  string payload_json = 3;
+  string agent_id = 4;
+}

@@ -57,7 +57,6 @@ class DefaultFirebaseOptions {
     projectId: 'mpepe-2b4bd',
     storageBucket: 'mpepe-2b4bd.firebasestorage.app',
   );
-
   static const FirebaseOptions ios = FirebaseOptions(
     apiKey: 'AIzaSyCB3F9EC4HKk5aN9VUJoldpRLOJIdMmCK8',
     appId: '1:90836164478:ios:9bef3be281165c88a91d2f',

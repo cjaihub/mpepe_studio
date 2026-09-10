@@ -1,0 +1,22 @@
+syntax = "proto3";
+package cj_grader.look_profile;
+
+service LookProfileService {
+  rpc AnalyzeImage(AnalyzeImageRequest) returns (AnalyzeImageResponse);
+  rpc GenerateLookFromText(GenerateLookRequest) returns (AnalyzeImageResponse);
+}
+
+message AnalyzeImageRequest {
+  string image_path = 1;
+  bytes image_data = 2; // Optional, if we want to send the image over gRPC instead of a path
+}
+
+message GenerateLookRequest {
+  string description = 1;
+}
+
+message AnalyzeImageResponse {
+  bool success = 1;
+  string message = 2;
+  string profile_json = 3;
+}

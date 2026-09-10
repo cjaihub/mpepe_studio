@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
-import '../shared/theme/app_theme.dart';
+import '../shared/widgets/studio_background.dart';
 
 class ComingSoonScreen extends StatelessWidget {
   final String title;
@@ -18,8 +18,9 @@ class ComingSoonScreen extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      body: SafeArea(
+    return StudioBackground(
+      backgroundIcons: const [Icons.hub_outlined, Icons.people_outline, Icons.dashboard_outlined],
+      child: SafeArea(
         child: Padding(
           padding: const EdgeInsets.symmetric(horizontal: 24),
           child: Column(
@@ -36,38 +37,38 @@ class ComingSoonScreen extends StatelessWidget {
                 child: Icon(icon, color: Colors.white, size: 28),
               ),
               const SizedBox(height: 18),
-              Text(title, style: const TextStyle(fontSize: 23, fontWeight: FontWeight.w900)),
+              Text(title, style: TextStyle(fontSize: 23, fontWeight: FontWeight.w900, color: Theme.of(context).colorScheme.onSurface)),
               const SizedBox(height: 10),
               Text(
                 description,
                 textAlign: TextAlign.center,
-                style: const TextStyle(color: AppColors.ashText, fontSize: 13, height: 1.5),
+                style: TextStyle(color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.6), fontSize: 13, height: 1.5),
               ),
               const SizedBox(height: 18),
               Container(
                 padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
                 decoration: BoxDecoration(
-                  border: Border.all(color: AppColors.line),
+                  border: Border.all(color: Theme.of(context).colorScheme.outlineVariant),
                   borderRadius: BorderRadius.circular(999),
                 ),
-                child: const Text('Coming soon', style: TextStyle(color: AppColors.ashText, fontSize: 11, fontWeight: FontWeight.w700)),
+                child: Text('Coming soon', style: TextStyle(color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.6), fontSize: 11, fontWeight: FontWeight.w700)),
               ),
               const SizedBox(height: 24),
-              const Text('Want this sooner? Tell us what matters most.', style: TextStyle(color: AppColors.dustText, fontSize: 11, fontWeight: FontWeight.w500)),
+              Text('Want this sooner? Tell us what matters most.', style: TextStyle(color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.4), fontSize: 11, fontWeight: FontWeight.w500)),
               const SizedBox(height: 14),
               OutlinedButton(
                 onPressed: () {},
                 style: OutlinedButton.styleFrom(
-                  side: const BorderSide(color: Color(0x73FF8A00), width: 1.3),
-                  foregroundColor: AppColors.studioAccent,
+                  side: BorderSide(color: Theme.of(context).colorScheme.primary.withValues(alpha: 0.5), width: 1.3),
+                  foregroundColor: Theme.of(context).colorScheme.primary,
                   shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(999)),
                 ),
                 child: const Text('Suggest a feature', style: TextStyle(fontWeight: FontWeight.w700)),
               ),
               const SizedBox(height: 32),
               GestureDetector(
-                onTap: () => context.go('/'),
-                child: const Text('← Back to Studio Home', style: TextStyle(color: AppColors.studioAccent, fontWeight: FontWeight.w700, fontSize: 12)),
+                onTap: () => context.push('/'),
+                child: Text('← Back to Studio Home', style: TextStyle(color: Theme.of(context).colorScheme.primary, fontWeight: FontWeight.w700, fontSize: 12)),
               )
             ],
           ),

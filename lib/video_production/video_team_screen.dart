@@ -1,62 +1,52 @@
 import 'package:flutter/material.dart';
-import '../shared/theme/app_theme.dart';
+import 'package:flutter_animate/flutter_animate.dart';
 import '../shared/widgets/components.dart';
+import '../shared/widgets/studio_background.dart';
 
 class VideoTeamScreen extends StatelessWidget {
   const VideoTeamScreen({super.key});
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      body: SafeArea(
+    return StudioBackground(
+      backgroundIcons: const [Icons.videocam_outlined, Icons.movie_creation_outlined, Icons.camera_alt_outlined],
+      child: SafeArea(
         child: SingleChildScrollView(
           padding: const EdgeInsets.symmetric(horizontal: 18.0, vertical: 10.0),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              const Text('Crew', style: AppTheme.h1Style),
-              const SizedBox(height: 14),
+              Text('Crew', style: TextStyle(fontSize: 32, fontWeight: FontWeight.w800, letterSpacing: -0.5, color: Theme.of(context).colorScheme.onSurface)),
+              const SizedBox(height: 24),
               _CrewCard(
                 initials: 'BO',
                 name: 'Brian O.',
                 role: 'Director of Photography • 2 shoots',
-                gradient: const LinearGradient(colors: [AppColors.violet, AppColors.violet]),
+                color: Theme.of(context).colorScheme.primary,
               ),
-              const SizedBox(height: 10),
-              _CrewCard(
+              const SizedBox(height: 16),
+              const _CrewCard(
                 initials: 'FN',
                 name: 'Faith N.',
                 role: 'Editor • 3 projects',
-                gradient: const LinearGradient(
-                  colors: [Color(0xFFf7971e), Color(0xFFffd200)],
-                  begin: Alignment.topLeft,
-                  end: Alignment.bottomRight,
-                ),
+                color: Color(0xFFf7971e),
               ),
-              const SizedBox(height: 10),
-              _CrewCard(
+              const SizedBox(height: 16),
+              const _CrewCard(
                 initials: 'JM',
                 name: 'Josiah M.',
                 role: 'Director • 2 shoots',
-                gradient: const LinearGradient(
-                  colors: [Color(0xFFff512f), Color(0xFFf09819)],
-                  begin: Alignment.topLeft,
-                  end: Alignment.bottomRight,
-                ),
+                color: Color(0xFFff512f),
               ),
-              const SizedBox(height: 10),
-              _CrewCard(
+              const SizedBox(height: 16),
+              const _CrewCard(
                 initials: 'AK',
                 name: 'Amara K.',
                 role: 'Sound & Gaffer • 2 shoots',
-                gradient: const LinearGradient(
-                  colors: [Color(0xFF2193b0), Color(0xFF6dd5ed)],
-                  begin: Alignment.topLeft,
-                  end: Alignment.bottomRight,
-                ),
+                color: Color(0xFF2193b0),
               ),
               const SizedBox(height: 40),
-            ],
+            ].animate(interval: 50.ms).fade(duration: 400.ms, curve: Curves.easeOut).slideY(begin: 0.1, end: 0, duration: 400.ms, curve: Curves.easeOutCubic),
           ),
         ),
       ),
@@ -68,13 +58,13 @@ class _CrewCard extends StatelessWidget {
   final String initials;
   final String name;
   final String role;
-  final Gradient gradient;
+  final Color color;
 
   const _CrewCard({
     required this.initials,
     required this.name,
     required this.role,
-    required this.gradient,
+    required this.color,
   });
 
   @override
@@ -83,27 +73,34 @@ class _CrewCard extends StatelessWidget {
       child: Row(
         children: [
           Container(
-            width: 42,
-            height: 42,
+            width: 48,
+            height: 48,
             decoration: BoxDecoration(
               shape: BoxShape.circle,
-              gradient: gradient,
+              color: color,
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.black.withValues(alpha: 0.1),
+                  blurRadius: 10,
+                  offset: const Offset(0, 4),
+                )
+              ],
             ),
             child: Center(
               child: Text(
                 initials,
-                style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: Colors.white),
+                style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 15, color: Colors.white),
               ),
             ),
           ),
-          const SizedBox(width: 12),
+          const SizedBox(width: 16),
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(name, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13.5)),
-                const SizedBox(height: 8),
-                Text(role, style: const TextStyle(color: AppColors.dust, fontSize: 12)),
+                Text(name, style: TextStyle(fontWeight: FontWeight.bold, fontSize: 15, color: Theme.of(context).colorScheme.onSurface)),
+                const SizedBox(height: 4),
+                Text(role, style: TextStyle(color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.6), fontSize: 13)),
               ],
             ),
           ),

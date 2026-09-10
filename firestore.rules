@@ -1,0 +1,131 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // ─── Helper functions ────────────────────────────────────────────────────
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isOwner(uid) {
+      return isSignedIn() && request.auth.uid == uid;
+    }
+
+    function isActiveUser() {
+      return isSignedIn() &&
+             get(/databases/$(database)/documents/users/$(request.auth.uid)).data.status == 'active';
+    }
+
+    function isAdmin() {
+      return isSignedIn() &&
+             get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin';
+    }
+
+    // ─── Users ───────────────────────────────────────────────────────────────
+    match /users/{uid} {
+      // Any signed-in user can read user profiles (for team directory)
+      allow read: if isSignedIn();
+      // A user can create their own document (on signup)
+      allow create: if isOwner(uid);
+      // A user can update their own document; admins can update any
+      allow update: if isOwner(uid) || isAdmin();
+      // Only admins can delete user documents
+      allow delete: if isAdmin();
+
+      // Users can manage their own youtube_accounts subcollection
+      match /youtube_accounts/{accountId} {
+        allow read, write: if isOwner(uid);
+      }
+    }
+
+    // ─── Notifications ───────────────────────────────────────────────────────
+    match /notifications/{notificationId} {
+      // Users can only read their own notifications
+      allow read: if isSignedIn() && resource.data.userId == request.auth.uid;
+      // Notifications can be created by any active user (server functions or the user themselves)
+      allow create: if isActiveUser();
+      // Users can update (mark as read) their own notifications
+      allow update: if isSignedIn() && resource.data.userId == request.auth.uid;
+      // Users can delete their own notifications; admins can delete any
+      allow delete: if isSignedIn() && (resource.data.userId == request.auth.uid || isAdmin());
+    }
+
+    // ─── Projects ────────────────────────────────────────────────────────────
+    match /projects/{projectId} {
+      allow read: if isSignedIn();
+      allow create: if isSignedIn();
+      allow update: if isSignedIn() && (resource.data.createdBy == request.auth.uid || isAdmin());
+      allow delete: if isAdmin();
+    }
+
+    // ─── Tasks ───────────────────────────────────────────────────────────────
+    match /tasks/{taskId} {
+      allow read: if isSignedIn();
+      allow create: if isSignedIn();
+      allow update: if isSignedIn();
+      allow delete: if isAdmin() || (isSignedIn() && resource.data.createdBy == request.auth.uid);
+    }
+
+    // ─── Calendar Events ─────────────────────────────────────────────────────
+    match /calendar_events/{eventId} {
+      allow read: if isSignedIn();
+      allow create: if isSignedIn();
+      allow update: if isSignedIn() && resource.data.createdBy == request.auth.uid;
+      allow delete: if isAdmin() || resource.data.createdBy == request.auth.uid;
+    }
+
+    // ─── Equipment ───────────────────────────────────────────────────────────
+    match /equipment/{itemId} {
+      allow read: if isSignedIn();
+      allow write: if isAdmin();
+    }
+
+    // ─── Social connections ──────────────────────────────────────────────────
+    match /social_connections/{connectionId} {
+      allow read: if isSignedIn();
+      allow create: if isSignedIn();
+      allow update, delete: if isSignedIn() && resource.data.userId == request.auth.uid;
+    }
+
+    // ─── Messages / Inbox ────────────────────────────────────────────────────
+    match /messages/{messageId} {
+      allow read: if isSignedIn() &&
+        (resource.data.senderId == request.auth.uid || resource.data.receiverId == request.auth.uid);
+      allow create: if isSignedIn();
+      allow update, delete: if isSignedIn() && resource.data.senderId == request.auth.uid;
+    }
+
+    // ─── Settings ────────────────────────────────────────────────────────────
+    match /settings/{uid} {
+      allow read, write: if isOwner(uid);
+    }
+
+    // ─── Remote Sessions ─────────────────────────────────────────────────────
+    match /remote_sessions/{sessionId} {
+      allow read, write: if isSignedIn();
+      
+      match /{document=**} {
+        allow read, write: if isSignedIn();
+      }
+    }
+
+    // ─── Registered Computers (Linked Devices) ───────────────────────────────
+    match /registered_computers/{deviceId} {
+      // A user can read/write their own devices
+      allow read, write: if isSignedIn() && resource.data.owner_uid == request.auth.uid;
+      // Allow creation if the owner_uid matches the authenticated user
+      allow create: if isSignedIn() && request.resource.data.owner_uid == request.auth.uid;
+      
+      // Allow access to commands subcollection
+      match /commands/{commandId} {
+        allow read, write: if isSignedIn();
+      }
+    }
+
+    // ─── Deny everything else ────────────────────────────────────────────────
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}

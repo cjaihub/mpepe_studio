@@ -1,0 +1,33 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <title>MPEPE Studio Connect</title>
+    <link rel="stylesheet" href="css/style.css">
+    <!-- Firebase SDKs -->
+    <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore-compat.js"></script>
+    
+    <!-- QRCode Generator -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+    
+    <!-- Adobe CSInterface -->
+    <script src="js/CSInterface.js"></script>
+</head>
+<body>
+    <div id="content">
+        <h1>Studio Connect</h1>
+        <p>Scan this QR code with the MPEPE Studio app to link your phone.</p>
+        
+        <div id="qrcode"></div>
+        
+        <div id="status" class="status-waiting">
+            Waiting for connection...
+        </div>
+        
+        <div id="session-id"></div>
+    </div>
+    
+    <script src="js/main.js"></script>
+</body>
+</html>

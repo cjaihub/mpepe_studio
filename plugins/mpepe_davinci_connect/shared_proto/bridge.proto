@@ -1,0 +1,169 @@
+syntax = "proto3";
+package cj_grader.bridge;
+
+service ResolveTools {
+  // Advanced Color Tools
+  rpc SetCDL(SetCDLRequest) returns (ToolResponse);
+  rpc SetLUT(SetLUTRequest) returns (ToolResponse);
+  rpc ApplyGradeFromDRX(ApplyDRXRequest) returns (ToolResponse);
+  rpc ApplyArriCdlLut(ArriRequest) returns (ToolResponse);
+  
+  // Neural Engine Tools (Studio 21+)
+  rpc CreateMagicMask(MagicMaskRequest) returns (ToolResponse);
+  rpc SmartReframe(SmartReframeRequest) returns (ToolResponse);
+  rpc Stabilize(StabilizeRequest) returns (ToolResponse);
+  rpc DetectSceneCuts(SceneCutRequest) returns (ToolResponse);
+  
+  // Properties & Node Graph
+  rpc SetProperty(SetPropertyRequest) returns (ToolResponse);
+  rpc ManageNodeGraph(NodeGraphRequest) returns (ToolResponse);
+  rpc GetNodeGraph(GetNodeGraphRequest) returns (NodeGraphResponse);
+  
+  // Versioning & Memory
+  rpc AddVersion(VersionRequest) returns (ToolResponse);
+  rpc CopyGrades(CopyGradesRequest) returns (ToolResponse);
+  
+  // Gallery
+  rpc GrabStill(GrabStillRequest) returns (ToolResponse);
+
+  // Navigation
+  rpc OpenPage(OpenPageRequest) returns (ToolResponse);
+
+  // System & Capabilities
+  rpc GetCapabilities(GetCapabilitiesRequest) returns (CapabilityResponse);
+}
+
+message GetCapabilitiesRequest {}
+
+message CapabilityResponse {
+  bool is_connected = 1;
+  string resolve_version = 2;
+  bool is_studio = 3;
+  bool has_magic_mask = 4;
+  string error_message = 5;
+}
+
+message SetCDLRequest {
+  string timeline_id = 1;
+  int32 track_index = 2;
+  int32 clip_index = 3;
+  int32 node_index = 4;
+  map<string, float> slope = 5; // R, G, B, Y
+  map<string, float> offset = 6;
+  map<string, float> power = 7;
+  float saturation = 8;
+  string agent_id = 9;
+  bool append_new_node = 10;
+}
+
+message SetLUTRequest {
+  string timeline_id = 1;
+  int32 track_index = 2;
+  int32 clip_index = 3;
+  int32 node_index = 4;
+  string lut_path = 5;
+  string agent_id = 6;
+}
+
+message ApplyDRXRequest {
+  string timeline_id = 1;
+  int32 track_index = 2;
+  int32 clip_index = 3;
+  string drx_path = 4;
+  int32 grade_mode = 5;
+  string agent_id = 6;
+}
+
+message ArriRequest {
+  string timeline_id = 1;
+  int32 track_index = 2;
+  int32 clip_index = 3;
+}
+
+message MagicMaskRequest {
+  string timeline_id = 1;
+  int32 track_index = 2;
+  int32 clip_index = 3;
+  string mode = 4; // "F" for Foreground, "B" for Background
+}
+
+message SmartReframeRequest {
+  string timeline_id = 1;
+  int32 track_index = 2;
+  int32 clip_index = 3;
+}
+
+message StabilizeRequest {
+  string timeline_id = 1;
+  int32 track_index = 2;
+  int32 clip_index = 3;
+}
+
+message SceneCutRequest {
+  string media_path = 1;
+}
+
+message SetPropertyRequest {
+  string timeline_id = 1;
+  int32 track_index = 2;
+  int32 clip_index = 3;
+  map<string, string> properties = 4;
+}
+
+message NodeGraphRequest {
+  string timeline_id = 1;
+  int32 track_index = 2;
+  int32 clip_index = 3;
+  string action = 4; // enable, disable, reorder
+  int32 node_a = 5;
+  int32 node_b = 6;
+}
+
+message VersionRequest {
+  string timeline_id = 1;
+  int32 track_index = 2;
+  int32 clip_index = 3;
+  string version_name = 4;
+  int32 type = 5;
+}
+
+message CopyGradesRequest {
+  string source_timeline_id = 1;
+  int32 source_track = 2;
+  int32 source_clip = 3;
+  repeated int32 target_clips = 4;
+}
+
+message GrabStillRequest {
+  string timeline_id = 1;
+  int32 track_index = 2;
+  int32 clip_index = 3;
+}
+
+message ToolResponse {
+  bool success = 1;
+  string error_message = 2;
+  string result_json = 3;
+}
+
+message GetNodeGraphRequest {
+  string timeline_id = 1;
+  int32 track_index = 2;
+  int32 clip_index = 3;
+}
+
+message NodeMessage {
+  int32 index = 1;
+  string label = 2;
+  bool is_enabled = 3;
+}
+
+message NodeGraphResponse {
+  bool success = 1;
+  string error_message = 2;
+  repeated NodeMessage nodes = 3;
+}
+
+message OpenPageRequest {
+  string page_name = 1;
+}

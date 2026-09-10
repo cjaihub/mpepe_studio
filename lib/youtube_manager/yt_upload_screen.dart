@@ -1,11 +1,12 @@
-import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:file_picker/file_picker.dart';
-import '../shared/theme/app_theme.dart';
-import '../shared/widgets/components.dart';
-import '../auth/auth_repository.dart';
-import 'services/youtube_upload_service.dart';
+import 'package:flutter_animate/flutter_animate.dart';
+import 'package:go_router/go_router.dart';
+import '../shared/widgets/studio_background.dart';
+import '../shared/utils/friendly_error_parser.dart';
+import 'services/bulk_upload_engine.dart';
+import '../backend/ai_brain_service.dart';
 
 class YtUploadScreen extends ConsumerStatefulWidget {
   const YtUploadScreen({super.key});
@@ -15,210 +16,319 @@ class YtUploadScreen extends ConsumerStatefulWidget {
 }
 
 class _YtUploadScreenState extends ConsumerState<YtUploadScreen> {
-  File? _selectedFile;
-  bool _isUploading = false;
-  double _uploadProgress = 0.0;
-  final TextEditingController _titleController = TextEditingController();
-  final TextEditingController _descriptionController = TextEditingController();
-  final TextEditingController _tagsController = TextEditingController();
-
-  Future<void> _pickFile() async {
-    FilePickerResult? result = await FilePicker.platform.pickFiles(
+  Future<void> _pickFiles() async {
+    final result = await FilePicker.pickFiles(
       type: FileType.video,
     );
 
-    if (result != null && result.files.single.path != null) {
-      setState(() {
-        _selectedFile = File(result.files.single.path!);
-        _titleController.text = result.files.single.name;
-      });
+    if (result.isNotEmpty) {
+      ref.read(bulkUploadEngineProvider.notifier).addFiles(result);
     }
   }
 
-  Future<void> _uploadVideo() async {
-    if (_selectedFile == null) return;
+  Future<void> _generateAiMetadata(UploadTask task) async {
+    final topicController = TextEditingController(text: task.title);
     
-    setState(() {
-      _isUploading = true;
-      _uploadProgress = 0.1;
-    });
+    final topic = await showDialog<String>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Row(
+          children: [
+            Icon(Icons.auto_awesome, color: Colors.purple),
+            SizedBox(width: 8),
+            Text('AI Metadata Generator'),
+          ],
+        ),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text('What is this video about?'),
+            const SizedBox(height: 12),
+            TextField(
+              controller: topicController,
+              decoration: const InputDecoration(
+                border: OutlineInputBorder(),
+                hintText: 'e.g. A cinematic vlog in Tokyo...',
+              ),
+              maxLines: 3,
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Cancel'),
+          ),
+          ElevatedButton(
+            onPressed: () => Navigator.pop(context, topicController.text),
+            child: const Text('Generate'),
+          ),
+        ],
+      ),
+    );
 
-    try {
-      final authRepo = ref.read(authRepositoryProvider);
-      final client = await authRepo.getAuthenticatedClient();
-      
-      if (client == null) {
-        throw Exception("You must be signed in with Google to upload.");
-      }
-      
-      final uploadService = YouTubeUploadService(client);
-      
-      final tags = _tagsController.text.split(',').map((e) => e.trim()).where((e) => e.isNotEmpty).toList();
-
-      setState(() { _uploadProgress = 0.3; });
-
-      final result = await uploadService.uploadVideo(
-        videoFile: _selectedFile!,
-        title: _titleController.text.isNotEmpty ? _titleController.text : 'My Upload',
-        description: _descriptionController.text.isNotEmpty ? _descriptionController.text : 'Uploaded via MPEPE Studio',
-        tags: tags,
+    if (topic != null && topic.isNotEmpty) {
+      // Show loading indicator
+      showDialog(
+        context: context,
+        barrierDismissible: false,
+        builder: (context) => const Center(child: CircularProgressIndicator()),
       );
-
-      setState(() { _uploadProgress = 1.0; });
-
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Upload successful: ${result.snippet?.title}')),
-        );
-      }
       
-      // Reset form
-      setState(() {
-        _selectedFile = null;
-        _titleController.clear();
-        _descriptionController.clear();
-        _tagsController.clear();
-        _isUploading = false;
-        _uploadProgress = 0.0;
-      });
-      
-    } catch (e) {
-      setState(() {
-        _isUploading = false;
-      });
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Upload failed: $e')),
-        );
+      try {
+        final aiBrain = ref.read(aiBrainProvider);
+        final metadata = await aiBrain.generateYouTubeMetadata(topic);
+        
+        if (mounted) Navigator.pop(context); // Close loading dialog
+        
+        if (metadata != null) {
+          ref.read(bulkUploadEngineProvider.notifier).updateTaskMetadata(
+            task.id,
+            title: metadata['title'],
+            description: metadata['description'],
+            tags: List<String>.from(metadata['tags'] ?? []),
+          );
+          
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(content: Text('Metadata generated successfully!')),
+            );
+          }
+        } else {
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(content: Text('Failed to generate metadata. Please try again.')),
+            );
+          }
+        }
+      } catch (e) {
+        if (mounted) Navigator.pop(context); // Close loading dialog
+        debugPrint('Error generating metadata: $e');
       }
     }
   }
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
+    final uploadTasks = ref.watch(bulkUploadEngineProvider);
+
+    return StudioBackground(
+      backgroundIcons: const [Icons.cloud_upload_outlined, Icons.movie_creation_outlined, Icons.auto_awesome_outlined],
       appBar: AppBar(
-        title: const Text('Upload to YouTube', style: TextStyle(fontWeight: FontWeight.w700, fontSize: 18)),
-        centerTitle: false,
+        title: Text('Bulk Upload', style: TextStyle(fontWeight: FontWeight.w800, fontSize: 18, color: Theme.of(context).colorScheme.onSurface)),
+        centerTitle: true,
+        backgroundColor: Colors.transparent,
+        elevation: 0,
+        leading: IconButton(
+          icon: Icon(Icons.arrow_back_ios_new, color: Theme.of(context).colorScheme.onSurface),
+          onPressed: () => context.pop(),
+        ),
       ),
-      body: SingleChildScrollView(
-        padding: const EdgeInsets.all(24.0),
+      child: SingleChildScrollView(
+        physics: const BouncingScrollPhysics(),
+        padding: const EdgeInsets.symmetric(horizontal: 20.0, vertical: 16.0),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            if (_selectedFile == null) ...[
-              Container(
-                height: 200,
-                decoration: BoxDecoration(
-                  color: AppColors.surface2,
-                  borderRadius: BorderRadius.circular(20),
-                  border: Border.all(color: AppColors.line),
+            if (uploadTasks.isEmpty) ...[
+              _buildUploadZone().animate().fadeIn(duration: 400.ms).slideY(begin: 0.1),
+            ] else ...[
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  Text('Upload Queue (${uploadTasks.length})', style: TextStyle(fontWeight: FontWeight.w800, fontSize: 18, color: Theme.of(context).colorScheme.onSurface)),
+                  TextButton.icon(
+                    onPressed: _pickFiles,
+                    icon: const Icon(Icons.add),
+                    label: const Text('Add Files'),
+                  ),
+                ],
+              ).animate().fadeIn(delay: 100.ms),
+              const SizedBox(height: 16),
+              
+              ...uploadTasks.map((task) => _buildTaskCard(task)).toList(),
+              
+              const SizedBox(height: 40),
+              
+              ElevatedButton(
+                onPressed: () {
+                  ref.read(bulkUploadEngineProvider.notifier).startAllPending();
+                },
+                style: ElevatedButton.styleFrom(
+                  padding: const EdgeInsets.symmetric(vertical: 20),
+                  backgroundColor: Theme.of(context).colorScheme.primary,
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+                  elevation: 5,
+                  shadowColor: Theme.of(context).colorScheme.primary.withValues(alpha: 0.5),
                 ),
-                child: Column(
+                child: const Row(
                   mainAxisAlignment: MainAxisAlignment.center,
                   children: [
-                    const Icon(Icons.cloud_upload, size: 60, color: AppColors.ytAccent),
-                    const SizedBox(height: 16),
-                    const Text(
-                      'Select a video to upload',
-                      style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
-                    ),
-                    const SizedBox(height: 8),
-                    const Text(
-                      'MP4, MOV, or AVI',
-                      style: TextStyle(color: AppColors.dustText),
-                    ),
-                    const SizedBox(height: 24),
-                    MpepeButton(
-                      text: 'Select from device',
-                      icon: Icons.folder,
-                      onPressed: _pickFile,
-                    ),
+                    Icon(Icons.cloud_upload, color: Colors.white),
+                    SizedBox(width: 12),
+                    Text('Start All Pending Uploads', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.white)),
                   ],
                 ),
-              ),
-            ] else ...[
-              Container(
-                padding: const EdgeInsets.all(16),
-                decoration: BoxDecoration(
-                  color: AppColors.surface2,
-                  borderRadius: BorderRadius.circular(12),
-                  border: Border.all(color: AppColors.ytAccent.withOpacity(0.5)),
-                ),
-                child: Row(
-                  children: [
-                    const Icon(Icons.movie, size: 40, color: AppColors.ytAccent),
-                    const SizedBox(width: 16),
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            _selectedFile!.path.split(Platform.pathSeparator).last,
-                            style: const TextStyle(fontWeight: FontWeight.bold),
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                          ),
-                          Text(
-                            '${(_selectedFile!.lengthSync() / (1024 * 1024)).toStringAsFixed(2)} MB',
-                            style: const TextStyle(color: AppColors.dustText, fontSize: 12),
-                          ),
-                        ],
-                      ),
-                    ),
-                    IconButton(
-                      icon: const Icon(Icons.close, color: AppColors.red),
-                      onPressed: _isUploading ? null : () {
-                        setState(() { _selectedFile = null; });
-                      },
-                    ),
-                  ],
-                ),
-              ),
-              const SizedBox(height: 24),
-              TextField(
-                controller: _titleController,
-                decoration: const InputDecoration(
-                  labelText: 'Title',
-                  border: OutlineInputBorder(),
-                ),
-                enabled: !_isUploading,
-              ),
-              const SizedBox(height: 16),
-              TextField(
-                controller: _descriptionController,
-                decoration: const InputDecoration(
-                  labelText: 'Description',
-                  border: OutlineInputBorder(),
-                ),
-                maxLines: 3,
-                enabled: !_isUploading,
-              ),
-              const SizedBox(height: 16),
-              TextField(
-                controller: _tagsController,
-                decoration: const InputDecoration(
-                  labelText: 'Tags (comma separated)',
-                  border: OutlineInputBorder(),
-                ),
-                enabled: !_isUploading,
-              ),
-              const SizedBox(height: 32),
-              if (_isUploading) ...[
-                LinearProgressIndicator(value: _uploadProgress, color: AppColors.ytAccent),
-                const SizedBox(height: 8),
-                const Center(child: Text('Uploading...', style: TextStyle(color: AppColors.dustText))),
-              ] else ...[
-                MpepeButton(
-                  text: 'Upload to YouTube',
-                  icon: Icons.upload,
-                  onPressed: _uploadVideo,
-                ),
-              ],
+              ).animate().fadeIn(delay: 500.ms).scaleXY(begin: 0.9),
+              const SizedBox(height: 40),
             ],
           ],
         ),
       ),
     );
   }
+
+  Widget _buildUploadZone() {
+    return GestureDetector(
+      onTap: _pickFiles,
+      child: Container(
+        height: 280,
+        decoration: BoxDecoration(
+          color: Theme.of(context).colorScheme.surface.withValues(alpha: 0.4),
+          borderRadius: BorderRadius.circular(32),
+          border: Border.all(color: Theme.of(context).colorScheme.primary.withValues(alpha: 0.3), width: 2, style: BorderStyle.solid),
+          boxShadow: [
+            BoxShadow(
+              color: Theme.of(context).colorScheme.primary.withValues(alpha: 0.05),
+              blurRadius: 40,
+              spreadRadius: 10,
+            )
+          ]
+        ),
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Container(
+              padding: const EdgeInsets.all(24),
+              decoration: BoxDecoration(
+                color: Theme.of(context).colorScheme.primary.withValues(alpha: 0.1),
+                shape: BoxShape.circle,
+              ),
+              child: Icon(Icons.cloud_upload_rounded, size: 64, color: Theme.of(context).colorScheme.primary),
+            ).animate(onPlay: (c) => c.repeat(reverse: true)).moveY(begin: -5, end: 5, duration: 2.seconds),
+            const SizedBox(height: 24),
+            Text('Tap to select videos', style: TextStyle(fontSize: 22, fontWeight: FontWeight.w900, color: Theme.of(context).colorScheme.onSurface)),
+            const SizedBox(height: 8),
+            Text('MP4, MOV, or AVI up to 256GB', style: TextStyle(color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.5))),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildTaskCard(UploadTask task) {
+    IconData statusIcon = Icons.pending_actions;
+    Color statusColor = Colors.grey;
+
+    if (task.status == 'uploading') {
+      statusIcon = Icons.cloud_upload;
+      statusColor = Theme.of(context).colorScheme.primary;
+    } else if (task.status == 'completed') {
+      statusIcon = Icons.check_circle;
+      statusColor = Colors.green;
+    } else if (task.status == 'failed') {
+      statusIcon = Icons.error;
+      statusColor = Theme.of(context).colorScheme.error;
+    }
+
+    return Container(
+      margin: const EdgeInsets.only(bottom: 16),
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: Theme.of(context).colorScheme.surface,
+        borderRadius: BorderRadius.circular(24),
+        border: Border.all(color: statusColor.withValues(alpha: 0.3)),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.05),
+            blurRadius: 20,
+            offset: const Offset(0, 10),
+          )
+        ]
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Row(
+            children: [
+              Container(
+                width: 50,
+                height: 50,
+                decoration: BoxDecoration(
+                  color: statusColor.withValues(alpha: 0.1),
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: Icon(statusIcon, size: 24, color: statusColor),
+              ),
+              const SizedBox(width: 16),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      task.title,
+                      style: TextStyle(fontWeight: FontWeight.w800, fontSize: 16, color: Theme.of(context).colorScheme.onSurface),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      '${(task.file.lengthSync() / (1024 * 1024)).toStringAsFixed(2)} MB • ${task.status.toUpperCase()}',
+                      style: TextStyle(color: statusColor, fontWeight: FontWeight.bold, fontSize: 12),
+                    ),
+                  ],
+                ),
+              ),
+              if (task.status != 'uploading' && task.status != 'completed') ...[
+                IconButton(
+                  icon: const Icon(Icons.auto_awesome, color: Colors.purple),
+                  tooltip: 'Generate AI Metadata',
+                  onPressed: () => _generateAiMetadata(task),
+                ),
+                IconButton(
+                  icon: Icon(Icons.delete_outline, color: Theme.of(context).colorScheme.error),
+                  onPressed: () {
+                    ref.read(bulkUploadEngineProvider.notifier).removeTask(task.id);
+                  },
+                ),
+              ],
+            ],
+          ),
+          if (task.tags.isNotEmpty) ...[
+            const SizedBox(height: 12),
+            Wrap(
+              spacing: 6,
+              runSpacing: 6,
+              children: task.tags.map((tag) => Container(
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                decoration: BoxDecoration(
+                  color: Theme.of(context).colorScheme.primary.withValues(alpha: 0.1),
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: Text('#$tag', style: TextStyle(fontSize: 10, color: Theme.of(context).colorScheme.primary)),
+              )).toList(),
+            ),
+          ],
+          if (task.status == 'uploading') ...[
+            const SizedBox(height: 16),
+            ClipRRect(
+              borderRadius: BorderRadius.circular(10),
+              child: LinearProgressIndicator(
+                value: null, // Indeterminate since we are waiting on HTTP response
+                minHeight: 8,
+                backgroundColor: Theme.of(context).colorScheme.primary.withValues(alpha: 0.2),
+                color: Theme.of(context).colorScheme.primary,
+              ),
+            ),
+          ],
+          if (task.error != null) ...[
+            const SizedBox(height: 8),
+            Text(FriendlyErrorParser.parse(task.error!), style: TextStyle(color: Theme.of(context).colorScheme.error, fontSize: 12)),
+          ]
+        ],
+      ),
+    ).animate().fadeIn().slideY(begin: 0.1);
+  }
 }
+

@@ -4,14 +4,12 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:google_sign_in/google_sign_in.dart';
 import 'package:http/http.dart' as http;
+import 'package:cloud_firestore/cloud_firestore.dart';
 
 final googleSignInProvider = Provider<GoogleSignIn>((ref) {
-  return GoogleSignIn(
-    scopes: [
-      'email',
-      'https://www.googleapis.com/auth/youtube.upload',
-    ],
-  );
+  // In v7, GoogleSignIn is a singleton and must be initialized.
+  // We'll return the instance here, and ensure it's initialized before use.
+  return GoogleSignIn.instance;
 });
 
 final authRepositoryProvider = Provider<AuthRepository>((ref) {
@@ -42,29 +40,33 @@ class AuthRepository {
 
   Future<UserCredential?> signInWithGoogle() async {
     try {
-      final GoogleSignInAccount? googleUser = await _googleSignIn.signIn();
-      if (googleUser == null) return null; // User canceled the sign-in
+      // Ensure Google SignIn is initialized before authenticating
+      await _googleSignIn.initialize();
 
-      final GoogleSignInAuthentication googleAuth = await googleUser.authentication;
+      // v7: authenticate() triggers the interactive sign-in flow.
+      final GoogleSignInAccount googleUser = await _googleSignIn.authenticate();
 
-      final AuthCredential credential = GoogleAuthProvider.credential(
-        accessToken: googleAuth.accessToken,
-        idToken: googleAuth.idToken,
+      // v7: authentication only has idToken; accessToken comes from authorization.
+      final String? idToken = (await googleUser.authentication).idToken;
+
+      // v7: get the access token via authorizationClient.
+      final GoogleSignInClientAuthorization authorization =
+          await googleUser.authorizationClient.authorizeScopes(['email']);
+
+      final OAuthCredential credential = GoogleAuthProvider.credential(
+        accessToken: authorization.accessToken,
+        idToken: idToken,
       );
 
       return await _auth.signInWithCredential(credential);
     } catch (e) {
-      print('Google Sign-In Error: $e');
+      debugPrint('Google Sign-In Error: $e');
       rethrow;
     }
   }
 
-  Future<http.Client?> getAuthenticatedClient() async {
-    final GoogleSignInAccount? googleUser = _googleSignIn.currentUser ?? await _googleSignIn.signInSilently();
-    if (googleUser == null) return null;
-
-    final authHeaders = await googleUser.authHeaders;
-    return GoogleAuthClient(authHeaders);
+  Future<UserCredential> createUserWithEmailAndPassword({required String email, required String password}) async {
+    return await _auth.createUserWithEmailAndPassword(email: email, password: password);
   }
 
   // Windows Desktop bypass: signInWithEmailAndPassword
@@ -119,16 +121,36 @@ class AuthRepository {
     );
     await _auth.signInWithCredential(credential);
   }
-}
 
-class GoogleAuthClient extends http.BaseClient {
-  final Map<String, String> _headers;
-  final http.Client _client = http.Client();
+  // AI Voice and Model Settings
+  Future<Map<String, dynamic>> getUserSettings() async {
+    final user = _auth.currentUser;
+    if (user == null) return {};
+    
+    try {
+      final doc = await FirebaseFirestore.instance.collection('users').doc(user.uid).collection('settings').doc('ai_preferences').get();
+      if (doc.exists) {
+        return doc.data() ?? {};
+      }
+      return {};
+    } catch (e) {
+      print("Error getting settings: $e");
+      return {};
+    }
+  }
 
-  GoogleAuthClient(this._headers);
-
-  @override
-  Future<http.StreamedResponse> send(http.BaseRequest request) {
-    return _client.send(request..headers.addAll(_headers));
+  Future<void> saveUserSettings({String? selectedVoice, String? selectedModel}) async {
+    final user = _auth.currentUser;
+    if (user == null) return;
+    
+    try {
+      Map<String, dynamic> data = {};
+      if (selectedVoice != null) data['selectedVoice'] = selectedVoice;
+      if (selectedModel != null) data['selectedModel'] = selectedModel;
+      
+      await FirebaseFirestore.instance.collection('users').doc(user.uid).collection('settings').doc('ai_preferences').set(data, SetOptions(merge: true));
+    } catch (e) {
+      print("Error saving settings: $e");
+    }
   }
 }

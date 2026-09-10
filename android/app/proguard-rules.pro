@@ -1,0 +1,1 @@
+-dontwarn com.google.firebase.perf.network.FirebasePerfUrlConnection

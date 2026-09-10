@@ -43,3 +43,22 @@ app.*.map.json
 /android/app/debug
 /android/app/profile
 /android/app/release
+android/build/
+
+# Env variables
+.env
+.env*
+
+# Scratch & patch scripts
+patch_*.py
+scratch_node/
+download
+images.jpeg
+
+# Service account & credentials
+*serviceAccount*.json
+serviceAccountKey.json
+node_modules/
+**/node_modules/
+
+

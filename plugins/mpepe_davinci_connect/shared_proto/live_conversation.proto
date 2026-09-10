@@ -1,0 +1,33 @@
+syntax = "proto3";
+package cj_grader;
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Gemini Live — Bidirectional streaming conversation
+// ─────────────────────────────────────────────────────────────────────────────
+
+service GeminiLiveService {
+  // Bidirectional streaming: client sends audio/frame chunks, server streams
+  // back audio response + text transcript + triggered plan events.
+  rpc ConverseLive (stream LiveChunk) returns (stream LiveChunk);
+}
+
+// A single chunk flowing in either direction on the live stream.
+message LiveChunk {
+  bytes  audio_data  = 1;  // Raw PCM/WAV audio bytes (may be empty)
+  string text        = 2;  // Transcript or response text
+  string role        = 3;  // "user" | "assistant" | "system"
+  bytes  frame_jpeg  = 4;  // Optional: current Resolve frame as JPEG
+  RegionMask region  = 5;  // Optional: user's canvas selection
+  bool   end_of_turn = 6;  // True when the speaker has finished their turn
+  string event_type  = 7;  // "audio" | "text" | "plan_triggered" | "done"
+  string plan_json   = 8;  // Populated when event_type == "plan_triggered"
+}
+
+// A normalized bounding box selection drawn on the video canvas.
+message RegionMask {
+  float  x      = 1;  // Left edge, 0.0–1.0
+  float  y      = 2;  // Top edge, 0.0–1.0
+  float  width  = 3;  // Width, 0.0–1.0
+  float  height = 4;  // Height, 0.0–1.0
+  string label  = 5;  // Optional user label (e.g. "face", "sky")
+}

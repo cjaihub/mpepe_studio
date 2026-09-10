@@ -1,0 +1,32 @@
+syntax = "proto3";
+
+package cj_grader;
+
+// ---------------------------------------------------------------------------
+// Voice Service — Speech-to-Text and Text-to-Speech
+// ---------------------------------------------------------------------------
+
+service VoiceService {
+  // Transcribe raw audio bytes to a text string.
+  rpc TranscribeAudio (TranscribeRequest) returns (TranscribeResponse);
+
+  // Synthesize a text string to WAV audio bytes.
+  rpc SpeakText (SpeakRequest) returns (SpeakResponse);
+}
+
+message TranscribeRequest {
+  bytes  audio_data = 1;  // Raw audio bytes (WAV, WebM, etc.)
+  string mime_type  = 2;  // e.g. "audio/wav" or "audio/webm"
+}
+
+message TranscribeResponse {
+  string text = 1;  // Transcribed text, empty on failure.
+}
+
+message SpeakRequest {
+  string text = 1;  // Text to synthesize.
+}
+
+message SpeakResponse {
+  bytes audio_data = 1;  // WAV audio bytes, empty on failure.
+}

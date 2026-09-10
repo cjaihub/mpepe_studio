@@ -1,0 +1,27 @@
+syntax = "proto3";
+package cj_grader;
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Suggestion Service — Proactive grading suggestions after each step
+// ─────────────────────────────────────────────────────────────────────────────
+
+service SuggestionService {
+  rpc GetSuggestions (SuggestionRequest) returns (SuggestionResponse);
+}
+
+message SuggestionRequest {
+  bytes  frame_jpeg   = 1;  // Current Resolve frame as JPEG
+  string history_json = 2;  // JSON array of last N grade actions
+  string context      = 3;  // Optional: what the last completed step was
+}
+
+message SuggestionResponse {
+  repeated Suggestion suggestions = 1;
+}
+
+message Suggestion {
+  string text     = 1;  // Human-readable suggestion: "Lift shadows by ~0.02"
+  string prompt   = 2;  // Ready-to-send prompt if user taps: "lift the shadows slightly"
+  string category = 3;  // "exposure" | "color" | "skin" | "noise" | "creative"
+  float  confidence = 4; // 0.0–1.0
+}

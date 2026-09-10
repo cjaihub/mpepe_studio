@@ -1,0 +1,14 @@
+syntax = "proto3";
+package cj_grader.capability;
+
+service CapabilityProbe {
+  rpc GetCapabilities(ProbeRequest) returns (ProbeResponse);
+}
+
+message ProbeRequest {}
+
+message ProbeResponse {
+  string resolve_version = 1;
+  bool is_studio = 2;
+  repeated string supported_features = 3;
+}

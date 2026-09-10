@@ -1,0 +1,75 @@
+rules_version = '2';
+
+service firebase.storage {
+  match /b/{bucket}/o {
+
+    // ─── Helper functions ────────────────────────────────────────────────────
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isOwner(uid) {
+      return isSignedIn() && request.auth.uid == uid;
+    }
+
+    function isValidImageType() {
+      return request.resource.contentType.matches('image/.*');
+    }
+
+    function isValidAudioType() {
+      return request.resource.contentType.matches('audio/.*');
+    }
+
+    function isValidVideoType() {
+      return request.resource.contentType.matches('video/.*');
+    }
+
+    function isUnder50MB() {
+      return request.resource.size < 50 * 1024 * 1024;
+    }
+
+    function isUnder200MB() {
+      return request.resource.size < 200 * 1024 * 1024;
+    }
+
+    // ─── User avatars: users/{uid}/avatar.* ──────────────────────────────────
+    match /users/{uid}/avatar/{fileName} {
+      allow read: if isSignedIn();
+      allow write: if isOwner(uid) && isValidImageType() && isUnder50MB();
+      allow delete: if isOwner(uid);
+    }
+
+    // ─── User files: users/{uid}/files/** ────────────────────────────────────
+    match /users/{uid}/files/{allPaths=**} {
+      allow read: if isOwner(uid);
+      allow write: if isOwner(uid) && isUnder200MB();
+      allow delete: if isOwner(uid);
+    }
+
+    // ─── Project assets: projects/{projectId}/** ─────────────────────────────
+    match /projects/{projectId}/{allPaths=**} {
+      allow read: if isSignedIn();
+      allow write: if isSignedIn() && isUnder200MB();
+      allow delete: if isSignedIn();
+    }
+
+    // ─── Audio productions: audio/{uid}/** ───────────────────────────────────
+    match /audio/{uid}/{allPaths=**} {
+      allow read: if isSignedIn();
+      allow write: if isOwner(uid) && isValidAudioType() && isUnder200MB();
+      allow delete: if isOwner(uid);
+    }
+
+    // ─── Video productions: videos/{uid}/** ──────────────────────────────────
+    match /videos/{uid}/{allPaths=**} {
+      allow read: if isSignedIn();
+      allow write: if isOwner(uid) && isValidVideoType() && isUnder200MB();
+      allow delete: if isOwner(uid);
+    }
+
+    // ─── Deny everything else ─────────────────────────────────────────────────
+    match /{allPaths=**} {
+      allow read, write: if false;
+    }
+  }
+}
