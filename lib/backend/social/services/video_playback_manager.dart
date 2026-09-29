@@ -3,14 +3,17 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:media_kit/media_kit.dart';
 import 'package:media_kit_video/media_kit_video.dart';
 import '../models/content.dart';
+import 'recommendation_service.dart';
 
 final videoPlaybackManagerProvider = Provider<VideoPlaybackManager>((ref) {
-  return VideoPlaybackManager();
+  return VideoPlaybackManager(ref.read(recommendationServiceProvider));
 });
 
 /// Manages a pool of media_kit Players to ensure we only keep a few videos
 /// loaded in memory at a time (Virtualization and Prefetching).
 class VideoPlaybackManager {
+  final RecommendationService _recommendationService;
+
   // Map of Content ID -> Player instance
   final Map<String, Player> _players = {};
   final Map<String, VideoController> _controllers = {};
@@ -20,6 +23,8 @@ class VideoPlaybackManager {
   final Map<String, StreamSubscription> _positionSubs = {};
 
   static const int maxCachedPlayers = 3;
+
+  VideoPlaybackManager(this._recommendationService);
 
   VideoController? getController(String contentId) => _controllers[contentId];
 
@@ -56,6 +61,9 @@ class VideoPlaybackManager {
         }
       }
     }
+    if (currentIndex >= 0 && currentIndex < feed.length) {
+      _trackPlaybackEvent(feed[currentIndex].id, ContentInteractionType.impression);
+    }
   }
 
   void _initPlayer(Content content, bool autoPlay) {
@@ -79,7 +87,7 @@ class VideoPlaybackManager {
     });
 
     player.stream.completed.listen((_) {
-      _trackPlaybackEvent(content.id, 'completed');
+      _trackPlaybackEvent(content.id, ContentInteractionType.viewCompletion);
     });
   }
 
@@ -89,7 +97,7 @@ class VideoPlaybackManager {
     
     // Log the watch time before disposing
     if (_watchTime.containsKey(id)) {
-      _trackPlaybackEvent(id, 'watch_time', {'durationMs': _watchTime[id]?.inMilliseconds});
+      _trackPlaybackEvent(id, ContentInteractionType.watchDuration, {'durationMs': _watchTime[id]?.inMilliseconds});
       _watchTime.remove(id);
     }
 
@@ -115,8 +123,8 @@ class VideoPlaybackManager {
     }
   }
 
-  void _trackPlaybackEvent(String contentId, String eventType, [Map<String, dynamic>? extraData]) {
-    // Here we would call the analytics/telemetry service
-    print('Playback Event -> $eventType for $contentId | Data: $extraData');
+  void _trackPlaybackEvent(String contentId, ContentInteractionType type, [Map<String, dynamic>? extraData]) {
+    // In a real app we need currentUserId from Auth state, using a placeholder for now
+    _recommendationService.trackEvent('currentUser', contentId, type, extraData ?? {});
   }
 }

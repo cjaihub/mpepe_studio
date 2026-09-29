@@ -3,12 +3,13 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:media_kit_video/media_kit_video.dart';
 import '../../../backend/social/models/content.dart';
 import '../../../backend/social/services/video_playback_manager.dart';
+import '../../../backend/social/services/recommendation_service.dart';
 import '../../../shared/design_system/app_colors.dart';
 
 class ShortVideoFeedScreen extends ConsumerStatefulWidget {
-  final List<Content> feed;
+  final FeedMode initialMode;
 
-  const ShortVideoFeedScreen({super.key, required this.feed});
+  const ShortVideoFeedScreen({super.key, this.initialMode = FeedMode.forYou});
 
   @override
   ConsumerState<ShortVideoFeedScreen> createState() => _ShortVideoFeedScreenState();
@@ -17,15 +18,32 @@ class ShortVideoFeedScreen extends ConsumerStatefulWidget {
 class _ShortVideoFeedScreenState extends ConsumerState<ShortVideoFeedScreen> {
   late PageController _pageController;
   int _currentIndex = 0;
+  
+  FeedMode _currentMode = FeedMode.forYou;
+  List<Content> _feed = [];
+  bool _isLoading = true;
 
   @override
   void initState() {
     super.initState();
+    _currentMode = widget.initialMode;
     _pageController = PageController(initialPage: 0);
-    // Initialize playback manager for the first time
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      ref.read(videoPlaybackManagerProvider).initializeAndPreload(widget.feed, 0);
-    });
+    _loadFeed();
+  }
+
+  Future<void> _loadFeed() async {
+    setState(() => _isLoading = true);
+    final recommendations = await ref.read(recommendationServiceProvider).getFeed('currentUser', _currentMode);
+    
+    if (mounted) {
+      setState(() {
+        _feed = recommendations;
+        _isLoading = false;
+      });
+      if (_feed.isNotEmpty) {
+        ref.read(videoPlaybackManagerProvider).initializeAndPreload(_feed, 0);
+      }
+    }
   }
 
   @override
@@ -41,11 +59,25 @@ class _ShortVideoFeedScreenState extends ConsumerState<ShortVideoFeedScreen> {
     setState(() {
       _currentIndex = index;
     });
-    ref.read(videoPlaybackManagerProvider).initializeAndPreload(widget.feed, index);
+    ref.read(videoPlaybackManagerProvider).initializeAndPreload(_feed, index);
   }
 
   @override
   Widget build(BuildContext context) {
+    if (_isLoading) {
+      return const Scaffold(
+        backgroundColor: AppColors.darkBackground,
+        body: Center(child: CircularProgressIndicator(color: AppColors.mpepeMaroon)),
+      );
+    }
+
+    if (_feed.isEmpty) {
+      return const Scaffold(
+        backgroundColor: AppColors.darkBackground,
+        body: Center(child: Text('No content available', style: TextStyle(color: Colors.white))),
+      );
+    }
+
     return Scaffold(
       backgroundColor: AppColors.darkBackground,
       extendBodyBehindAppBar: true,
@@ -53,9 +85,9 @@ class _ShortVideoFeedScreenState extends ConsumerState<ShortVideoFeedScreen> {
         controller: _pageController,
         scrollDirection: Axis.vertical,
         onPageChanged: _onPageChanged,
-        itemCount: widget.feed.length,
+        itemCount: _feed.length,
         itemBuilder: (context, index) {
-          final content = widget.feed[index];
+          final content = _feed[index];
           return _ShortVideoItem(
             content: content,
             isActive: index == _currentIndex,
@@ -77,7 +109,6 @@ class _ShortVideoItem extends ConsumerStatefulWidget {
 }
 
 class _ShortVideoItemState extends ConsumerState<_ShortVideoItem> {
-  bool _isMuted = false;
 
   void _togglePlay() {
     ref.read(videoPlaybackManagerProvider).togglePlayPause(widget.content.id);
@@ -91,8 +122,9 @@ class _ShortVideoItemState extends ConsumerState<_ShortVideoItem> {
     return GestureDetector(
       onTap: _togglePlay,
       onDoubleTap: () {
-        // Implement double tap to like
+        ref.read(recommendationServiceProvider).trackEvent('currentUser', widget.content.id, ContentInteractionType.like, {'source': 'double_tap'});
       },
+      onLongPress: () => _showFeedControls(context),
       child: Stack(
         fit: StackFit.expand,
         children: [
@@ -132,13 +164,21 @@ class _ShortVideoItemState extends ConsumerState<_ShortVideoItem> {
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
-          _buildActionButton(Icons.favorite, widget.content.likeCount.toString(), () {}),
+          _buildActionButton(Icons.favorite, widget.content.likeCount.toString(), () {
+            ref.read(recommendationServiceProvider).trackEvent('currentUser', widget.content.id, ContentInteractionType.like, {});
+          }),
           const SizedBox(height: 20),
-          _buildActionButton(Icons.chat_bubble_outline, widget.content.commentCount.toString(), () {}),
+          _buildActionButton(Icons.chat_bubble_outline, widget.content.commentCount.toString(), () {
+            ref.read(recommendationServiceProvider).trackEvent('currentUser', widget.content.id, ContentInteractionType.comment, {});
+          }),
           const SizedBox(height: 20),
-          _buildActionButton(Icons.bookmark_border, widget.content.saveCount.toString(), () {}),
+          _buildActionButton(Icons.bookmark_border, widget.content.saveCount.toString(), () {
+            ref.read(recommendationServiceProvider).trackEvent('currentUser', widget.content.id, ContentInteractionType.save, {});
+          }),
           const SizedBox(height: 20),
-          _buildActionButton(Icons.share, widget.content.shareCount.toString(), () {}),
+          _buildActionButton(Icons.share, widget.content.shareCount.toString(), () {
+            ref.read(recommendationServiceProvider).trackEvent('currentUser', widget.content.id, ContentInteractionType.share, {});
+          }),
         ],
       ),
     );
@@ -197,6 +237,96 @@ class _ShortVideoItemState extends ConsumerState<_ShortVideoItem> {
           ]
         ],
       ),
+    );
+  }
+
+  void _showFeedControls(BuildContext context) {
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: AppColors.darkSurface,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
+      ),
+      builder: (context) {
+        return SafeArea(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              ListTile(
+                leading: const Icon(Icons.visibility_off, color: Colors.white),
+                title: const Text('Not Interested', style: TextStyle(color: Colors.white)),
+                onTap: () {
+                  ref.read(recommendationServiceProvider).markNotInterested('currentUser', widget.content.id);
+                  Navigator.pop(context);
+                  ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("We'll show fewer videos like this.")));
+                },
+              ),
+              ListTile(
+                leading: const Icon(Icons.person_off, color: Colors.white),
+                title: Text('Hide @${widget.content.authorId}', style: const TextStyle(color: Colors.white)),
+                onTap: () {
+                  ref.read(recommendationServiceProvider).hideCreator('currentUser', widget.content.authorId);
+                  Navigator.pop(context);
+                  ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("You won't see videos from @${widget.content.authorId}.")));
+                },
+              ),
+              if (widget.content.hashtags.isNotEmpty)
+                ListTile(
+                  leading: const Icon(Icons.tag_faces, color: Colors.white), // Using tag_faces as proxy for topic hide
+                  title: Text('Hide #${widget.content.hashtags.first}', style: const TextStyle(color: Colors.white)),
+                  onTap: () {
+                    ref.read(recommendationServiceProvider).hideTopic('currentUser', widget.content.hashtags.first);
+                    Navigator.pop(context);
+                    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("You won't see videos about #${widget.content.hashtags.first}.")));
+                  },
+                ),
+              ListTile(
+                leading: const Icon(Icons.info_outline, color: Colors.white),
+                title: const Text('Why am I seeing this?', style: TextStyle(color: Colors.white)),
+                onTap: () async {
+                  Navigator.pop(context);
+                  final explanation = await ref.read(recommendationServiceProvider).getWhyAmISeeingThis(widget.content.id);
+                  if (context.mounted) {
+                    showDialog(
+                      context: context,
+                      builder: (c) => AlertDialog(
+                        backgroundColor: AppColors.darkSurface,
+                        title: const Text('About this video', style: TextStyle(color: Colors.white)),
+                        content: Text(explanation['reason'], style: const TextStyle(color: Colors.white70)),
+                        actions: [
+                          TextButton(onPressed: () => Navigator.pop(c), child: const Text('Close', style: TextStyle(color: AppColors.mpepeMaroon)))
+                        ],
+                      )
+                    );
+                  }
+                },
+              ),
+              ListTile(
+                leading: Icon((ref.watch(videoPlaybackManagerProvider).getController(widget.content.id)?.player.state.volume ?? 100) == 0 ? Icons.volume_off : Icons.volume_up, color: Colors.white),
+                title: Text((ref.watch(videoPlaybackManagerProvider).getController(widget.content.id)?.player.state.volume ?? 100) == 0 ? 'Unmute' : 'Mute sound', style: const TextStyle(color: Colors.white)),
+                onTap: () {
+                  final player = ref.read(videoPlaybackManagerProvider).getController(widget.content.id)?.player;
+                  if (player != null) {
+                    final newVolume = player.state.volume == 0 ? 100.0 : 0.0;
+                    player.setVolume(newVolume);
+                    ref.read(recommendationServiceProvider).trackEvent('currentUser', widget.content.id, ContentInteractionType.soundInteraction, {'volume': newVolume});
+                  }
+                  Navigator.pop(context);
+                },
+              ),
+              ListTile(
+                leading: const Icon(Icons.flag, color: Colors.white),
+                title: const Text('Report', style: TextStyle(color: Colors.white)),
+                onTap: () {
+                  ref.read(recommendationServiceProvider).trackEvent('currentUser', widget.content.id, ContentInteractionType.report, {});
+                  Navigator.pop(context);
+                  ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Report submitted.")));
+                },
+              ),
+            ],
+          ),
+        );
+      }
     );
   }
 }
