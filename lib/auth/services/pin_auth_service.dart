@@ -1,4 +1,6 @@
 import 'dart:convert';
+import 'dart:math';
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:crypto/crypto.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -19,6 +21,7 @@ class PinAuthService {
   static const String _pinSaltKey = 'user_app_pin_salt';
   static const String _failedAttemptsKey = 'pin_failed_attempts';
   static const String _lockoutUntilKey = 'pin_lockout_until';
+  static const String _pinOwnerKey = 'user_app_pin_owner_uid';
 
   /// Number of failed attempts before lockout
   static const int maxAttempts = 5;
@@ -32,9 +35,8 @@ class PinAuthService {
 
   /// Generates a random 32-byte hex salt
   String _generateSalt() {
-    final now = DateTime.now().microsecondsSinceEpoch;
-    final raw = '$now${Object().hashCode}';
-    return sha256.convert(utf8.encode(raw)).toString();
+    final rnd = Random.secure();
+    return List<int>.generate(32, (_) => rnd.nextInt(256)).map((b) => b.toRadixString(16).padLeft(2, '0')).join();
   }
 
   /// SHA-256(pin + salt)
@@ -54,9 +56,13 @@ class PinAuthService {
   Future<void> setPin(String pin) async {
     final salt = _generateSalt();
     final hash = _hashPin(pin, salt);
+    final owner = FirebaseAuth.instance.currentUser;
     await Future.wait([
       _secureStorage.write(key: _pinHashKey, value: hash),
       _secureStorage.write(key: _pinSaltKey, value: salt),
+      // The PIN belongs to the account that set it; sign-in only accepts it
+      // for that same account.
+      if (owner != null && !owner.isAnonymous) _secureStorage.write(key: _pinOwnerKey, value: owner.uid),
       _secureStorage.delete(key: _failedAttemptsKey),
       _secureStorage.delete(key: _lockoutUntilKey),
     ]);
@@ -145,10 +151,15 @@ class PinAuthService {
     await Future.wait([
       _secureStorage.delete(key: _pinHashKey),
       _secureStorage.delete(key: _pinSaltKey),
+      _secureStorage.delete(key: _pinOwnerKey),
       _secureStorage.delete(key: _failedAttemptsKey),
       _secureStorage.delete(key: _lockoutUntilKey),
     ]);
   }
+
+  /// True when a PIN is set on this device by [uid].
+  Future<bool> isPinOwnedBy(String uid) async =>
+      await hasPinSet() && (await _secureStorage.read(key: _pinOwnerKey)) == uid;
 
   /// Nuclear clear — removes ALL pin-related secure storage keys
   /// Used by SecureLogoutService

@@ -20,8 +20,8 @@ class YtDashboardScreen extends ConsumerWidget {
     final storeAsync = ref.watch(ytAccountStoreProvider);
 
     return storeAsync.when(
-      loading: () => const Scaffold(body: Center(child: CircularProgressIndicator())),
-      error: (err, _) => Scaffold(body: Center(child: Text('Error: $err'))),
+      loading: () => Scaffold(backgroundColor: context.bg, body: const Center(child: CircularProgressIndicator())),
+      error: (err, _) => Scaffold(backgroundColor: context.bg, body: Center(child: Text('Error: $err', style: TextStyle(color: context.textPrimary)))),
       data: (store) {
         final activeChannel = store.activeChannel;
 
@@ -52,7 +52,7 @@ class YtDashboardScreen extends ConsumerWidget {
          backgroundColor: Colors.transparent,
          elevation: 0,
          leading: IconButton(
-            icon: const Icon(Icons.arrow_back),
+            icon: Icon(Icons.arrow_back, color: context.textPrimary),
             onPressed: () {
               if (context.canPop()) {
                 context.pop();
@@ -66,11 +66,11 @@ class YtDashboardScreen extends ConsumerWidget {
          child: Column(
            mainAxisAlignment: MainAxisAlignment.center,
            children: [
-              const Icon(Icons.videocam_off, size: 64, color: Colors.white54),
+              Icon(Icons.videocam_off, size: 64, color: context.textMuted),
               const SizedBox(height: 16),
-              const Text('No Active Channel Selected', style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
+              Text('No Active Channel Selected', style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: context.textPrimary)),
               const SizedBox(height: 8),
-              const Text('Please link or select a channel in the Channels page.', style: TextStyle(color: Colors.white54)),
+              Text('Please link or select a channel in the Channels page.', style: TextStyle(color: context.textSecondary)),
               const SizedBox(height: 24),
               ElevatedButton.icon(
                 onPressed: () {
@@ -88,7 +88,7 @@ class YtDashboardScreen extends ConsumerWidget {
 
   Widget _buildDashboard(BuildContext context, YouTubeChannel channel, AsyncValue<Map<String, dynamic>> analyticsAsync, AsyncValue<List<Map<String, dynamic>>> recentVideosAsync) {
     final numFormat = NumberFormat.compact();
-    final avatarColor = AppColors.mpepeMaroon;
+    final avatarColor = AppColors.brandBlue;
     
     return StudioBackground(
       backgroundIcons: const [Icons.analytics_outlined, Icons.trending_up, Icons.diamond_outlined],
@@ -104,7 +104,7 @@ class YtDashboardScreen extends ConsumerWidget {
                 boxShadow: [
                   BoxShadow(color: avatarColor.withValues(alpha: 0.5), blurRadius: 10)
                 ],
-                border: Border.all(color: AppColors.mpepeGold, width: 1.5),
+                border: Border.all(color: AppColors.brandBlue, width: 1.5),
                 image: channel.thumbnailUrl.isNotEmpty 
                   ? DecorationImage(image: NetworkImage(channel.thumbnailUrl), fit: BoxFit.cover)
                   : null,
@@ -120,7 +120,7 @@ class YtDashboardScreen extends ConsumerWidget {
                 mainAxisSize: MainAxisSize.min,
                 children: [
                   Text(channel.title, maxLines: 1, overflow: TextOverflow.ellipsis, style: TextStyle(fontWeight: FontWeight.w900, fontSize: 17, color: Theme.of(context).colorScheme.onSurface)),
-                  Text('${numFormat.format(channel.subscriberCount)} Subscribers', style: TextStyle(fontWeight: FontWeight.w600, fontSize: 12, color: AppColors.mpepeGold)),
+                  Text('${numFormat.format(channel.subscriberCount)} Subscribers', style: TextStyle(fontWeight: FontWeight.w600, fontSize: 12, color: AppColors.brandBlue)),
                 ],
               ),
             ),
@@ -155,7 +155,7 @@ class YtDashboardScreen extends ConsumerWidget {
             HapticFeedback.lightImpact();
             context.push('/yt/upload');
           },
-          backgroundColor: AppColors.mpepeMaroon,
+          backgroundColor: AppColors.brandBlue,
           icon: const Icon(Icons.cloud_upload_outlined, color: Colors.white),
           label: const Text('Upload', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
         ),
@@ -199,7 +199,7 @@ class YtDashboardScreen extends ConsumerWidget {
                   analyticsAsync.when(
                     data: (stats) => _buildAiInsightsCard(context, stats).animate().fadeIn(delay: 550.ms).scaleXY(begin: 0.98, curve: Curves.easeOutBack),
                     loading: () => const SizedBox.shrink(),
-                    error: (_, __) => const SizedBox.shrink(),
+                    error: (_, _) => const SizedBox.shrink(),
                   ),
                   
                   const SizedBox(height: 32),
@@ -211,7 +211,6 @@ class YtDashboardScreen extends ConsumerWidget {
                       if (videos.isEmpty) return const Text('No recent videos found.');
                       return Column(
                         children: videos.map((video) {
-                           final title = video['title'] as String? ?? 'Unknown';
                            final publishedAt = video['publishedAt'] as String? ?? '';
                            final date = DateTime.tryParse(publishedAt) ?? DateTime.now();
                            final diff = DateTime.now().difference(date);
@@ -263,7 +262,7 @@ class YtDashboardScreen extends ConsumerWidget {
       padding: const EdgeInsets.all(24),
       decoration: BoxDecoration(
         borderRadius: BorderRadius.circular(32),
-        color: AppColors.mpepeMaroon,
+        color: AppColors.brandBlue,
         boxShadow: [
           BoxShadow(
             color: Colors.black.withValues(alpha: 0.2),
@@ -271,12 +270,12 @@ class YtDashboardScreen extends ConsumerWidget {
             offset: const Offset(0, 15),
           ),
           BoxShadow(
-            color: AppColors.mpepeMaroon.withValues(alpha: 0.3),
+            color: AppColors.brandBlue.withValues(alpha: 0.3),
             blurRadius: 20,
             spreadRadius: -5,
           )
         ],
-        border: Border.all(color: AppColors.mpepeGold.withValues(alpha: 0.5), width: 1.5),
+        border: Border.all(color: AppColors.brandBlue.withValues(alpha: 0.5), width: 1.5),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -288,14 +287,14 @@ class YtDashboardScreen extends ConsumerWidget {
               Container(
                 padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
                 decoration: BoxDecoration(
-                  color: AppColors.mpepeGold.withValues(alpha: 0.2),
+                  color: AppColors.brandBlue.withValues(alpha: 0.2),
                   borderRadius: BorderRadius.circular(20),
                 ),
                 child: const Row(
                   children: [
-                    Icon(Icons.wifi_tethering, color: AppColors.mpepeGold, size: 14),
+                    Icon(Icons.wifi_tethering, color: AppColors.brandBlue, size: 14),
                     SizedBox(width: 4),
-                    Text('Live Data', style: TextStyle(color: AppColors.mpepeGold, fontWeight: FontWeight.bold, fontSize: 12)),
+                    Text('Live Data', style: TextStyle(color: AppColors.brandBlue, fontWeight: FontWeight.bold, fontSize: 12)),
                   ],
                 ),
               )
@@ -347,10 +346,10 @@ class YtDashboardScreen extends ConsumerWidget {
       crossAxisSpacing: 12,
       childAspectRatio: 1.5,
       children: [
-        _buildToolCard(context, Icons.find_in_page_outlined, 'SEO Optimizer', AppColors.mpepeMaroon),
-        _buildToolCard(context, Icons.image_outlined, 'A/B Thumbnails', AppColors.mpepeGold),
-        _buildToolCard(context, Icons.forum_outlined, 'Auto-Replies', AppColors.mpepeMaroon),
-        _buildToolCard(context, Icons.calendar_month_outlined, 'Content Planner', AppColors.mpepeGold),
+        _buildToolCard(context, Icons.find_in_page_outlined, 'SEO Optimizer', AppColors.brandBlue),
+        _buildToolCard(context, Icons.image_outlined, 'A/B Thumbnails', AppColors.brandBlue),
+        _buildToolCard(context, Icons.forum_outlined, 'Auto-Replies', AppColors.brandBlue),
+        _buildToolCard(context, Icons.calendar_month_outlined, 'Content Planner', AppColors.brandBlue),
       ],
     );
   }
@@ -402,8 +401,8 @@ class YtDashboardScreen extends ConsumerWidget {
        insightMessage = 'Upload your first video to unlock advanced AI insights and personalized growth strategies.';
     }
 
-    return MpepeCard(
-      borderColor: AppColors.mpepeGold.withValues(alpha: 0.4),
+    return OneovaCard(
+      borderColor: AppColors.brandBlue.withValues(alpha: 0.4),
       padding: const EdgeInsets.all(20),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -411,7 +410,7 @@ class YtDashboardScreen extends ConsumerWidget {
           Container(
             padding: const EdgeInsets.all(10),
             decoration: BoxDecoration(
-              color: AppColors.mpepeMaroon.withValues(alpha: 0.1),
+              color: AppColors.brandBlue.withValues(alpha: 0.1),
               shape: BoxShape.circle,
             ),
             child: ShaderMask(
@@ -645,9 +644,9 @@ class _VideoDetailsSheetState extends ConsumerState<VideoDetailsSheet> {
                    _analyzeVideo(stats, geoData);
                 },
                 icon: const Icon(Icons.auto_awesome),
-                label: const Text('Analyze with Mpepe AI'),
+                label: const Text('Analyze with Oneova AI'),
                 style: ElevatedButton.styleFrom(
-                  backgroundColor: AppColors.mpepeMaroon,
+                  backgroundColor: AppColors.brandBlue,
                   foregroundColor: Colors.white,
                   shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
                 ),
@@ -676,10 +675,10 @@ class _VideoDetailsSheetState extends ConsumerState<VideoDetailsSheet> {
   Widget _buildStatItem(IconData icon, String value, String label) {
     return Column(
       children: [
-        Icon(icon, color: AppColors.mpepeMaroon),
+        Icon(icon, color: AppColors.brandBlue),
         const SizedBox(height: 4),
-        Text(value, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
-        Text(label, style: const TextStyle(fontSize: 12, color: Colors.grey)),
+        Text(value, style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16, color: context.textPrimary)),
+        Text(label, style: TextStyle(fontSize: 12, color: context.textSecondary)),
       ],
     );
   }
@@ -697,7 +696,7 @@ class _VideoDetailsSheetState extends ConsumerState<VideoDetailsSheet> {
         return Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            const Text('Top Audience Geography', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+            Text('Top Audience Geography', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16, color: context.textPrimary)),
             const SizedBox(height: 12),
             Wrap(
               spacing: 8,
@@ -713,7 +712,7 @@ class _VideoDetailsSheetState extends ConsumerState<VideoDetailsSheet> {
         );
       },
       loading: () => const SizedBox.shrink(),
-      error: (_, __) => const SizedBox.shrink(),
+      error: (_, _) => const SizedBox.shrink(),
     );
   }
   
@@ -724,7 +723,7 @@ class _VideoDetailsSheetState extends ConsumerState<VideoDetailsSheet> {
       decoration: BoxDecoration(
         color: Theme.of(context).colorScheme.surfaceContainerHighest.withValues(alpha: 0.3),
         borderRadius: BorderRadius.circular(20),
-        border: Border.all(color: AppColors.mpepeMaroon.withValues(alpha: 0.2)),
+        border: Border.all(color: AppColors.brandBlue.withValues(alpha: 0.2)),
         boxShadow: [
           BoxShadow(
             color: Colors.black.withValues(alpha: 0.2),
@@ -741,13 +740,13 @@ class _VideoDetailsSheetState extends ConsumerState<VideoDetailsSheet> {
               Container(
                 padding: const EdgeInsets.all(8),
                 decoration: BoxDecoration(
-                  color: AppColors.mpepeMaroon.withValues(alpha: 0.1),
+                  color: AppColors.brandBlue.withValues(alpha: 0.1),
                   shape: BoxShape.circle,
                 ),
-                child: const Icon(Icons.auto_awesome, color: AppColors.mpepeMaroon, size: 24),
+                child: const Icon(Icons.auto_awesome, color: AppColors.brandBlue, size: 24),
               ),
               const SizedBox(width: 12),
-              const Text('Mpepe Intelligence', style: TextStyle(fontWeight: FontWeight.w800, fontSize: 18, letterSpacing: 0.5)),
+              Text('Oneova Intelligence', style: TextStyle(fontWeight: FontWeight.w800, fontSize: 18, letterSpacing: 0.5, color: context.textPrimary)),
               const Spacer(),
               if (_isAnalyzing) const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2)),
             ],
@@ -769,17 +768,17 @@ class _VideoDetailsSheetState extends ConsumerState<VideoDetailsSheet> {
              
           if (_aiAnalysis != null) ...[
             _buildAiPoint('Performance Summary', _aiAnalysis!['performanceSummary'] ?? '', Icons.insights),
-            const Divider(height: 24, color: Colors.white10),
+            Divider(height: 24, color: context.border),
             _buildAiPoint('SEO Critique', _aiAnalysis!['seoCritique'] ?? '', Icons.search),
-            const Divider(height: 24, color: Colors.white10),
+            Divider(height: 24, color: context.border),
             _buildAiPoint('Audience Insights', _aiAnalysis!['audienceInsights'] ?? '', Icons.groups),
-            const Divider(height: 24, color: Colors.white10),
+            Divider(height: 24, color: context.border),
             
             Row(
               children: [
                 const Icon(Icons.lightbulb_outline, color: Colors.amber, size: 20),
                 const SizedBox(width: 8),
-                const Text('Actionable Tips', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+                Text('Actionable Tips', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16, color: context.textPrimary)),
               ],
             ),
             const SizedBox(height: 12),
@@ -791,7 +790,7 @@ class _VideoDetailsSheetState extends ConsumerState<VideoDetailsSheet> {
                   children: [
                     const Icon(Icons.check_circle, color: Colors.greenAccent, size: 20),
                     const SizedBox(width: 12),
-                    Expanded(child: Text(tip.toString(), style: const TextStyle(height: 1.5))),
+                    Expanded(child: Text(tip.toString(), style: TextStyle(height: 1.5, color: context.textSecondary))),
                   ],
                 ),
               );
@@ -811,9 +810,9 @@ class _VideoDetailsSheetState extends ConsumerState<VideoDetailsSheet> {
         children: [
           Row(
             children: [
-              Icon(icon, size: 16, color: AppColors.mpepeMaroon),
+              Icon(icon, size: 16, color: AppColors.brandBlue),
               const SizedBox(width: 8),
-              Text(title, style: const TextStyle(fontWeight: FontWeight.w700, color: AppColors.mpepeMaroon, fontSize: 14)),
+              Text(title, style: const TextStyle(fontWeight: FontWeight.w700, color: AppColors.brandBlue, fontSize: 14)),
             ],
           ),
           const SizedBox(height: 8),

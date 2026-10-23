@@ -106,14 +106,14 @@ class _UnifiedInboxScreenState extends ConsumerState<UnifiedInboxScreen> {
   Widget _buildCommentCard(BuildContext context, String platform, IconData platformIcon, Color platformColor) {
     return Padding(
       padding: const EdgeInsets.only(bottom: 12.0),
-      child: MpepeCard(
+      child: OneovaCard(
         padding: const EdgeInsets.all(16),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Row(
               children: [
-                MpepeAvatar(text: 'U', size: 36, backgroundColor: Theme.of(context).colorScheme.outline),
+                OneovaAvatar(text: 'U', size: 36, backgroundColor: Theme.of(context).colorScheme.outline),
                 const SizedBox(width: 12),
                 Expanded(
                   child: Column(
@@ -141,7 +141,7 @@ class _UnifiedInboxScreenState extends ConsumerState<UnifiedInboxScreen> {
                 const SizedBox(width: 16),
                 _buildActionButton(context, Icons.favorite_border, 'Like'),
                 const Spacer(),
-                const MpepePill(text: 'Positive', color: Colors.green, isGhost: true),
+                const OneovaPill(text: 'Positive', color: Colors.green, isGhost: true),
               ],
             ),
           ],

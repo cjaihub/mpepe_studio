@@ -15,10 +15,10 @@ class HubTeamScreen extends StatelessWidget {
           children: [
             Text('Team & studio', style: TextStyle(fontSize: 23, fontWeight: FontWeight.w900, letterSpacing: -0.4, color: Theme.of(context).colorScheme.onSurface)),
             const SizedBox(height: 14),
-            MpepeCard(
+            OneovaCard(
               child: Row(
                 children: [
-                  const MpepeAvatar(
+                  const OneovaAvatar(
                     text: 'M',
                     size: 48,
                     backgroundColor: Color(0xFFFF6B00),
@@ -41,7 +41,7 @@ class HubTeamScreen extends StatelessWidget {
             const SizedBox(height: 22),
             Text('MEMBERS', style: TextStyle(color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.6), fontSize: 11.5, fontWeight: FontWeight.w700, letterSpacing: 0.3)),
             const SizedBox(height: 8),
-            MpepeCard(
+            OneovaCard(
               child: Column(
                 children: [
                   _buildMemberRow(
@@ -95,10 +95,10 @@ class HubTeamScreen extends StatelessWidget {
   Widget _buildMemberRow({required BuildContext context, required String initials, required String name, required String role, Color? bgColor, Gradient? gradient}) {
     return Row(
       children: [
-        MpepeAvatar(text: initials, size: 32, backgroundColor: bgColor, gradient: gradient),
+        OneovaAvatar(text: initials, size: 32, backgroundColor: bgColor, gradient: gradient),
         const SizedBox(width: 10),
         Expanded(child: Text(name, style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: Theme.of(context).colorScheme.onSurface))),
-        MpepePill(text: role, isOutline: true),
+        OneovaPill(text: role, isOutline: true),
       ],
     );
   }

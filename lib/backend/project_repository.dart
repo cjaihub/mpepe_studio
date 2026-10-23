@@ -1,6 +1,7 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'projects/models/pro_project_models.dart';
 
 class StudioProject {
   final String id;
@@ -14,6 +15,12 @@ class StudioProject {
   final List<String> storyboardUrls;
   final String? script;
   final List<String> toolsUsed;
+  final String? ownerId;
+  final List<String>? memberIds;
+  final String? canonicalGroupId;
+  final List<Sequence> sequences;
+  final String? activeSequenceId;
+  final ProjectSettings settings;
   final DateTime createdAt;
 
   StudioProject({
@@ -28,6 +35,12 @@ class StudioProject {
     this.storyboardUrls = const [],
     this.script,
     this.toolsUsed = const [],
+    this.ownerId,
+    this.memberIds,
+    this.canonicalGroupId,
+    this.sequences = const [],
+    this.activeSequenceId,
+    this.settings = const ProjectSettings(width: 1080, height: 1920, frameRate: 30.0),
     required this.createdAt,
   });
 
@@ -43,6 +56,9 @@ class StudioProject {
     List<String>? storyboardUrls,
     String? script,
     List<String>? toolsUsed,
+    List<Sequence>? sequences,
+    String? activeSequenceId,
+    ProjectSettings? settings,
     DateTime? createdAt,
   }) {
     return StudioProject(
@@ -57,6 +73,9 @@ class StudioProject {
       storyboardUrls: storyboardUrls ?? this.storyboardUrls,
       script: script ?? this.script,
       toolsUsed: toolsUsed ?? this.toolsUsed,
+      sequences: sequences ?? this.sequences,
+      activeSequenceId: activeSequenceId ?? this.activeSequenceId,
+      settings: settings ?? this.settings,
       createdAt: createdAt ?? this.createdAt,
     );
   }
@@ -123,6 +142,18 @@ class ProjectRepository {
     }
   }
   
+  Future<void> updateProject(dynamic project) async {
+    await _firestore.collection('studio_projects').doc(project.id).update(project.toJson());
+  }
+
+  Future<dynamic> getProject(String id) async {
+    final doc = await _firestore.collection('studio_projects').doc(id).get();
+    if (doc.exists && doc.data() != null) {
+      return StudioProject.fromJson(doc.data()!, doc.id);
+    }
+    return null;
+  }
+
   Future<void> deleteProject(String id) async {
     await _firestore.collection('studio_projects').doc(id).delete();
   }

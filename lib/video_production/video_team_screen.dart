@@ -69,7 +69,7 @@ class _CrewCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return MpepeCard(
+    return OneovaCard(
       child: Row(
         children: [
           Container(

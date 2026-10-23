@@ -84,7 +84,7 @@ class _CreateGroupScreenState extends ConsumerState<CreateGroupScreen> {
     showDialog(
       context: context,
       barrierDismissible: false,
-      builder: (_) => const Center(child: CircularProgressIndicator(color: AppColors.mpepeMaroon)),
+      builder: (_) => const Center(child: CircularProgressIndicator(color: AppColors.brandBlue)),
     );
 
     try {
@@ -149,7 +149,7 @@ class _CreateGroupScreenState extends ConsumerState<CreateGroupScreen> {
                   style: TextStyle(color: Colors.white, fontSize: 24, fontWeight: FontWeight.bold),
                 ),
                 IconButton(
-                  icon: const Icon(Icons.check, color: AppColors.mpepeMaroon, size: 28),
+                  icon: const Icon(Icons.check, color: AppColors.brandBlue, size: 28),
                   onPressed: _createGroup,
                 ),
               ],
@@ -210,7 +210,7 @@ class _CreateGroupScreenState extends ConsumerState<CreateGroupScreen> {
                         margin: const EdgeInsets.symmetric(horizontal: 6),
                         child: CircleAvatar(
                           radius: 30,
-                          backgroundColor: AppColors.mpepeMaroon,
+                          backgroundColor: AppColors.brandBlue,
                           child: Text(
                             user.fullName.isNotEmpty ? user.fullName[0].toUpperCase() : '?',
                             style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
@@ -270,7 +270,7 @@ class _CreateGroupScreenState extends ConsumerState<CreateGroupScreen> {
                 borderRadius: BorderRadius.vertical(top: Radius.circular(30)),
               ),
               child: _isLoading
-                  ? const Center(child: CircularProgressIndicator(color: AppColors.mpepeMaroon))
+                  ? const Center(child: CircularProgressIndicator(color: AppColors.brandBlue))
                   : _searchResults.isEmpty && _searchController.text.isNotEmpty
                       ? const Center(child: Text("No users found", style: TextStyle(color: Colors.white54)))
                       : ListView.builder(
@@ -284,7 +284,7 @@ class _CreateGroupScreenState extends ConsumerState<CreateGroupScreen> {
                               contentPadding: const EdgeInsets.symmetric(horizontal: 24, vertical: 8),
                               leading: CircleAvatar(
                                 radius: 24,
-                                backgroundColor: isSelected ? AppColors.mpepeMaroon : const Color(0xFF262626),
+                                backgroundColor: isSelected ? AppColors.brandBlue : const Color(0xFF262626),
                                 child: Text(
                                   user.fullName.isNotEmpty ? user.fullName[0].toUpperCase() : '?',
                                   style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
@@ -299,9 +299,9 @@ class _CreateGroupScreenState extends ConsumerState<CreateGroupScreen> {
                                 child: Container(
                                   padding: const EdgeInsets.all(4),
                                   decoration: BoxDecoration(
-                                    color: isSelected ? AppColors.mpepeMaroon : Colors.transparent,
+                                    color: isSelected ? AppColors.brandBlue : Colors.transparent,
                                     border: Border.all(
-                                      color: isSelected ? AppColors.mpepeMaroon : Colors.white54,
+                                      color: isSelected ? AppColors.brandBlue : Colors.white54,
                                       width: 2,
                                     ),
                                     shape: BoxShape.circle,
@@ -326,7 +326,7 @@ class _CreateGroupScreenState extends ConsumerState<CreateGroupScreen> {
             child: ElevatedButton(
               onPressed: _createGroup,
               style: ElevatedButton.styleFrom(
-                backgroundColor: AppColors.mpepeMaroon,
+                backgroundColor: AppColors.brandBlue,
                 padding: const EdgeInsets.symmetric(vertical: 16),
                 shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(30)),
               ),

@@ -203,7 +203,7 @@ class _UserCrmCard extends ConsumerWidget {
 
     return Padding(
       padding: const EdgeInsets.only(bottom: 12),
-      child: MpepeCard(
+      child: OneovaCard(
         padding: const EdgeInsets.all(16),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
@@ -744,7 +744,7 @@ class _AIBookingsTab extends StatelessWidget {
   Widget _buildBookingCard(BuildContext context, String client, String service, String time, bool isConfirmed) {
     return Padding(
       padding: const EdgeInsets.only(bottom: 12),
-      child: MpepeCard(
+      child: OneovaCard(
         padding: const EdgeInsets.all(16),
         child: Row(
           children: [

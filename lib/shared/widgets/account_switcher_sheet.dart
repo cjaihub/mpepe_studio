@@ -23,9 +23,9 @@ class AccountSwitcherSheet extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     return Container(
-      decoration: const BoxDecoration(
-        color: AppColors.darkBackground,
-        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+      decoration: BoxDecoration(
+        color: context.bg,
+        borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
       ),
       padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 16),
       child: Column(
@@ -35,7 +35,7 @@ class AccountSwitcherSheet extends ConsumerWidget {
             width: 40,
             height: 4,
             decoration: BoxDecoration(
-              color: Colors.white24,
+              color: context.border,
               borderRadius: BorderRadius.circular(2),
             ),
           ),
@@ -45,16 +45,16 @@ class AccountSwitcherSheet extends ConsumerWidget {
             style: GoogleFonts.outfit(
               fontSize: 20,
               fontWeight: FontWeight.bold,
-              color: AppColors.mpepeGold,
+              color: AppColors.brandBlue,
             ),
           ),
           const SizedBox(height: 16),
           if (personas.isEmpty)
-            const Padding(
-              padding: EdgeInsets.all(16.0),
+            Padding(
+              padding: const EdgeInsets.all(16.0),
               child: Text(
                 'No personas found. Add a new account to get started.',
-                style: TextStyle(color: Colors.white54),
+                style: TextStyle(color: context.textMuted),
                 textAlign: TextAlign.center,
               ),
             )
@@ -72,18 +72,18 @@ class AccountSwitcherSheet extends ConsumerWidget {
                     shape: RoundedRectangleBorder(
                       borderRadius: BorderRadius.circular(12),
                       side: isActive 
-                        ? const BorderSide(color: AppColors.mpepeGold, width: 2)
-                        : BorderSide.none,
+                        ? const BorderSide(color: AppColors.brandBlue, width: 2)
+                        : BorderSide(color: context.border),
                     ),
-                    tileColor: isActive ? AppColors.mpepeGold.withOpacity(0.1) : AppColors.darkSurface,
+                    tileColor: isActive ? AppColors.brandBlue.withValues(alpha: 0.1) : context.surface,
                     leading: CircleAvatar(
-                      backgroundColor: Colors.black45,
+                      backgroundColor: context.surfaceMid,
                       backgroundImage: persona.avatarUrl.isNotEmpty ? NetworkImage(persona.avatarUrl) : null,
-                      child: persona.avatarUrl.isEmpty ? const Icon(Icons.person, color: Colors.white) : null,
+                      child: persona.avatarUrl.isEmpty ? Icon(Icons.person, color: context.textPrimary) : null,
                     ),
-                    title: Text(persona.name, style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
-                    subtitle: Text('Niche: ${persona.niche}', style: const TextStyle(color: Colors.white54, fontSize: 12)),
-                    trailing: isActive ? const Icon(Icons.check_circle, color: AppColors.mpepeGold) : null,
+                    title: Text(persona.name, style: TextStyle(color: context.textPrimary, fontWeight: FontWeight.bold)),
+                    subtitle: Text('Niche: ${persona.niche}', style: TextStyle(color: context.textSecondary, fontSize: 12)),
+                    trailing: isActive ? const Icon(Icons.check_circle, color: AppColors.brandBlue) : null,
                     onTap: () {
                       onSelect(persona);
                       Navigator.of(context).pop();
@@ -93,7 +93,7 @@ class AccountSwitcherSheet extends ConsumerWidget {
               ),
             ),
           const SizedBox(height: 16),
-          MpepeButton(
+          OneovaButton(
             text: '+ Add New Account',
             onPressed: () {
               Navigator.of(context).pop();

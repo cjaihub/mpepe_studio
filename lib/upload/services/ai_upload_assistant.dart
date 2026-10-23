@@ -1,7 +1,5 @@
-import 'dart:convert';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:cloud_functions/cloud_functions.dart';
-import '../../backend/firebase_service.dart'; 
 import 'omnichannel_upload_engine.dart';
 
 enum AiIntentType {

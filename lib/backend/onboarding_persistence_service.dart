@@ -7,7 +7,7 @@ final onboardingPersistenceProvider = Provider<OnboardingPersistenceService>((re
 });
 
 class OnboardingPersistenceService {
-  static const String _draftKey = 'mpepe_onboarding_draft';
+  static const String _draftKey = 'oneova_onboarding_draft';
 
   Future<void> saveDraft(int stepIndex, Map<String, dynamic> data) async {
     final prefs = await SharedPreferences.getInstance();

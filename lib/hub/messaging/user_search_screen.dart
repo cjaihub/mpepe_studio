@@ -1,12 +1,15 @@
 import 'package:flutter/material.dart';
+import '../../shared/widgets/follow_button.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:go_router/go_router.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter_animate/flutter_animate.dart';
 
+import 'package:flutter/services.dart';
 import '../../backend/user_service.dart';
 import '../../backend/messaging_repository.dart';
+import '../../backend/social/models/creator_engagement_level.dart';
 import '../../shared/theme/app_theme.dart';
 
 class UserSearchScreen extends ConsumerStatefulWidget {
@@ -18,69 +21,112 @@ class UserSearchScreen extends ConsumerStatefulWidget {
 
 class _UserSearchScreenState extends ConsumerState<UserSearchScreen> {
   final TextEditingController _searchController = TextEditingController();
+  List<AppUser> _allSuggestedUsers = [];
   List<AppUser> _searchResults = [];
   bool _isLoading = false;
+  String? _startingChatUserId;
 
-  void _searchUsers(String query) async {
-    if (query.trim().isEmpty) {
-      setState(() => _searchResults = []);
-      return;
-    }
+  @override
+  void initState() {
+    super.initState();
+    _loadInitialUsers();
+  }
 
+  Future<void> _loadInitialUsers() async {
     setState(() => _isLoading = true);
-
+    final currentUserId = FirebaseAuth.instance.currentUser?.uid;
     try {
-      final currentUserId = FirebaseAuth.instance.currentUser?.uid;
-      // Note: for production, Algolia or Meilisearch is recommended for full text search.
-      // Here we do a basic prefix search on fullName for demonstration.
-      final snapshot = await FirebaseFirestore.instance
-          .collection('users')
-          .where('fullName', isGreaterThanOrEqualTo: query)
-          .where('fullName', isLessThanOrEqualTo: '$query\uf8ff')
-          .limit(20)
-          .get();
-
+      final snapshot = await FirebaseFirestore.instance.collection('users').limit(30).get();
       final users = snapshot.docs
           .map((doc) => AppUser.fromMap(doc.data(), doc.id))
-          .where((u) => u.id != currentUserId) // exclude self
+          .where((u) => u.id != currentUserId)
           .toList();
 
       if (mounted) {
         setState(() {
+          _allSuggestedUsers = users;
           _searchResults = users;
           _isLoading = false;
         });
       }
     } catch (e) {
-      print("Search error: $e");
+      debugPrint('Error loading initial users: $e');
       if (mounted) setState(() => _isLoading = false);
+    }
+  }
+
+  void _searchUsers(String query) async {
+    final q = query.trim().toLowerCase();
+    if (q.isEmpty) {
+      setState(() => _searchResults = _allSuggestedUsers);
+      return;
+    }
+
+    final localMatches = _allSuggestedUsers.where((u) {
+      final name = u.fullName.toLowerCase();
+      final username = (u.username ?? '').toLowerCase();
+      final email = u.email.toLowerCase();
+      return name.contains(q) || username.contains(q) || email.contains(q);
+    }).toList();
+
+    setState(() {
+      _searchResults = localMatches;
+    });
+
+    try {
+      final currentUserId = FirebaseAuth.instance.currentUser?.uid;
+      final snapshot = await FirebaseFirestore.instance
+          .collection('users')
+          .limit(30)
+          .get();
+
+      final users = snapshot.docs
+          .map((doc) => AppUser.fromMap(doc.data(), doc.id))
+          .where((u) => u.id != currentUserId)
+          .where((u) {
+            final name = u.fullName.toLowerCase();
+            final username = (u.username ?? '').toLowerCase();
+            final email = u.email.toLowerCase();
+            return name.contains(q) || username.contains(q) || email.contains(q);
+          })
+          .toList();
+
+      if (mounted) {
+        setState(() {
+          _searchResults = users;
+        });
+      }
+    } catch (e) {
+      debugPrint("Search error: $e");
     }
   }
 
   void _startChat(AppUser user) async {
     final currentUserId = FirebaseAuth.instance.currentUser?.uid;
-    if (currentUserId == null) return;
+    if (currentUserId == null || _startingChatUserId != null) return;
 
-    // Show loading overlay
-    showDialog(
-      context: context,
-      barrierDismissible: false,
-      builder: (_) => const Center(child: CircularProgressIndicator(color: AppColors.mpepeMaroon)),
-    );
+    HapticFeedback.lightImpact();
+    setState(() => _startingChatUserId = user.id);
 
     try {
       final repo = ref.read(messagingRepositoryProvider);
-      final chatId = await repo.createChat([currentUserId, user.id]);
+      final chatId = await repo.getOrCreateDirectChat(currentUserId, user.id);
       
-      if (mounted) {
-        Navigator.pop(context); // pop loading
-        Navigator.pop(context); // pop search bottom sheet
-        context.push('/hub/messages/$chatId');
+      if (!mounted) return;
+      // Close the search bottom sheet cleanly before navigating to conversation
+      if (Navigator.of(context).canPop()) {
+        Navigator.of(context).pop();
       }
+      context.push('/hub/messages/$chatId');
     } catch (e) {
       if (mounted) {
-        Navigator.pop(context); // pop loading
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Error starting chat: $e')));
+        setState(() => _startingChatUserId = null);
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Error starting chat: $e'),
+            backgroundColor: AppColors.brandPink,
+          ),
+        );
       }
     }
   }
@@ -100,7 +146,7 @@ class _UserSearchScreenState extends ConsumerState<UserSearchScreen> {
         borderRadius: const BorderRadius.vertical(top: Radius.circular(30)),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withOpacity(0.5),
+            color: Colors.black.withValues(alpha: 0.5),
             blurRadius: 20,
             offset: const Offset(0, -5),
           )
@@ -128,7 +174,7 @@ class _UserSearchScreenState extends ConsumerState<UserSearchScreen> {
                     onChanged: _searchUsers,
                     style: const TextStyle(color: Colors.white),
                     decoration: InputDecoration(
-                      hintText: 'Search for people...',
+                      hintText: 'Search creators or people...',
                       hintStyle: const TextStyle(color: Colors.white54),
                       prefixIcon: const Icon(Icons.search, color: Colors.white54),
                       filled: true,
@@ -143,7 +189,7 @@ class _UserSearchScreenState extends ConsumerState<UserSearchScreen> {
                 ),
                 TextButton(
                   onPressed: () => Navigator.pop(context),
-                  child: const Text('Cancel', style: TextStyle(color: AppColors.mpepeMaroon, fontWeight: FontWeight.bold)),
+                  child: const Text('Cancel', style: TextStyle(color: AppColors.brandBlue, fontWeight: FontWeight.bold)),
                 ),
               ],
             ),
@@ -151,7 +197,7 @@ class _UserSearchScreenState extends ConsumerState<UserSearchScreen> {
           const SizedBox(height: 16),
           Expanded(
             child: _isLoading
-                ? const Center(child: CircularProgressIndicator(color: AppColors.mpepeMaroon))
+                ? const Center(child: CircularProgressIndicator(color: AppColors.brandBlue))
                 : _searchResults.isEmpty && _searchController.text.isNotEmpty
                     ? Center(
                         child: Text(
@@ -163,33 +209,94 @@ class _UserSearchScreenState extends ConsumerState<UserSearchScreen> {
                         itemCount: _searchResults.length,
                         itemBuilder: (context, index) {
                           final user = _searchResults[index];
-                          final avatarLetter = user.fullName.isNotEmpty ? user.fullName[0].toUpperCase() : '?';
+                          final displayName = user.fullName.isNotEmpty
+                              ? user.fullName
+                              : (user.username ?? 'Oneova Creator');
+                          final avatarLetter = displayName.isNotEmpty ? displayName[0].toUpperCase() : '?';
+
+                          final tier = CreatorEngagementLevel.fromUser(user).tier;
+                          final currentUserId = FirebaseAuth.instance.currentUser?.uid;
 
                           return ListTile(
-                            contentPadding: const EdgeInsets.symmetric(horizontal: 24, vertical: 8),
+                            onTap: () => _startChat(user),
+                            contentPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
                             leading: CircleAvatar(
                               radius: 24,
-                              backgroundColor: AppColors.mpepeMaroon,
-                              child: Text(
-                                avatarLetter,
-                                style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
-                              ),
+                              backgroundColor: AppColors.brandBlue,
+                              backgroundImage: (user.profilePhotoUrl != null && user.profilePhotoUrl!.isNotEmpty)
+                                  ? NetworkImage(user.profilePhotoUrl!)
+                                  : null,
+                              child: (user.profilePhotoUrl == null || user.profilePhotoUrl!.isEmpty)
+                                  ? Text(
+                                      avatarLetter,
+                                      style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
+                                    )
+                                  : null,
                             ),
-                            title: Text(
-                              user.fullName,
-                              style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
+                            title: Row(
+                              children: [
+                                Flexible(
+                                  child: Text(
+                                    displayName,
+                                    style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                  ),
+                                ),
+                                if (user.isVerified) ...[
+                                  const SizedBox(width: 4),
+                                  const Icon(Icons.verified, color: AppColors.brandBlue, size: 14),
+                                ],
+                                const SizedBox(width: 6),
+                                CreatorLevelBadge(
+                                  tier: tier,
+                                  isCompact: true,
+                                  onTap: () {
+                                    CreatorLevelDetailModal.show(context, tier: tier, username: displayName);
+                                  },
+                                ),
+                              ],
                             ),
                             subtitle: Text(
-                              user.email,
+                              user.username != null && user.username!.isNotEmpty
+                                  ? '@${user.username}'
+                                  : user.email,
                               style: const TextStyle(color: Colors.white54),
                             ),
-                            trailing: ElevatedButton(
-                              onPressed: () => _startChat(user),
-                              style: ElevatedButton.styleFrom(
-                                backgroundColor: AppColors.darkSurfaceHighlight,
-                                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-                              ),
-                              child: const Text('Chat', style: TextStyle(color: Colors.white)),
+                            trailing: Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                if (currentUserId != null && currentUserId != user.id)
+                                  Padding(
+                                    padding: const EdgeInsets.only(right: 6),
+                                    child: FollowButton(
+                                      targetUserId: user.id,
+                                      targetName: displayName,
+                                      size: FollowButtonSize.compact,
+                                    ),
+                                  ),
+                                ElevatedButton(
+                                  onPressed: _startingChatUserId == user.id ? null : () => _startChat(user),
+                                  style: ElevatedButton.styleFrom(
+                                    backgroundColor: AppColors.brandBlue,
+                                    disabledBackgroundColor: AppColors.brandBlue.withValues(alpha: 0.6),
+                                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                                    minimumSize: Size.zero,
+                                    tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                                  ),
+                                  child: _startingChatUserId == user.id
+                                      ? const SizedBox(
+                                          width: 12,
+                                          height: 12,
+                                          child: CircularProgressIndicator(
+                                            strokeWidth: 2,
+                                            color: Colors.white,
+                                          ),
+                                        )
+                                      : const Text('Chat', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 11)),
+                                ),
+                              ],
                             ),
                           ).animate().fadeIn(delay: Duration(milliseconds: 50 * index)).slideY(begin: 0.1, end: 0);
                         },

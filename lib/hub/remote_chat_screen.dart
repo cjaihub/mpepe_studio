@@ -236,7 +236,7 @@ class _RemoteChatScreenState extends ConsumerState<RemoteChatScreen> {
                     margin: const EdgeInsets.only(bottom: 12),
                     padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
                     decoration: BoxDecoration(
-                      color: isUser ? AppColors.mpepeMaroon : AppColors.darkSurface,
+                      color: isUser ? AppColors.brandBlue : AppColors.darkSurface,
                       boxShadow: [
                         BoxShadow(
                           color: Colors.black.withValues(alpha: 0.2),
@@ -294,7 +294,7 @@ class _RemoteChatScreenState extends ConsumerState<RemoteChatScreen> {
                     controller: _messageController,
                     style: GoogleFonts.inter(color: Colors.white),
                     decoration: InputDecoration(
-                      hintText: 'Ask MPEPE Studio to do something...',
+                      hintText: 'Ask Oneova Studio to do something...',
                       hintStyle: GoogleFonts.inter(color: Colors.white38),
                       border: OutlineInputBorder(
                         borderRadius: BorderRadius.circular(24),
@@ -310,7 +310,7 @@ class _RemoteChatScreenState extends ConsumerState<RemoteChatScreen> {
                 const SizedBox(width: 12),
                 Container(
                   decoration: const BoxDecoration(
-                    color: AppColors.mpepeMaroon,
+                    color: AppColors.brandBlue,
                     shape: BoxShape.circle,
                   ),
                   child: IconButton(
@@ -323,7 +323,7 @@ class _RemoteChatScreenState extends ConsumerState<RemoteChatScreen> {
                 const SizedBox(width: 8),
                 Container(
                   decoration: const BoxDecoration(
-                    color: AppColors.mpepeMaroon,
+                    color: AppColors.brandBlue,
                     shape: BoxShape.circle,
                   ),
                   child: IconButton(

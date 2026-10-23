@@ -3,7 +3,6 @@ import 'package:flutter/foundation.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:google_sign_in/google_sign_in.dart';
-import 'package:http/http.dart' as http;
 import 'package:cloud_firestore/cloud_firestore.dart';
 
 final googleSignInProvider = Provider<GoogleSignIn>((ref) {
@@ -46,15 +45,25 @@ class AuthRepository {
       // v7: authenticate() triggers the interactive sign-in flow.
       final GoogleSignInAccount googleUser = await _googleSignIn.authenticate();
 
-      // v7: authentication only has idToken; accessToken comes from authorization.
-      final String? idToken = (await googleUser.authentication).idToken;
+      // v7: authentication getter returns GoogleSignInAuthentication synchronously.
+      final String? idToken = googleUser.authentication.idToken;
+      if (idToken == null || idToken.isEmpty) {
+        debugPrint('Google Sign-In: idToken is null or empty');
+        return null;
+      }
 
-      // v7: get the access token via authorizationClient.
-      final GoogleSignInClientAuthorization authorization =
-          await googleUser.authorizationClient.authorizeScopes(['email']);
+      // v7: get the access token via authorizationClient optionally
+      String? accessToken;
+      try {
+        final GoogleSignInClientAuthorization authorization =
+            await googleUser.authorizationClient.authorizeScopes(['email']);
+        accessToken = authorization.accessToken;
+      } catch (scopeError) {
+        debugPrint('Google Sign-In optional scope authorization non-fatal: $scopeError');
+      }
 
       final OAuthCredential credential = GoogleAuthProvider.credential(
-        accessToken: authorization.accessToken,
+        accessToken: accessToken,
         idToken: idToken,
       );
 
@@ -69,27 +78,6 @@ class AuthRepository {
     return await _auth.createUserWithEmailAndPassword(email: email, password: password);
   }
 
-  // Windows Desktop bypass: signInWithEmailAndPassword
-  // Firebase Auth supports Email/Password on Windows.
-  Future<void> devBypassLogin() async {
-    try {
-      await _auth.signInWithEmailAndPassword(
-        email: 'dev@mpepe.studio',
-        password: 'password123',
-      );
-    } on FirebaseAuthException catch (e) {
-      if (e.code == 'user-not-found' || e.code == 'invalid-credential') {
-        // Create it if it doesn't exist
-        await _auth.createUserWithEmailAndPassword(
-          email: 'dev@mpepe.studio',
-          password: 'password123',
-        );
-      } else {
-        rethrow;
-      }
-    }
-  }
-
   // Phone Auth flow
   Future<void> verifyPhoneNumber({
     required String phoneNumber,
@@ -97,9 +85,10 @@ class AuthRepository {
     required Function(FirebaseAuthException) verificationFailed,
     required Function(String, int?) codeSent,
     required Function(String) codeAutoRetrievalTimeout,
+    int? forceResendingToken,
   }) async {
     if (!kIsWeb && Platform.isWindows) {
-      throw Exception('Phone Auth is not supported on Windows desktop. Please use dev bypass.');
+      throw Exception('Phone Auth is not supported on Windows desktop.');
     }
 
     await _auth.verifyPhoneNumber(
@@ -108,6 +97,11 @@ class AuthRepository {
       verificationFailed: verificationFailed,
       codeSent: codeSent,
       codeAutoRetrievalTimeout: codeAutoRetrievalTimeout,
+      // Reuses the first request's session on "Resend", so Google does not
+      // re-check the app (the step that falls back to reCAPTCHA).
+      forceResendingToken: forceResendingToken,
+      // How long Android waits to read the SMS itself before manual entry.
+      timeout: const Duration(seconds: 60),
     );
   }
 
@@ -134,7 +128,7 @@ class AuthRepository {
       }
       return {};
     } catch (e) {
-      print("Error getting settings: $e");
+      debugPrint("Error getting settings: $e");
       return {};
     }
   }
@@ -150,7 +144,7 @@ class AuthRepository {
       
       await FirebaseFirestore.instance.collection('users').doc(user.uid).collection('settings').doc('ai_preferences').set(data, SetOptions(merge: true));
     } catch (e) {
-      print("Error saving settings: $e");
+      debugPrint("Error saving settings: $e");
     }
   }
 }

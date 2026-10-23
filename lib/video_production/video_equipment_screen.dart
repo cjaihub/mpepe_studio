@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../shared/widgets/components.dart';
 import '../shared/widgets/studio_background.dart';
+import '../shared/theme/app_theme.dart';
 import '../backend/equipment_repository.dart';
 import '../backend/calendar_repository.dart';
 import 'package:intl/intl.dart';
@@ -43,7 +44,7 @@ class _VideoEquipmentScreenState extends ConsumerState<VideoEquipmentScreen> {
                     ],
                   ),
                   IconButton(
-                    icon: const Icon(Icons.add_box, color: Colors.orange),
+                    icon: const Icon(Icons.add_box, color: AppColors.brandBlue),
                     onPressed: () async {
                       final repo = ref.read(equipmentRepositoryProvider);
                       await repo.addEquipment(EquipmentItem(id: 'cam1', name: 'Sony FX3', category: 'Camera', imageUrl: ''));
@@ -58,7 +59,7 @@ class _VideoEquipmentScreenState extends ConsumerState<VideoEquipmentScreen> {
                     tooltip: 'Seed Mock Data',
                   ),
                   IconButton(
-                    icon: const Icon(Icons.qr_code_scanner, color: Colors.orange),
+                    icon: const Icon(Icons.qr_code_scanner, color: AppColors.brandBlue),
                     onPressed: () {
                       // Placeholder for Phase 1 Scanner integration
                       ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Scanner coming soon!')));
@@ -84,9 +85,9 @@ class _VideoEquipmentScreenState extends ConsumerState<VideoEquipmentScreen> {
                       onSelected: (selected) {
                         setState(() => _selectedCategory = category);
                       },
-                      selectedColor: Colors.orange.withValues(alpha: 0.2),
+                      selectedColor: AppColors.brandBlue.withValues(alpha: 0.2),
                       backgroundColor: Colors.transparent,
-                      side: BorderSide(color: isSelected ? Colors.orange : Colors.grey.withValues(alpha: 0.3)),
+                      side: BorderSide(color: isSelected ? AppColors.brandBlue : context.border),
                     ),
                   );
                 }).toList(),
@@ -126,7 +127,7 @@ class _VideoEquipmentScreenState extends ConsumerState<VideoEquipmentScreen> {
                     },
                   );
                 },
-                loading: () => const Center(child: CircularProgressIndicator(color: Colors.orange)),
+                loading: () => const Center(child: CircularProgressIndicator(color: AppColors.brandBlue)),
                 error: (error, stack) => Center(child: Text('Error: $error')),
               ),
             ),
@@ -145,11 +146,11 @@ class _EquipmentGridCard extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final isOut = item.status == EquipmentStatus.checkedOut;
-    final statusColor = isOut ? Colors.orange : Colors.greenAccent;
+    final statusColor = isOut ? AppColors.brandPink : AppColors.brandBlue;
 
     return GestureDetector(
       onTap: () => _showCheckoutDialog(context, ref, item),
-      child: MpepeCard(
+      child: OneovaCard(
         padding: const EdgeInsets.all(12),
         borderColor: statusColor.withValues(alpha: 0.3),
         child: Column(
@@ -160,7 +161,7 @@ class _EquipmentGridCard extends ConsumerWidget {
               children: [
                 Icon(
                   _getCategoryIcon(item.category),
-                  color: Colors.white70,
+                  color: context.textSecondary,
                   size: 20,
                 ),
                 Container(
@@ -190,7 +191,7 @@ class _EquipmentGridCard extends ConsumerWidget {
               const SizedBox(height: 2),
               Text(
                 'By ${item.checkedOutBy}',
-                style: TextStyle(color: Colors.orange.withValues(alpha: 0.8), fontSize: 10),
+                style: TextStyle(color: AppColors.brandPink.withValues(alpha: 0.8), fontSize: 10),
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
               ),
@@ -245,7 +246,7 @@ class _CheckoutSheetState extends ConsumerState<_CheckoutSheet> {
       decoration: BoxDecoration(
         color: Theme.of(context).colorScheme.surface,
         borderRadius: BorderRadius.circular(20),
-        border: Border.all(color: Colors.white10),
+        border: Border.all(color: context.border),
       ),
       padding: EdgeInsets.only(
         top: 24,
@@ -264,23 +265,23 @@ class _CheckoutSheetState extends ConsumerState<_CheckoutSheet> {
                 widget.item.name,
                 style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: Theme.of(context).colorScheme.onSurface),
               ),
-              MpepePill(
+              OneovaPill(
                 text: isOut ? 'Checked Out' : 'Available',
-                color: isOut ? Colors.orange : Colors.greenAccent,
+                color: isOut ? AppColors.brandPink : AppColors.brandBlue,
                 isGhost: true,
               )
             ],
           ),
           const SizedBox(height: 24),
           if (isOut) ...[
-            Text('Checked out by: ${widget.item.checkedOutBy ?? 'Unknown'}', style: const TextStyle(color: Colors.white70)),
+            Text('Checked out by: ${widget.item.checkedOutBy ?? 'Unknown'}', style: TextStyle(color: context.textSecondary)),
             const SizedBox(height: 8),
-            Text('Due back: ${widget.item.returnDate != null ? DateFormat('MMM d, yyyy').format(widget.item.returnDate!) : 'No date set'}', style: const TextStyle(color: Colors.white70)),
+            Text('Due back: ${widget.item.returnDate != null ? DateFormat('MMM d, yyyy').format(widget.item.returnDate!) : 'No date set'}', style: TextStyle(color: context.textSecondary)),
             const SizedBox(height: 24),
             SizedBox(
               width: double.infinity,
               child: ElevatedButton(
-                style: ElevatedButton.styleFrom(backgroundColor: Colors.greenAccent, foregroundColor: Colors.black),
+                style: ElevatedButton.styleFrom(backgroundColor: AppColors.brandBlue, foregroundColor: Colors.white),
                 onPressed: _isLoading ? null : () => _handleReturn(ref),
                 child: _isLoading ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2)) : const Text('Return Equipment'),
               ),
@@ -288,25 +289,25 @@ class _CheckoutSheetState extends ConsumerState<_CheckoutSheet> {
           ] else ...[
             TextField(
               controller: _userController,
-              style: const TextStyle(color: Colors.white),
+              style: TextStyle(color: context.textPrimary),
               decoration: InputDecoration(
                 labelText: 'Assign to User',
-                labelStyle: const TextStyle(color: Colors.white54),
-                enabledBorder: const OutlineInputBorder(borderSide: BorderSide(color: Colors.white24)),
-                focusedBorder: const OutlineInputBorder(borderSide: BorderSide(color: Colors.orange)),
+                labelStyle: TextStyle(color: context.textMuted),
+                enabledBorder: OutlineInputBorder(borderSide: BorderSide(color: context.border)),
+                focusedBorder: const OutlineInputBorder(borderSide: BorderSide(color: AppColors.brandBlue)),
                 filled: true,
-                fillColor: Colors.black26,
+                fillColor: context.surfaceMid,
               ),
             ),
             const SizedBox(height: 16),
             ListTile(
               contentPadding: EdgeInsets.zero,
-              title: const Text('Return Date', style: TextStyle(color: Colors.white70)),
+              title: Text('Return Date', style: TextStyle(color: context.textSecondary)),
               subtitle: Text(
                 _selectedReturnDate == null ? 'Not set' : DateFormat('MMM d, yyyy').format(_selectedReturnDate!),
-                style: const TextStyle(color: Colors.orange),
+                style: const TextStyle(color: AppColors.brandBlue),
               ),
-              trailing: const Icon(Icons.calendar_today, color: Colors.orange),
+              trailing: const Icon(Icons.calendar_today, color: AppColors.brandBlue),
               onTap: () async {
                 final date = await showDatePicker(
                   context: context,
@@ -323,7 +324,7 @@ class _CheckoutSheetState extends ConsumerState<_CheckoutSheet> {
             SizedBox(
               width: double.infinity,
               child: ElevatedButton(
-                style: ElevatedButton.styleFrom(backgroundColor: Colors.orange, foregroundColor: Colors.black),
+                style: ElevatedButton.styleFrom(backgroundColor: AppColors.brandBlue, foregroundColor: Colors.white),
                 onPressed: _isLoading ? null : () => _handleCheckout(ref),
                 child: _isLoading ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2)) : const Text('Check Out'),
               ),

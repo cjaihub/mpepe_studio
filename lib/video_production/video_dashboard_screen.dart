@@ -62,7 +62,7 @@ class VideoDashboardScreen extends StatelessWidget {
                 ],
               ),
               const SizedBox(height: 14),
-              MpepeCard(
+              OneovaCard(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
@@ -77,7 +77,7 @@ class VideoDashboardScreen extends StatelessWidget {
                 ),
               ).animate().fadeIn(delay: 300.ms).slideX(begin: 0.1),
               const SizedBox(height: 12),
-              MpepeCard(
+              OneovaCard(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
@@ -148,7 +148,7 @@ class _StatCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return MpepeCard(
+    return OneovaCard(
       padding: const EdgeInsets.all(12),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,

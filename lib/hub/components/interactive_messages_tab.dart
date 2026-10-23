@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:timeago/timeago.dart' as timeago;
 import 'package:font_awesome_flutter/font_awesome_flutter.dart';
 import 'package:flutter_animate/flutter_animate.dart';
 
@@ -19,7 +18,7 @@ class _InteractiveMessagesTabState extends ConsumerState<InteractiveMessagesTab>
 
   final List<Map<String, dynamic>> _platforms = [
     {'name': 'All', 'platform': null, 'icon': FontAwesomeIcons.infinity, 'color': Colors.white},
-    {'name': 'Meta', 'platform': SocialPlatform.meta, 'icon': FontAwesomeIcons.facebook, 'color': const Color(0xFF1877F2)},
+    {'name': 'Meta', 'platform': SocialPlatform.meta, 'icon': FontAwesomeIcons.facebook, 'color': const Color(0xFF0C4FA8)},
     {'name': 'Instagram', 'platform': SocialPlatform.instagram, 'icon': FontAwesomeIcons.instagram, 'color': const Color(0xFFE1306C)},
     {'name': 'YouTube', 'platform': SocialPlatform.youtube, 'icon': FontAwesomeIcons.youtube, 'color': const Color(0xFFFF0000)},
     {'name': 'TikTok', 'platform': SocialPlatform.tiktok, 'icon': FontAwesomeIcons.tiktok, 'color': Colors.white},
@@ -194,6 +193,7 @@ class _MessageChatCard extends ConsumerWidget {
       case SocialPlatform.instagram:
         return FontAwesomeIcons.instagram;
       case SocialPlatform.system:
+      default:
         return FontAwesomeIcons.bell;
     }
   }
@@ -205,10 +205,11 @@ class _MessageChatCard extends ConsumerWidget {
       case SocialPlatform.tiktok:
         return Colors.white;
       case SocialPlatform.meta:
-        return const Color(0xFF1877F2);
+        return const Color(0xFF0C4FA8);
       case SocialPlatform.instagram:
         return const Color(0xFFE1306C);
       case SocialPlatform.system:
+      default:
         return Colors.grey;
     }
   }

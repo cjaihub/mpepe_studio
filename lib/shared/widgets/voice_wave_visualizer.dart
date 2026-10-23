@@ -41,11 +41,11 @@ class _VoiceWaveVisualizerState extends State<VoiceWaveVisualizer> {
             width: 4,
             height: widget.isSpeaking ? 10 : 4, // Idle state
             decoration: BoxDecoration(
-              color: AppColors.mpepeMaroon,
+              color: AppColors.brandBlue,
               borderRadius: BorderRadius.circular(10),
               boxShadow: [
                 BoxShadow(
-                  color: AppColors.mpepeMaroon.withOpacity(0.4),
+                  color: AppColors.brandBlue.withValues(alpha: 0.4),
                   blurRadius: 8,
                   spreadRadius: 1,
                 )

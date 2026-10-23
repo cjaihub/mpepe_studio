@@ -69,6 +69,7 @@ class _YtUploadScreenState extends ConsumerState<YtUploadScreen> {
     );
 
     if (topic != null && topic.isNotEmpty) {
+      if (!mounted) return;
       // Show loading indicator
       showDialog(
         context: context,
@@ -147,7 +148,7 @@ class _YtUploadScreenState extends ConsumerState<YtUploadScreen> {
               ).animate().fadeIn(delay: 100.ms),
               const SizedBox(height: 16),
               
-              ...uploadTasks.map((task) => _buildTaskCard(task)).toList(),
+              ...uploadTasks.map((task) => _buildTaskCard(task)),
               
               const SizedBox(height: 40),
               

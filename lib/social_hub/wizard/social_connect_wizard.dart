@@ -25,9 +25,9 @@ class _SocialConnectWizardState extends ConsumerState<SocialConnectWizard> {
   bool _isConnecting = false;
 
   final List<String> _mockAccounts = [
-    'MPEPE Official',
-    'MPEPE Gaming',
-    'MPEPE Vlogs',
+    'Oneova Official',
+    'Oneova Gaming',
+    'Oneova Vlogs',
   ];
 
   String _getPlatformLogoPath() {
@@ -99,7 +99,7 @@ class _SocialConnectWizardState extends ConsumerState<SocialConnectWizard> {
               color: Colors.transparent,
               child: Padding(
                 padding: const EdgeInsets.symmetric(horizontal: 24),
-                child: MpepeCard(
+                child: OneovaCard(
                   padding: const EdgeInsets.all(32),
                   child: Column(
                     mainAxisSize: MainAxisSize.min,
@@ -123,7 +123,7 @@ class _SocialConnectWizardState extends ConsumerState<SocialConnectWizard> {
                       const SizedBox(height: 32),
                       SizedBox(
                         width: double.infinity,
-                        child: MpepeButton(
+                        child: OneovaButton(
                           text: 'Return to Hub',
                           onPressed: () {
                             context.pop(); // pop dialog
@@ -156,10 +156,12 @@ class _SocialConnectWizardState extends ConsumerState<SocialConnectWizard> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: Theme.of(context).scaffoldBackgroundColor,
+      backgroundColor: context.bg,
       appBar: AppBar(
+        backgroundColor: Colors.transparent,
+        elevation: 0,
         leading: IconButton(
-          icon: Icon(Icons.arrow_back, color: Theme.of(context).colorScheme.onSurface),
+          icon: Icon(Icons.arrow_back, color: context.textPrimary),
           onPressed: _prevStep,
         ),
         title: Row(
@@ -167,7 +169,7 @@ class _SocialConnectWizardState extends ConsumerState<SocialConnectWizard> {
           children: [
             _buildPlatformLogo(size: 24),
             const SizedBox(width: 12),
-            Text('Connect ${widget.platform}', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18, color: Theme.of(context).colorScheme.onSurface)),
+            Text('Connect ${widget.platform}', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18, color: context.textPrimary)),
           ],
         ),
         centerTitle: true,
@@ -207,7 +209,7 @@ class _SocialConnectWizardState extends ConsumerState<SocialConnectWizard> {
               margin: const EdgeInsets.symmetric(horizontal: 4),
               height: 4,
               decoration: BoxDecoration(
-                color: isActive ? Theme.of(context).colorScheme.primary : Theme.of(context).colorScheme.outline,
+                color: isActive ? AppColors.brandBlue : context.border,
                 borderRadius: BorderRadius.circular(2),
               ),
             ),
@@ -223,13 +225,13 @@ class _SocialConnectWizardState extends ConsumerState<SocialConnectWizard> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text('Step 1 of 3', style: TextStyle(color: Theme.of(context).colorScheme.primary, fontWeight: FontWeight.bold, fontSize: 12)),
+          const Text('Step 1 of 3', style: TextStyle(color: AppColors.brandBlue, fontWeight: FontWeight.bold, fontSize: 12)),
           const SizedBox(height: 8),
           Text('Requirements & Agreements', style: AppTheme.h1Style),
           const SizedBox(height: 24),
           Text(
-            'To connect your ${widget.platform} account, MPEPE Studio requires the following permissions:',
-            style: TextStyle(color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.8), fontSize: 14, height: 1.5),
+            'To connect your ${widget.platform} account, Oneova Studio requires the following permissions:',
+            style: TextStyle(color: context.textSecondary, fontSize: 14, height: 1.5),
           ),
           const SizedBox(height: 24),
           _buildPermissionItem(Icons.analytics_outlined, 'Read analytics data (views, engagement)'),
@@ -238,13 +240,13 @@ class _SocialConnectWizardState extends ConsumerState<SocialConnectWizard> {
           const SizedBox(height: 16),
           _buildPermissionItem(Icons.comment_outlined, 'Read and respond to comments'),
           const Spacer(),
-          MpepeCard(
+          OneovaCard(
             padding: const EdgeInsets.all(16),
             child: Row(
               children: [
                 Switch(
                   value: _agreedToTerms,
-                  activeThumbColor: AppColors.neonPurple,
+                  activeThumbColor: AppColors.brandBlue,
                   onChanged: (val) {
                     setState(() => _agreedToTerms = val);
                   },
@@ -252,7 +254,7 @@ class _SocialConnectWizardState extends ConsumerState<SocialConnectWizard> {
                 Expanded(
                   child: Text(
                     'I agree to the Terms of Service and Privacy Policy.',
-                    style: AppTheme.bodyStyle.copyWith(color: Theme.of(context).colorScheme.onSurface, fontSize: 13),
+                    style: AppTheme.bodyStyle.copyWith(color: context.textPrimary, fontSize: 13),
                   ),
                 ),
               ],
@@ -261,7 +263,7 @@ class _SocialConnectWizardState extends ConsumerState<SocialConnectWizard> {
           const SizedBox(height: 24),
           SizedBox(
             width: double.infinity,
-            child: MpepeButton(
+            child: OneovaButton(
               text: 'Continue',
               onPressed: _agreedToTerms ? _nextStep : () {},
               isPrimary: _agreedToTerms,
@@ -275,12 +277,12 @@ class _SocialConnectWizardState extends ConsumerState<SocialConnectWizard> {
   Widget _buildPermissionItem(IconData icon, String text) {
     return Row(
       children: [
-        Icon(icon, color: Theme.of(context).colorScheme.primary, size: 24),
+        Icon(icon, color: AppColors.brandBlue, size: 24),
         const SizedBox(width: 16),
         Expanded(
           child: Text(
             text,
-            style: TextStyle(color: Theme.of(context).colorScheme.onSurface, fontSize: 14),
+            style: TextStyle(color: context.textPrimary, fontSize: 14),
           ),
         ),
       ],
@@ -293,13 +295,13 @@ class _SocialConnectWizardState extends ConsumerState<SocialConnectWizard> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text('Step 2 of 3', style: TextStyle(color: Theme.of(context).colorScheme.primary, fontWeight: FontWeight.bold, fontSize: 12)),
+          const Text('Step 2 of 3', style: TextStyle(color: AppColors.brandBlue, fontWeight: FontWeight.bold, fontSize: 12)),
           const SizedBox(height: 8),
           Text('Select Account', style: AppTheme.h1Style),
           const SizedBox(height: 24),
           Text(
             'Choose which ${widget.platform} account you want to link to your studio.',
-            style: TextStyle(color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.8), fontSize: 14, height: 1.5),
+            style: TextStyle(color: context.textSecondary, fontSize: 14, height: 1.5),
           ),
           const SizedBox(height: 32),
           Expanded(
@@ -312,21 +314,21 @@ class _SocialConnectWizardState extends ConsumerState<SocialConnectWizard> {
                   onTap: () {
                     setState(() => _selectedAccount = account);
                   },
-                  child: MpepeCard(
+                  child: OneovaCard(
                     padding: const EdgeInsets.all(16),
-                    borderColor: isSelected ? AppColors.neonPurple : null,
+                    borderColor: isSelected ? AppColors.brandBlue : null,
                     child: Row(
                       children: [
                         Container(
                           width: 48,
                           height: 48,
                           decoration: BoxDecoration(
-                            color: isSelected ? AppColors.neonPurple.withValues(alpha: 0.2) : Theme.of(context).colorScheme.surface,
+                            color: isSelected ? AppColors.brandBlue.withValues(alpha: 0.2) : context.surface,
                             shape: BoxShape.circle,
-                            border: Border.all(color: isSelected ? AppColors.neonPurple : Theme.of(context).colorScheme.outline.withValues(alpha: 0.2)),
+                            border: Border.all(color: isSelected ? AppColors.brandBlue : context.border),
                           ),
                           child: Center(
-                            child: Text(account[0], style: AppTheme.h2Style.copyWith(color: isSelected ? AppColors.neonPurple : Colors.white)),
+                            child: Text(account[0], style: AppTheme.h2Style.copyWith(color: isSelected ? AppColors.brandBlue : context.textPrimary)),
                           ),
                         ),
                         const SizedBox(width: 16),
@@ -334,7 +336,7 @@ class _SocialConnectWizardState extends ConsumerState<SocialConnectWizard> {
                           child: Text(account, style: AppTheme.bodyStyle.copyWith(fontWeight: FontWeight.bold, fontSize: 16)),
                         ),
                         if (isSelected)
-                          const Icon(Icons.check_circle, color: AppColors.neonPurple),
+                          const Icon(Icons.check_circle, color: AppColors.brandBlue),
                       ],
                     ),
                   ),
@@ -344,7 +346,7 @@ class _SocialConnectWizardState extends ConsumerState<SocialConnectWizard> {
           ),
           SizedBox(
             width: double.infinity,
-            child: MpepeButton(
+            child: OneovaButton(
               text: 'Continue',
               onPressed: _selectedAccount != null ? _nextStep : () {},
               isPrimary: _selectedAccount != null,
@@ -361,34 +363,34 @@ class _SocialConnectWizardState extends ConsumerState<SocialConnectWizard> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text('Step 3 of 3', style: TextStyle(color: Theme.of(context).colorScheme.primary, fontWeight: FontWeight.bold, fontSize: 12)),
+          const Text('Step 3 of 3', style: TextStyle(color: AppColors.brandBlue, fontWeight: FontWeight.bold, fontSize: 12)),
           const SizedBox(height: 8),
           Text('Confirm Link', style: AppTheme.h1Style),
           const SizedBox(height: 24),
-          MpepeCard(
+          OneovaCard(
             padding: const EdgeInsets.all(24),
             child: Column(
               children: [
                 _buildPlatformLogo(size: 64),
                 const SizedBox(height: 24),
-                Text('Ready to link', style: AppTheme.bodyStyle.copyWith(color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.6), fontSize: 14)),
+                Text('Ready to link', style: AppTheme.bodyStyle.copyWith(color: context.textSecondary, fontSize: 14)),
                 const SizedBox(height: 8),
                 Text(
                   _selectedAccount ?? '',
-                  style: AppTheme.h2Style.copyWith(fontSize: 20, color: AppColors.neonPurple),
+                  style: AppTheme.h2Style.copyWith(fontSize: 20, color: AppColors.brandBlue),
                 ),
                 const SizedBox(height: 8),
-                Text('to MPEPE Studio', style: AppTheme.bodyStyle.copyWith(color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.6), fontSize: 14)),
+                Text('to Oneova Studio', style: AppTheme.bodyStyle.copyWith(color: context.textSecondary, fontSize: 14)),
               ],
             ),
           ).animate().fadeIn().scaleXY(begin: 0.9),
           const Spacer(),
           if (_isConnecting)
-            const Center(child: CircularProgressIndicator())
+            const Center(child: CircularProgressIndicator(color: AppColors.brandBlue))
           else
             SizedBox(
               width: double.infinity,
-              child: MpepeButton(
+              child: OneovaButton(
                 text: 'Confirm & Link Account',
                 onPressed: _submitConnection,
               ),

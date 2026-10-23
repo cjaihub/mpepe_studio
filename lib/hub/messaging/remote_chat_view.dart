@@ -63,7 +63,7 @@ class _RemoteChatViewState extends ConsumerState<RemoteChatView> {
                 },
               );
             },
-            loading: () => const Center(child: CircularProgressIndicator(color: AppColors.mpepeMaroon)),
+            loading: () => const Center(child: CircularProgressIndicator(color: AppColors.brandBlue)),
             error: (err, stack) => Center(child: Text('Error: $err', style: const TextStyle(color: Colors.red))),
           ),
         ),
@@ -80,7 +80,7 @@ class _RemoteChatViewState extends ConsumerState<RemoteChatView> {
         constraints: BoxConstraints(maxWidth: MediaQuery.of(context).size.width * 0.75),
         padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 14),
         decoration: BoxDecoration(
-          color: isMe ? AppColors.mpepeMaroon : AppColors.darkSurfaceHighlight,
+          color: isMe ? AppColors.brandBlue : AppColors.darkSurfaceHighlight,
           borderRadius: BorderRadius.circular(16).copyWith(
             bottomRight: isMe ? const Radius.circular(4) : const Radius.circular(16),
             bottomLeft: !isMe ? const Radius.circular(4) : const Radius.circular(16),
@@ -118,7 +118,7 @@ class _RemoteChatViewState extends ConsumerState<RemoteChatView> {
             Expanded(
               child: Container(
                 decoration: BoxDecoration(
-                  color: Colors.black.withOpacity(0.3),
+                  color: Colors.black.withValues(alpha: 0.3),
                   borderRadius: BorderRadius.circular(24),
                   border: Border.all(color: Colors.white12),
                 ),
@@ -147,7 +147,7 @@ class _RemoteChatViewState extends ConsumerState<RemoteChatView> {
               child: Container(
                 padding: const EdgeInsets.all(12),
                 decoration: const BoxDecoration(
-                  color: AppColors.mpepeMaroon,
+                  color: AppColors.brandBlue,
                   shape: BoxShape.circle,
                 ),
                 child: const Icon(Icons.send, color: Colors.white, size: 20),

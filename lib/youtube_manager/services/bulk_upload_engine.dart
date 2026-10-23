@@ -37,7 +37,7 @@ class BulkUploadEngine extends Notifier<List<UploadTask>> {
   void addFiles(List<PlatformFile> files) {
     final newTasks = files.map((file) {
       return UploadTask(
-        id: DateTime.now().millisecondsSinceEpoch.toString() + '_' + file.name,
+        id: '${DateTime.now().millisecondsSinceEpoch}_${file.name}',
         file: File(file.path!),
         title: file.name.replaceAll('.mp4', '').replaceAll('.mov', ''),
       );

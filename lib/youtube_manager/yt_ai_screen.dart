@@ -83,7 +83,7 @@ class YtAiScreen extends StatelessWidget {
     );
   }
   Widget _buildAIToolsHeader(BuildContext context) {
-    return MpepeCard(
+    return OneovaCard(
       borderColor: AppColors.neonPurple.withValues(alpha: 0.4),
       padding: const EdgeInsets.all(24),
       child: Column(
@@ -159,7 +159,7 @@ class YtAiScreen extends StatelessWidget {
                 const SizedBox(height: 8),
                 Row(
                   children: [
-                    MpepePill(text: category, isOutline: true),
+                    OneovaPill(text: category, isOutline: true),
                     const SizedBox(width: 10),
                     Text('High Potential', style: AppTheme.bodyStyle.copyWith(fontSize: 13, color: AppColors.neonGreen, fontWeight: FontWeight.bold)),
                   ],
@@ -175,7 +175,7 @@ class YtAiScreen extends StatelessWidget {
 
   Widget _buildSuiteCard(BuildContext context, IconData icon, String title, String subtitle) {
     return Expanded(
-      child: MpepeCard(
+      child: OneovaCard(
         padding: const EdgeInsets.all(20),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,

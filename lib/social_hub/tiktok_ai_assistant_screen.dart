@@ -27,7 +27,7 @@ class _TikTokAiAssistantScreenState extends ConsumerState<TikTokAiAssistantScree
     // Initial welcome message
     _messages.add({
       "role": "assistant",
-      "content": "I'm your MPEPE TikTok Automation Assistant. You can use your voice or type to command me to crop videos, analyze retention, or inject B-roll.",
+      "content": "I'm your Oneova TikTok Automation Assistant. You can use your voice or type to command me to crop videos, analyze retention, or inject B-roll.",
       "type": "text",
     });
   }
@@ -153,7 +153,7 @@ class _TikTokAiAssistantScreenState extends ConsumerState<TikTokAiAssistantScree
               const Text('TikTok Automator', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
             ],
           ),
-          const MpepePill(text: 'Voice Ready', isAi: true),
+          const OneovaPill(text: 'Voice Ready', isAi: true),
         ],
       ),
     );
@@ -189,7 +189,7 @@ class _TikTokAiAssistantScreenState extends ConsumerState<TikTokAiAssistantScree
         margin: const EdgeInsets.only(bottom: 12, left: 40),
         padding: const EdgeInsets.all(14),
         decoration: BoxDecoration(
-          color: AppColors.mpepeMaroon, // Brand Color
+          color: AppColors.brandBlue, // Brand Color
           borderRadius: BorderRadius.circular(16).copyWith(bottomRight: const Radius.circular(4)),
         ),
         child: Text(text, style: const TextStyle(color: Colors.white, fontSize: 14)),
@@ -206,7 +206,7 @@ class _TikTokAiAssistantScreenState extends ConsumerState<TikTokAiAssistantScree
         decoration: BoxDecoration(
           color: Theme.of(context).colorScheme.surfaceContainerHighest,
           borderRadius: BorderRadius.circular(16).copyWith(bottomLeft: const Radius.circular(4)),
-          border: Border.all(color: AppColors.mpepeGold.withValues(alpha: 0.3)), // Brand Accent
+          border: Border.all(color: AppColors.brandBlue.withValues(alpha: 0.3)), // Brand Accent
         ),
         child: Text(text, style: const TextStyle(fontSize: 14, height: 1.4)),
       ).animate().fade().slideX(begin: -0.1),
@@ -224,7 +224,7 @@ class _TikTokAiAssistantScreenState extends ConsumerState<TikTokAiAssistantScree
             Icon(
               isSuccess ? Icons.check_circle : Icons.sync,
               size: 14,
-              color: isSuccess ? Colors.greenAccent : AppColors.mpepeGold,
+              color: isSuccess ? Colors.greenAccent : AppColors.brandBlue,
             ).animate(onPlay: (controller) => isSuccess ? null : controller.repeat()).rotate(duration: 1000.ms),
             const SizedBox(width: 8),
             Text(
@@ -253,7 +253,7 @@ class _TikTokAiAssistantScreenState extends ConsumerState<TikTokAiAssistantScree
           if (_isProcessing)
             LinearProgressIndicator(
               backgroundColor: Colors.transparent,
-              valueColor: AlwaysStoppedAnimation<Color>(AppColors.mpepeMaroon.withValues(alpha: 0.5)),
+              valueColor: AlwaysStoppedAnimation<Color>(AppColors.brandBlue.withValues(alpha: 0.5)),
             ),
           const SizedBox(height: 8),
           Row(
@@ -265,14 +265,14 @@ class _TikTokAiAssistantScreenState extends ConsumerState<TikTokAiAssistantScree
                   padding: const EdgeInsets.all(12),
                   decoration: BoxDecoration(
                     shape: BoxShape.circle,
-                    color: _isListening ? AppColors.mpepeMaroon : AppColors.mpepeGold.withValues(alpha: 0.2),
+                    color: _isListening ? AppColors.brandBlue : AppColors.brandBlue.withValues(alpha: 0.2),
                     boxShadow: _isListening
-                        ? [BoxShadow(color: AppColors.mpepeMaroon.withValues(alpha: 0.6), blurRadius: 12, spreadRadius: 4)]
+                        ? [BoxShadow(color: AppColors.brandBlue.withValues(alpha: 0.6), blurRadius: 12, spreadRadius: 4)]
                         : null,
                   ),
                   child: Icon(
                     Icons.mic,
-                    color: _isListening ? Colors.white : AppColors.mpepeGold,
+                    color: _isListening ? Colors.white : AppColors.brandBlue,
                   ),
                 ),
               ),
@@ -283,7 +283,7 @@ class _TikTokAiAssistantScreenState extends ConsumerState<TikTokAiAssistantScree
                   decoration: BoxDecoration(
                     color: Theme.of(context).colorScheme.surfaceContainerHighest,
                     borderRadius: BorderRadius.circular(24),
-                    border: Border.all(color: AppColors.outline),
+                    border: Border.all(color: context.border, width: 1.0),
                   ),
                   child: TextField(
                     controller: _chatController,
@@ -298,7 +298,7 @@ class _TikTokAiAssistantScreenState extends ConsumerState<TikTokAiAssistantScree
               ),
               const SizedBox(width: 8),
               IconButton(
-                icon: const Icon(Icons.send, color: AppColors.mpepeMaroon),
+                icon: const Icon(Icons.send, color: AppColors.brandBlue),
                 onPressed: _isProcessing ? null : _sendMessage,
               ),
             ],

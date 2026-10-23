@@ -1,11 +1,9 @@
-import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:video_player/video_player.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:google_fonts/google_fonts.dart';
 
 import '../../shared/theme/app_theme.dart';
-import '../../shared/widgets/components.dart';
 import '../models/omnichannel_upload_task.dart';
 import '../models/connected_destination.dart';
 
@@ -49,7 +47,7 @@ class _PreviewMatrixScreenState extends ConsumerState<PreviewMatrixScreen> with 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: AppColors.darkBackground,
+      backgroundColor: context.bg,
       appBar: AppBar(
         backgroundColor: Colors.transparent,
         elevation: 0,
@@ -57,18 +55,18 @@ class _PreviewMatrixScreenState extends ConsumerState<PreviewMatrixScreen> with 
           'Preview Matrix',
           style: GoogleFonts.outfit(
             fontWeight: FontWeight.bold,
-            color: AppColors.mpepeGold,
+            color: AppColors.brandBlue,
           ),
         ),
-        iconTheme: const IconThemeData(color: AppColors.mpepeGold),
+        iconTheme: const IconThemeData(color: AppColors.brandBlue),
       ),
       body: Column(
         children: [
           TabBar(
             controller: _tabController,
-            indicatorColor: AppColors.mpepeGold,
-            labelColor: AppColors.mpepeGold,
-            unselectedLabelColor: Colors.white54,
+            indicatorColor: AppColors.brandBlue,
+            labelColor: AppColors.brandBlue,
+            unselectedLabelColor: context.textMuted,
             tabs: const [
               Tab(text: 'TikTok'),
               Tab(text: 'Shorts'),
@@ -94,11 +92,10 @@ class _PreviewMatrixScreenState extends ConsumerState<PreviewMatrixScreen> with 
 
   Widget _buildPlatformPreview(PlatformType platform) {
     if (!_isInitialized) {
-      return const Center(child: CircularProgressIndicator(color: AppColors.mpepeGold));
+      return const Center(child: CircularProgressIndicator(color: AppColors.brandBlue));
     }
 
     final double aspectRatio = (platform == PlatformType.facebook) ? 4 / 5 : 9 / 16;
-    final String platformName = platform.name.toUpperCase();
     final bool isWarning = _controller.value.size.aspectRatio > 1.0 && platform != PlatformType.facebook;
 
     return Center(
@@ -110,7 +107,7 @@ class _PreviewMatrixScreenState extends ConsumerState<PreviewMatrixScreen> with 
               margin: const EdgeInsets.all(16),
               padding: const EdgeInsets.all(12),
               decoration: BoxDecoration(
-                color: Colors.red.withOpacity(0.2),
+                color: Colors.red.withValues(alpha: 0.2),
                 borderRadius: BorderRadius.circular(8),
                 border: Border.all(color: Colors.red),
               ),
@@ -137,7 +134,7 @@ class _PreviewMatrixScreenState extends ConsumerState<PreviewMatrixScreen> with 
                     borderRadius: BorderRadius.circular(16),
                     boxShadow: [
                       BoxShadow(
-                        color: AppColors.mpepeGold.withOpacity(0.1),
+                        color: AppColors.brandBlue.withValues(alpha: 0.1),
                         blurRadius: 20,
                         spreadRadius: 5,
                       ),

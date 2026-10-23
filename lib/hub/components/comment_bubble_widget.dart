@@ -21,6 +21,7 @@ class CommentBubbleWidget extends StatelessWidget {
       case SocialPlatform.instagram:
         return Icons.camera_alt;
       case SocialPlatform.system:
+      default:
         return Icons.settings;
     }
   }
@@ -36,6 +37,7 @@ class CommentBubbleWidget extends StatelessWidget {
       case SocialPlatform.instagram:
         return Colors.pinkAccent;
       case SocialPlatform.system:
+      default:
         return Colors.grey;
     }
   }

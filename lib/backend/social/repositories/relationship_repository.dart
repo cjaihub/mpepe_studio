@@ -1,10 +1,17 @@
+import 'dart:async';
+
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../models/relationship.dart';
-import '../../user_service.dart'; // To access PrivacyMode if necessary
 
 final relationshipRepositoryProvider = Provider<RelationshipRepository>((ref) {
   return RelationshipRepository(FirebaseFirestore.instance);
+});
+
+/// Live follow state for (me, them).
+final followStateProvider = StreamProvider.autoDispose
+    .family<FollowState, ({String me, String them})>((ref, ids) {
+  return ref.watch(relationshipRepositoryProvider).watchFollowState(ids.me, ids.them);
 });
 
 class RelationshipRepository {
@@ -47,7 +54,9 @@ class RelationshipRepository {
       await _checkTargetNotBlocking(tx, currentUserId, targetUserId);
 
       final targetDoc = await tx.get(targetUserRef);
-      if (!targetDoc.exists) throw Exception("Target user does not exist");
+      if (!targetDoc.exists) throw Exception("This account no longer exists.");
+      final meDoc = await tx.get(currentUserRef);
+      final actorName = _displayName(meDoc.data());
       final targetData = targetDoc.data() as Map<String, dynamic>;
       // Read privacy from defaultPrivacyMode directly
       final privacyStr = targetData['defaultPrivacyMode'] ?? 'public';
@@ -87,13 +96,67 @@ class RelationshipRepository {
           'followerId': currentUserId,
           'followingId': targetUserId,
         });
+
+        // Real-time notification to the followed user
+        tx.set(_firestore.collection('notifications').doc(), _followNotification(
+          recipientId: targetUserId,
+          actorId: currentUserId,
+          category: 'newFollower',
+          title: 'New follower',
+          body: '$actorName started following you',
+        ));
       } else if (newStatus == RelationshipStatus.pending) {
         _publishEvent(tx, 'follow.requested', {
           'followerId': currentUserId,
           'followingId': targetUserId,
         });
+        tx.set(_firestore.collection('notifications').doc(), _followNotification(
+          recipientId: targetUserId,
+          actorId: currentUserId,
+          category: 'followRequest',
+          title: 'Follow request',
+          body: '$actorName wants to follow you',
+        ));
       }
     });
+  }
+
+  /// Withdraw a pending follow request (same as unfollow for a pending rel).
+  Future<void> cancelFollowRequest(String currentUserId, String targetUserId) =>
+      unfollowUser(currentUserId, targetUserId);
+
+  static String _displayName(Map<String, dynamic>? d) {
+    if (d == null) return 'Someone';
+    for (final k in ['fullName', 'displayName', 'username']) {
+      final v = d[k];
+      if (v is String && v.trim().isNotEmpty) return v.trim();
+    }
+    return 'Someone';
+  }
+
+  Map<String, dynamic> _followNotification({
+    required String recipientId,
+    required String actorId,
+    required String category,
+    required String title,
+    required String body,
+  }) {
+    return {
+      'userId': recipientId,
+      'recipientId': recipientId,
+      'actorId': actorId,
+      'title': title,
+      'message': body,
+      'body': body,
+      'type': 'social',
+      'category': category,
+      'priority': 'normal',
+      'deepLink': '/profile/$actorId',
+      'isRead': false,
+      'createdAt': FieldValue.serverTimestamp(),
+      'timestamp': FieldValue.serverTimestamp(),
+      'payload': {'followerId': actorId},
+    };
   }
 
   /// Unfollow a user
@@ -147,6 +210,13 @@ class RelationshipRepository {
         'followerId': requesterId,
         'followingId': currentUserId,
       });
+      tx.set(_firestore.collection('notifications').doc(), _followNotification(
+        recipientId: requesterId,
+        actorId: currentUserId,
+        category: 'newFollower',
+        title: 'Request accepted',
+        body: 'Your follow request was accepted',
+      ));
     });
   }
 
@@ -350,7 +420,182 @@ class RelationshipRepository {
         }
       }
     }
-    
     return suggested.toList();
   }
+
+  /// Stream whether current user is following target user
+  Stream<bool> watchIsFollowing(String currentUserId, String targetUserId) {
+    if (currentUserId.isEmpty || targetUserId.isEmpty || currentUserId == targetUserId) {
+      return Stream.value(false);
+    }
+    return _firestore
+        .collection('relationships')
+        .doc(_relId(currentUserId, targetUserId))
+        .snapshots()
+        .map((snapshot) {
+          if (!snapshot.exists) return false;
+          final status = snapshot.data()?['status'] as String?;
+          return status == RelationshipStatus.accepted.name;
+        });
+  }
+
+  /// Check if two users mutually follow each other
+  Future<bool> isMutualFollow(String userA, String userB) async {
+    if (userA.isEmpty || userB.isEmpty || userA == userB) return false;
+    try {
+      final docA = await _firestore.collection('relationships').doc(_relId(userA, userB)).get();
+      if (!docA.exists || docA.data()?['status'] != RelationshipStatus.accepted.name) {
+        return false;
+      }
+      final docB = await _firestore.collection('relationships').doc(_relId(userB, userA)).get();
+      return docB.exists && docB.data()?['status'] == RelationshipStatus.accepted.name;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  /// Stream whether two users mutually follow each other
+  Stream<bool> watchIsMutual(String userA, String userB) {
+    if (userA.isEmpty || userB.isEmpty || userA == userB) {
+      return Stream.value(false);
+    }
+    return _firestore
+        .collection('relationships')
+        .doc(_relId(userA, userB))
+        .snapshots()
+        .asyncMap((snapA) async {
+      if (!snapA.exists || snapA.data()?['status'] != RelationshipStatus.accepted.name) {
+        return false;
+      }
+      final snapB = await _firestore.collection('relationships').doc(_relId(userB, userA)).get();
+      return snapB.exists && snapB.data()?['status'] == RelationshipStatus.accepted.name;
+    });
+  }
+
+  /// Detailed relationship status stream: none, following, followsYou, mutual
+  Stream<MutualRelationshipStatus> watchRelationshipStatus(String currentUserId, String targetUserId) {
+    if (currentUserId.isEmpty || targetUserId.isEmpty || currentUserId == targetUserId) {
+      return Stream.value(MutualRelationshipStatus.none);
+    }
+
+    return _firestore
+        .collection('relationships')
+        .doc(_relId(currentUserId, targetUserId))
+        .snapshots()
+        .asyncMap((forwardSnap) async {
+      final bool isFollowing = forwardSnap.exists &&
+          forwardSnap.data()?['status'] == RelationshipStatus.accepted.name;
+
+      final reverseSnap = await _firestore
+          .collection('relationships')
+          .doc(_relId(targetUserId, currentUserId))
+          .get();
+
+      final bool isFollower = reverseSnap.exists &&
+          reverseSnap.data()?['status'] == RelationshipStatus.accepted.name;
+
+      if (isFollowing && isFollower) {
+        return MutualRelationshipStatus.mutual;
+      } else if (isFollowing) {
+        return MutualRelationshipStatus.following;
+      } else if (isFollower) {
+        return MutualRelationshipStatus.followsYou;
+      } else {
+        return MutualRelationshipStatus.none;
+      }
+    });
+  }
+
+  /// Live follow state between [currentUserId] and [targetUserId]; both
+  /// directions are watched, so "Follow back" flips the moment they follow.
+  Stream<FollowState> watchFollowState(String currentUserId, String targetUserId) {
+    if (currentUserId.isEmpty || targetUserId.isEmpty) return Stream.value(FollowState.none);
+    if (currentUserId == targetUserId) return Stream.value(FollowState.self);
+
+    final forwardRef = _firestore.collection('relationships').doc(_relId(currentUserId, targetUserId));
+    final reverseRef = _firestore.collection('relationships').doc(_relId(targetUserId, currentUserId));
+
+    late StreamController<FollowState> controller;
+    StreamSubscription? a;
+    StreamSubscription? b;
+    String? forward;
+    String? reverse;
+    var gotA = false;
+    var gotB = false;
+
+    void emit() {
+      if (!gotA || !gotB) return;
+      FollowState state;
+      if (forward == RelationshipStatus.blocked.name || reverse == RelationshipStatus.blocked.name) {
+        state = FollowState.blocked;
+      } else {
+        final iFollow = forward == RelationshipStatus.accepted.name;
+        final theyFollow = reverse == RelationshipStatus.accepted.name;
+        if (iFollow && theyFollow) {
+          state = FollowState.mutual;
+        } else if (iFollow) {
+          state = FollowState.following;
+        } else if (forward == RelationshipStatus.pending.name) {
+          state = FollowState.requested;
+        } else if (theyFollow) {
+          state = FollowState.followsYou;
+        } else {
+          state = FollowState.none;
+        }
+      }
+      controller.add(state);
+    }
+
+    controller = StreamController<FollowState>(
+      onListen: () {
+        a = forwardRef.snapshots().listen((d) {
+          forward = d.data()?['status'] as String?;
+          gotA = true;
+          emit();
+        }, onError: controller.addError);
+        b = reverseRef.snapshots().listen((d) {
+          reverse = d.data()?['status'] as String?;
+          gotB = true;
+          emit();
+        }, onError: controller.addError);
+      },
+      onCancel: () async {
+        await a?.cancel();
+        await b?.cancel();
+      },
+    );
+    return controller.stream.distinct();
+  }
+
+  /// Get list of user IDs who mutually follow [userId]
+  Future<List<String>> getMutualFollowing(String userId) async {
+    final following = await getFollowing(userId);
+    final followers = await getFollowers(userId);
+    return following.where((id) => followers.contains(id)).toList();
+  }
+}
+
+/// Everything a follow button needs to know about me → them.
+enum FollowState {
+  /// Viewing your own profile.
+  self,
+  none,
+
+  /// I asked to follow a private account; waiting for approval.
+  requested,
+  following,
+
+  /// They follow me, I don't follow them.
+  followsYou,
+  mutual,
+
+  /// Either side blocked the other.
+  blocked,
+}
+
+enum MutualRelationshipStatus {
+  none,
+  following,
+  followsYou,
+  mutual,
 }

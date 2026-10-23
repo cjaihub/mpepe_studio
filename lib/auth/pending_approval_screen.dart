@@ -66,7 +66,7 @@ class _PendingApprovalScreenState extends ConsumerState<PendingApprovalScreen>
                       children: [
                         Icon(Icons.check_circle, color: Colors.white),
                         SizedBox(width: 12),
-                        Text('Account approved! Welcome to MPEPE Studio 🎉'),
+                        Text('Account approved! Welcome to Oneova Studio 🎉'),
                       ],
                     ),
                     backgroundColor: Colors.green,
@@ -155,7 +155,7 @@ class _PendingApprovalScreenState extends ConsumerState<PendingApprovalScreen>
                     const SizedBox(height: 16),
 
                     Text(
-                      'Thank you for registering with MPEPE Studio.\n\nYour account is pending approval from our administrators. You\'ll be automatically let in the moment it\'s approved — no need to check back manually.',
+                      'Thank you for registering with Oneova Studio.\n\nYour account is pending approval from our administrators. You\'ll be automatically let in the moment it\'s approved — no need to check back manually.',
                       textAlign: TextAlign.center,
                       style: TextStyle(
                         fontSize: 15,
@@ -221,14 +221,14 @@ class _PendingApprovalScreenState extends ConsumerState<PendingApprovalScreen>
                     // Contact support link
                     TextButton.icon(
                       onPressed: () async {
-                        final uri = Uri.parse('mailto:support@mpepestudio.com?subject=Account%20Approval%20Inquiry');
+                        final uri = Uri.parse('mailto:support@oneovastudio.com?subject=Account%20Approval%20Inquiry');
                         try {
                           await launchUrl(uri);
                         } catch (e) {
                           if (context.mounted) {
                             ScaffoldMessenger.of(context).showSnackBar(
                               const SnackBar(
-                                content: Text('Could not open email client. Contact: support@mpepestudio.com'),
+                                content: Text('Could not open email client. Contact: support@oneovastudio.com'),
                               ),
                             );
                           }

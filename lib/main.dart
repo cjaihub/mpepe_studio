@@ -12,67 +12,125 @@ import 'package:google_sign_in/google_sign_in.dart';
 import 'firebase_options.dart';
 import 'shared/theme/app_theme.dart';
 import 'shared/theme/theme_provider.dart';
+import 'providers/settings_provider.dart';
 import 'shared/router.dart';
 import 'backend/native_plugin_server.dart';
 import 'backend/firebase_service.dart';
 import 'package:media_kit/media_kit.dart';
 import 'package:firebase_auth/firebase_auth.dart';
-import 'shared/widgets/floating_ai_orb.dart';
+import 'shared/notifications/notification_overlay_manager.dart';
 import 'desktop_agent/desktop_agent_app.dart';
+import 'backend/inbox/providers/presence_service.dart';
+import 'ova_assistant/ova_assistant_manager.dart';
+import 'shared/design_system/oneova_touch_feedback.dart';
+import 'social_hub/calling/widgets/call_overlay_manager.dart';
+import 'backend/calling/providers/active_call_controller.dart';
+import 'backend/calling/services/callkit_service.dart';
+import 'social_hub/live/studio_v2/shell/studio_scope.dart';
+import 'backend/dev/firebase_emulators.dart';
+import 'security/widgets/ova_guard_watcher.dart';
 
 /// Top-level FCM background message handler (must be a top-level function).
 @pragma('vm:entry-point')
 Future<void> _firebaseMessagingBackgroundHandler(RemoteMessage message) async {
-  await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
+  if (Firebase.apps.isEmpty) {
+    await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
+  }
   debugPrint('FCM background message: ${message.messageId}');
+  // Incoming/cancelled calls ring natively (full-screen on the lock screen).
+  await handleCallPushInBackground(message);
 }
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
   MediaKit.ensureInitialized();
-  await dotenv.load(fileName: ".env");
 
-  await Firebase.initializeApp(
-    options: DefaultFirebaseOptions.currentPlatform,
-  );
+  try {
+    await dotenv.load(fileName: ".env");
+  } catch (e) {
+    debugPrint('dotenv notice: $e');
+  }
 
-  // ── Google Sign-In v7: initialize the singleton before any sign-in calls ───
-  await GoogleSignIn.instance.initialize();
+  try {
+    if (Firebase.apps.isEmpty) {
+      await Firebase.initializeApp(
+        options: DefaultFirebaseOptions.currentPlatform,
+      );
+    }
+  } catch (e) {
+    debugPrint('Firebase initializeApp notice: $e');
+  }
 
-  // ── Crashlytics: capture all Flutter framework errors ──────────────────────
-  FlutterError.onError = FirebaseCrashlytics.instance.recordFlutterFatalError;
+  // Dev/test builds only (--dart-define=USE_EMULATORS=<host>).
+  await connectFirebaseEmulatorsIfRequested();
 
-  // ── App Check: protect backend resources ───────────────────────────────────
-  await FirebaseService.activateAppCheck();
+  // Crashlytics: capture all Flutter framework errors
+  try {
+    FlutterError.onError = (details) {
+      // Keep the full stack in logcat so build errors can be traced.
+      FlutterError.presentError(details);
+      FirebaseCrashlytics.instance.recordFlutterFatalError(details);
+    };
+  } catch (e) {
+    debugPrint('Crashlytics notice: $e');
+  }
 
-  // ── Remote Config: load feature flags before the UI starts ─────────────────
-  await FirebaseService.instance.initRemoteConfig();
+  // A widget that fails to build shows a quiet placeholder instead of the
+  // full-screen red error page. The error is still logged and reported.
+  ErrorWidget.builder = (details) => const _BuildErrorFallback();
 
-  // ── FCM background handler ──────────────────────────────────────────────────
-  FirebaseMessaging.onBackgroundMessage(_firebaseMessagingBackgroundHandler);
+  // Start the Native Plugin Server to allow OneOva Studio desktop apps to connect
+  try {
+    NativePluginServer().start();
+  } catch (e) {
+    debugPrint('NativePluginServer notice: $e');
+  }
 
-  // ── Analytics: enable data collection ─────────────────────────────────────
-  await FirebaseAnalytics.instance.setAnalyticsCollectionEnabled(true);
-
-  // Start the Native Plugin Server to allow desktop apps (like DaVinci) to connect
-  NativePluginServer().start();
-
+  // Launch UI immediately so Flutter renders first frame without blocking
   if (!kIsWeb && (Platform.isMacOS || Platform.isWindows)) {
     runApp(const ProviderScope(child: DesktopAgentApp()));
   } else {
-    runApp(const ProviderScope(child: MpepeStudioApp()));
+    runApp(ProviderScope(overrides: liveStudioV2Overrides, child: const OneOvaApp()));
   }
+
+  // Background initialization of non-critical and network-dependent services
+  _initBackgroundServices();
 }
 
+void _initBackgroundServices() {
+  GoogleSignIn.instance.initialize().catchError((e) {
+    debugPrint('GoogleSignIn init notice: $e');
+  });
 
-class MpepeStudioApp extends ConsumerStatefulWidget {
-  const MpepeStudioApp({super.key});
+  FirebaseService.activateAppCheck().catchError((e) {
+    debugPrint('App Check notice: $e');
+  });
+
+  FirebaseService.instance.initRemoteConfig().catchError((e) {
+    debugPrint('Remote Config notice: $e');
+  });
+
+  try {
+    FirebaseMessaging.onBackgroundMessage(_firebaseMessagingBackgroundHandler);
+  } catch (e) {
+    debugPrint('FCM notice: $e');
+  }
+
+  FirebaseAnalytics.instance.setAnalyticsCollectionEnabled(true).catchError((e) {
+    debugPrint('Analytics notice: $e');
+  });
+}
+
+class OneOvaApp extends ConsumerStatefulWidget {
+  const OneOvaApp({super.key});
 
   @override
-  ConsumerState<MpepeStudioApp> createState() => _MpepeStudioAppState();
+  ConsumerState<OneOvaApp> createState() => _OneOvaAppState();
 }
 
-class _MpepeStudioAppState extends ConsumerState<MpepeStudioApp> with WidgetsBindingObserver {
+typedef OneovaStudioApp = OneOvaApp;
+
+class _OneOvaAppState extends ConsumerState<OneOvaApp> with WidgetsBindingObserver {
   @override
   void initState() {
     super.initState();
@@ -90,13 +148,23 @@ class _MpepeStudioAppState extends ConsumerState<MpepeStudioApp> with WidgetsBin
     if (state == AppLifecycleState.paused ||
         state == AppLifecycleState.inactive ||
         state == AppLifecycleState.detached) {
+      // Mark presence offline when app goes to background or closes
+      try {
+        ref.read(presenceServiceProvider).setOffline();
+      } catch (_) {}
       // Record background time
       SharedPreferences.getInstance().then((prefs) {
         prefs.setInt('last_active_time', DateTime.now().millisecondsSinceEpoch);
       });
     } else if (state == AppLifecycleState.resumed) {
+      // Mark presence online when app resumes
+      try {
+        ref.read(presenceServiceProvider).setOnline();
+      } catch (_) {}
       // Only lock authenticated sessions
       if (FirebaseAuth.instance.currentUser == null) return;
+      // Never lock someone out of a ringing or ongoing call.
+      if (ref.read(activeCallControllerProvider).isLive) return;
       SharedPreferences.getInstance().then((prefs) {
         final lastActive = prefs.getInt('last_active_time');
         if (lastActive == null) return;
@@ -114,16 +182,64 @@ class _MpepeStudioAppState extends ConsumerState<MpepeStudioApp> with WidgetsBin
   Widget build(BuildContext context) {
     final router = ref.watch(routerProvider);
     final themeMode = ref.watch(themeProvider);
+    final settings = ref.watch(settingsProvider).value ?? const <String, dynamic>{};
+    final appearance = settings['appearance'] as Map? ?? const {};
+    final accessibility = settings['accessibility'] as Map? ?? const {};
+    final textFactor = switch (appearance['textSize']) {
+          'small' => 0.92,
+          'large' => 1.10,
+          'xlarge' => 1.20,
+          _ => 1.0,
+        } *
+        (accessibility['largeText'] == true ? 1.12 : 1.0);
 
     return MaterialApp.router(
-      title: 'MPEPE Studio',
+      title: 'Oneova',
       theme: AppTheme.lightTheme,
       darkTheme: AppTheme.darkTheme,
       themeMode: themeMode,
       routerConfig: router,
       builder: (context, child) {
-        return child ?? const SizedBox.shrink();
+        // Display preferences from Settings → Appearance / Accessibility.
+        final mq = MediaQuery.of(context);
+        return MediaQuery(
+          data: mq.copyWith(
+            textScaler: TextScaler.linear(mq.textScaler.scale(1.0) * textFactor),
+            boldText: mq.boldText || appearance['boldText'] == true,
+            highContrast: mq.highContrast || accessibility['highContrast'] == true,
+            disableAnimations: mq.disableAnimations || accessibility['reduceMotion'] == true,
+          ),
+          child: _buildOverlays(child),
+        );
       },
+    );
+  }
+
+  Widget _buildOverlays(Widget? child) {
+    return OneovaTouchGlowOverlay(
+      child: OvaAssistantGlobalWrapper(
+        child: CallOverlayManager(
+          child: NotificationOverlayManager(
+            child: OvaGuardWatcher(child: child ?? const SizedBox.shrink()),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// Replaces Flutter's red "build failed" box. Works without a surrounding
+/// MaterialApp (it can be inserted anywhere in the tree).
+class _BuildErrorFallback extends StatelessWidget {
+  const _BuildErrorFallback();
+
+  @override
+  Widget build(BuildContext context) {
+    return const Directionality(
+      textDirection: TextDirection.ltr,
+      child: Center(
+        child: Icon(Icons.refresh_rounded, size: 18, color: AppColors.textMuted),
+      ),
     );
   }
 }

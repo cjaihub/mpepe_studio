@@ -23,7 +23,7 @@ class TikTokProfilePanel extends ConsumerWidget {
 
     final account = oauthState.account!;
 
-    return MpepeCard(
+    return OneovaCard(
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -33,7 +33,7 @@ class TikTokProfilePanel extends ConsumerWidget {
               CircleAvatar(
                 radius: 24,
                 backgroundImage: account.avatarUrl != null ? NetworkImage(account.avatarUrl!) : null,
-                backgroundColor: AppColors.darkSurfaceHighlight,
+                backgroundColor: context.surfaceMid,
                 child: account.avatarUrl == null ? const Icon(Icons.person, color: Colors.white) : null,
               ),
               const SizedBox(width: 16),
@@ -46,7 +46,7 @@ class TikTokProfilePanel extends ConsumerWidget {
                       style: GoogleFonts.outfit(
                         fontSize: 18,
                         fontWeight: FontWeight.bold,
-                        color: AppColors.textPrimary,
+                        color: context.textPrimary,
                       ),
                     ),
                     const SizedBox(height: 2),
@@ -54,7 +54,7 @@ class TikTokProfilePanel extends ConsumerWidget {
                       'TikTok Creator',
                       style: GoogleFonts.outfit(
                         fontSize: 13,
-                        color: AppColors.textSecondary,
+                        color: context.textSecondary,
                       ),
                     ),
                   ],
@@ -85,7 +85,7 @@ class TikTokProfilePanel extends ConsumerWidget {
             style: GoogleFonts.outfit(
               fontSize: 16,
               fontWeight: FontWeight.w600,
-              color: AppColors.textPrimary,
+              color: context.textPrimary,
             ),
           ),
           const SizedBox(height: 12),
@@ -94,7 +94,7 @@ class TikTokProfilePanel extends ConsumerWidget {
           profileAsync.when(
             data: (state) => _buildVideosList(state.videos),
             loading: () => const SizedBox(height: 140, child: Center(child: CircularProgressIndicator())),
-            error: (_, __) => const SizedBox.shrink(),
+            error: (error, stack) => const SizedBox.shrink(),
           ),
         ],
       ),
@@ -118,7 +118,7 @@ class TikTokProfilePanel extends ConsumerWidget {
       child: ListView.separated(
         scrollDirection: Axis.horizontal,
         itemCount: videos.length,
-        separatorBuilder: (_, __) => const SizedBox(width: 12),
+        separatorBuilder: (context, index) => const SizedBox(width: 12),
         itemBuilder: (context, index) {
           return _VideoCard(video: videos[index]);
         },
@@ -145,7 +145,7 @@ class _StatItem extends StatelessWidget {
           style: GoogleFonts.outfit(
             fontSize: 22,
             fontWeight: FontWeight.w800,
-            color: AppColors.textPrimary,
+            color: context.textPrimary,
           ),
         ),
         const SizedBox(height: 4),
@@ -153,7 +153,7 @@ class _StatItem extends StatelessWidget {
           label,
           style: GoogleFonts.outfit(
             fontSize: 12,
-            color: AppColors.textSecondary,
+            color: context.textSecondary,
           ),
         ),
       ],
@@ -174,7 +174,7 @@ class _VideoCard extends StatelessWidget {
       width: 120,
       decoration: BoxDecoration(
         borderRadius: BorderRadius.circular(12),
-        color: AppColors.darkSurfaceHighlight,
+        color: context.surfaceMid,
         image: DecorationImage(
           image: NetworkImage(video.thumbnailUrl),
           fit: BoxFit.cover,

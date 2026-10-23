@@ -91,7 +91,7 @@ class _MetaConnectWizardState extends ConsumerState<MetaConnectWizard> {
                   Column(
                     mainAxisSize: MainAxisSize.min,
                     children: [
-                      MpepeButton(
+                      OneovaButton(
                         text: _currentStep == 0 ? 'Continue to ${widget.platform}' : 'Complete Setup',
                         onPressed: _nextStep,
                         isPrimary: true,
@@ -164,7 +164,7 @@ class _MetaConnectWizardState extends ConsumerState<MetaConnectWizard> {
 
   String _getStepDescription() {
     if (_currentStep == 0) {
-      return 'MPEPE uses secure OAuth. You will be redirected to ${widget.platform} to sign in. We never see your password, and no API keys are required.';
+      return 'Oneova uses secure OAuth. You will be redirected to ${widget.platform} to sign in. We never see your password, and no API keys are required.';
     }
     if (_currentStep == 1) {
       return 'Exchanging secure tokens with ${widget.platform}. Please do not close the app.';

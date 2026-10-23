@@ -55,7 +55,7 @@ class SocialHubScreen extends ConsumerWidget {
                 style: TextStyle(color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.6), fontSize: 13),
               ),
               const SizedBox(height: 18),
-              MpepeCard(
+              OneovaCard(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
@@ -125,7 +125,7 @@ class SocialHubScreen extends ConsumerWidget {
               ),
               const SizedBox(height: 18),
               Text(
-                'Connecting a platform hands you to its own sign-in — MPEPE never asks for a password directly.',
+                'Connecting a platform hands you to its own sign-in — Oneova never asks for a password directly.',
                 textAlign: TextAlign.center,
                 style: TextStyle(color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.6), fontSize: 12, height: 1.5),
               ),
@@ -163,7 +163,7 @@ class _PlatformCard extends StatelessWidget {
   Widget build(BuildContext context) {
     return GestureDetector(
       onTap: onTap,
-      child: MpepeCard(
+      child: OneovaCard(
         padding: const EdgeInsets.all(16),
         child: Row(
           children: [

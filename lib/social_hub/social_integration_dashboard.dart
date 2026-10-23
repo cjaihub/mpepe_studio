@@ -25,7 +25,7 @@ class SocialIntegrationDashboard extends ConsumerWidget {
 
     return Scaffold(
       body: StudioBackground(
-        backgroundIcons: const [Icons.share, Icons.video_camera_back, Icons.auto_awesome],
+        backgroundIcons: const [Icons.share, Icons.camera_rear, Icons.auto_awesome],
         child: SafeArea(
           child: CustomScrollView(
             slivers: [
@@ -69,7 +69,7 @@ class SocialIntegrationDashboard extends ConsumerWidget {
           FloatingActionButton.extended(
             heroTag: 'upload_hub',
             onPressed: () => context.push('/upload/global'),
-            backgroundColor: AppColors.mpepeGold,
+            backgroundColor: AppColors.brandBlue,
             icon: const Icon(Icons.cloud_upload, color: Colors.black),
             label: const Text('Global Upload', style: TextStyle(color: Colors.black, fontWeight: FontWeight.bold)),
           ),
@@ -78,9 +78,9 @@ class SocialIntegrationDashboard extends ConsumerWidget {
             FloatingActionButton.extended(
               heroTag: 'tiktok_assistant',
               onPressed: () => context.push('/social_hub/tiktok_assistant'),
-              backgroundColor: AppColors.mpepeMaroon,
-              icon: const Icon(Icons.mic, color: AppColors.mpepeGold),
-              label: const Text('AI Manager', style: TextStyle(color: AppColors.mpepeGold, fontWeight: FontWeight.bold)),
+              backgroundColor: AppColors.brandBlue,
+              icon: const Icon(Icons.mic, color: AppColors.brandBlue),
+              label: const Text('AI Manager', style: TextStyle(color: AppColors.brandBlue, fontWeight: FontWeight.bold)),
             ),
         ],
       ).animate().scale(delay: 500.ms, duration: 400.ms, curve: Curves.easeOutBack),
@@ -129,7 +129,7 @@ class SocialIntegrationDashboard extends ConsumerWidget {
   }
 
   Widget _buildConnectionStatusCard(BuildContext context, bool hasYoutube, bool hasTiktok, bool hasFacebook, bool hasInstagram) {
-    return MpepeCard(
+    return OneovaCard(
       child: Column(
         children: [
           Row(
@@ -177,7 +177,7 @@ class SocialIntegrationDashboard extends ConsumerWidget {
             ),
           ] else ...[
             const SizedBox(height: 16),
-            const MpepePill(text: 'All Core Platforms Connected', color: Color(0xFF00E676), isGhost: true),
+            const OneovaPill(text: 'All Core Platforms Connected', color: Color(0xFF00E676), isGhost: true),
           ]
         ],
       ),
@@ -219,19 +219,6 @@ class SocialIntegrationDashboard extends ConsumerWidget {
     );
   }
 
-  Widget _buildConnectionLine(BuildContext context, bool active) {
-    return Expanded(
-      child: Container(
-        height: 4,
-        margin: const EdgeInsets.symmetric(horizontal: 12),
-        decoration: BoxDecoration(
-          borderRadius: BorderRadius.circular(2),
-          color: active ? Theme.of(context).colorScheme.primary : Theme.of(context).colorScheme.outline,
-        ),
-      ),
-    );
-  }
-
   Widget _buildSectionTitle(BuildContext context, String title) {
     return Text(
       title,
@@ -257,7 +244,7 @@ class SocialIntegrationDashboard extends ConsumerWidget {
   }
 
   Widget _buildFeatureCard(BuildContext context, String title, String subtitle, IconData icon, Gradient? gradient, VoidCallback? onTap) {
-    return MpepeCard(
+    return OneovaCard(
       padding: const EdgeInsets.all(16),
       onTap: onTap ?? () {},
       child: Column(
@@ -282,7 +269,7 @@ class SocialIntegrationDashboard extends ConsumerWidget {
   }
 
   Widget _buildAnalyticsCommandCenter(BuildContext context) {
-    return MpepeCard(
+    return OneovaCard(
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -290,7 +277,7 @@ class SocialIntegrationDashboard extends ConsumerWidget {
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
               const Text('Cross-Platform Health', style: TextStyle(fontWeight: FontWeight.bold)),
-              MpepePill(text: '+12% this week', color: Colors.green, isGhost: true),
+              OneovaPill(text: '+12% this week', color: Colors.green, isGhost: true),
             ],
           ),
           const SizedBox(height: 20),
@@ -302,7 +289,7 @@ class SocialIntegrationDashboard extends ConsumerWidget {
             ],
           ),
           const SizedBox(height: 24),
-          MpepeButton(
+          OneovaButton(
             text: 'View Full Report',
             onPressed: () => context.push('/social_hub/analytics'),
             isPrimary: false,

@@ -5,6 +5,7 @@ import 'package:google_sign_in/google_sign_in.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../../shared/router.dart';
 import 'pin_auth_service.dart';
+import '../security/login_security.dart';
 
 final secureLogoutServiceProvider = Provider<SecureLogoutService>((ref) {
   return SecureLogoutService(
@@ -33,16 +34,12 @@ class SecureLogoutService {
   final Ref _ref;
 
   SecureLogoutService({
-    required FirebaseAuth auth,
-    required GoogleSignIn googleSignIn,
-    required FlutterSecureStorage secureStorage,
-    required PinAuthService pinService,
-    required Ref ref,
-  })  : _auth = auth,
-        _googleSignIn = googleSignIn,
-        _secureStorage = secureStorage,
-        _pinService = pinService,
-        _ref = ref;
+    required this._auth,
+    required this._googleSignIn,
+    required this._secureStorage,
+    required this._pinService,
+    required this._ref,
+  });
 
   /// Full secure logout. Call this from ANY logout trigger in the app.
   /// Safe to call even if partially signed in.
@@ -66,6 +63,7 @@ class SecureLogoutService {
 
   Future<void> _signOutFirebase() async {
     try {
+      await LoginSecurity.instance.clear();
       await _auth.signOut();
     } catch (_) {
       // Best-effort — don't block logout if Firebase is unreachable

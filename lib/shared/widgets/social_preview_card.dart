@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_animate/flutter_animate.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../../backend/link_preview_service.dart';
+import '../theme/app_theme.dart';
 
 class SocialPreviewCard extends StatefulWidget {
   final String url;
@@ -55,9 +56,9 @@ class _SocialPreviewCardState extends State<SocialPreviewCard> {
       return Container(
         height: 120,
         decoration: BoxDecoration(
-          color: Theme.of(context).colorScheme.surface,
+          color: context.surface,
           borderRadius: BorderRadius.circular(16),
-          border: Border.all(color: Theme.of(context).colorScheme.outline.withValues(alpha: 0.5)),
+          border: Border.all(color: context.border),
         ),
         child: const Center(child: CircularProgressIndicator()),
       ).animate().shimmer();
@@ -73,9 +74,9 @@ class _SocialPreviewCardState extends State<SocialPreviewCard> {
       child: Container(
         clipBehavior: Clip.antiAlias,
         decoration: BoxDecoration(
-          color: Theme.of(context).colorScheme.surface,
+          color: context.surface,
           borderRadius: BorderRadius.circular(16),
-          border: Border.all(color: Theme.of(context).colorScheme.outline),
+          border: Border.all(color: context.border),
           boxShadow: [
             BoxShadow(
               color: Theme.of(context).shadowColor.withValues(alpha: 0.1),
@@ -122,7 +123,7 @@ class _SocialPreviewCardState extends State<SocialPreviewCard> {
                   Text(
                     _metadata!.title ?? 'Untitled Link',
                     style: TextStyle(
-                      color: Theme.of(context).colorScheme.onSurface,
+                      color: context.textPrimary,
                       fontSize: 16,
                       fontWeight: FontWeight.bold,
                     ),
@@ -134,7 +135,7 @@ class _SocialPreviewCardState extends State<SocialPreviewCard> {
                     Text(
                       _metadata!.description!,
                       style: TextStyle(
-                        color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.6),
+                        color: context.textSecondary,
                         fontSize: 14,
                       ),
                       maxLines: 2,
@@ -144,13 +145,13 @@ class _SocialPreviewCardState extends State<SocialPreviewCard> {
                   const SizedBox(height: 12),
                   Row(
                     children: [
-                      Icon(Icons.link, size: 14, color: Theme.of(context).colorScheme.primary),
+                      Icon(Icons.link, size: 14, color: context.brandBlue),
                       const SizedBox(width: 4),
                       Expanded(
                         child: Text(
                           widget.url,
                           style: TextStyle(
-                            color: Theme.of(context).colorScheme.primary,
+                            color: context.brandBlue,
                             fontSize: 12,
                           ),
                           maxLines: 1,
@@ -174,32 +175,32 @@ class _SocialPreviewCardState extends State<SocialPreviewCard> {
       child: Container(
         padding: const EdgeInsets.all(16),
         decoration: BoxDecoration(
-          color: Theme.of(context).colorScheme.surface,
+          color: context.surface,
           borderRadius: BorderRadius.circular(16),
-          border: Border.all(color: Theme.of(context).colorScheme.outline),
+          border: Border.all(color: context.border),
         ),
         child: Row(
           children: [
             Container(
               padding: const EdgeInsets.all(12),
               decoration: BoxDecoration(
-                color: Theme.of(context).colorScheme.primary.withValues(alpha: 0.1),
+                color: context.brandBlue.withValues(alpha: 0.1),
                 shape: BoxShape.circle,
               ),
-              child: Icon(Icons.link, color: Theme.of(context).colorScheme.primary),
+              child: Icon(Icons.link, color: context.brandBlue),
             ),
             const SizedBox(width: 16),
             Expanded(
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text('Attached Link', style: TextStyle(color: Theme.of(context).colorScheme.onSurface, fontWeight: FontWeight.bold)),
+                  Text('Attached Link', style: TextStyle(color: context.textPrimary, fontWeight: FontWeight.bold)),
                   const SizedBox(height: 4),
-                  Text(widget.url, style: TextStyle(color: Theme.of(context).colorScheme.primary, fontSize: 12), maxLines: 1, overflow: TextOverflow.ellipsis),
+                  Text(widget.url, style: TextStyle(color: context.brandBlue, fontSize: 12), maxLines: 1, overflow: TextOverflow.ellipsis),
                 ],
               ),
             ),
-            Icon(Icons.open_in_new, color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.3)),
+            Icon(Icons.open_in_new, color: context.textMuted),
           ],
         ),
       ),

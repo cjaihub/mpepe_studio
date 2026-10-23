@@ -1,0 +1,35 @@
+# Oneova self-hosted LiveKit — production single node (start here; scale out
+# with more nodes sharing Redis later). Runs on one Linux VM with a public IP.
+#
+#   cp .env.example .env   # fill LIVE_DOMAIN, TURN_DOMAIN, ACME_EMAIL
+#   bash setup.sh          # writes livekit.yaml + Caddyfile from .env + secrets/
+#   docker compose up -d
+#
+# Ports to open in the VM firewall:
+#   80/tcp, 443/tcp        Caddy (TLS for wss://LIVE_DOMAIN) and TURN/TLS
+#   7881/tcp               WebRTC over TCP
+#   3478/udp               TURN/UDP
+#   50000-60000/udp        WebRTC media
+services:
+  caddy:
+    image: livekit/caddyl4:v2.11.3
+    command: run --config /etc/caddy.yaml --adapter yaml
+    restart: unless-stopped
+    network_mode: host
+    volumes:
+      - ./caddy.yaml:/etc/caddy.yaml:ro
+      - ./caddy_data:/data
+
+  livekit:
+    image: livekit/livekit-server:v1.13.10
+    command: --config /etc/livekit.yaml
+    restart: unless-stopped
+    network_mode: host
+    volumes:
+      - ./livekit.yaml:/etc/livekit.yaml:ro
+
+  redis:
+    image: redis:7.4.1-alpine
+    command: redis-server --bind 127.0.0.1 --protected-mode yes --save "" --appendonly no
+    restart: unless-stopped
+    network_mode: host

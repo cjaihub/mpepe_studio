@@ -125,7 +125,7 @@ class _TikTokConnectWizardState extends ConsumerState<TikTokConnectWizard>
     });
 
     return Scaffold(
-      backgroundColor: AppColors.darkBackground,
+      backgroundColor: context.bg,
       body: Stack(
         children: [
           _buildAmbientGlow(),
@@ -159,7 +159,7 @@ class _TikTokConnectWizardState extends ConsumerState<TikTokConnectWizard>
       right: -80,
       child: AnimatedBuilder(
         animation: _pulseController,
-        builder: (_, __) {
+        builder: (context, child) {
           final scale = 1.0 + (_pulseController.value * 0.06);
           return Transform.scale(
             scale: scale,
@@ -194,7 +194,7 @@ class _TikTokConnectWizardState extends ConsumerState<TikTokConnectWizard>
       child: Row(
         children: [
           IconButton(
-            icon: const Icon(Icons.close_rounded, color: AppColors.textSecondary, size: 22),
+            icon: Icon(Icons.close_rounded, color: context.textSecondary, size: 22),
             onPressed: () {
               ref.read(tiktokOAuthProvider.notifier).reset();
               context.pop();
@@ -206,7 +206,7 @@ class _TikTokConnectWizardState extends ConsumerState<TikTokConnectWizard>
             style: GoogleFonts.outfit(
               fontSize: 12,
               fontWeight: FontWeight.w600,
-              color: AppColors.textSecondary,
+              color: context.textSecondary,
             ),
           ),
         ],
@@ -231,7 +231,7 @@ class _TikTokConnectWizardState extends ConsumerState<TikTokConnectWizard>
                 gradient: isActive
                     ? const LinearGradient(colors: [_tiktokCyan, _tiktokPink])
                     : null,
-                color: isActive ? null : AppColors.outline,
+                color: isActive ? null : context.border,
                 boxShadow: isActive
                     ? [
                         BoxShadow(
@@ -263,7 +263,7 @@ class _TikTokConnectWizardState extends ConsumerState<TikTokConnectWizard>
             'Connect your',
             style: GoogleFonts.outfit(
               fontSize: 16,
-              color: AppColors.textSecondary,
+              color: context.textSecondary,
               fontWeight: FontWeight.w500,
             ),
           ).animate().fadeIn(delay: 100.ms),
@@ -272,26 +272,26 @@ class _TikTokConnectWizardState extends ConsumerState<TikTokConnectWizard>
             style: GoogleFonts.outfit(
               fontSize: 38,
               fontWeight: FontWeight.w900,
-              color: AppColors.textPrimary,
+              color: context.textPrimary,
               letterSpacing: -1.2,
             ),
           ).animate().fadeIn(delay: 150.ms).slideY(begin: 0.08),
           const SizedBox(height: 12),
           Text(
-            'Link your TikTok to sync videos and leverage MPEPE AI for shorts.',
+            'Link your TikTok to sync videos and leverage Oneova AI for shorts.',
             style: GoogleFonts.outfit(
               fontSize: 14.5,
-              color: AppColors.textSecondary,
+              color: context.textSecondary,
               height: 1.6,
             ),
           ).animate().fadeIn(delay: 200.ms),
           const SizedBox(height: 36),
           Text(
-            'What MPEPE will access',
+            'What Oneova will access',
             style: GoogleFonts.outfit(
               fontSize: 13,
               fontWeight: FontWeight.w700,
-              color: AppColors.textSecondary,
+              color: context.textSecondary,
               letterSpacing: 0.5,
             ),
           ).animate().fadeIn(delay: 250.ms),
@@ -354,10 +354,10 @@ class _TikTokConnectWizardState extends ConsumerState<TikTokConnectWizard>
         duration: 250.ms,
         padding: const EdgeInsets.all(16),
         decoration: BoxDecoration(
-          color: _agreedToTerms ? _tiktokCyan.withValues(alpha: 0.08) : AppColors.darkSurface,
+          color: _agreedToTerms ? _tiktokCyan.withValues(alpha: 0.08) : context.surface,
           borderRadius: BorderRadius.circular(18),
           border: Border.all(
-            color: _agreedToTerms ? _tiktokCyan.withValues(alpha: 0.35) : AppColors.outline,
+            color: _agreedToTerms ? _tiktokCyan.withValues(alpha: 0.35) : context.border,
           ),
         ),
         child: Row(
@@ -370,7 +370,7 @@ class _TikTokConnectWizardState extends ConsumerState<TikTokConnectWizard>
                 shape: BoxShape.circle,
                 color: _agreedToTerms ? _tiktokCyan : Colors.transparent,
                 border: Border.all(
-                  color: _agreedToTerms ? _tiktokCyan : AppColors.outline,
+                  color: _agreedToTerms ? _tiktokCyan : context.border,
                   width: 1.5,
                 ),
               ),
@@ -382,7 +382,7 @@ class _TikTokConnectWizardState extends ConsumerState<TikTokConnectWizard>
                 text: TextSpan(
                   style: GoogleFonts.outfit(
                     fontSize: 13.5,
-                    color: AppColors.textPrimary,
+                    color: context.textPrimary,
                     height: 1.4,
                   ),
                   children: [
@@ -391,7 +391,7 @@ class _TikTokConnectWizardState extends ConsumerState<TikTokConnectWizard>
                       text: "TikTok's Terms of Service",
                       style: TextStyle(color: _tiktokPink, fontWeight: FontWeight.w600),
                     ),
-                    const TextSpan(text: ' and MPEPE Studio\'s '),
+                    const TextSpan(text: ' and Oneova Studio\'s '),
                     TextSpan(
                       text: 'Privacy Policy',
                       style: TextStyle(color: _tiktokCyan, fontWeight: FontWeight.w600),
@@ -421,7 +421,7 @@ class _TikTokConnectWizardState extends ConsumerState<TikTokConnectWizard>
                 ...List.generate(3, (i) {
                   return AnimatedBuilder(
                     animation: _pulseController,
-                    builder: (_, __) {
+                    builder: (context, child) {
                       final progress = (_pulseController.value + (i * 0.33)) % 1.0;
                       return Opacity(
                         opacity: (1 - progress) * 0.4,
@@ -440,7 +440,7 @@ class _TikTokConnectWizardState extends ConsumerState<TikTokConnectWizard>
                     },
                   );
                 }),
-                _buildPlatformHalo(size: 90),
+                _buildPlatformHalo(size: 80),
               ],
             ),
           ),
@@ -454,7 +454,7 @@ class _TikTokConnectWizardState extends ConsumerState<TikTokConnectWizard>
               style: GoogleFonts.outfit(
                 fontSize: 22,
                 fontWeight: FontWeight.w700,
-                color: AppColors.textPrimary,
+                color: context.textPrimary,
                 letterSpacing: -0.5,
               ),
             ),
@@ -465,7 +465,7 @@ class _TikTokConnectWizardState extends ConsumerState<TikTokConnectWizard>
             textAlign: TextAlign.center,
             style: GoogleFonts.outfit(
               fontSize: 14,
-              color: AppColors.textSecondary,
+              color: context.textSecondary,
               height: 1.5,
             ),
           ),
@@ -474,10 +474,10 @@ class _TikTokConnectWizardState extends ConsumerState<TikTokConnectWizard>
             borderRadius: BorderRadius.circular(4),
             child: AnimatedBuilder(
               animation: _progressController,
-              builder: (_, __) {
+              builder: (context, child) {
                 return LinearProgressIndicator(
                   value: null,
-                  backgroundColor: AppColors.outline,
+                  backgroundColor: context.border,
                   valueColor: AlwaysStoppedAnimation(_tiktokCyan),
                   minHeight: 3,
                 );
@@ -490,8 +490,8 @@ class _TikTokConnectWizardState extends ConsumerState<TikTokConnectWizard>
               ref.read(tiktokOAuthProvider.notifier).reset();
               _goToStep(0);
             },
-            icon: const Icon(Icons.arrow_back_rounded, size: 16, color: AppColors.textSecondary),
-            label: Text('Cancel', style: GoogleFonts.outfit(color: AppColors.textSecondary)),
+            icon: Icon(Icons.arrow_back_rounded, size: 16, color: context.textSecondary),
+            label: Text('Cancel', style: GoogleFonts.outfit(color: context.textSecondary)),
           ),
         ],
       ),
@@ -529,17 +529,17 @@ class _TikTokConnectWizardState extends ConsumerState<TikTokConnectWizard>
             style: GoogleFonts.outfit(
               fontSize: 28,
               fontWeight: FontWeight.w800,
-              color: AppColors.textPrimary,
+              color: context.textPrimary,
               letterSpacing: -0.5,
             ),
           ).animate().fadeIn(delay: 200.ms).slideY(begin: 0.1),
           const SizedBox(height: 12),
           Text(
-            'Your TikTok account is now securely linked to MPEPE Studio.',
+            'Your TikTok account is now securely linked to Oneova Studio.',
             textAlign: TextAlign.center,
             style: GoogleFonts.outfit(
               fontSize: 15,
-              color: AppColors.textSecondary,
+              color: context.textSecondary,
               height: 1.5,
             ),
           ).animate().fadeIn(delay: 300.ms),
@@ -548,16 +548,16 @@ class _TikTokConnectWizardState extends ConsumerState<TikTokConnectWizard>
             Container(
               padding: const EdgeInsets.all(16),
               decoration: BoxDecoration(
-                color: AppColors.darkSurface,
+                color: context.surface,
                 borderRadius: BorderRadius.circular(20),
-                border: Border.all(color: AppColors.outline),
+                border: Border.all(color: context.border),
               ),
               child: Row(
                 children: [
                   CircleAvatar(
                     backgroundImage: account.avatarUrl != null ? NetworkImage(account.avatarUrl!) : null,
                     backgroundColor: _tiktokCyan.withValues(alpha: 0.2),
-                    child: account.avatarUrl == null ? const Icon(Icons.person, color: Colors.white) : null,
+                    child: account.avatarUrl == null ? Icon(Icons.person, color: context.textPrimary) : null,
                   ),
                   const SizedBox(width: 16),
                   Expanded(
@@ -568,7 +568,7 @@ class _TikTokConnectWizardState extends ConsumerState<TikTokConnectWizard>
                           account.displayName,
                           style: GoogleFonts.outfit(fontWeight: FontWeight.bold, fontSize: 16),
                         ),
-                        Text('TikTok User', style: GoogleFonts.outfit(color: AppColors.textSecondary, fontSize: 13)),
+                        Text('TikTok User', style: GoogleFonts.outfit(color: context.textSecondary, fontSize: 13)),
                       ],
                     ),
                   ),
@@ -602,8 +602,8 @@ class _TikTokConnectWizardState extends ConsumerState<TikTokConnectWizard>
       child: ElevatedButton.icon(
         onPressed: onPressed,
         style: ElevatedButton.styleFrom(
-          backgroundColor: onPressed == null ? AppColors.darkSurfaceHighlight : AppColors.textPrimary,
-          foregroundColor: AppColors.darkBackground,
+          backgroundColor: onPressed == null ? context.surfaceMid : context.textPrimary,
+          foregroundColor: context.bg,
           elevation: 0,
           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
         ),
@@ -662,7 +662,7 @@ class _PermissionRow extends StatelessWidget {
                   style: GoogleFonts.outfit(
                     fontSize: 15,
                     fontWeight: FontWeight.w600,
-                    color: AppColors.textPrimary,
+                    color: context.textPrimary,
                   ),
                 ),
                 const SizedBox(height: 2),
@@ -670,7 +670,7 @@ class _PermissionRow extends StatelessWidget {
                   subtitle,
                   style: GoogleFonts.outfit(
                     fontSize: 13,
-                    color: AppColors.textSecondary,
+                    color: context.textSecondary,
                   ),
                 ),
               ],

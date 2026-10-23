@@ -1,5 +1,6 @@
 import 'dart:io';
 import 'package:firebase_storage/firebase_storage.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 final storageServiceProvider = Provider<StorageService>((ref) {
@@ -18,7 +19,24 @@ class StorageService {
       final snapshot = await uploadTask;
       return await snapshot.ref.getDownloadURL();
     } catch (e) {
-      print('StorageService upload error: $e');
+      debugPrint('StorageService upload error: $e');
+      return null;
+    }
+  }
+
+  /// Starts an upload and returns the task so callers can track progress.
+  UploadTask uploadFileWithProgress(File file, String path) {
+    return _storage.ref().child(path).putFile(file);
+  }
+
+  Future<String?> uploadBytes(Uint8List bytes, String path, {SettableMetadata? metadata}) async {
+    try {
+      final ref = _storage.ref().child(path);
+      final uploadTask = ref.putData(bytes, metadata);
+      final snapshot = await uploadTask;
+      return await snapshot.ref.getDownloadURL();
+    } catch (e) {
+      debugPrint('StorageService uploadBytes error: $e');
       return null;
     }
   }

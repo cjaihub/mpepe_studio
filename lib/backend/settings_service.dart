@@ -21,6 +21,24 @@ class SettingsService {
     }
   }
 
+  /// Real-time stream of `user_settings/{userId}` merged over the defaults.
+  /// Seeds the doc with defaults the first time it is missing.
+  Stream<Map<String, dynamic>> watchSettings(String userId) {
+    final ref = _firestore.collection('user_settings').doc(userId);
+    return ref.snapshots().map((doc) {
+      final data = doc.data();
+      if (!doc.exists || data == null) {
+        ref.set(_defaultSettings(), SetOptions(merge: true)).catchError((Object e) {
+          print('Error seeding settings: $e');
+        });
+        return _defaultSettings();
+      }
+      return _mergeSettings(_defaultSettings(), data);
+    });
+  }
+
+  Map<String, dynamic> get defaultSettings => _defaultSettings();
+
   Future<void> updateSettings(String userId, Map<String, dynamic> newSettings) async {
     try {
       await _firestore.collection('user_settings').doc(userId).set(newSettings, SetOptions(merge: true));
@@ -72,6 +90,22 @@ class SettingsService {
         'milestoneAlerts': false,
         'teamMessages': true,
         'aiCompletions': true,
+        'notificationTone': 'celestial',
+        'inAppBannerEnabled': true,
+        'showNumberBadges': true,
+      },
+      'chat': {
+        'showAiStudioFab': true,
+        'showComposeFab': true,
+        'fabAlignment': 'right',
+        'holdDurationMs': 350,
+        'voiceRecordMode': 'hold',
+        'quickCreatorsLimit': 5,
+        'showCreatorProBanner': true,
+        'enterIsSend': false,
+        'chatSoundEffects': true,
+        'hapticIntensity': 'medium',
+        'smoothAnimations': true,
       },
       'ai': {
         'defaultModel': 'gemini-1.5-pro',
@@ -89,6 +123,32 @@ class SettingsService {
         'requireBiometrics': false,
         'twoFactorEnabled': false,
         'publicProfile': true,
+      },
+      'appearance': {
+        'textSize': 'default',
+        'boldText': false,
+      },
+      'accessibility': {
+        'highContrast': false,
+        'reduceMotion': false,
+        'largeText': false,
+        'screenReaderFocus': false,
+      },
+      'playback': {
+        'reelsTheme': 'followApp',
+        'autoScroll': false,
+        'loopVideos': true,
+        'likeHaptics': true,
+      },
+      'calls': {
+        'allowVideo': false,
+        'allowMic': true,
+        'noiseCancellation': true,
+      },
+      'storage': {
+        'autoDownloadWifi': true,
+        'autoDownloadCellular': false,
+        'saveToGallery': false,
       },
     };
   }

@@ -1,0 +1,1 @@
+sed -i '' -e 's/if (doc.exists   Future<void> deleteProject(String id) async {  Future<void> deleteProject(String id) async { doc.data() != null) {/if (doc.exists \&\& doc.data() != null) {/g' lib/backend/project_repository.dart

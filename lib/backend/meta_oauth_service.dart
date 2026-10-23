@@ -1,12 +1,12 @@
 import 'dart:async';
-import 'dart:convert';
+import 'dart:math';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/foundation.dart';
+import 'package:cloud_functions/cloud_functions.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
-import 'package:http/http.dart' as http;
 import 'package:url_launcher/url_launcher.dart';
 
 // ─────────────────────────────────────────────
@@ -40,17 +40,19 @@ enum MetaApp {
     }
   }
 
-  /// OAuth scopes required per platform
+  /// OAuth scopes required per platform. Every scope here must be used by a
+  /// feature and explained in docs/meta/APP_REVIEW.md; Meta rejects unused ones.
   List<String> get scopes {
     switch (this) {
       case MetaApp.facebook:
         return [
-          'pages_read_engagement',
-          'pages_manage_posts',
-          'pages_read_user_content',
-          'pages_show_list',
+          'pages_show_list', // pick which Page to connect
+          'pages_read_engagement', // Page stats + post engagement
+          'pages_read_user_content', // read comments on the Page's posts
+          'pages_manage_posts', // publish videos/posts from Oneova
+          'pages_manage_engagement', // reply to comments (Ova, Social Hub)
+          'pages_messaging', // read and answer the Page's Messenger inbox (Ova)
           'public_profile',
-          'email',
         ];
       case MetaApp.instagram:
         return [
@@ -163,20 +165,21 @@ class MetaOAuthService extends Notifier<MetaOAuthState> {
   final _firestore = FirebaseFirestore.instance;
   final _auth = FirebaseAuth.instance;
 
-  static const String _metaGraphBase = 'https://graph.facebook.com/v22.0';
   static const String _metaOAuthBase =
       'https://www.facebook.com/v22.0/dialog/oauth';
-  static const String _metaTokenBase =
-      'https://graph.facebook.com/v22.0/oauth/access_token';
 
+  // Only the public app id is on the device. The app secret lives in Cloud
+  // Functions (Secret Manager) and the code exchange runs in metaExchangeCode.
   String get _appId => dotenv.env['META_APP_ID'] ?? '';
-  String get _appSecret => dotenv.env['META_APP_SECRET'] ?? '';
   String get _redirectUri =>
-      dotenv.env['META_REDIRECT_URI'] ?? 'mstudio://meta-callback';
+      dotenv.env['META_REDIRECT_URI'] ?? 'https://mpepe-2b4bd.web.app/meta-callback';
   String get _userId => _auth.currentUser?.uid ?? '';
 
   /// Completer used to receive the OAuth code from the deep-link callback.
   Completer<String?>? _oauthCompleter;
+
+  /// Random value sent as OAuth `state` and checked on return (CSRF guard).
+  String? _expectedState;
 
   @override
   MetaOAuthState build() => const MetaOAuthState();
@@ -199,13 +202,21 @@ class MetaOAuthService extends Notifier<MetaOAuthState> {
       error: null,
     );
 
-    final scopeString = app.scopes.join(',');
+    // The Oneova Meta app uses Facebook Login for Business: the dashboard
+    // configuration (META_LOGIN_CONFIG_ID) decides the permissions, so the
+    // dialog gets config_id instead of scope. Without a config, fall back to
+    // the classic scope list.
+    final configId = dotenv.env['META_LOGIN_CONFIG_ID'] ?? '';
     final uri = Uri.parse(_metaOAuthBase).replace(queryParameters: {
       'client_id': _appId,
       'redirect_uri': _redirectUri,
-      'scope': scopeString,
+      if (configId.isNotEmpty) ...{
+        'config_id': configId,
+        'override_default_response_type': 'true',
+      } else
+        'scope': app.scopes.join(','),
       'response_type': 'code',
-      'state': app.name,
+      'state': _expectedState = '${app.name}.${_nonce()}',
     });
 
     try {
@@ -252,7 +263,19 @@ class MetaOAuthService extends Notifier<MetaOAuthState> {
 
   /// Called from the app's deep-link handler when
   /// `mstudio://meta-callback?code=...` fires.
+  static String _nonce() {
+    final r = Random.secure();
+    return List.generate(16, (_) => r.nextInt(256).toRadixString(16).padLeft(2, '0')).join();
+  }
+
   void handleOAuthCallback(Uri callbackUri) {
+    final returnedState = callbackUri.queryParameters['state'];
+    if (_expectedState == null || returnedState != _expectedState) {
+      // Not the sign-in we started: ignore it.
+      debugPrint('Meta OAuth: state mismatch, callback ignored');
+      return;
+    }
+    _expectedState = null;
     final code = callbackUri.queryParameters['code'];
     final error = callbackUri.queryParameters['error'];
 
@@ -268,116 +291,35 @@ class MetaOAuthService extends Notifier<MetaOAuthState> {
     _oauthCompleter?.complete(code);
   }
 
-  // ── Step 3: Exchange code for long-lived token ─────────────────────────
+  // ── Step 3: Exchange the code on the server, get the Pages ───────────
 
   Future<void> _exchangeCodeForToken(String code, MetaApp app) async {
     state = state.copyWith(statusMessage: 'Exchanging secure tokens…');
-
     try {
-      // Short-lived token exchange
-      final shortTokenResponse = await http.get(
-        Uri.parse(_metaTokenBase).replace(queryParameters: {
-          'client_id': _appId,
-          'client_secret': _appSecret,
-          'redirect_uri': _redirectUri,
-          'code': code,
-        }),
-      );
-
-      if (shortTokenResponse.statusCode != 200) {
-        throw Exception('Token exchange failed: ${shortTokenResponse.body}');
-      }
-
-      final shortTokenData =
-          jsonDecode(shortTokenResponse.body) as Map<String, dynamic>;
-      final shortToken = shortTokenData['access_token'] as String?;
-
-      if (shortToken == null) {
-        throw Exception('No access_token in response');
-      }
-
-      // Exchange for long-lived token (60-day)
-      final longTokenResponse = await http.get(
-        Uri.parse(_metaTokenBase).replace(queryParameters: {
-          'grant_type': 'fb_exchange_token',
-          'client_id': _appId,
-          'client_secret': _appSecret,
-          'fb_exchange_token': shortToken,
-        }),
-      );
-
-      if (longTokenResponse.statusCode != 200) {
-        throw Exception(
-            'Long-lived token exchange failed: ${longTokenResponse.body}');
-      }
-
-      final longTokenData =
-          jsonDecode(longTokenResponse.body) as Map<String, dynamic>;
-      final longToken = longTokenData['access_token'] as String?;
-
-      if (longToken == null) {
-        throw Exception('No long-lived access_token in response');
-      }
-
-      state = state.copyWith(
-        userAccessToken: longToken,
-        statusMessage: 'Loading your accounts…',
-      );
-
-      await _fetchPages(longToken, app);
-    } catch (e) {
-      debugPrint('Token exchange error: $e');
-      state = state.copyWith(
-        isLoading: false,
-        error: 'Failed to exchange token: ${e.toString()}',
-      );
-    }
-  }
-
-  // ── Step 4: Fetch user's pages / accounts ─────────────────────────────
-
-  Future<void> _fetchPages(String userToken, MetaApp app) async {
-    try {
-      final fields = app == MetaApp.instagram
-          ? 'id,name,category,picture,fan_count,access_token,instagram_business_account'
-          : 'id,name,category,picture,fan_count,access_token';
-
-      final response = await http.get(
-        Uri.parse('$_metaGraphBase/me/accounts').replace(queryParameters: {
-          'access_token': userToken,
-          'fields': fields,
-          'limit': '20',
-        }),
-      );
-
-      if (response.statusCode != 200) {
-        throw Exception('Failed to fetch accounts: ${response.body}');
-      }
-
-      final data = jsonDecode(response.body) as Map<String, dynamic>;
-      final pagesData = (data['data'] as List<dynamic>?) ?? [];
-      final pages = pagesData
-          .map((p) => MetaPage.fromJson(p as Map<String, dynamic>))
+      final res = await FirebaseFunctions.instance
+          .httpsCallable('metaExchangeCode')
+          .call<Map<String, dynamic>>({'code': code, 'app': app.name});
+      final data = Map<String, dynamic>.from(res.data);
+      final pages = ((data['pages'] as List?) ?? const [])
+          .map((p) => MetaPage.fromJson(Map<String, dynamic>.from(p as Map)))
           .toList();
-
-      // For Instagram: filter only pages that have a linked IG Business Account
-      final filteredPages = app == MetaApp.instagram
-          ? pages
-              .where((p) => p.instagramBusinessAccountId != null)
-              .toList()
-          : pages;
-
       state = state.copyWith(
         isLoading: false,
-        availablePages: filteredPages,
+        userAccessToken: data['userToken'] as String?,
+        availablePages: pages,
         statusMessage: null,
+        error: pages.isEmpty
+            ? (app == MetaApp.instagram
+                ? 'No Facebook Page with a linked Instagram professional account was found.'
+                : 'No Facebook Pages were shared. Choose at least one Page when Facebook asks.')
+            : null,
       );
+    } on FirebaseFunctionsException catch (e) {
+      debugPrint('Meta exchange error: ${e.code} ${e.message}');
+      state = state.copyWith(isLoading: false, error: e.message ?? 'Meta sign-in failed. Please try again.');
     } catch (e) {
-      debugPrint('Fetch pages error: $e');
-      state = state.copyWith(
-        isLoading: false,
-        error: 'Could not load your accounts: ${e.toString()}',
-      );
+      debugPrint('Meta exchange error: $e');
+      state = state.copyWith(isLoading: false, error: 'Meta sign-in failed. Check your connection and try again.');
     }
   }
 

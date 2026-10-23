@@ -5,7 +5,6 @@ import '../backend/project_repository.dart';
 import '../shared/widgets/components.dart';
 import '../shared/widgets/studio_background.dart';
 import '../shared/theme/app_theme.dart';
-import '../video_production/storyboard_presentation_screen.dart'; // We can adapt this later if needed
 
 class UnifiedProjectsScreen extends ConsumerStatefulWidget {
   const UnifiedProjectsScreen({super.key});
@@ -48,7 +47,7 @@ class _UnifiedProjectsScreenState extends ConsumerState<UnifiedProjectsScreen> {
                     final totalPages = (totalItems / _itemsPerPage).ceil();
                     
                     if (totalItems == 0) {
-                      return const Center(child: Text('No projects found.', style: TextStyle(color: Colors.white54, fontSize: 16)));
+                      return Center(child: Text('No projects found.', style: TextStyle(color: context.textMuted, fontSize: 14)));
                     }
 
                     // Clamp current page just in case filtering reduced the total pages
@@ -83,7 +82,7 @@ class _UnifiedProjectsScreenState extends ConsumerState<UnifiedProjectsScreen> {
                       ],
                     );
                   },
-                  loading: () => const Center(child: CircularProgressIndicator(color: AppColors.mpepeMaroon)),
+                  loading: () => const Center(child: CircularProgressIndicator(color: AppColors.brandBlue)),
                   error: (e, st) => Center(child: Text('Error: $e', style: const TextStyle(color: Colors.red))),
                 ),
               ),
@@ -100,12 +99,12 @@ class _UnifiedProjectsScreenState extends ConsumerState<UnifiedProjectsScreen> {
       children: [
         Text(
           'Studio Projects', 
-          style: TextStyle(fontSize: 34, fontWeight: FontWeight.w900, letterSpacing: -0.5, color: Theme.of(context).colorScheme.onSurface)
+          style: TextStyle(fontSize: 22, fontWeight: FontWeight.w800, letterSpacing: -0.4, color: context.textPrimary)
         ),
-        const SizedBox(height: 8),
+        const SizedBox(height: 6),
         Text(
           'Manage all your Audio & Video productions across the studio.',
-          style: TextStyle(color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.6), fontSize: 14, letterSpacing: 0.2),
+          style: TextStyle(color: context.textSecondary, fontSize: 13, letterSpacing: 0.1),
         ),
       ],
     );
@@ -126,21 +125,21 @@ class _UnifiedProjectsScreenState extends ConsumerState<UnifiedProjectsScreen> {
             },
             child: AnimatedContainer(
               duration: const Duration(milliseconds: 200),
-              padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 7),
               decoration: BoxDecoration(
-                color: isSelected ? AppColors.mpepeMaroon : Colors.white.withValues(alpha: 0.05),
-                borderRadius: BorderRadius.circular(20),
-                border: Border.all(color: isSelected ? Colors.transparent : Colors.white12),
+                color: isSelected ? AppColors.brandBlue : context.surfaceMid,
+                borderRadius: BorderRadius.circular(AppRadius.full),
+                border: Border.all(color: isSelected ? Colors.transparent : context.border),
                 boxShadow: isSelected ? [
-                  BoxShadow(color: AppColors.mpepeMaroon.withValues(alpha: 0.3), blurRadius: 8, offset: const Offset(0, 2))
+                  BoxShadow(color: AppColors.brandBlue.withValues(alpha: 0.25), blurRadius: 6, offset: const Offset(0, 2))
                 ] : [],
               ),
               child: Text(
                 category,
                 style: TextStyle(
-                  color: isSelected ? Colors.white : Colors.white54,
-                  fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
-                  fontSize: 14,
+                  color: isSelected ? Colors.white : context.textSecondary,
+                  fontWeight: isSelected ? FontWeight.bold : FontWeight.w500,
+                  fontSize: 13,
                 ),
               ),
             ),
@@ -153,7 +152,7 @@ class _UnifiedProjectsScreenState extends ConsumerState<UnifiedProjectsScreen> {
   Widget _buildProjectCard(StudioProject project, BuildContext context) {
     final isVideo = project.category == 'Video';
     
-    return MpepeCard(
+    return OneovaCard(
       child: Stack(
         children: [
           Column(
@@ -163,14 +162,14 @@ class _UnifiedProjectsScreenState extends ConsumerState<UnifiedProjectsScreen> {
                 children: [
                   Icon(
                     isVideo ? Icons.videocam : Icons.audiotrack, 
-                    color: isVideo ? Colors.blueAccent : Colors.orangeAccent, 
+                    color: isVideo ? AppColors.brandBlue : AppColors.brandPink, 
                     size: 18
                   ),
                   const SizedBox(width: 8),
                   Expanded(
                     child: Text(
                       project.title, 
-                      style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
+                      style: TextStyle(fontWeight: FontWeight.bold, fontSize: 15, color: context.textPrimary),
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
                     ),
@@ -184,22 +183,22 @@ class _UnifiedProjectsScreenState extends ConsumerState<UnifiedProjectsScreen> {
                   children: [
                     Text(
                       'Status',
-                      style: TextStyle(color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.5), fontSize: 11, fontWeight: FontWeight.w600),
+                      style: TextStyle(color: context.textMuted, fontSize: 11, fontWeight: FontWeight.w600),
                     ),
                     const SizedBox(height: 2),
                     Text(
                       project.status,
-                      style: TextStyle(color: AppColors.mpepeMaroon, fontSize: 13, fontWeight: FontWeight.bold),
+                      style: const TextStyle(color: AppColors.brandBlue, fontSize: 13, fontWeight: FontWeight.bold),
                     ),
                     const Spacer(),
                     if (project.toolsUsed.isNotEmpty) ...[
                       Text(
                         'Tools:',
-                        style: TextStyle(color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.5), fontSize: 11),
+                        style: TextStyle(color: context.textMuted, fontSize: 11),
                       ),
                       Text(
                         project.toolsUsed.take(2).join(', ') + (project.toolsUsed.length > 2 ? '...' : ''),
-                        style: const TextStyle(fontSize: 12, color: Colors.white70),
+                        style: TextStyle(fontSize: 12, color: context.textSecondary),
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
                       ),
@@ -216,13 +215,9 @@ class _UnifiedProjectsScreenState extends ConsumerState<UnifiedProjectsScreen> {
               right: 0,
               bottom: 0,
               child: IconButton(
-                icon: const Icon(Icons.description, size: 20, color: Colors.white54),
+                icon: Icon(Icons.description, size: 20, color: context.textSecondary),
                 onPressed: () {
-                  // View Script/Storyboard action
-                  // Adapting the existing screen or creating a new dialog
                   if (isVideo && project.storyboardUrls.isNotEmpty) {
-                    // Using dynamic here just as a bridge until we strictly port StoryboardPresentationScreen to use StudioProject instead of VideoProject
-                    // For now, this is a placeholder behavior
                     ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Storyboard viewer launching...')));
                   } else {
                     _showScriptDialog(context, project);
@@ -239,15 +234,15 @@ class _UnifiedProjectsScreenState extends ConsumerState<UnifiedProjectsScreen> {
     showDialog(
       context: context,
       builder: (context) => AlertDialog(
-        backgroundColor: AppColors.darkBackground,
-        title: Text('${project.title} - Script', style: const TextStyle(color: Colors.white)),
+        backgroundColor: context.surface,
+        title: Text('${project.title} - Script', style: TextStyle(color: context.textPrimary, fontWeight: FontWeight.bold)),
         content: SingleChildScrollView(
-          child: Text(project.script ?? 'No script generated yet.', style: const TextStyle(color: Colors.white70)),
+          child: Text(project.script ?? 'No script generated yet.', style: TextStyle(color: context.textSecondary)),
         ),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(context),
-            child: const Text('Close', style: TextStyle(color: AppColors.mpepeMaroon)),
+            child: const Text('Close', style: TextStyle(color: AppColors.brandBlue)),
           ),
         ],
       ),
@@ -261,22 +256,23 @@ class _UnifiedProjectsScreenState extends ConsumerState<UnifiedProjectsScreen> {
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
           IconButton(
-            icon: const Icon(Icons.chevron_left, color: Colors.white),
+            icon: Icon(Icons.chevron_left, color: context.textPrimary),
             onPressed: _currentPage > 0 ? () => setState(() => _currentPage--) : null,
           ),
           Container(
             padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
             decoration: BoxDecoration(
-              color: Colors.white.withValues(alpha: 0.1),
+              color: context.surfaceMid,
               borderRadius: BorderRadius.circular(12),
+              border: Border.all(color: context.border),
             ),
             child: Text(
               'Page ${_currentPage + 1} of $totalPages',
-              style: const TextStyle(fontWeight: FontWeight.bold),
+              style: TextStyle(fontWeight: FontWeight.bold, color: context.textPrimary, fontSize: 12),
             ),
           ),
           IconButton(
-            icon: const Icon(Icons.chevron_right, color: Colors.white),
+            icon: Icon(Icons.chevron_right, color: context.textPrimary),
             onPressed: _currentPage < totalPages - 1 ? () => setState(() => _currentPage++) : null,
           ),
         ],

@@ -136,7 +136,7 @@ class AdminApprovalScreen extends ConsumerWidget {
             const SizedBox(height: 16),
             SizedBox(
               width: double.infinity,
-              child: MpepeButton(
+              child: OneovaButton(
                 text: 'Review & Approve',
                 onPressed: () => _showApprovalDialog(context, ref, user),
               ),

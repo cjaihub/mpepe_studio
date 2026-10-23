@@ -2,28 +2,39 @@ import 'package:flutter/material.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import '../auth/security/login_security.dart';
 import '../backend/user_service.dart';
 import '../shared/theme/app_theme.dart';
 import '../shared/widgets/shared_bottom_nav_bar.dart';
 import 'package:go_router/go_router.dart';
-import '../hub/hub_home_screen.dart';
+import '../feed/main_feed_screen.dart';
 
 import '../hub/hub_team_screen.dart';
 import '../hub/messaging/chat_detail_screen.dart';
-import '../hub/calendar/studio_calendar_screen.dart';
 import '../hub/hub_ai_screen.dart';
+import '../ova_assistant/widgets/ova_assistant_sheet.dart';
+import '../ova_assistant/widgets/ova_floating_dock.dart' show OvaPopupObserver;
 import '../youtube_manager/yt_dashboard_screen.dart';
 import '../youtube_manager/yt_channels_screen.dart';
 import '../youtube_manager/yt_upload_screen.dart';
 
 import '../youtube_manager/yt_settings_screen.dart';
-import '../hub/unified_hub_screen.dart';
 import '../hub/messaging/in_app_messaging_screen.dart';
 import '../auth/main_login_screen.dart';
 import '../auth/screens/workspace_locked_screen.dart';
+import '../auth/services/app_lifecycle_observer.dart';
+export '../auth/services/app_lifecycle_observer.dart' show rootNavigatorKey;
 import '../desktop_agent/desktop_agent_screen.dart';
+import 'splash/animated_splash_screen.dart';
+import 'widgets/oneova_bottom_nav.dart';
+import 'widgets/creation_type_modal.dart';
+import 'widgets/oneova_profile_sidebar_drawer.dart';
+import 'widgets/oneova_feature_tour_bubble.dart';
+import 'services/oneova_feature_tour_service.dart';
+import 'search/global_search_screen.dart';
+import '../feed/biz_feed_screen.dart';
+import '../social_hub/profile/public_profile_screen.dart';
 import 'dart:io' show Platform;
-import 'package:flutter/foundation.dart' show kIsWeb;
 
 import '../auth/signup_wizard_screen.dart';
 import '../auth/pending_approval_screen.dart';
@@ -31,19 +42,40 @@ import '../auth/linked_devices/linked_devices_screen.dart';
 import '../settings/main_settings_screen.dart';
 import '../settings/screens/profile_settings_screen.dart';
 import '../settings/screens/app_settings_screen.dart';
+import '../settings/screens/chat_settings_screen.dart';
 import '../settings/screens/notification_settings_screen.dart';
 import '../settings/screens/ai_settings_screen.dart';
 import '../settings/screens/privacy_security_screen.dart';
+import '../settings/screens/appearance_settings_screen.dart';
+import '../settings/screens/accessibility_settings_screen.dart';
+import '../settings/screens/reels_playback_settings_screen.dart';
+import '../settings/screens/calls_settings_screen.dart';
+import '../settings/screens/storage_settings_screen.dart';
+import '../auth/screens/email_code_screen.dart';
+import '../ova_assistant/screens/ova_abilities_screen.dart';
+import '../ova_assistant/screens/ova_setup_screen.dart';
+import '../ova_assistant/screens/ova_trigger_settings_screen.dart';
 import '../social_hub/social_integration_dashboard.dart';
 import '../social_hub/tiktok_connect_wizard.dart';
 import '../social_hub/meta_connect_wizard.dart';
+import '../backend/tiktok_oauth_service.dart';
+import '../backend/meta_oauth_service.dart';
 import '../social_hub/meta_platform_picker_screen.dart';
 import '../social_hub/wizard/meta_app_wizard.dart';
 import '../upload/screens/premium_post_screen.dart';
 import '../upload/ai_voice_manager_screen.dart';
+import '../create/camera_screen.dart';
+import '../create/custom_media_picker_screen.dart';
+import '../hub/screens/photo_studio/photo_studio_screen.dart';
+import '../create/pro_workstation_editor_screen.dart';
+import '../social_hub/feed/sound_page_screen.dart';
+import '../social_hub/discovery/screens/hashtag_page_screen.dart';
+import '../backend/projects/models/oneova_draft_model.dart';
+import 'package:uuid/uuid.dart';
 import '../social_hub/unified_inbox_screen.dart';
 import '../social_hub/analytics_command_center.dart';
 import '../social_hub/tiktok_ai_assistant_screen.dart';
+import '../social_hub/notifications/notification_center_screen.dart';
 import '../projects/unified_projects_screen.dart';
 import '../video_production/video_dashboard_screen.dart';
 import '../video_production/video_equipment_screen.dart';
@@ -53,38 +85,109 @@ import '../audio_production/audio_library_screen.dart';
 import '../audio_production/audio_artists_screen.dart';
 import '../hub/connect_screen.dart';
 import '../hub/qr_scanner_screen.dart';
+import '../social_hub/profile/earnings_screen.dart';
+import '../security/screens/security_center_screen.dart';
+import '../auth/security/login_activity_screen.dart';
+import '../social_hub/creator_studio/monetization/monetization_dashboard.dart';
 import '../hub/remote_chat_screen.dart';
 import '../hub/remote_monitor_screen.dart';
 import '../hub/desktop_remote_screen.dart';
+import '../inbox/calling/screens/active_call_screen.dart';
+import '../social_hub/live/live_broadcaster_screen.dart';
+import '../social_hub/live/classic/live_classic_viewer_screen.dart';
+import '../social_hub/live/studio/live_studio_screen.dart';
+import '../social_hub/live/studio_v2/shell/live_studio_v2_screen.dart';
+import '../feed/providers/oneova_focus_mode_provider.dart';
 
 // StatefulShellRoute shells
-class HubShell extends StatelessWidget {
+class HubShell extends ConsumerStatefulWidget {
   final StatefulNavigationShell navigationShell;
   const HubShell({super.key, required this.navigationShell});
 
-  static const _items = [
-    BottomNavigationBarItem(icon: Icon(Icons.home_rounded), label: 'Home'),
-    BottomNavigationBarItem(icon: Icon(Icons.cloud_upload_rounded), label: 'Upload'),
-    BottomNavigationBarItem(icon: Icon(Icons.chat_bubble_outline_rounded), label: 'Messages'),
-    BottomNavigationBarItem(icon: Icon(Icons.auto_awesome), label: 'AI'),
-    BottomNavigationBarItem(icon: Icon(Icons.group_outlined), label: 'Team'),
-  ];
+  @override
+  ConsumerState<HubShell> createState() => _HubShellState();
+}
+
+class _HubShellState extends ConsumerState<HubShell> {
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) async {
+      try {
+        final shouldShow = await ref.read(featureTourServiceProvider).shouldShowTour();
+        if (shouldShow && mounted) {
+          ref.read(featureTourCurrentStepProvider.notifier).setStep(0);
+          ref.read(featureTourVisibilityProvider.notifier).show();
+        }
+      } catch (_) {}
+    });
+  }
+
+  OneovaTab? get _active {
+    switch (widget.navigationShell.currentIndex) {
+      case 0:
+        return OneovaTab.reels;
+      case 2:
+        return OneovaTab.chat;
+      case 3:
+        return OneovaTab.ai;
+      default:
+        return null;
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
-    final isAiScreen = navigationShell.currentIndex == 3;
-    
+    final isFocusMode = ref.watch(oneovaFocusModeProvider);
+    debugPrint('[HubShell build] rendering index: ${widget.navigationShell.currentIndex}, isFocusMode: $isFocusMode');
     return Scaffold(
-      body: navigationShell,
-      bottomNavigationBar: isAiScreen 
-          ? null 
-          : SharedBottomNavBar(
-              navigationShell: navigationShell,
-              items: _items,
+      extendBody: true,
+      backgroundColor: Theme.of(context).scaffoldBackgroundColor,
+      body: Stack(
+        children: [
+          widget.navigationShell,
+          OneovaFeatureTourBubble(
+            onStepChanged: (stepIndex) {
+              if (stepIndex == 3) {
+                widget.navigationShell.goBranch(2); // Chat
+              } else if (stepIndex == 5) {
+                widget.navigationShell.goBranch(3); // AI Lab
+              } else if (stepIndex <= 2) {
+                widget.navigationShell.goBranch(0); // Reels
+              }
+            },
+            onDismiss: () {
+              // Stay on current branch smoothly
+            },
+          ),
+        ],
+      ),
+      bottomNavigationBar: widget.navigationShell.currentIndex == 2
+          ? null
+          : AnimatedSlide(
+              offset: isFocusMode ? const Offset(0, 1.4) : Offset.zero,
+              duration: const Duration(milliseconds: 260),
+              curve: Curves.easeInOutCubic,
+              child: AnimatedOpacity(
+                opacity: isFocusMode ? 0.0 : 1.0,
+                duration: const Duration(milliseconds: 220),
+                child: IgnorePointer(
+                  ignoring: isFocusMode,
+                  child: OneovaBottomNav(
+                    active: _active,
+                    onReels: () => widget.navigationShell.goBranch(0, initialLocation: widget.navigationShell.currentIndex == 0),
+                    onChat: () => widget.navigationShell.goBranch(2),
+                    onStudio: () => CreationTypeModal.show(context),
+                    onAi: () => widget.navigationShell.goBranch(3),
+                    onMe: () => OneovaProfileSidebarDrawer.show(context),
+                  ),
+                ),
+              ),
             ),
     );
   }
 }
+
 
 class YtShell extends StatelessWidget {
   final StatefulNavigationShell navigationShell;
@@ -185,35 +288,48 @@ class SessionRouteObserver extends NavigatorObserver {
   }
 }
 
-// Auth guard helper: redirects to login if not authenticated
-String? _requireAuth(BuildContext context, GoRouterState state) {
-  if (kDebugMode && (Platform.isMacOS || Platform.isWindows)) {
-    return null; // Bypass for Desktop debugging
-  }
-  if (FirebaseAuth.instance.currentUser == null) {
-    return '/auth/main_login';
-  }
+bool get _isDesktopAgentPlatform => !kIsWeb && (Platform.isMacOS || Platform.isWindows);
+
+/// Sign-in gate shared by the global redirect and per-route guards.
+/// A signed-in account must have passed the two-factor policy on this device
+/// (LoginSecurity); guests (anonymous) may only browse public screens. There
+/// is no debug bypass on phones: debug and release builds behave the same.
+String? _authGate(GoRouterState state) {
+  final path = state.uri.path;
+  if (_isDesktopAgentPlatform) return null; // Desktop agent pairs via secure pairing.
+  // Shared-video links open for anyone.
+  if (path == '/hub/home' && state.uri.queryParameters.containsKey('v')) return null;
+  final user = FirebaseAuth.instance.currentUser;
+  if (user == null) return '/auth/main_login';
+  if (user.isAnonymous) return LoginSecurity.isGuestRoute(path) ? null : '/auth/main_login';
+  if (!LoginSecurity.instance.isVerified(user)) return '/auth/main_login';
   return null;
 }
+
+// Auth guard helper: redirects to login if not authenticated / not verified
+String? _requireAuth(BuildContext context, GoRouterState state) => _authGate(state);
 
 final routerProvider = Provider<GoRouter>((ref) {
   final isDesktopDebug = kDebugMode && (Platform.isMacOS || Platform.isWindows);
   return GoRouter(
-    initialLocation: isDesktopDebug ? '/desktop_agent' : '/auth/main_login',
-    observers: [SessionRouteObserver(ref)],
+    navigatorKey: rootNavigatorKey,
+    debugLogDiagnostics: true,
+    initialLocation: isDesktopDebug ? '/desktop_agent' : '/splash',
+    observers: [SessionRouteObserver(ref), OvaPopupObserver()],
+    refreshListenable: LoginSecurity.instance,
     errorBuilder: (context, state) => Scaffold(
-      backgroundColor: AppColors.darkBackground,
+      backgroundColor: context.bg,
       body: Center(
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            const Icon(Icons.error_outline, size: 64, color: AppColors.mpepeMaroon),
+            const Icon(Icons.error_outline, size: 64, color: AppColors.brandBlue),
             const SizedBox(height: 24),
-            Text('Page Not Found', style: AppTheme.h1Style),
+            Text('Page Not Found', style: AppTheme.h1Style.copyWith(color: context.textPrimary)),
             const SizedBox(height: 16),
             Text(
               'The screen you are looking for does not exist.',
-              style: TextStyle(color: AppColors.textSecondary, fontSize: 16),
+              style: TextStyle(color: context.textSecondary, fontSize: 16),
             ),
             const SizedBox(height: 32),
             SizedBox(
@@ -221,7 +337,7 @@ final routerProvider = Provider<GoRouter>((ref) {
               child: ElevatedButton(
                 onPressed: () => context.go('/auth/main_login'),
                 style: ElevatedButton.styleFrom(
-                  backgroundColor: AppColors.mpepeMaroon,
+                  backgroundColor: AppColors.brandBlue,
                   padding: const EdgeInsets.symmetric(vertical: 16),
                   shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
                 ),
@@ -233,13 +349,21 @@ final routerProvider = Provider<GoRouter>((ref) {
       ),
     ),
     redirect: (context, state) {
+      debugPrint('[Router global redirect] evaluating path: ${state.uri.path}');
       final user = FirebaseAuth.instance.currentUser;
-      final isAuthRoute = state.uri.path.startsWith('/auth');
+      final isAuthRoute = state.uri.path.startsWith('/auth') ||
+          state.uri.path == '/splash' ||
+          state.uri.path == '/tiktok-callback' ||
+          state.uri.path == '/meta-callback';
       
       final isDesktopDebug = kDebugMode && (Platform.isMacOS || Platform.isWindows);
 
-      if (user == null && !isAuthRoute && !isDesktopDebug) {
-        return '/auth/main_login';
+      if (!isAuthRoute) {
+        final gate = _authGate(state);
+        if (gate != null) {
+          debugPrint('[Router global redirect] ${state.uri.path} -> $gate (sign-in gate)');
+          return gate;
+        }
       }
       
       if (isDesktopDebug && state.uri.path == '/auth/main_login') {
@@ -257,6 +381,39 @@ final routerProvider = Provider<GoRouter>((ref) {
       return null;
     },
     routes: [
+      GoRoute(
+        path: '/call/active',
+        redirect: _requireAuth,
+        builder: (context, state) {
+          final extra = state.extra as Map<String, dynamic>? ?? {};
+          final callId = extra['callId'] as String? ?? state.uri.queryParameters['callId'] ?? '';
+          final otherUserId = extra['otherUserId'] as String? ?? state.uri.queryParameters['otherUserId'];
+          final otherUserName = extra['otherUserName'] as String? ?? state.uri.queryParameters['otherUserName'];
+          final otherUserAvatar = extra['otherUserAvatar'] as String? ?? state.uri.queryParameters['otherUserAvatar'];
+          final isVideo = extra['isVideo'] == true || state.uri.queryParameters['isVideo'] == 'true';
+          final isCaller = extra['isCaller'] != false && state.uri.queryParameters['isCaller'] != 'false';
+
+          return ActiveCallScreen(
+            callId: callId,
+            otherUserId: otherUserId,
+            otherUserName: otherUserName,
+            otherUserAvatar: otherUserAvatar,
+            isVideo: isVideo,
+            isCaller: isCaller,
+          );
+        },
+      ),
+      GoRoute(path: '/biz_feed', redirect: _requireAuth, builder: (context, state) => const BizFeedScreen()),
+      GoRoute(path: '/hub/discover', redirect: _requireAuth, builder: (context, state) => const GlobalSearchScreen()),
+      GoRoute(path: '/profile/earnings', redirect: _requireAuth, builder: (context, state) => const EarningsScreen()),
+      GoRoute(path: '/profile/security', redirect: _requireAuth, builder: (context, state) => const SecurityCenterScreen()),
+      GoRoute(path: '/auth/email_code', redirect: _requireAuth, builder: (context, state) => EmailCodeScreen(purpose: state.uri.queryParameters['purpose'] ?? 'verify_email')),
+      GoRoute(path: '/profile/monetization', redirect: _requireAuth, builder: (context, state) => const MonetizationDashboard()),
+      GoRoute(path: '/profile/me', redirect: _requireAuth, builder: (context, state) => const PublicProfileScreen(targetUserId: 'current')),
+      GoRoute(path: '/profile/:uid', redirect: _requireAuth, builder: (context, state) => PublicProfileScreen(targetUserId: state.pathParameters['uid']!)),
+      GoRoute(path: '/hub/ova_assistant', redirect: _requireAuth, builder: (context, state) => const OvaAssistantScreen()),
+      GoRoute(path: '/ova', redirect: _requireAuth, builder: (context, state) => const OvaAssistantScreen()),
+      GoRoute(path: '/splash', builder: (context, state) => const AnimatedSplashScreen()),
       // ──────────────────────────────────────────────────────────────────
       // ROOT & AUTH ROUTES (no guard — anyone can access these)
       // ──────────────────────────────────────────────────────────────────
@@ -271,7 +428,10 @@ final routerProvider = Provider<GoRouter>((ref) {
       GoRoute(
         path: '/auth/main_login',
         name: '/auth/main_login',
-        builder: (context, state) => const MainLoginScreen(),
+        builder: (context, state) {
+          debugPrint('[Router] building MainLoginScreen for state: ${state.uri}');
+          return const MainLoginScreen();
+        },
       ),
       GoRoute(
         path: '/auth/signup_wizard',
@@ -331,6 +491,34 @@ final routerProvider = Provider<GoRouter>((ref) {
         builder: (context, state) => const TikTokConnectWizard(),
       ),
       GoRoute(
+        path: '/tiktok-callback',
+        builder: (context, state) {
+          WidgetsBinding.instance.addPostFrameCallback((_) {
+            ref.read(tiktokOAuthProvider.notifier).handleOAuthCallback(state.uri);
+          });
+          return Scaffold(
+            backgroundColor: context.bg,
+            body: const Center(
+              child: CircularProgressIndicator(),
+            ),
+          );
+        },
+      ),
+      GoRoute(
+        path: '/meta-callback',
+        builder: (context, state) {
+          WidgetsBinding.instance.addPostFrameCallback((_) {
+            ref.read(metaOAuthProvider.notifier).handleOAuthCallback(state.uri);
+          });
+          return Scaffold(
+            backgroundColor: context.bg,
+            body: const Center(
+              child: CircularProgressIndicator(),
+            ),
+          );
+        },
+      ),
+      GoRoute(
         path: '/social_hub/unified_inbox',
         redirect: _requireAuth,
         builder: (context, state) => const UnifiedInboxScreen(),
@@ -353,6 +541,64 @@ final routerProvider = Provider<GoRouter>((ref) {
         path: '/upload/ai_voice_manager',
         redirect: _requireAuth,
         builder: (context, state) => const AiVoiceManagerScreen(),
+      ),
+      GoRoute(
+        path: '/create/camera',
+        redirect: _requireAuth,
+        builder: (context, state) {
+          final mode = state.uri.queryParameters['mode'];
+          return CameraScreen(initialMode: mode);
+        },
+      ),
+      GoRoute(
+        path: '/photo/studio',
+        redirect: _requireAuth,
+        builder: (context, state) => const PhotoStudioScreen(),
+      ),
+      GoRoute(
+        path: '/create/picker',
+        redirect: _requireAuth,
+        builder: (context, state) => const CustomMediaPickerScreen(),
+      ),
+      GoRoute(
+        path: '/ai_studio',
+        redirect: (context, state) => '/hub/ai',
+      ),
+      GoRoute(
+        path: '/create/editor',
+        redirect: _requireAuth,
+        builder: (context, state) {
+          final draft = state.extra as OneovaDraft?;
+          if (draft != null) {
+            return ProWorkstationEditorScreen(draft: draft);
+          }
+          return ProWorkstationEditorScreen(
+            draft: OneovaDraft(
+              id: const Uuid().v4(),
+              title: 'New Project',
+              mediaPath: '',
+              isVideo: true,
+              createdAt: DateTime.now(),
+              updatedAt: DateTime.now(),
+            ),
+          );
+        },
+      ),
+
+      GoRoute(
+        path: '/sound/:id',
+        redirect: _requireAuth,
+        builder: (context, state) => SoundPageScreen(soundId: state.pathParameters['id']!),
+      ),
+      GoRoute(
+        path: '/social/sound/:id',
+        redirect: _requireAuth,
+        builder: (context, state) => SoundPageScreen(soundId: state.pathParameters['id']!),
+      ),
+      GoRoute(
+        path: '/social/explore/hashtag/:tag',
+        redirect: _requireAuth,
+        builder: (context, state) => HashtagPageScreen(hashtag: state.pathParameters['tag']!),
       ),
 
       // ──────────────────────────────────────────────────────────────────
@@ -384,6 +630,37 @@ final routerProvider = Provider<GoRouter>((ref) {
         builder: (context, state) => const DesktopAgentScreen(),
       ),
       GoRoute(
+        path: '/live/broadcast',
+        redirect: _requireAuth,
+        builder: (context, state) => LiveBroadcasterScreen(
+          initialLayoutMode: state.uri.queryParameters['mode'] == 'studio'
+              ? 'studio'
+              : 'classic',
+        ),
+      ),
+      // Followers' entry point (feed live ring, "is LIVE" alerts, deep links).
+      // Opens the full-screen vertical viewer, or the Live Studio when the
+      // host went live in Studio mode.
+      GoRoute(
+        path: '/live/viewer/:streamId',
+        redirect: _requireAuth,
+        builder: (context, state) =>
+            LiveRoomGate(streamId: state.pathParameters['streamId']!),
+      ),
+      GoRoute(
+        path: '/live/studio/:streamId',
+        redirect: _requireAuth,
+        builder: (context, state) =>
+            LiveStudioScreen(streamId: state.pathParameters['streamId']!),
+      ),
+      // Live Studio v2 (feature flag live_studio_v2).
+      GoRoute(
+        path: '/live/studio2/:streamId',
+        redirect: _requireAuth,
+        builder: (context, state) =>
+            LiveStudioV2Screen(streamId: state.pathParameters['streamId']!),
+      ),
+      GoRoute(
         path: '/auth/linked_devices',
         redirect: _requireAuth,
         builder: (context, state) => const LinkedDevicesScreen(),
@@ -392,6 +669,10 @@ final routerProvider = Provider<GoRouter>((ref) {
       // ──────────────────────────────────────────────────────────────────
       // SETTINGS (GUARDED)
       // ──────────────────────────────────────────────────────────────────
+      GoRoute(
+        path: '/settings',
+        redirect: (context, state) => '/settings/main',
+      ),
       GoRoute(
         path: '/settings/main',
         redirect: _requireAuth,
@@ -408,6 +689,11 @@ final routerProvider = Provider<GoRouter>((ref) {
         builder: (context, state) => const AppSettingsScreen(),
       ),
       GoRoute(
+        path: '/settings/chat',
+        redirect: _requireAuth,
+        builder: (context, state) => const ChatSettingsScreen(),
+      ),
+      GoRoute(
         path: '/settings/notifications',
         redirect: _requireAuth,
         builder: (context, state) => const NotificationSettingsScreen(),
@@ -422,17 +708,80 @@ final routerProvider = Provider<GoRouter>((ref) {
         redirect: _requireAuth,
         builder: (context, state) => const PrivacySecurityScreen(),
       ),
+      GoRoute(
+        path: '/settings/login-activity',
+        redirect: _requireAuth,
+        builder: (context, state) => const LoginActivityScreen(),
+      ),
+      GoRoute(
+        path: '/settings/appearance',
+        redirect: _requireAuth,
+        builder: (context, state) => const AppearanceSettingsScreen(),
+      ),
+      GoRoute(
+        path: '/settings/accessibility',
+        redirect: _requireAuth,
+        builder: (context, state) => const AccessibilitySettingsScreen(),
+      ),
+      GoRoute(
+        path: '/settings/reels',
+        redirect: _requireAuth,
+        builder: (context, state) => const ReelsPlaybackSettingsScreen(),
+      ),
+      GoRoute(
+        path: '/settings/calls',
+        redirect: _requireAuth,
+        builder: (context, state) => const CallsSettingsScreen(),
+      ),
+      GoRoute(
+        path: '/settings/storage',
+        redirect: _requireAuth,
+        builder: (context, state) => const StorageSettingsScreen(),
+      ),
+
+      // ──────────────────────────────────────────────────────────────────
+      // NOTIFICATIONS (GUARDED)
+      // ──────────────────────────────────────────────────────────────────
+      GoRoute(
+        path: '/notifications',
+        redirect: _requireAuth,
+        builder: (context, state) => const NotificationCenterScreen(),
+      ),
+
+      GoRoute(
+        path: '/ova/setup',
+        redirect: _requireAuth,
+        builder: (context, state) => const OvaSetupScreen(),
+      ),
+
+      GoRoute(
+        path: '/ova/triggers',
+        redirect: _requireAuth,
+        builder: (context, state) => const OvaTriggerSettingsScreen(),
+      ),
+      GoRoute(
+        path: '/ova/abilities',
+        redirect: _requireAuth,
+        builder: (context, state) => const OvaAbilitiesScreen(),
+      ),
 
       // ──────────────────────────────────────────────────────────────────
       // HUB (GUARDED)
       // ──────────────────────────────────────────────────────────────────
       StatefulShellRoute.indexedStack(
-        builder: (context, state, navigationShell) => HubShell(navigationShell: navigationShell),
+        builder: (context, state, navigationShell) {
+          debugPrint('[StatefulShellRoute HubShell builder] state: ${state.uri}');
+          return HubShell(navigationShell: navigationShell);
+        },
         branches: [
           StatefulShellBranch(routes: [GoRoute(
             path: '/hub/home', 
             redirect: _requireAuth,
-            builder: (context, state) => const HubHomeScreen()
+            builder: (context, state) {
+              final videoId = state.uri.queryParameters['v'];
+              debugPrint('[GoRoute /hub/home builder] building ShortVideoFeedScreen for state: ${state.uri}');
+              return ShortVideoFeedScreen(initialVideoId: videoId);
+            }
           )]),
           StatefulShellBranch(routes: [GoRoute(
             path: '/upload/global', 
@@ -445,7 +794,11 @@ final routerProvider = Provider<GoRouter>((ref) {
               redirect: _requireAuth,
               builder: (context, state) => const InAppMessagingScreen(),
               routes: [
-                GoRoute(path: ':id', builder: (context, state) => ChatDetailScreen(chatId: state.pathParameters['id']!)),
+                GoRoute(
+                  path: ':id',
+                  parentNavigatorKey: rootNavigatorKey,
+                  builder: (context, state) => ChatDetailScreen(chatId: state.pathParameters['id']!),
+                ),
               ],
             )
           ]),

@@ -1,12 +1,12 @@
 import 'package:flutter/material.dart';
 import '../theme/app_theme.dart';
-class MpepeCard extends StatefulWidget {
+class OneovaCard extends StatefulWidget {
   final Widget child;
   final EdgeInsetsGeometry padding;
   final Color? borderColor;
   final VoidCallback? onTap;
 
-  const MpepeCard({
+  const OneovaCard({
     super.key,
     required this.child,
     this.padding = const EdgeInsets.all(16),
@@ -15,10 +15,10 @@ class MpepeCard extends StatefulWidget {
   });
 
   @override
-  State<MpepeCard> createState() => _MpepeCardState();
+  State<OneovaCard> createState() => _OneovaCardState();
 }
 
-class _MpepeCardState extends State<MpepeCard> {
+class _OneovaCardState extends State<OneovaCard> {
   bool _isHovered = false;
   bool _isPressed = false;
 
@@ -96,13 +96,13 @@ class _MpepeCardState extends State<MpepeCard> {
   }
 }
 
-class MpepeAvatar extends StatelessWidget {
+class OneovaAvatar extends StatelessWidget {
   final String text;
   final double size;
   final Gradient? gradient;
   final Color? backgroundColor;
 
-  const MpepeAvatar({
+  const OneovaAvatar({
     super.key,
     required this.text,
     this.size = 32,
@@ -133,7 +133,7 @@ class MpepeAvatar extends StatelessWidget {
   }
 }
 
-class MpepePill extends StatelessWidget {
+class OneovaPill extends StatelessWidget {
   final String text;
   final bool isOutline;
   final bool isLive;
@@ -141,7 +141,7 @@ class MpepePill extends StatelessWidget {
   final bool isGhost;
   final Color? color;
 
-  const MpepePill({
+  const OneovaPill({
     super.key,
     required this.text,
     this.isOutline = false,
@@ -194,14 +194,14 @@ class MpepePill extends StatelessWidget {
   }
 }
 
-class MpepeButton extends StatefulWidget {
+class OneovaButton extends StatefulWidget {
   final String text;
   final VoidCallback onPressed;
   final bool isPrimary;
   final IconData? icon;
   final Widget? customIconWidget;
 
-  const MpepeButton({
+  const OneovaButton({
     super.key,
     required this.text,
     required this.onPressed,
@@ -211,10 +211,10 @@ class MpepeButton extends StatefulWidget {
   });
 
   @override
-  State<MpepeButton> createState() => _MpepeButtonState();
+  State<OneovaButton> createState() => _OneovaButtonState();
 }
 
-class _MpepeButtonState extends State<MpepeButton> {
+class _OneovaButtonState extends State<OneovaButton> {
   bool _isPressed = false;
   bool _isHovered = false;
 
@@ -242,7 +242,7 @@ class _MpepeButtonState extends State<MpepeButton> {
             padding: const EdgeInsets.symmetric(vertical: 14, horizontal: 24),
             decoration: BoxDecoration(
               borderRadius: BorderRadius.circular(999),
-              color: widget.isPrimary ? AppColors.mpepeMaroon : theme.colorScheme.surface,
+              color: widget.isPrimary ? AppColors.brandBlue : theme.colorScheme.surface,
               border: widget.isPrimary 
                   ? null 
                   : Border.all(color: theme.colorScheme.outline),
@@ -321,7 +321,7 @@ class StepProgressIndicator extends StatelessWidget {
   }
 }
 
-class MpepeInputField extends StatelessWidget {
+class OneovaInputField extends StatelessWidget {
   final TextEditingController? controller;
   final String hintText;
   final IconData? prefixIcon;
@@ -330,7 +330,7 @@ class MpepeInputField extends StatelessWidget {
   final TextAlign textAlign;
   final TextStyle? style;
 
-  const MpepeInputField({
+  const OneovaInputField({
     super.key,
     this.controller,
     required this.hintText,
@@ -389,3 +389,23 @@ class MpepeInputField extends StatelessWidget {
     );
   }
 }
+
+// Rebranding aliases for zero-breakage backwards and forward compatibility
+typedef OneOvaCard = OneovaCard;
+typedef OneOvaAvatar = OneovaAvatar;
+typedef OneOvaPill = OneovaPill;
+typedef OneOvaButton = OneovaButton;
+typedef OneOvaInputField = OneovaInputField;
+
+typedef OnerovaCard = OneovaCard;
+typedef OnerovaAvatar = OneovaAvatar;
+typedef OnerovaPill = OneovaPill;
+typedef OnerovaButton = OneovaButton;
+typedef OnerovaInputField = OneovaInputField;
+
+typedef MpepeCard = OneovaCard;
+typedef MpepeAvatar = OneovaAvatar;
+typedef MpepePill = OneovaPill;
+typedef MpepeButton = OneovaButton;
+typedef MpepeInputField = OneovaInputField;
+

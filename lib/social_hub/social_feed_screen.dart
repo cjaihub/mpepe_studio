@@ -24,7 +24,7 @@ class SocialFeedScreen extends ConsumerWidget {
         itemCount: 5,
         itemBuilder: (context, index) {
           return const _FeedPostCard(
-            username: '@mpepegaming',
+            username: '@oneovagaming',
             timeAgo: '2h ago',
             content: 'Just finished the raw cut for the new Let\'s Play! Need a thumbnail artist ASAP. DM me if you have time today.',
             tags: ['#NeedThumbnail', '#Gaming'],

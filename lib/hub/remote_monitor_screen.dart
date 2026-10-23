@@ -17,6 +17,8 @@ class RemoteMonitorScreen extends ConsumerStatefulWidget {
 class _RemoteMonitorScreenState extends ConsumerState<RemoteMonitorScreen> {
   RTCPeerConnection? _peerConnection;
   final RTCVideoRenderer _localRenderer = RTCVideoRenderer();
+  final TransformationController _transformationController = TransformationController();
+  Offset? _doubleTapPosition;
   StreamSubscription? _signalingSubscription;
   bool _isConnected = false;
 
@@ -102,8 +104,22 @@ class _RemoteMonitorScreenState extends ConsumerState<RemoteMonitorScreen> {
     });
   }
 
+  void _onDoubleTap() {
+    final currentScale = _transformationController.value.getMaxScaleOnAxis();
+    if (currentScale > 1.1) {
+      _transformationController.value = Matrix4.identity();
+    } else {
+      final pos = _doubleTapPosition ?? Offset.zero;
+      final x = -pos.dx * 1.5;
+      final y = -pos.dy * 1.5;
+      _transformationController.value = Matrix4.diagonal3Values(2.5, 2.5, 1.0)
+        ..setTranslationRaw(x, y, 0.0);
+    }
+  }
+
   @override
   void dispose() {
+    _transformationController.dispose();
     _signalingSubscription?.cancel();
     _localRenderer.dispose();
     _peerConnection?.close();
@@ -124,14 +140,26 @@ class _RemoteMonitorScreenState extends ConsumerState<RemoteMonitorScreen> {
       ),
       body: Center(
         child: _isConnected
-            ? RTCVideoView(
-                _localRenderer,
-                objectFit: RTCVideoViewObjectFit.RTCVideoViewObjectFitContain,
+            ? GestureDetector(
+                onDoubleTapDown: (d) => _doubleTapPosition = d.localPosition,
+                onDoubleTap: _onDoubleTap,
+                child: InteractiveViewer(
+                  transformationController: _transformationController,
+                  minScale: 0.8,
+                  maxScale: 5.0,
+                  boundaryMargin: const EdgeInsets.all(100),
+                  child: Center(
+                    child: RTCVideoView(
+                      _localRenderer,
+                      objectFit: RTCVideoViewObjectFit.RTCVideoViewObjectFitContain,
+                    ),
+                  ),
+                ),
               )
             : Column(
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: [
-                  const CircularProgressIndicator(color: AppColors.mpepeMaroon),
+                  const CircularProgressIndicator(color: AppColors.brandBlue),
                   const SizedBox(height: 16),
                   Text(
                     'Connecting to desktop...',

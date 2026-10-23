@@ -1,0 +1,44 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="robots" content="noindex">
+<meta name="referrer" content="no-referrer">
+<title>Returning to Oneova</title>
+<style>
+  :root { color-scheme: light dark; }
+  body { margin:0; min-height:100vh; display:flex; align-items:center; justify-content:center;
+         font-family:-apple-system,Segoe UI,Roboto,Inter,Arial,sans-serif; background:#F1F5F9; color:#0F172A; }
+  .card { max-width:360px; margin:24px; background:#fff; border:1px solid #E2E8F0; border-radius:16px; padding:26px 22px; text-align:center; }
+  .brand { font-weight:800; color:#0C4FA8; margin-bottom:14px; } .brand span { color:#FF2D87; }
+  h1 { font-size:19px; margin:0 0 6px; letter-spacing:-.3px; } p { color:#475569; font-size:14px; line-height:1.5; margin:0 0 18px; }
+  a.btn { display:block; background:#0C4FA8; color:#fff; text-decoration:none; font-weight:700; padding:13px; border-radius:10px; }
+  @media (prefers-color-scheme: dark) { body{background:#0A0A0A;color:#F3F4F6} .card{background:#141414;border-color:#262626} p{color:#9CA3AF} }
+</style>
+</head>
+<body>
+<div class="card">
+  <div class="brand">Oneova<span>.</span></div>
+  <h1 id="t">Returning to Oneova…</h1>
+  <p id="m">Facebook finished. Opening the Oneova app to complete the connection.</p>
+  <a class="btn" id="open" href="#">Open Oneova</a>
+</div>
+<script>
+  // Meta only redirects to HTTPS addresses. This page passes the one-time
+  // code (or the error) straight on to the app's oneova:// deep link.
+  (function () {
+    var q = window.location.search || '';
+    var target = 'oneova://meta-callback' + q;
+    document.getElementById('open').setAttribute('href', target);
+    if (/[?&]error=/.test(q)) {
+      document.getElementById('t').textContent = 'Connection cancelled';
+      document.getElementById('m').textContent = 'Nothing was shared. Return to Oneova to try again.';
+    }
+    window.location.replace(target);
+    // Drop the code from history once handed over.
+    setTimeout(function () { history.replaceState(null, '', '/meta-callback.html'); }, 1500);
+  })();
+</script>
+</body>
+</html>

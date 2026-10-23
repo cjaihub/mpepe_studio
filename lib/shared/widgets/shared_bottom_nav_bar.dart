@@ -1,8 +1,5 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
-import 'package:flutter_riverpod/flutter_riverpod.dart';
-import '../../backend/user_service.dart';
-import 'package:firebase_auth/firebase_auth.dart';
 import '../theme/app_theme.dart';
 
 class SharedBottomNavBar extends StatelessWidget {
@@ -45,7 +42,7 @@ class _SlidingNavBar extends StatelessWidget {
         child: Container(
           height: 60,
           decoration: BoxDecoration(
-            color: Theme.of(context).colorScheme.surface.withValues(alpha: 0.95),
+            color: context.surface.withValues(alpha: 0.95),
             borderRadius: BorderRadius.circular(20),
             boxShadow: [
               BoxShadow(
@@ -55,8 +52,8 @@ class _SlidingNavBar extends StatelessWidget {
               ),
             ],
             border: Border.all(
-              color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.1), // slightly darker for boldness
-              width: 2.0,
+              color: context.border,
+              width: 1.0,
             ),
           ),
           child: Row(
@@ -79,7 +76,7 @@ class _SlidingNavBar extends StatelessWidget {
                     ),
                     decoration: BoxDecoration(
                       color: isActive 
-                        ? AppColors.mpepeMaroon
+                        ? AppColors.brandBlue
                         : Colors.transparent,
                       borderRadius: BorderRadius.circular(14),
                     ),
@@ -94,7 +91,7 @@ class _SlidingNavBar extends StatelessWidget {
                             data: IconThemeData(
                               color: isActive 
                                   ? Colors.white
-                                  : Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.5),
+                                  : context.textSecondary,
                               size: isActive ? 24 : 20,
                             ),
                             child: item.icon,

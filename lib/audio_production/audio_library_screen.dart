@@ -54,7 +54,7 @@ class _TrackCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return MpepeCard(
+    return OneovaCard(
       child: Row(
         children: [
           Container(
@@ -79,7 +79,7 @@ class _TrackCard extends StatelessWidget {
               ],
             ),
           ),
-          MpepePill(
+          OneovaPill(
             text: status,
             color: statusColor,
             isGhost: true,

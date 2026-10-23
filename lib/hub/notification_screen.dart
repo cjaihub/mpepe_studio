@@ -56,7 +56,13 @@ class NotificationScreen extends ConsumerWidget {
             children: [
               IconButton(
                 icon: Icon(Icons.arrow_back, color: Theme.of(context).colorScheme.onSurface),
-                onPressed: () => context.pop(),
+                onPressed: () {
+                  if (context.canPop()) {
+                    context.pop();
+                  } else {
+                    context.go('/hub/home');
+                  }
+                },
               ),
               Text('Alerts & Notifications', style: AppTheme.h1Style.copyWith(fontSize: 20)),
             ],
@@ -170,9 +176,16 @@ class _NotificationCard extends ConsumerWidget {
                     child: Container(
                       width: 10,
                       height: 10,
-                      decoration: const BoxDecoration(
-                        color: Colors.red,
+                      decoration: BoxDecoration(
+                        color: AppColors.brandPink,
                         shape: BoxShape.circle,
+                        border: Border.all(color: Theme.of(context).colorScheme.surface, width: 1.5),
+                        boxShadow: [
+                          BoxShadow(
+                            color: AppColors.brandPink.withValues(alpha: 0.5),
+                            blurRadius: 4,
+                          ),
+                        ],
                       ),
                     ),
                   ),

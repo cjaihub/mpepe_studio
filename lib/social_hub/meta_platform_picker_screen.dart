@@ -8,7 +8,7 @@ import '../backend/meta_oauth_service.dart';
 import '../shared/theme/app_theme.dart';
 
 // Platform colour palette — used only for card glow & icon halo,
-// NOT replacing the brand's mpepeMaroon/Gold.
+// NOT replacing the brand's oneovaMaroon/Gold.
 const _fbBlue = Color(0xFF0081FB);
 const _igPurple = Color(0xFF833AB4);
 const _igOrange = Color(0xFFE1306C);
@@ -20,7 +20,7 @@ class MetaPlatformPickerScreen extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     return Scaffold(
-      backgroundColor: AppColors.darkBackground,
+      backgroundColor: context.bg,
       body: Stack(
         children: [
           // ── Ambient background glow (Meta blue, very subtle) ──────────
@@ -88,9 +88,9 @@ class MetaPlatformPickerScreen extends ConsumerWidget {
                   child: Row(
                     children: [
                       IconButton(
-                        icon: const Icon(
+                        icon: Icon(
                           Icons.arrow_back_ios_new_rounded,
-                          color: AppColors.textPrimary,
+                          color: context.textPrimary,
                           size: 20,
                         ),
                         onPressed: () => context.pop(),
@@ -113,7 +113,7 @@ class MetaPlatformPickerScreen extends ConsumerWidget {
                         style: GoogleFonts.outfit(
                           fontSize: 16,
                           fontWeight: FontWeight.w500,
-                          color: AppColors.textSecondary,
+                          color: context.textSecondary,
                         ),
                       ).animate().fadeIn(delay: 100.ms),
                       const SizedBox(height: 4),
@@ -122,7 +122,7 @@ class MetaPlatformPickerScreen extends ConsumerWidget {
                         style: GoogleFonts.outfit(
                           fontSize: 42,
                           fontWeight: FontWeight.w900,
-                          color: AppColors.textPrimary,
+                          color: context.textPrimary,
                           letterSpacing: -1.5,
                         ),
                       ).animate().fadeIn(delay: 150.ms).slideY(begin: 0.1),
@@ -131,7 +131,7 @@ class MetaPlatformPickerScreen extends ConsumerWidget {
                         'Choose a platform to link to your Studio. Your credentials are always secured by OAuth — we never see your password.',
                         style: GoogleFonts.outfit(
                           fontSize: 14,
-                          color: AppColors.textSecondary,
+                          color: context.textSecondary,
                           height: 1.55,
                         ),
                       ).animate().fadeIn(delay: 200.ms),
@@ -181,14 +181,14 @@ class MetaPlatformPickerScreen extends ConsumerWidget {
                       Icon(
                         Icons.lock_outline_rounded,
                         size: 13,
-                        color: AppColors.textMuted,
+                        color: context.textMuted,
                       ),
                       const SizedBox(width: 6),
                       Text(
                         'Secured by Meta OAuth 2.0 — we never store your password',
                         style: GoogleFonts.outfit(
                           fontSize: 11.5,
-                          color: AppColors.textMuted,
+                          color: context.textMuted,
                         ),
                       ),
                     ],
@@ -298,12 +298,12 @@ class _MetaPlatformCardState extends ConsumerState<_MetaPlatformCard> {
           curve: Curves.easeOutCubic,
           padding: const EdgeInsets.all(20),
           decoration: BoxDecoration(
-            color: AppColors.darkSurface,
+            color: context.surface,
             borderRadius: BorderRadius.circular(24),
             border: Border.all(
               color: isConnected
                   ? widget.glowColor.withValues(alpha: 0.5)
-                  : AppColors.outline,
+                  : context.border,
               width: isConnected ? 1.5 : 1.0,
             ),
             boxShadow: isConnected
@@ -347,8 +347,8 @@ class _MetaPlatformCardState extends ConsumerState<_MetaPlatformCard> {
                             fontSize: 17,
                             fontWeight: FontWeight.w700,
                             color: widget.isLocked
-                                ? AppColors.textSecondary
-                                : AppColors.textPrimary,
+                                ? context.textSecondary
+                                : context.textPrimary,
                           ),
                         ),
                         if (isConnected) ...[
@@ -367,7 +367,7 @@ class _MetaPlatformCardState extends ConsumerState<_MetaPlatformCard> {
                               : widget.subtitle,
                       style: GoogleFonts.outfit(
                         fontSize: 13,
-                        color: AppColors.textSecondary,
+                        color: context.textSecondary,
                         height: 1.4,
                       ),
                     ),
@@ -375,7 +375,7 @@ class _MetaPlatformCardState extends ConsumerState<_MetaPlatformCard> {
                       const SizedBox(height: 8),
                       _StatusPill(
                           label: '🔒  Coming Soon',
-                          color: AppColors.textMuted),
+                          color: context.textMuted),
                     ],
                   ],
                 ),
@@ -386,13 +386,13 @@ class _MetaPlatformCardState extends ConsumerState<_MetaPlatformCard> {
               // Trailing arrow or lock
               if (widget.isLocked)
                 Icon(Icons.lock_outline_rounded,
-                    color: AppColors.textMuted, size: 18)
+                    color: context.textMuted, size: 18)
               else
                 Icon(
                   Icons.arrow_forward_ios_rounded,
                   color: isConnected
                       ? widget.glowColor
-                      : AppColors.textSecondary,
+                      : context.textSecondary,
                   size: 16,
                 ),
             ],
@@ -463,13 +463,13 @@ class _PlatformIcon extends StatelessWidget {
       decoration: BoxDecoration(
         shape: BoxShape.circle,
         color: isLocked
-            ? AppColors.darkSurfaceHighlight
+            ? context.surfaceMid
             : glowColor.withValues(alpha: 0.1),
         border: Border.all(
           color: isConnected
               ? glowColor.withValues(alpha: 0.4)
               : isLocked
-                  ? AppColors.outline
+                  ? context.border
                   : glowColor.withValues(alpha: 0.2),
           width: 1.5,
         ),
@@ -487,8 +487,8 @@ class _PlatformIcon extends StatelessWidget {
         padding: const EdgeInsets.all(14),
         child: ColorFiltered(
           colorFilter: isLocked
-              ? const ColorFilter.mode(
-                  AppColors.textMuted, BlendMode.srcIn)
+              ? ColorFilter.mode(
+                  context.textMuted, BlendMode.srcIn)
               : const ColorFilter.mode(
                   Colors.transparent, BlendMode.dst),
           child: SvgPicture.asset(
@@ -558,7 +558,7 @@ class _ConnectedSheet extends StatelessWidget {
       margin: const EdgeInsets.fromLTRB(12, 0, 12, 12),
       padding: const EdgeInsets.all(28),
       decoration: BoxDecoration(
-        color: AppColors.darkSurface,
+        color: context.surface,
         borderRadius: BorderRadius.circular(28),
         border: Border.all(color: glowColor.withValues(alpha: 0.25)),
         boxShadow: [
@@ -578,7 +578,7 @@ class _ConnectedSheet extends StatelessWidget {
               width: 36,
               height: 4,
               decoration: BoxDecoration(
-                color: AppColors.outline,
+                color: context.border,
                 borderRadius: BorderRadius.circular(2),
               ),
             ),
@@ -612,7 +612,7 @@ class _ConnectedSheet extends StatelessWidget {
                       style: GoogleFonts.outfit(
                         fontSize: 16,
                         fontWeight: FontWeight.w700,
-                        color: AppColors.textPrimary,
+                        color: context.textPrimary,
                       ),
                     ),
                     if (followerCount != null)
@@ -620,7 +620,7 @@ class _ConnectedSheet extends StatelessWidget {
                         '${_formatCount(followerCount)} followers',
                         style: GoogleFonts.outfit(
                           fontSize: 13,
-                          color: AppColors.textSecondary,
+                          color: context.textSecondary,
                         ),
                       ),
                   ],
@@ -631,7 +631,7 @@ class _ConnectedSheet extends StatelessWidget {
           ),
 
           const SizedBox(height: 28),
-          const Divider(color: AppColors.outline),
+          Divider(color: context.border),
           const SizedBox(height: 20),
 
           // Actions
@@ -664,7 +664,7 @@ class _ConnectedSheet extends StatelessWidget {
               child: Text(
                 'Keep Connected',
                 style: GoogleFonts.outfit(
-                  color: AppColors.textSecondary,
+                  color: context.textSecondary,
                   fontWeight: FontWeight.w600,
                 ),
               ),

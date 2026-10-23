@@ -49,7 +49,7 @@ class _TelemetryDashboardScreenState extends ConsumerState<TelemetryDashboardScr
               child: Column(
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  CircularProgressIndicator(color: AppColors.mpepeMaroon),
+                  CircularProgressIndicator(color: AppColors.brandBlue),
                   SizedBox(height: 20),
                   Text("Waiting for telemetry data...", style: TextStyle(color: AppColors.textMuted)),
                 ],
@@ -65,7 +65,7 @@ class _TelemetryDashboardScreenState extends ConsumerState<TelemetryDashboardScr
                     children: [
                       Expanded(child: _buildCircularGauge("CPU Load", currentData.cpuUsagePercent, 100.0, "%", Colors.blueAccent)),
                       const SizedBox(width: 20),
-                      Expanded(child: _buildCircularGauge("RAM Usage", currentData.ramUsedGb, currentData.ramTotalGb, "GB", AppColors.mpepeMaroon)),
+                      Expanded(child: _buildCircularGauge("RAM Usage", currentData.ramUsedGb, currentData.ramTotalGb, "GB", AppColors.brandBlue)),
                     ],
                   ),
                   const SizedBox(height: 30),
@@ -96,7 +96,7 @@ class _TelemetryDashboardScreenState extends ConsumerState<TelemetryDashboardScr
         border: Border.all(color: AppColors.darkSurfaceHighlight, width: 2),
         boxShadow: [
           BoxShadow(
-            color: color.withOpacity(0.1),
+            color: color.withValues(alpha: 0.1),
             blurRadius: 20,
             spreadRadius: 2,
           ),
@@ -235,7 +235,7 @@ class _TelemetryDashboardScreenState extends ConsumerState<TelemetryDashboardScr
                     dotData: const FlDotData(show: false),
                     belowBarData: BarAreaData(
                       show: true,
-                      color: Colors.orangeAccent.withOpacity(0.1),
+                      color: Colors.orangeAccent.withValues(alpha: 0.1),
                     ),
                   ),
                   LineChartBarData(
@@ -247,7 +247,7 @@ class _TelemetryDashboardScreenState extends ConsumerState<TelemetryDashboardScr
                     dotData: const FlDotData(show: false),
                     belowBarData: BarAreaData(
                       show: true,
-                      color: Colors.cyanAccent.withOpacity(0.1),
+                      color: Colors.cyanAccent.withValues(alpha: 0.1),
                     ),
                   ),
                 ],

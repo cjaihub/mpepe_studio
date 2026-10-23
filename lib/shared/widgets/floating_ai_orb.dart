@@ -1,4 +1,3 @@
-import 'dart:math';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -76,13 +75,13 @@ class _FloatingAiOrbState extends ConsumerState<FloatingAiOrb> with SingleTicker
                 height: orbSize,
                 decoration: BoxDecoration(
                   shape: BoxShape.circle,
-                  color: AppColors.mpepeMaroon,
-                  border: Border.all(color: AppColors.mpepeGold, width: 2),
+                  color: AppColors.brandBlue,
+                  border: Border.all(color: AppColors.brandBlue, width: 2),
                   boxShadow: [
                     BoxShadow(
                       color: aiState.isListening 
-                          ? AppColors.mpepeMaroon.withValues(alpha: 0.6)
-                          : AppColors.mpepeMaroon.withValues(alpha: 0.3 * _pulseController.value),
+                          ? AppColors.brandBlue.withValues(alpha: 0.6)
+                          : AppColors.brandBlue.withValues(alpha: 0.3 * _pulseController.value),
                       blurRadius: 20 * scale,
                       spreadRadius: 5 * scale,
                     ),
@@ -90,10 +89,10 @@ class _FloatingAiOrbState extends ConsumerState<FloatingAiOrb> with SingleTicker
                 ),
                 child: Center(
                   child: aiState.isProcessing
-                    ? const CircularProgressIndicator(color: AppColors.mpepeGold, strokeWidth: 2)
+                    ? const CircularProgressIndicator(color: AppColors.brandBlue, strokeWidth: 2)
                     : Icon(
                         aiState.isListening ? Icons.mic : Icons.graphic_eq,
-                        color: AppColors.mpepeGold,
+                        color: AppColors.brandBlue,
                         size: 30,
                       ),
                 ),

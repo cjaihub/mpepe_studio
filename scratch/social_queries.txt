@@ -1,0 +1,45 @@
+  // ... adding to the end of RelationshipRepository
+  // To fetch relationship lists
+
+  /// Get followers for a user
+  Future<List<String>> getFollowers(String userId) async {
+    final snapshot = await _firestore.collection('relationships')
+        .where('followingId', isEqualTo: userId)
+        .where('status', isEqualTo: RelationshipStatus.accepted.name)
+        .get();
+    return snapshot.docs.map((d) => d.data()['followerId'] as String).toList();
+  }
+
+  /// Get following for a user
+  Future<List<String>> getFollowing(String userId) async {
+    final snapshot = await _firestore.collection('relationships')
+        .where('followerId', isEqualTo: userId)
+        .where('status', isEqualTo: RelationshipStatus.accepted.name)
+        .get();
+    return snapshot.docs.map((d) => d.data()['followingId'] as String).toList();
+  }
+
+  /// Get mutual followers
+  Future<List<String>> getMutualFollowers(String currentUserId, String targetUserId) async {
+    final currentFollowing = await getFollowing(currentUserId);
+    final targetFollowing = await getFollowing(targetUserId);
+    return currentFollowing.where((id) => targetFollowing.contains(id)).toList();
+  }
+
+  /// Suggest connections (very basic: friends of friends)
+  Future<List<String>> getSuggestedConnections(String userId) async {
+    final following = await getFollowing(userId);
+    final suggested = <String>{};
+    
+    for (var fId in following) {
+      final subFollowing = await getFollowing(fId);
+      for (var sfId in subFollowing) {
+        if (sfId != userId && !following.contains(sfId)) {
+          suggested.add(sfId);
+        }
+      }
+    }
+    
+    // In a real app, you might query the user collection for random/popular users if suggested is empty.
+    return suggested.toList();
+  }

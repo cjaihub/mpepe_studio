@@ -64,6 +64,7 @@ class _UnifiedItemCard extends ConsumerWidget {
       case SocialPlatform.instagram:
         return Icons.camera_alt;
       case SocialPlatform.system:
+      default:
         return Icons.settings;
     }
   }
@@ -79,6 +80,7 @@ class _UnifiedItemCard extends ConsumerWidget {
       case SocialPlatform.instagram:
         return Colors.purpleAccent;
       case SocialPlatform.system:
+      default:
         return Colors.grey;
     }
   }

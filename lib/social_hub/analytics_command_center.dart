@@ -55,7 +55,7 @@ class _AnalyticsCommandCenterState extends ConsumerState<AnalyticsCommandCenter>
               _buildTabs(tabs),
               Expanded(
                 child: dataAsync.when(
-                  loading: () => const Center(child: CircularProgressIndicator(color: AppColors.mpepeMaroon)),
+                  loading: () => const Center(child: CircularProgressIndicator(color: AppColors.brandBlue)),
                   error: (err, stack) => Center(child: Text('Error: $err', style: const TextStyle(color: Colors.red))),
                   data: (data) => _buildDashboard(context, data, _selectedTab),
                 ),
@@ -65,10 +65,10 @@ class _AnalyticsCommandCenterState extends ConsumerState<AnalyticsCommandCenter>
         ),
       ),
       floatingActionButton: FloatingActionButton.extended(
-        backgroundColor: AppColors.mpepeMaroon,
-        onPressed: () => _openMpepeChat(context, dataAsync.value),
+        backgroundColor: AppColors.brandBlue,
+        onPressed: () => _openOneovaChat(context, dataAsync.value),
         icon: const Icon(Icons.smart_toy, color: Colors.white),
-        label: const Text('Analyze with Mpepe', style: TextStyle(fontWeight: FontWeight.bold, color: Colors.white)),
+        label: const Text('Analyze with Oneova', style: TextStyle(fontWeight: FontWeight.bold, color: Colors.white)),
       ).animate().slideY(begin: 1.0, delay: 500.ms),
     );
   }
@@ -91,10 +91,10 @@ class _AnalyticsCommandCenterState extends ConsumerState<AnalyticsCommandCenter>
           ),
           IconButton(
             icon: const Icon(Icons.download_rounded),
-            color: AppColors.mpepeGold,
+            color: AppColors.brandBlue,
             onPressed: () {
               ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(content: Text('Report downloading...'), backgroundColor: Colors.green),
+                const SnackBar(content: Text('Report downloading...'), backgroundColor: AppColors.brandBlue),
               );
             },
           ),
@@ -116,14 +116,14 @@ class _AnalyticsCommandCenterState extends ConsumerState<AnalyticsCommandCenter>
               margin: const EdgeInsets.only(right: 12),
               padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
               decoration: BoxDecoration(
-                color: isSelected ? AppColors.mpepeMaroon : AppColors.darkSurface,
+                color: isSelected ? AppColors.brandBlue : context.surface,
                 borderRadius: BorderRadius.circular(24),
-                border: Border.all(color: isSelected ? AppColors.mpepeMaroon : AppColors.outline),
+                border: Border.all(color: isSelected ? AppColors.brandBlue : context.border),
               ),
               child: Text(
                 t['label']!,
                 style: TextStyle(
-                  color: isSelected ? Colors.white : AppColors.textSecondary,
+                  color: isSelected ? Colors.white : context.textSecondary,
                   fontWeight: isSelected ? FontWeight.bold : FontWeight.w500,
                 ),
               ),
@@ -196,27 +196,27 @@ class _AnalyticsCommandCenterState extends ConsumerState<AnalyticsCommandCenter>
     return Container(
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
-        color: AppColors.darkSurface,
+        color: context.surface,
         borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: AppColors.outline),
-        gradient: const LinearGradient(
+        border: Border.all(color: context.border),
+        gradient: LinearGradient(
           begin: Alignment.topLeft,
           end: Alignment.bottomRight,
-          colors: [AppColors.darkSurfaceHighlight, AppColors.darkSurface],
+          colors: [context.surfaceMid, context.surface],
         ),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(label, style: const TextStyle(color: AppColors.textSecondary, fontSize: 12, fontWeight: FontWeight.bold)),
+          Text(label, style: TextStyle(color: context.textSecondary, fontSize: 12, fontWeight: FontWeight.bold)),
           const SizedBox(height: 8),
           Text(value, style: const TextStyle(fontSize: 22, fontWeight: FontWeight.w900, letterSpacing: -0.5)),
           const SizedBox(height: 8),
           Row(
             children: [
-              Icon(isPositive ? Icons.trending_up : Icons.trending_down, color: isPositive ? Colors.green : Colors.red, size: 14),
+              Icon(isPositive ? Icons.trending_up : Icons.trending_down, color: isPositive ? AppColors.brandBlue : AppColors.brandPink, size: 14),
               const SizedBox(width: 4),
-              Text(change, style: TextStyle(color: isPositive ? Colors.green : Colors.red, fontSize: 12, fontWeight: FontWeight.bold)),
+              Text(change, style: TextStyle(color: isPositive ? AppColors.brandBlue : AppColors.brandPink, fontSize: 12, fontWeight: FontWeight.bold)),
             ],
           ),
         ],
@@ -231,21 +231,21 @@ class _AnalyticsCommandCenterState extends ConsumerState<AnalyticsCommandCenter>
     return Container(
       padding: const EdgeInsets.all(18),
       decoration: BoxDecoration(
-        color: AppColors.darkSurface,
+        color: context.surface,
         borderRadius: BorderRadius.circular(24),
-        border: Border.all(color: AppColors.mpepeMaroon.withValues(alpha: 0.5)),
+        border: Border.all(color: AppColors.brandBlue.withValues(alpha: 0.5)),
         boxShadow: [
-          BoxShadow(color: AppColors.mpepeMaroon.withValues(alpha: 0.1), blurRadius: 20, spreadRadius: -5),
+          BoxShadow(color: AppColors.brandBlue.withValues(alpha: 0.1), blurRadius: 20, spreadRadius: -5),
         ],
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const Row(
+          Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
-              Text('Views Comparison (7 Days)', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14)),
-              Icon(Icons.more_horiz, color: AppColors.textSecondary),
+              const Text('Views Comparison (7 Days)', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14)),
+              Icon(Icons.more_horiz, color: context.textSecondary),
             ],
           ),
           const SizedBox(height: 24),
@@ -269,7 +269,7 @@ class _AnalyticsCommandCenterState extends ConsumerState<AnalyticsCommandCenter>
                             width: 8,
                             height: height1,
                             decoration: BoxDecoration(
-                              color: Colors.redAccent,
+                              color: AppColors.brandBlue,
                               borderRadius: BorderRadius.circular(4),
                             ),
                           ),
@@ -279,14 +279,14 @@ class _AnalyticsCommandCenterState extends ConsumerState<AnalyticsCommandCenter>
                             width: 8,
                             height: height2,
                             decoration: BoxDecoration(
-                              color: Colors.cyanAccent,
+                              color: AppColors.brandPink,
                               borderRadius: BorderRadius.circular(4),
                             ),
                           ),
                       ],
                     ),
                     const SizedBox(height: 8),
-                    Text('D${index + 1}', style: const TextStyle(fontSize: 10, color: AppColors.textSecondary)),
+                    Text('D${index + 1}', style: TextStyle(fontSize: 10, color: context.textSecondary)),
                   ],
                 );
               }),
@@ -296,9 +296,9 @@ class _AnalyticsCommandCenterState extends ConsumerState<AnalyticsCommandCenter>
           Row(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
-              if (ytData != null) _buildLegend(context, 'YouTube', Colors.redAccent),
+              if (ytData != null) _buildLegend(context, 'YouTube', AppColors.brandBlue),
               if (ytData != null && ttData != null) const SizedBox(width: 16),
-              if (ttData != null) _buildLegend(context, 'TikTok', Colors.cyanAccent),
+              if (ttData != null) _buildLegend(context, 'TikTok', AppColors.brandPink),
             ],
           )
         ],
@@ -311,7 +311,7 @@ class _AnalyticsCommandCenterState extends ConsumerState<AnalyticsCommandCenter>
       children: [
         Container(width: 10, height: 10, decoration: BoxDecoration(color: color, shape: BoxShape.circle)),
         const SizedBox(width: 6),
-        Text(label, style: const TextStyle(fontSize: 12, color: AppColors.textSecondary)),
+        Text(label, style: TextStyle(fontSize: 12, color: context.textSecondary)),
       ],
     );
   }
@@ -320,16 +320,16 @@ class _AnalyticsCommandCenterState extends ConsumerState<AnalyticsCommandCenter>
     return Container(
       padding: const EdgeInsets.all(18),
       decoration: BoxDecoration(
-        color: AppColors.darkSurface,
+        color: context.surface,
         borderRadius: BorderRadius.circular(24),
-        border: Border.all(color: AppColors.outline),
+        border: Border.all(color: context.border),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           const Text('Audience Overlap', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14)),
           const SizedBox(height: 4),
-          const Text('Users active on both platforms', style: TextStyle(fontSize: 11, color: AppColors.textSecondary)),
+          Text('Users active on both platforms', style: TextStyle(fontSize: 11, color: context.textSecondary)),
           const SizedBox(height: 24),
           Row(
             mainAxisAlignment: MainAxisAlignment.center,
@@ -339,8 +339,8 @@ class _AnalyticsCommandCenterState extends ConsumerState<AnalyticsCommandCenter>
                 height: 80,
                 decoration: BoxDecoration(
                   shape: BoxShape.circle,
-                  color: Colors.redAccent.withValues(alpha: 0.2),
-                  border: Border.all(color: Colors.redAccent.withValues(alpha: 0.5), width: 2),
+                  color: AppColors.brandBlue.withValues(alpha: 0.2),
+                  border: Border.all(color: AppColors.brandBlue.withValues(alpha: 0.5), width: 2),
                 ),
                 child: const Center(child: Text('YT\n60%', textAlign: TextAlign.center, style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold))),
               ),
@@ -351,8 +351,8 @@ class _AnalyticsCommandCenterState extends ConsumerState<AnalyticsCommandCenter>
                   height: 80,
                   decoration: BoxDecoration(
                     shape: BoxShape.circle,
-                    color: Colors.cyanAccent.withValues(alpha: 0.2),
-                    border: Border.all(color: Colors.cyanAccent.withValues(alpha: 0.5), width: 2),
+                    color: AppColors.brandPink.withValues(alpha: 0.2),
+                    border: Border.all(color: AppColors.brandPink.withValues(alpha: 0.5), width: 2),
                   ),
                   child: const Center(child: Text('TT\n40%', textAlign: TextAlign.center, style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold))),
                 ),
@@ -360,7 +360,7 @@ class _AnalyticsCommandCenterState extends ConsumerState<AnalyticsCommandCenter>
             ],
           ),
           const SizedBox(height: 16),
-          const Center(child: Text('15% Overlap (Super Fans)', style: TextStyle(fontWeight: FontWeight.bold, color: AppColors.mpepeGold))),
+          const Center(child: Text('15% Overlap (Super Fans)', style: TextStyle(fontWeight: FontWeight.bold, color: AppColors.brandBlue))),
         ],
       ),
     ).animate().fade(delay: 200.ms).slideY(begin: 0.1);
@@ -370,13 +370,13 @@ class _AnalyticsCommandCenterState extends ConsumerState<AnalyticsCommandCenter>
     return Column(
       children: [
         _buildListSection(context, 'Recent Video Performance', [
-          {'title': 'Studio Vlog #42', 'views': '45K', 'icon': Icons.video_library, 'color': AppColors.textPrimary},
-          {'title': 'How to Mix Vocals', 'views': '12K', 'icon': Icons.video_library, 'color': AppColors.textPrimary},
+          {'title': 'Studio Vlog #42', 'views': '45K', 'icon': Icons.video_library, 'color': context.textPrimary},
+          {'title': 'How to Mix Vocals', 'views': '12K', 'icon': Icons.video_library, 'color': context.textPrimary},
         ]),
         const SizedBox(height: 16),
         _buildListSection(context, 'Engagement Highlights', [
-          {'title': 'Highest retention drop', 'views': '0:45', 'icon': Icons.warning_amber_rounded, 'color': Colors.orange},
-          {'title': 'Most replayed segment', 'views': '2:15', 'icon': Icons.star, 'color': AppColors.mpepeGold},
+          {'title': 'Highest retention drop', 'views': '0:45', 'icon': Icons.warning_amber_rounded, 'color': AppColors.brandPink},
+          {'title': 'Most replayed segment', 'views': '2:15', 'icon': Icons.star, 'color': AppColors.brandBlue},
         ]),
       ],
     ).animate().fade(delay: 200.ms).slideY(begin: 0.1);
@@ -386,9 +386,9 @@ class _AnalyticsCommandCenterState extends ConsumerState<AnalyticsCommandCenter>
     return Container(
       padding: const EdgeInsets.all(18),
       decoration: BoxDecoration(
-        color: AppColors.darkSurface,
+        color: context.surface,
         borderRadius: BorderRadius.circular(24),
-        border: Border.all(color: AppColors.outline),
+        border: Border.all(color: context.border),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -411,25 +411,25 @@ class _AnalyticsCommandCenterState extends ConsumerState<AnalyticsCommandCenter>
     );
   }
 
-  void _openMpepeChat(BuildContext context, Map<String, dynamic>? currentData) {
+  void _openOneovaChat(BuildContext context, Map<String, dynamic>? currentData) {
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
       backgroundColor: Colors.transparent,
-      builder: (ctx) => _MpepeChatInterface(data: currentData),
+      builder: (ctx) => _OneovaChatInterface(data: currentData),
     );
   }
 }
 
-class _MpepeChatInterface extends StatefulWidget {
+class _OneovaChatInterface extends StatefulWidget {
   final Map<String, dynamic>? data;
-  const _MpepeChatInterface({this.data});
+  const _OneovaChatInterface({this.data});
 
   @override
-  State<_MpepeChatInterface> createState() => _MpepeChatInterfaceState();
+  State<_OneovaChatInterface> createState() => _OneovaChatInterfaceState();
 }
 
-class _MpepeChatInterfaceState extends State<_MpepeChatInterface> {
+class _OneovaChatInterfaceState extends State<_OneovaChatInterface> {
   final List<Map<String, String>> _messages = [];
   final TextEditingController _controller = TextEditingController();
   bool _isTyping = false;
@@ -438,8 +438,8 @@ class _MpepeChatInterfaceState extends State<_MpepeChatInterface> {
   void initState() {
     super.initState();
     _messages.add({
-      'sender': 'mpepe',
-      'text': 'Hi! I am Mpepe, your AI Analytics Assistant. I can see you are looking at your latest stats (Reach: ${widget.data?['totalReach'] ?? '...'}). What would you like to know?',
+      'sender': 'oneova',
+      'text': 'Hi! I am Oneova, your AI Analytics Assistant. I can see you are looking at your latest stats (Reach: ${widget.data?['totalReach'] ?? '...'}). What would you like to know?',
     });
   }
 
@@ -460,7 +460,7 @@ class _MpepeChatInterfaceState extends State<_MpepeChatInterface> {
     setState(() {
       _isTyping = false;
       _messages.add({
-        'sender': 'mpepe',
+        'sender': 'oneova',
         'text': 'Based on this chart, your audience retention is strong on YouTube, but TikTok shows a drop around day 3. I recommend cross-posting your best performing YouTube shorts to TikTok to boost that fund!',
       });
     });
@@ -470,32 +470,32 @@ class _MpepeChatInterfaceState extends State<_MpepeChatInterface> {
   Widget build(BuildContext context) {
     return Container(
       height: MediaQuery.of(context).size.height * 0.75,
-      decoration: const BoxDecoration(
-        color: AppColors.darkBackground,
-        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+      decoration: BoxDecoration(
+        color: context.bg,
+        borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
       ),
       child: Column(
         children: [
           Container(
             padding: const EdgeInsets.all(16),
-            decoration: const BoxDecoration(
-              color: AppColors.darkSurface,
-              borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
-              border: Border(bottom: BorderSide(color: AppColors.outline)),
+            decoration: BoxDecoration(
+              color: context.surface,
+              borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
+              border: Border(bottom: BorderSide(color: context.border)),
             ),
             child: Row(
               children: [
                 const CircleAvatar(
-                  backgroundColor: AppColors.mpepeMaroon,
+                  backgroundColor: AppColors.brandBlue,
                   child: Icon(Icons.smart_toy, color: Colors.white),
                 ),
                 const SizedBox(width: 12),
-                const Expanded(
+                Expanded(
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Text('Mpepe AI', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
-                      Text('Voice Mode Enabled (ChatGPT)', style: TextStyle(fontSize: 12, color: AppColors.textSecondary)),
+                      const Text('Oneova AI', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+                      Text('Oneova Voice Intelligence Enabled', style: TextStyle(fontSize: 12, color: context.textSecondary)),
                     ],
                   ),
                 ),
@@ -513,7 +513,7 @@ class _MpepeChatInterfaceState extends State<_MpepeChatInterface> {
                     alignment: Alignment.centerLeft,
                     child: Padding(
                       padding: EdgeInsets.all(8.0),
-                      child: CircularProgressIndicator(color: AppColors.mpepeMaroon, strokeWidth: 2),
+                      child: CircularProgressIndicator(color: AppColors.brandBlue, strokeWidth: 2),
                     ),
                   );
                 }
@@ -525,13 +525,16 @@ class _MpepeChatInterfaceState extends State<_MpepeChatInterface> {
                     margin: EdgeInsets.only(bottom: 12, left: isMe ? 40 : 0, right: isMe ? 0 : 40),
                     padding: const EdgeInsets.all(16),
                     decoration: BoxDecoration(
-                      color: isMe ? AppColors.mpepeMaroon : AppColors.darkSurfaceHighlight,
+                      color: isMe ? AppColors.brandBlue : context.surfaceMid,
                       borderRadius: BorderRadius.circular(16).copyWith(
                         bottomRight: isMe ? const Radius.circular(0) : const Radius.circular(16),
                         bottomLeft: isMe ? const Radius.circular(16) : const Radius.circular(0),
                       ),
                     ),
-                    child: Text(msg['text']!, style: const TextStyle(color: Colors.white)),
+                    child: Text(
+                      msg['text']!,
+                      style: TextStyle(color: isMe ? Colors.white : context.textPrimary),
+                    ),
                   ),
                 );
               },
@@ -539,20 +542,20 @@ class _MpepeChatInterfaceState extends State<_MpepeChatInterface> {
           ),
           Container(
             padding: EdgeInsets.only(bottom: MediaQuery.of(context).viewInsets.bottom + 16, left: 16, right: 16, top: 16),
-            decoration: const BoxDecoration(
-              color: AppColors.darkSurface,
-              border: Border(top: BorderSide(color: AppColors.outline)),
+            decoration: BoxDecoration(
+              color: context.surface,
+              border: Border(top: BorderSide(color: context.border)),
             ),
             child: Row(
               children: [
-                IconButton(icon: const Icon(Icons.mic, color: AppColors.mpepeMaroon), onPressed: () {}),
+                IconButton(icon: const Icon(Icons.mic, color: AppColors.brandBlue), onPressed: () {}),
                 Expanded(
                   child: TextField(
                     controller: _controller,
                     decoration: InputDecoration(
-                      hintText: 'Ask Mpepe...',
+                      hintText: 'Ask Oneova...',
                       filled: true,
-                      fillColor: AppColors.darkBackground,
+                      fillColor: context.bg,
                       border: OutlineInputBorder(borderRadius: BorderRadius.circular(24), borderSide: BorderSide.none),
                       contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
                     ),
@@ -561,7 +564,7 @@ class _MpepeChatInterfaceState extends State<_MpepeChatInterface> {
                 ),
                 const SizedBox(width: 8),
                 IconButton(
-                  icon: const Icon(Icons.send, color: AppColors.mpepeMaroon),
+                  icon: const Icon(Icons.send, color: AppColors.brandBlue),
                   onPressed: _sendMessage,
                 ),
               ],

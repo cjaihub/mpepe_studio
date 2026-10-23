@@ -24,7 +24,7 @@ class YtChannelsScreen extends ConsumerWidget {
 
     return StudioBackground(
       backgroundIcons: const [
-        Icons.video_camera_front,
+        Icons.camera_front,
         Icons.subscriptions_outlined,
         Icons.analytics_outlined,
       ],
@@ -35,7 +35,7 @@ class YtChannelsScreen extends ConsumerWidget {
             fontWeight: FontWeight.w800,
             fontSize: 20,
             letterSpacing: -0.5,
-            color: AppColors.textPrimary,
+            color: context.textPrimary,
           ),
         ),
         centerTitle: false,
@@ -43,7 +43,7 @@ class YtChannelsScreen extends ConsumerWidget {
         elevation: 0,
         actions: [
           IconButton(
-            icon: const Icon(Icons.refresh_rounded, color: AppColors.textSecondary),
+            icon: Icon(Icons.refresh_rounded, color: context.textSecondary),
             tooltip: 'Refresh all channels',
             onPressed: () => ref.invalidate(ytAccountStoreProvider),
           ),
@@ -54,7 +54,7 @@ class YtChannelsScreen extends ConsumerWidget {
             ? _AddAccountFab(ref: ref)
             : null,
         loading: () => null,
-        error: (_, __) => _AddAccountFab(ref: ref),
+        error: (_, _) => _AddAccountFab(ref: ref),
       ),
       child: storeAsync.when(
         data: (store) => _buildContent(context, ref, store),
@@ -65,24 +65,24 @@ class YtChannelsScreen extends ConsumerWidget {
             child: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
-                const Icon(Icons.cloud_off, color: AppColors.mpepeMaroon, size: 48),
+                const Icon(Icons.cloud_off, color: AppColors.brandBlue, size: 48),
                 const SizedBox(height: 16),
                 Text(
                   'Failed to load accounts',
                   style: GoogleFonts.outfit(
                     fontSize: 18,
                     fontWeight: FontWeight.w700,
-                    color: AppColors.textPrimary,
+                    color: context.textPrimary,
                   ),
                 ),
                 const SizedBox(height: 8),
                 Text(
                   FriendlyErrorParser.parse(err),
                   textAlign: TextAlign.center,
-                  style: GoogleFonts.outfit(color: AppColors.textSecondary),
+                  style: GoogleFonts.outfit(color: context.textSecondary),
                 ),
                 const SizedBox(height: 24),
-                MpepeButton(
+                OneovaButton(
                   text: 'Retry',
                   onPressed: () => ref.invalidate(ytAccountStoreProvider),
                   isPrimary: true,
@@ -133,7 +133,7 @@ class YtChannelsScreen extends ConsumerWidget {
                     fontWeight: FontWeight.w900,
                     height: 1.1,
                     letterSpacing: -1,
-                    color: AppColors.textPrimary,
+                    color: context.textPrimary,
                   ),
                 ).animate().fadeIn(duration: 500.ms).slideY(begin: -0.08),
                 const SizedBox(height: 6),
@@ -141,7 +141,7 @@ class YtChannelsScreen extends ConsumerWidget {
                   '${store.accounts.length} Google Account${store.accounts.length == 1 ? '' : 's'} · ${store.accounts.fold<int>(0, (sum, a) => sum + a.channels.length)} Channel${store.accounts.fold<int>(0, (sum, a) => sum + a.channels.length) == 1 ? '' : 's'} connected',
                   style: GoogleFonts.outfit(
                     fontSize: 14,
-                    color: AppColors.textSecondary,
+                    color: context.textSecondary,
                     height: 1.4,
                   ),
                 ).animate().fadeIn(delay: 100.ms),
@@ -180,22 +180,22 @@ class YtChannelsScreen extends ConsumerWidget {
               child: Container(
                 padding: const EdgeInsets.all(16),
                 decoration: BoxDecoration(
-                  color: AppColors.mpepeGold.withValues(alpha: 0.08),
+                  color: AppColors.brandBlue.withValues(alpha: 0.08),
                   borderRadius: BorderRadius.circular(16),
                   border: Border.all(
-                      color: AppColors.mpepeGold.withValues(alpha: 0.2)),
+                      color: AppColors.brandBlue.withValues(alpha: 0.2)),
                 ),
                 child: Row(
                   children: [
                     Icon(Icons.info_outline_rounded,
-                        color: AppColors.mpepeGold, size: 18),
+                        color: AppColors.brandBlue, size: 18),
                     const SizedBox(width: 10),
                     Expanded(
                       child: Text(
                         'You\'ve reached the 5-account limit. Remove one to add another.',
                         style: GoogleFonts.outfit(
                           fontSize: 13,
-                          color: AppColors.mpepeGold,
+                          color: AppColors.brandBlue,
                         ),
                       ),
                     ),
@@ -215,7 +215,7 @@ class YtChannelsScreen extends ConsumerWidget {
     final isLoading = storeState.when(
       data: (s) => s.isLoading,
       loading: () => true,
-      error: (_, __) => false,
+      error: (_, _) => false,
     );
 
     return Center(
@@ -248,17 +248,17 @@ class YtChannelsScreen extends ConsumerWidget {
               style: GoogleFonts.outfit(
                 fontSize: 22,
                 fontWeight: FontWeight.w800,
-                color: AppColors.textPrimary,
+                color: context.textPrimary,
                 letterSpacing: -0.5,
               ),
             ),
             const SizedBox(height: 10),
             Text(
-              'Link your Google account to start managing YouTube channels, analytics, and uploads from MPEPE Studio.',
+              'Link your Google account to start managing YouTube channels, analytics, and uploads from Oneova Studio.',
               textAlign: TextAlign.center,
               style: GoogleFonts.outfit(
                 fontSize: 14,
-                color: AppColors.textSecondary,
+                color: context.textSecondary,
                 height: 1.6,
               ),
             ),
@@ -270,7 +270,7 @@ class YtChannelsScreen extends ConsumerWidget {
                   const SizedBox(height: 16),
                   Text(
                     storeState.value?.statusMessage ?? 'Connecting…',
-                    style: GoogleFonts.outfit(color: AppColors.textSecondary),
+                    style: GoogleFonts.outfit(color: context.textSecondary),
                   ),
                 ],
               )
@@ -284,7 +284,7 @@ class YtChannelsScreen extends ConsumerWidget {
               'You can add up to 5 Google accounts',
               style: GoogleFonts.outfit(
                 fontSize: 12,
-                color: AppColors.textMuted,
+                color: context.textMuted,
               ),
             ),
           ],
@@ -342,11 +342,11 @@ class _AccountSection extends ConsumerWidget {
                 height: 44,
                 decoration: BoxDecoration(
                   shape: BoxShape.circle,
-                  color: AppColors.darkSurface,
+                  color: context.surface,
                   border: Border.all(
                     color: isFirst
-                        ? AppColors.mpepeGold.withValues(alpha: 0.5)
-                        : AppColors.outline,
+                        ? AppColors.brandBlue.withValues(alpha: 0.5)
+                        : context.border,
                     width: 1.5,
                   ),
                   image: account.profilePictureUrl.isNotEmpty
@@ -364,7 +364,7 @@ class _AccountSection extends ConsumerWidget {
                               : '?',
                           style: GoogleFonts.outfit(
                             fontWeight: FontWeight.w800,
-                            color: AppColors.textPrimary,
+                            color: context.textPrimary,
                           ),
                         ),
                       )
@@ -383,7 +383,7 @@ class _AccountSection extends ConsumerWidget {
                           style: GoogleFonts.outfit(
                             fontSize: 15,
                             fontWeight: FontWeight.w700,
-                            color: AppColors.textPrimary,
+                            color: context.textPrimary,
                           ),
                         ),
                         if (isFirst) ...[
@@ -392,10 +392,10 @@ class _AccountSection extends ConsumerWidget {
                             padding: const EdgeInsets.symmetric(
                                 horizontal: 8, vertical: 2),
                             decoration: BoxDecoration(
-                              color: AppColors.mpepeGold.withValues(alpha: 0.12),
+                              color: AppColors.brandBlue.withValues(alpha: 0.12),
                               borderRadius: BorderRadius.circular(999),
                               border: Border.all(
-                                  color: AppColors.mpepeGold
+                                  color: AppColors.brandBlue
                                       .withValues(alpha: 0.3)),
                             ),
                             child: Text(
@@ -403,7 +403,7 @@ class _AccountSection extends ConsumerWidget {
                               style: GoogleFonts.outfit(
                                 fontSize: 10,
                                 fontWeight: FontWeight.w700,
-                                color: AppColors.mpepeGold,
+                                color: AppColors.brandBlue,
                               ),
                             ),
                           ),
@@ -414,7 +414,7 @@ class _AccountSection extends ConsumerWidget {
                       account.email,
                       style: GoogleFonts.outfit(
                         fontSize: 12,
-                        color: AppColors.textSecondary,
+                        color: context.textSecondary,
                       ),
                     ),
                   ],
@@ -423,8 +423,8 @@ class _AccountSection extends ConsumerWidget {
 
               // Account actions
               IconButton(
-                icon: const Icon(Icons.refresh_rounded,
-                    size: 18, color: AppColors.textSecondary),
+                icon: Icon(Icons.refresh_rounded,
+                    size: 18, color: context.textSecondary),
                 tooltip: 'Refresh channels',
                 onPressed: onRefresh,
               ),
@@ -445,19 +445,19 @@ class _AccountSection extends ConsumerWidget {
             Container(
               padding: const EdgeInsets.all(18),
               decoration: BoxDecoration(
-                color: AppColors.darkSurface,
+                color: context.surface,
                 borderRadius: BorderRadius.circular(20),
-                border: Border.all(color: AppColors.outline),
+                border: Border.all(color: context.border),
               ),
               child: Row(
                 children: [
-                  Icon(Icons.info_outline, color: AppColors.textMuted, size: 18),
+                  Icon(Icons.info_outline, color: context.textMuted, size: 18),
                   const SizedBox(width: 10),
                   Text(
                     'No YouTube channels on this account',
                     style: GoogleFonts.outfit(
                       fontSize: 13,
-                      color: AppColors.textMuted,
+                      color: context.textMuted,
                     ),
                   ),
                 ],
@@ -524,12 +524,12 @@ class _ChannelCardState extends ConsumerState<_ChannelCard> {
     return AnimatedContainer(
       duration: 300.ms,
       decoration: BoxDecoration(
-        color: AppColors.darkSurface,
+        color: context.surface,
         borderRadius: BorderRadius.circular(22),
         border: Border.all(
           color: isActive
               ? _ytRed.withValues(alpha: 0.55)
-              : AppColors.outline,
+              : context.border,
           width: isActive ? 1.5 : 1,
         ),
         boxShadow: isActive
@@ -570,7 +570,7 @@ class _ChannelCardState extends ConsumerState<_ChannelCard> {
                       border: Border.all(
                         color: isActive
                             ? _ytRed.withValues(alpha: 0.4)
-                            : AppColors.outline,
+                            : context.border,
                         width: 1.5,
                       ),
                       boxShadow: isActive
@@ -621,7 +621,7 @@ class _ChannelCardState extends ConsumerState<_ChannelCard> {
                                 style: GoogleFonts.outfit(
                                   fontWeight: FontWeight.w700,
                                   fontSize: 15,
-                                  color: AppColors.textPrimary,
+                                  color: context.textPrimary,
                                 ),
                               ),
                             ),
@@ -654,7 +654,7 @@ class _ChannelCardState extends ConsumerState<_ChannelCard> {
                           '${numFormat.format(widget.channel.subscriberCount)} subscribers',
                           style: GoogleFonts.outfit(
                             fontSize: 12,
-                            color: AppColors.textSecondary,
+                            color: context.textSecondary,
                           ),
                         ),
                       ],
@@ -677,7 +677,7 @@ class _ChannelCardState extends ConsumerState<_ChannelCard> {
                           duration: 250.ms,
                           child: Icon(
                             Icons.keyboard_arrow_down_rounded,
-                            color: AppColors.textSecondary,
+                            color: context.textSecondary,
                             size: 22,
                           ),
                         ),
@@ -694,7 +694,7 @@ class _ChannelCardState extends ConsumerState<_ChannelCard> {
           // Expanded stats row
           AnimatedCrossFade(
             firstChild: const SizedBox(width: double.infinity),
-            secondChild: _buildStatsRow(numFormat),
+            secondChild: _buildStatsRow(context, numFormat),
             crossFadeState: _expanded
                 ? CrossFadeState.showSecond
                 : CrossFadeState.showFirst,
@@ -705,31 +705,34 @@ class _ChannelCardState extends ConsumerState<_ChannelCard> {
     );
   }
 
-  Widget _buildStatsRow(NumberFormat numFormat) {
+  Widget _buildStatsRow(BuildContext context, NumberFormat numFormat) {
     return Container(
       margin: const EdgeInsets.fromLTRB(16, 0, 16, 16),
       padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
-        color: AppColors.darkBackground.withValues(alpha: 0.5),
+        color: context.surfaceMid,
         borderRadius: BorderRadius.circular(14),
-        border: Border.all(color: AppColors.outline),
+        border: Border.all(color: context.border),
       ),
       child: Row(
         mainAxisAlignment: MainAxisAlignment.spaceAround,
         children: [
           _statCol(
+              context,
               Icons.people_outline_rounded,
               numFormat.format(widget.channel.subscriberCount),
               'Subscribers',
               Colors.blue),
           _divider(),
           _statCol(
+              context,
               Icons.video_library_outlined,
               numFormat.format(widget.channel.videoCount),
               'Videos',
               _ytRed),
           _divider(),
           _statCol(
+              context,
               Icons.visibility_outlined,
               numFormat.format(widget.channel.viewCount),
               'Total Views',
@@ -739,7 +742,7 @@ class _ChannelCardState extends ConsumerState<_ChannelCard> {
     );
   }
 
-  Widget _statCol(IconData icon, String value, String label, Color color) {
+  Widget _statCol(BuildContext context, IconData icon, String value, String label, Color color) {
     return Column(
       children: [
         Icon(icon, size: 18, color: color),
@@ -749,14 +752,14 @@ class _ChannelCardState extends ConsumerState<_ChannelCard> {
           style: GoogleFonts.outfit(
             fontSize: 15,
             fontWeight: FontWeight.w800,
-            color: AppColors.textPrimary,
+            color: context.textPrimary,
           ),
         ),
         Text(
           label,
           style: GoogleFonts.outfit(
             fontSize: 10,
-            color: AppColors.textSecondary,
+            color: context.textSecondary,
           ),
         ),
       ],
@@ -783,7 +786,7 @@ class _AddAccountFab extends StatelessWidget {
     final isLoading = ref.watch(ytAccountStoreProvider).when(
           data: (s) => s.isLoading,
           loading: () => true,
-          error: (_, __) => false,
+          error: (_, _) => false,
         );
 
     return FloatingActionButton.extended(
@@ -877,7 +880,7 @@ class _RemoveAccountSheet extends StatelessWidget {
       margin: const EdgeInsets.fromLTRB(12, 0, 12, 12),
       padding: const EdgeInsets.all(28),
       decoration: BoxDecoration(
-        color: AppColors.darkSurface,
+        color: context.surface,
         borderRadius: BorderRadius.circular(28),
         border: Border.all(color: Colors.red.withValues(alpha: 0.2)),
       ),
@@ -889,7 +892,7 @@ class _RemoveAccountSheet extends StatelessWidget {
               width: 36,
               height: 4,
               decoration: BoxDecoration(
-                color: AppColors.outline,
+                color: context.border,
                 borderRadius: BorderRadius.circular(2),
               ),
             ),
@@ -912,16 +915,16 @@ class _RemoveAccountSheet extends StatelessWidget {
             style: GoogleFonts.outfit(
               fontSize: 20,
               fontWeight: FontWeight.w800,
-              color: AppColors.textPrimary,
+              color: context.textPrimary,
             ),
           ),
           const SizedBox(height: 10),
           Text(
-            'Remove ${account.accountName} (${account.email}) and all its ${account.channels.length} channel${account.channels.length == 1 ? '' : 's'} from MPEPE Studio?',
+            'Remove ${account.accountName} (${account.email}) and all its ${account.channels.length} channel${account.channels.length == 1 ? '' : 's'} from Oneova Studio?',
             textAlign: TextAlign.center,
             style: GoogleFonts.outfit(
               fontSize: 14,
-              color: AppColors.textSecondary,
+              color: context.textSecondary,
               height: 1.5,
             ),
           ),
@@ -931,7 +934,7 @@ class _RemoveAccountSheet extends StatelessWidget {
             textAlign: TextAlign.center,
             style: GoogleFonts.outfit(
               fontSize: 12,
-              color: AppColors.textMuted,
+              color: context.textMuted,
             ),
           ),
           const SizedBox(height: 28),
@@ -961,7 +964,7 @@ class _RemoveAccountSheet extends StatelessWidget {
               child: Text(
                 'Cancel',
                 style: GoogleFonts.outfit(
-                  color: AppColors.textSecondary,
+                  color: context.textSecondary,
                   fontWeight: FontWeight.w600,
                 ),
               ),

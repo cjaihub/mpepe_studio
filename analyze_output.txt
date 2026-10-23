@@ -1,0 +1,133 @@
+Analyzing MPEPE STUDIO...                                       
+
+  error • Undefined name '_activeAction'. Try correcting the name to one that is defined, or defining the name • lib/ai_messaging/widgets/ai_composer_menu.dart:60:7 • undefined_identifier
+  error • Undefined name '_activeAction'. Try correcting the name to one that is defined, or defining the name • lib/ai_messaging/widgets/ai_composer_menu.dart:156:25 • undefined_identifier
+   info • Don't invoke 'print' in production code. Try using a logging framework • lib/auth/auth_repository.dart:136:7 • avoid_print
+   info • Don't invoke 'print' in production code. Try using a logging framework • lib/auth/auth_repository.dart:152:7 • avoid_print
+   info • 'canAuthenticate' is deprecated and shouldn't be used. Use PasskeyAvailability.isAvailable instead. This method will be removed in a future release. Try replacing the use of the deprecated member with the replacement • lib/auth/passkey_auth_service.dart:13:31 • deprecated_member_use
+   info • Don't invoke 'print' in production code. Try using a logging framework • lib/auth/services/admin_setup_helper.dart:7:5 • avoid_print
+   info • Don't invoke 'print' in production code. Try using a logging framework • lib/backend/ai_agents/location_ai_service.dart:111:7 • avoid_print
+   info • Don't invoke 'print' in production code. Try using a logging framework • lib/backend/ai_agents/openrouter_agent_service.dart:60:7 • avoid_print
+   info • Don't invoke 'print' in production code. Try using a logging framework • lib/backend/ai_agents/openrouter_agent_service.dart:102:9 • avoid_print
+   info • Don't invoke 'print' in production code. Try using a logging framework • lib/backend/ai_agents/openrouter_agent_service.dart:105:7 • avoid_print
+   info • Don't invoke 'print' in production code. Try using a logging framework • lib/backend/ai_agents/video_director_service.dart:135:5 • avoid_print
+   info • Statements in an if should be enclosed in a block. Try wrapping the statement in a block • lib/backend/ai_brain_service.dart:583:47 • curly_braces_in_flow_control_structures
+   info • Don't invoke 'print' in production code. Try using a logging framework • lib/backend/analytics/services/ai_analytics_analyst.dart:73:7 • avoid_print
+   info • Don't invoke 'print' in production code. Try using a logging framework • lib/backend/chat_agent_service.dart:126:7 • avoid_print
+   info • Don't invoke 'print' in production code. Try using a logging framework • lib/backend/chat_history_repository.dart:23:7 • avoid_print
+   info • Don't invoke 'print' in production code. Try using a logging framework • lib/backend/chat_history_repository.dart:36:7 • avoid_print
+   info • Don't invoke 'print' in production code. Try using a logging framework • lib/backend/chat_history_repository.dart:51:7 • avoid_print
+   info • Don't invoke 'print' in production code. Try using a logging framework • lib/backend/communities/services/community_service.dart:67:5 • avoid_print
+   info • Don't invoke 'print' in production code. Try using a logging framework • lib/backend/communities/services/community_service.dart:80:5 • avoid_print
+   info • Don't invoke 'print' in production code. Try using a logging framework • lib/backend/creator_marketplace/services/creator_marketplace_service.dart:53:5 • avoid_print
+   info • Don't invoke 'print' in production code. Try using a logging framework • lib/backend/gemini_live_service.dart:98:7 • avoid_print
+   info • Don't invoke 'print' in production code. Try using a logging framework • lib/backend/maps/services/collab_map_service.dart:115:5 • avoid_print
+   info • Don't invoke 'print' in production code. Try using a logging framework • lib/backend/maps/services/google_maps_service.dart:33:9 • avoid_print
+   info • Don't invoke 'print' in production code. Try using a logging framework • lib/backend/maps/services/google_maps_service.dart:36:7 • avoid_print
+   info • Don't invoke 'print' in production code. Try using a logging framework • lib/backend/maps/services/google_maps_service.dart:78:9 • avoid_print
+   info • Don't invoke 'print' in production code. Try using a logging framework • lib/backend/maps/services/google_maps_service.dart:81:7 • avoid_print
+   info • Don't invoke 'print' in production code. Try using a logging framework • lib/backend/maps/services/google_maps_service.dart:103:9 • avoid_print
+   info • Don't invoke 'print' in production code. Try using a logging framework • lib/backend/maps/services/google_maps_service.dart:106:7 • avoid_print
+   info • Don't invoke 'print' in production code. Try using a logging framework • lib/backend/maps/services/google_maps_service.dart:161:9 • avoid_print
+   info • Don't invoke 'print' in production code. Try using a logging framework • lib/backend/maps/services/google_maps_service.dart:164:7 • avoid_print
+warning • The declaration '_simulatePipeline' isn't referenced. Try removing the declaration of '_simulatePipeline' • lib/backend/media_infrastructure/services/media_pipeline_service.dart:61:16 • unused_element
+  error • Invalid constant value • lib/backend/media_infrastructure/services/media_pipeline_service.dart:78:34 • invalid_constant
+  error • Invalid constant value • lib/backend/media_infrastructure/services/media_pipeline_service.dart:83:34 • invalid_constant
+  error • Invalid constant value • lib/backend/media_infrastructure/services/media_pipeline_service.dart:88:34 • invalid_constant
+  error • Invalid constant value • lib/backend/media_infrastructure/services/media_pipeline_service.dart:93:34 • invalid_constant
+  error • Invalid constant value • lib/backend/media_infrastructure/services/media_pipeline_service.dart:98:34 • invalid_constant
+   info • The parameter name 'sum' matches a visible type name. Try adding a name for the parameter or changing the parameter name to not match an existing type • lib/backend/meta_profile_service.dart:110:47 • avoid_types_as_parameter_names
+   info • Don't invoke 'print' in production code. Try using a logging framework • lib/backend/observability/telemetry_service.dart:20:5 • avoid_print
+   info • Don't invoke 'print' in production code. Try using a logging framework • lib/backend/observability/telemetry_service.dart:31:5 • avoid_print
+   info • Don't invoke 'print' in production code. Try using a logging framework • lib/backend/observability/telemetry_service.dart:37:5 • avoid_print
+   info • Don't invoke 'print' in production code. Try using a logging framework • lib/backend/observability/telemetry_service.dart:70:5 • avoid_print
+   info • Don't invoke 'print' in production code. Try using a logging framework • lib/backend/observability/telemetry_service.dart:75:5 • avoid_print
+   info • Don't invoke 'print' in production code. Try using a logging framework • lib/backend/observability/telemetry_service.dart:80:5 • avoid_print
+   info • Don't invoke 'print' in production code. Try using a logging framework • lib/backend/observability/telemetry_service.dart:86:5 • avoid_print
+warning • The value of the field '_projectRepo' isn't used. Try removing the field, or using it • lib/backend/projects/services/collaborative_room_service.dart:7:27 • unused_field
+warning • The value of the field '_inboxRepo' isn't used. Try removing the field, or using it • lib/backend/projects/services/collaborative_room_service.dart:8:31 • unused_field
+warning • The value of the local variable 'msg' isn't used. Try removing the variable or using it • lib/backend/projects/services/collaborative_room_service.dart:40:11 • unused_local_variable
+   info • Don't invoke 'print' in production code. Try using a logging framework • lib/backend/projects/services/collaborative_room_service.dart:53:5 • avoid_print
+warning • The value of the field '_aiAgent' isn't used. Try removing the field, or using it • lib/backend/publishing/services/content_adaptation_service.dart:11:32 • unused_field
+  error • Target of URI doesn't exist: 'recommendation_models.dart'. Try creating the file referenced by the URI, or try using a URI for a file that does exist • lib/backend/recommendation/services/recommendation_engine.dart:4:8 • uri_does_not_exist
+  error • Undefined class 'InteractionType'. Try changing the name to the name of an existing class, or creating a class with the name 'InteractionType' • lib/backend/recommendation/services/recommendation_engine.dart:18:48 • undefined_class
+  error • The method 'UserInteractionEvent' isn't defined for the type 'RecommendationEngine'. Try correcting the name to the name of an existing method, or defining a method named 'UserInteractionEvent' • lib/backend/recommendation/services/recommendation_engine.dart:27:19 • undefined_method
+  error • Undefined class 'RecommendationPreferences'. Try changing the name to the name of an existing class, or creating a class with the name 'RecommendationPreferences' • lib/backend/recommendation/services/recommendation_engine.dart:49:47 • undefined_class
+  error • The name 'RecommendationExplanation' isn't a type, so it can't be used as a type argument. Try correcting the name to an existing type, or defining a type named 'RecommendationExplanation' • lib/backend/recommendation/services/recommendation_engine.dart:72:10 • non_type_as_type_argument
+  error • The method 'RecommendationExplanation' isn't defined for the type 'RecommendationEngine'. Try correcting the name to the name of an existing method, or defining a method named 'RecommendationExplanation' • lib/backend/recommendation/services/recommendation_engine.dart:74:12 • undefined_method
+   info • Don't invoke 'print' in production code. Try using a logging framework • lib/backend/search/search_service.dart:60:7 • avoid_print
+   info • Don't invoke 'print' in production code. Try using a logging framework • lib/backend/search/search_service.dart:86:7 • avoid_print
+   info • Don't invoke 'print' in production code. Try using a logging framework • lib/backend/secure_pairing/secure_pairing_service.dart:95:9 • avoid_print
+   info • Don't invoke 'print' in production code. Try using a logging framework • lib/backend/secure_pairing/secure_pairing_service.dart:133:7 • avoid_print
+   info • Don't invoke 'print' in production code. Try using a logging framework • lib/backend/secure_pairing/secure_pairing_service.dart:158:7 • avoid_print
+   info • Don't invoke 'print' in production code. Try using a logging framework • lib/backend/secure_pairing/secure_pairing_service.dart:184:7 • avoid_print
+   info • The constant name 'short_video' isn't a lowerCamelCase identifier. Try changing the name to follow the lowerCamelCase style • lib/backend/social/models/content.dart:4:3 • constant_identifier_names
+   info • The constant name 'long_video' isn't a lowerCamelCase identifier. Try changing the name to follow the lowerCamelCase style • lib/backend/social/models/content.dart:5:3 • constant_identifier_names
+   info • The constant name 'live_replay' isn't a lowerCamelCase identifier. Try changing the name to follow the lowerCamelCase style • lib/backend/social/models/content.dart:9:3 • constant_identifier_names
+   info • The constant name 'series_episode' isn't a lowerCamelCase identifier. Try changing the name to follow the lowerCamelCase style • lib/backend/social/models/content.dart:10:3 • constant_identifier_names
+   info • The constant name 'quote_repost' isn't a lowerCamelCase identifier. Try changing the name to follow the lowerCamelCase style • lib/backend/social/models/content.dart:15:3 • constant_identifier_names
+   info • The constant name 'video_reply' isn't a lowerCamelCase identifier. Try changing the name to follow the lowerCamelCase style • lib/backend/social/models/content.dart:19:3 • constant_identifier_names
+   info • The constant name 'reaction_video' isn't a lowerCamelCase identifier. Try changing the name to follow the lowerCamelCase style • lib/backend/social/models/content.dart:20:3 • constant_identifier_names
+   info • The constant name 'green_screen' isn't a lowerCamelCase identifier. Try changing the name to follow the lowerCamelCase style • lib/backend/social/models/content.dart:21:3 • constant_identifier_names
+   info • The constant name 'split_screen' isn't a lowerCamelCase identifier. Try changing the name to follow the lowerCamelCase style • lib/backend/social/models/content.dart:22:3 • constant_identifier_names
+   info • The constant name 'new_follower' isn't a lowerCamelCase identifier. Try changing the name to follow the lowerCamelCase style • lib/backend/social/models/social_notification.dart:4:3 • constant_identifier_names
+   info • The constant name 'follow_accepted' isn't a lowerCamelCase identifier. Try changing the name to follow the lowerCamelCase style • lib/backend/social/models/social_notification.dart:5:3 • constant_identifier_names
+   info • The constant name 'post_like' isn't a lowerCamelCase identifier. Try changing the name to follow the lowerCamelCase style • lib/backend/social/models/social_notification.dart:6:3 • constant_identifier_names
+   info • The constant name 'comment_like' isn't a lowerCamelCase identifier. Try changing the name to follow the lowerCamelCase style • lib/backend/social/models/social_notification.dart:7:3 • constant_identifier_names
+   info • The constant name 'new_comment' isn't a lowerCamelCase identifier. Try changing the name to follow the lowerCamelCase style • lib/backend/social/models/social_notification.dart:8:3 • constant_identifier_names
+warning • The value of the local variable 'now' isn't used. Try removing the variable or using it • lib/backend/social/services/story_service.dart:57:11 • unused_local_variable
+warning • The value of the local variable 'activeStories' isn't used. Try removing the variable or using it • lib/backend/social/services/story_service.dart:82:11 • unused_local_variable
+   info • The constant name 'video_comment' isn't a lowerCamelCase identifier. Try changing the name to follow the lowerCamelCase style • lib/backend/social_inbox_repository.dart:47:93 • constant_identifier_names
+   info • Don't invoke 'print' in production code. Try using a logging framework • lib/backend/storage_service.dart:22:7 • avoid_print
+warning • The value of the field '_inboxRepo' isn't used. Try removing the field, or using it • lib/backend/sync_sessions/services/sync_session_service.dart:7:31 • unused_field
+warning • The value of the local variable 'msg' isn't used. Try removing the variable or using it • lib/backend/sync_sessions/services/sync_session_service.dart:110:11 • unused_local_variable
+   info • Don't invoke 'print' in production code. Try using a logging framework • lib/backend/sync_sessions/services/sync_session_service.dart:122:5 • avoid_print
+warning • The value of the local variable 'name' isn't used. Try removing the variable or using it • lib/backend/telemetry/apm_service.dart:51:13 • unused_local_variable
+warning • The value of the local variable 'min' isn't used. Try removing the variable or using it • lib/backend/telemetry/apm_service.dart:56:13 • unused_local_variable
+warning • The value of the local variable 'max' isn't used. Try removing the variable or using it • lib/backend/telemetry/apm_service.dart:57:13 • unused_local_variable
+warning • The value of the local variable 'avg' isn't used. Try removing the variable or using it • lib/backend/telemetry/apm_service.dart:58:13 • unused_local_variable
+warning • The value of the local variable 'p95' isn't used. Try removing the variable or using it • lib/backend/telemetry/apm_service.dart:59:13 • unused_local_variable
+warning • Dead code. Try removing the code, or fixing the code before it so that it can be reached • lib/backend/telemetry/telemetry_stream_provider.dart:46:5 • dead_code
+warning • Dead code. Try removing the code, or fixing the code before it so that it can be reached • lib/backend/telemetry/telemetry_stream_provider.dart:83:5 • dead_code
+   info • The parameter name 'sum' matches a visible type name. Try adding a name for the parameter or changing the parameter name to not match an existing type • lib/backend/tiktok_profile_service.dart:118:46 • avoid_types_as_parameter_names
+warning • The value of the local variable 'toolsPayload' isn't used. Try removing the variable or using it • lib/backend/universal_ai/universal_ai_services.dart:113:11 • unused_local_variable
+   info • Don't invoke 'print' in production code. Try using a logging framework • lib/backend/universal_ai/universal_ai_services.dart:155:7 • avoid_print
+   info • Don't invoke 'print' in production code. Try using a logging framework • lib/backend/voice_assistant_service.dart:78:7 • avoid_print
+   info • Don't invoke 'print' in production code. Try using a logging framework • lib/backend/voice_assistant_service.dart:95:7 • avoid_print
+   info • Don't invoke 'print' in production code. Try using a logging framework • lib/backend/voice_assistant_service.dart:115:9 • avoid_print
+   info • Statements in an if should be enclosed in a block. Try wrapping the statement in a block • lib/desktop_agent/desktop_agent_screen.dart:210:54 • curly_braces_in_flow_control_structures
+warning • The declaration '_initialized' isn't referenced. Try removing the declaration of '_initialized' • lib/desktop_agent/macos_mouse_ffi.dart:89:6 • unused_element
+warning • This default clause is covered by the previous cases. Try removing the default clause, or restructuring the preceding patterns • lib/hub/components/unified_list_tab.dart:371:7 • unreachable_switch_default
+warning • The value of the local variable 'sessionId' isn't used. Try removing the variable or using it • lib/hub/connect_screen.dart:114:13 • unused_local_variable
+warning • The value of the field '_isRendering' isn't used. Try removing the field, or using it • lib/hub/desktop_remote_screen.dart:30:8 • unused_field
+warning • The declaration '_sendCommand' isn't referenced. Try removing the declaration of '_sendCommand' • lib/hub/desktop_remote_screen.dart:55:8 • unused_element
+warning • The value of the local variable 'remoteConnectState' isn't used. Try removing the variable or using it • lib/hub/hub_ai_screen.dart:49:11 • unused_local_variable
+warning • The value of the field '_showAllActions' isn't used. Try removing the field, or using it • lib/hub/hub_home_screen.dart:31:14 • unused_field
+warning • The value of the local variable 'emoji' isn't used. Try removing the variable or using it • lib/hub/hub_home_screen.dart:295:16 • unused_local_variable
+warning • The value of the local variable 'isHealthy' isn't used. Try removing the variable or using it • lib/hub/hub_home_screen.dart:366:11 • unused_local_variable
+   info • Don't use 'BuildContext's across async gaps. Try rewriting the code to not use the 'BuildContext', or guard the use with a 'mounted' check • lib/hub/hub_home_screen.dart:1401:16 • use_build_context_synchronously
+warning • The value of the local variable 'isActive' isn't used. Try removing the variable or using it • lib/hub/messaging/fluid_background.dart:78:16 • unused_local_variable
+   info • Don't invoke 'print' in production code. Try using a logging framework • lib/hub/messaging/user_search_screen.dart:55:7 • avoid_print
+warning • The value of the local variable 'sessionId' isn't used. Try removing the variable or using it • lib/hub/qr_scanner_screen.dart:58:17 • unused_local_variable
+   info • Don't use 'BuildContext's across async gaps, guarded by an unrelated 'mounted' check. Guard a 'State.context' use with a 'mounted' check on the State, and other BuildContext use with a 'mounted' check on the BuildContext • lib/settings/screens/ai_personalization/ai_memory_manager_screen.dart:93:42 • use_build_context_synchronously
+warning • The value of the local variable 'isSelected' isn't used. Try removing the variable or using it • lib/settings/screens/language_settings_screen.dart:50:21 • unused_local_variable
+   info • 'groupValue' is deprecated and shouldn't be used. Use a RadioGroup ancestor to manage group value instead. This feature was deprecated after v3.32.0-0.0.pre. Try replacing the use of the deprecated member with the replacement • lib/settings/screens/language_settings_screen.dart:55:19 • deprecated_member_use
+   info • 'onChanged' is deprecated and shouldn't be used. Use RadioGroup to handle value change instead. This feature was deprecated after v3.32.0-0.0.pre. Try replacing the use of the deprecated member with the replacement • lib/settings/screens/language_settings_screen.dart:59:19 • deprecated_member_use
+warning • Dead code. Try removing the code, or fixing the code before it so that it can be reached • lib/shared/command_palette/command_palette_overlay.dart:52:27 • dead_code
+warning • This default clause is covered by the previous cases. Try removing the default clause, or restructuring the preceding patterns • lib/shared/modals/app_modals.dart:58:7 • unreachable_switch_default
+   info • Don't use 'BuildContext's across async gaps. Try rewriting the code to not use the 'BuildContext', or guard the use with a 'mounted' check • lib/social_hub/components/voice_recorder_button.dart:33:28 • use_build_context_synchronously
+   info • Statements in an if should be enclosed in a block. Try wrapping the statement in a block • lib/social_hub/creation/camera_screen.dart:212:35 • curly_braces_in_flow_control_structures
+   info • Statements in an if should be enclosed in a block. Try wrapping the statement in a block • lib/social_hub/creation/camera_screen.dart:214:35 • curly_braces_in_flow_control_structures
+warning • The value of the field '_auth' isn't used. Try removing the field, or using it • lib/social_hub/creator_studio/media_rights/media_rights_settings_screen.dart:22:9 • unused_field
+   info • Don't invoke 'print' in production code. Try using a logging framework • lib/social_hub/feed/short_video_telemetry_service.dart:29:5 • avoid_print
+warning • The value of the field '_currentIndex' isn't used. Try removing the field, or using it • lib/social_hub/feed/social_feed_screen.dart:23:7 • unused_field
+warning • The value of the local variable 'theme' isn't used. Try removing the variable or using it • lib/social_hub/security/passkey_management_screen.dart:14:11 • unused_local_variable
+warning • The declaration '_buildConnectionLine' isn't referenced. Try removing the declaration of '_buildConnectionLine' • lib/social_hub/social_integration_dashboard.dart:227:10 • unused_element
+warning • The value of the local variable 'platformName' isn't used. Try removing the variable or using it • lib/upload/screens/preview_matrix_screen.dart:99:18 • unused_local_variable
+warning • The value of the local variable 'title' isn't used. Try removing the variable or using it • lib/youtube_manager/yt_dashboard_screen.dart:214:34 • unused_local_variable
+   info • Don't use 'BuildContext's across async gaps. Try rewriting the code to not use the 'BuildContext', or guard the use with a 'mounted' check • lib/youtube_manager/yt_upload_screen.dart:74:18 • use_build_context_synchronously
+warning • The method doesn't override an inherited method. Try updating this class to match the superclass, or removing the override annotation • test/backend/offline/offline_sync_manager_test.mocks.dart:68:8 • override_on_non_overriding_member
+warning • The method doesn't override an inherited method. Try updating this class to match the superclass, or removing the override annotation • test/backend/routing/deep_link_resolver_test.mocks.dart:68:8 • override_on_non_overriding_member
+   info • Don't invoke 'print' in production code. Try using a logging framework • test/backend/telemetry/apm_benchmark_test.dart:35:7 • avoid_print
+   info • Don't invoke 'print' in production code. Try using a logging framework • test/backend/telemetry/apm_benchmark_test.dart:57:7 • avoid_print
+

@@ -1,17 +1,14 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter_animate/flutter_animate.dart';
 import 'package:go_router/go_router.dart';
-import 'package:local_auth/local_auth.dart';
-import 'package:flutter/services.dart';
 
-import '../../shared/theme/app_theme.dart';
 import '../../shared/widgets/components.dart';
 import '../../shared/widgets/studio_background.dart';
-import 'mpepe_pin_screen.dart';
+import 'oneova_pin_screen.dart';
 import '../services/pin_auth_service.dart';
 import '../services/secure_logout_service.dart';
+import '../services/oneova_biometrics_service.dart';
 
 class WorkspaceLockedScreen extends ConsumerStatefulWidget {
   const WorkspaceLockedScreen({super.key});
@@ -21,7 +18,6 @@ class WorkspaceLockedScreen extends ConsumerStatefulWidget {
 }
 
 class _WorkspaceLockedScreenState extends ConsumerState<WorkspaceLockedScreen> {
-  final LocalAuthentication _localAuth = LocalAuthentication();
   bool _isCheckingBiometrics = false;
 
   @override
@@ -38,30 +34,20 @@ class _WorkspaceLockedScreenState extends ConsumerState<WorkspaceLockedScreen> {
     setState(() => _isCheckingBiometrics = true);
 
     try {
-      final bool canAuthenticateWithBiometrics = await _localAuth.canCheckBiometrics;
-      final bool canAuthenticate = canAuthenticateWithBiometrics || await _localAuth.isDeviceSupported();
+      final bioService = ref.read(oneovaBiometricsServiceProvider);
+      final result = await bioService.authenticateWithDetails(
+        reason: 'Verify your fingerprint or face to unlock Oneova Studio',
+        biometricOnly: true,
+      );
 
-      if (canAuthenticate) {
-        try {
-          final authenticated = await _localAuth.authenticate(
-            localizedReason: 'Verify your identity to unlock Mpepe',
-            biometricOnly: false,
-            persistAcrossBackgrounding: true,
-          );
-          if (authenticated && mounted) {
-            _onUnlockSuccess();
-            return;
-          }
-        } on PlatformException {
-          // Biometrics failed or cancelled
-        }
-
-        if (mounted) _showPinFallbackSheet();
-      } else {
-        if (mounted) _showPinFallbackSheet();
+      if (result.isSuccess && mounted) {
+        _onUnlockSuccess();
+        return;
       }
-    } on PlatformException catch (e) {
-      debugPrint(e.toString());
+
+      if (mounted) _showPinFallbackSheet();
+    } catch (e) {
+      debugPrint('[WorkspaceLockedScreen] error: $e');
       if (mounted) _showPinFallbackSheet();
     } finally {
       if (mounted) {
@@ -130,7 +116,7 @@ class _WorkspaceLockedScreenState extends ConsumerState<WorkspaceLockedScreen> {
                 ).animate().fade(delay: 100.ms),
                 const SizedBox(height: 32),
                 
-                MpepeButton(
+                OneovaButton(
                   text: 'Use PIN Code',
                   isPrimary: false,
                   icon: Icons.dialpad_rounded,
@@ -139,7 +125,7 @@ class _WorkspaceLockedScreenState extends ConsumerState<WorkspaceLockedScreen> {
                     final success = await Navigator.push(
                       this.context,
                       MaterialPageRoute(
-                        builder: (context) => const MpepePinScreen(mode: PinScreenMode.verify),
+                        builder: (context) => const OneovaPinScreen(mode: PinScreenMode.verify),
                       ),
                     );
                     if (success == true && mounted) {
@@ -149,7 +135,7 @@ class _WorkspaceLockedScreenState extends ConsumerState<WorkspaceLockedScreen> {
                 ).animate().fade(delay: 150.ms).slideY(begin: 0.1, end: 0, duration: 200.ms),
                 const SizedBox(height: 12),
                 
-                MpepeButton(
+                OneovaButton(
                   text: 'Try Fingerprint Again',
                   isPrimary: false,
                   icon: Icons.fingerprint,
@@ -203,7 +189,7 @@ class _WorkspaceLockedScreenState extends ConsumerState<WorkspaceLockedScreen> {
                     child: ClipRRect(
                       borderRadius: BorderRadius.circular(20),
                       child: Image.asset(
-                        'assets/logos/app_logo.png',
+                        'assets/images/oneova_logo.jpg',
                         width: 80,
                         height: 80,
                         fit: BoxFit.cover,
@@ -212,7 +198,7 @@ class _WorkspaceLockedScreenState extends ConsumerState<WorkspaceLockedScreen> {
                   ).animate().scale(duration: 400.ms, curve: Curves.easeOutBack),
                   const SizedBox(height: 24),
                   Text(
-                    'MPEPE STUDIO',
+                    'ONEOVA STUDIO',
                     style: TextStyle(
                       fontSize: 24,
                       fontWeight: FontWeight.bold,
@@ -229,7 +215,7 @@ class _WorkspaceLockedScreenState extends ConsumerState<WorkspaceLockedScreen> {
                     ),
                   ),
                   const SizedBox(height: 40),
-                  MpepeButton(
+                  OneovaButton(
                     text: 'Unlock Workspace',
                     isPrimary: true,
                     icon: Icons.fingerprint,

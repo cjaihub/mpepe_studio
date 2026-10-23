@@ -47,7 +47,7 @@ class _AbTestingDashboardState extends ConsumerState<AbTestingDashboard> with Si
     try {
       final callable = FirebaseFunctions.instance.httpsCallable('generateAbTests');
       final result = await callable.call({
-        'contextPrompt': 'Video titled: ${widget.task.title}. Description: ${widget.task.description}. Tags: ${widget.task.tags?.join(', ')}'
+        'contextPrompt': 'Video titled: ${widget.task.title}. Description: ${widget.task.description}. Tags: ${widget.task.tags.join(', ')}'
       });
 
       setState(() {
@@ -75,7 +75,7 @@ class _AbTestingDashboardState extends ConsumerState<AbTestingDashboard> with Si
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: AppColors.darkBackground,
+      backgroundColor: context.bg,
       appBar: AppBar(
         backgroundColor: Colors.transparent,
         elevation: 0,
@@ -83,10 +83,10 @@ class _AbTestingDashboardState extends ConsumerState<AbTestingDashboard> with Si
           'AI-Driven A/B Tests',
           style: GoogleFonts.outfit(
             fontWeight: FontWeight.bold,
-            color: AppColors.mpepeGold,
+            color: AppColors.brandBlue,
           ),
         ),
-        iconTheme: const IconThemeData(color: AppColors.mpepeGold),
+        iconTheme: const IconThemeData(color: AppColors.brandBlue),
       ),
       body: _variations.isEmpty ? _buildEmptyState() : _buildVariationsList(),
     );
@@ -106,21 +106,21 @@ class _AbTestingDashboardState extends ConsumerState<AbTestingDashboard> with Si
                   padding: const EdgeInsets.all(32),
                   decoration: BoxDecoration(
                     shape: BoxShape.circle,
-                    color: AppColors.mpepeGold.withOpacity(0.2),
+                    color: AppColors.brandBlue.withValues(alpha: 0.2),
                     boxShadow: [
-                      BoxShadow(color: AppColors.mpepeGold.withOpacity(0.5), blurRadius: 40, spreadRadius: 10),
+                      BoxShadow(color: AppColors.brandBlue.withValues(alpha: 0.5), blurRadius: 40, spreadRadius: 10),
                     ]
                   ),
-                  child: const Icon(Icons.auto_awesome, color: AppColors.mpepeGold, size: 48),
+                  child: const Icon(Icons.auto_awesome, color: AppColors.brandBlue, size: 48),
                 ),
               )
             else
-              const Icon(Icons.science, color: Colors.white54, size: 64),
+              Icon(Icons.science, color: context.textMuted, size: 64),
             
             const SizedBox(height: 32),
             Text(
               _isLoading ? 'AI is analyzing your content...' : 'Generate A/B Test Variations',
-              style: AppTheme.h2Style,
+              style: AppTheme.h2Style.copyWith(color: context.textPrimary),
               textAlign: TextAlign.center,
             ),
             const SizedBox(height: 16),
@@ -128,7 +128,7 @@ class _AbTestingDashboardState extends ConsumerState<AbTestingDashboard> with Si
               _isLoading 
                 ? 'Crafting highly viral titles and descriptions based on your niche.'
                 : 'Instantly generate 3 different AI thumbnail & title combinations. See which one fits your audience best.',
-              style: const TextStyle(color: Colors.white54),
+              style: TextStyle(color: context.textMuted),
               textAlign: TextAlign.center,
             ),
             const SizedBox(height: 32),
@@ -137,7 +137,7 @@ class _AbTestingDashboardState extends ConsumerState<AbTestingDashboard> with Si
               const SizedBox(height: 16),
             ],
             if (!_isLoading)
-              MpepeButton(
+              OneovaButton(
                 text: 'Generate Tests',
                 onPressed: _generateTests,
                 isPrimary: true,
@@ -157,24 +157,24 @@ class _AbTestingDashboardState extends ConsumerState<AbTestingDashboard> with Si
         return Container(
           margin: const EdgeInsets.only(bottom: 24),
           decoration: BoxDecoration(
-            color: AppColors.darkSurface,
+            color: context.surface,
             borderRadius: BorderRadius.circular(16),
-            border: Border.all(color: Colors.white12),
+            border: Border.all(color: context.border),
           ),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
               Container(
                 padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-                decoration: const BoxDecoration(
-                  color: Colors.black26,
-                  borderRadius: BorderRadius.only(topLeft: Radius.circular(16), topRight: Radius.circular(16)),
+                decoration: BoxDecoration(
+                  color: context.surfaceMid,
+                  borderRadius: const BorderRadius.only(topLeft: Radius.circular(16), topRight: Radius.circular(16)),
                 ),
                 child: Row(
                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
-                    Text('Variation ${String.fromCharCode(65 + index)}', style: const TextStyle(color: AppColors.mpepeGold, fontWeight: FontWeight.bold)),
-                    const Icon(Icons.star_border, color: AppColors.mpepeGold, size: 16),
+                    Text('Variation ${String.fromCharCode(65 + index)}', style: const TextStyle(color: AppColors.brandBlue, fontWeight: FontWeight.bold)),
+                    const Icon(Icons.star_border, color: AppColors.brandBlue, size: 16),
                   ],
                 ),
               ),
@@ -183,9 +183,9 @@ class _AbTestingDashboardState extends ConsumerState<AbTestingDashboard> with Si
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text(variant['title'] ?? 'No title', style: const TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold)),
+                    Text(variant['title'] ?? 'No title', style: TextStyle(color: context.textPrimary, fontSize: 18, fontWeight: FontWeight.bold)),
                     const SizedBox(height: 12),
-                    Text(variant['description'] ?? 'No description', style: const TextStyle(color: Colors.white70, fontSize: 14)),
+                    Text(variant['description'] ?? 'No description', style: TextStyle(color: context.textSecondary, fontSize: 14)),
                     const SizedBox(height: 12),
                     Wrap(
                       spacing: 8,
@@ -194,15 +194,15 @@ class _AbTestingDashboardState extends ConsumerState<AbTestingDashboard> with Si
                         return Container(
                           padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
                           decoration: BoxDecoration(
-                            color: AppColors.mpepeMaroon.withOpacity(0.3),
+                            color: AppColors.brandBlue.withValues(alpha: 0.15),
                             borderRadius: BorderRadius.circular(12),
                           ),
-                          child: Text('#$t', style: const TextStyle(color: AppColors.mpepeMaroon, fontSize: 12)),
+                          child: Text('#$t', style: const TextStyle(color: AppColors.brandBlue, fontSize: 12)),
                         );
                       }).toList(),
                     ),
                     const SizedBox(height: 24),
-                    MpepeButton(
+                    OneovaButton(
                       text: 'Apply Variation',
                       onPressed: () => _applyVariation(variant),
                       isPrimary: false,

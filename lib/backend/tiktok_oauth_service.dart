@@ -87,7 +87,7 @@ class TikTokOAuthService extends Notifier<TikTokOAuthState> {
 
   String get _clientKey => dotenv.env['TIKTOK_CLIENT_KEY'] ?? '';
   String get _clientSecret => dotenv.env['TIKTOK_CLIENT_SECRET'] ?? '';
-  String get _redirectUri => dotenv.env['TIKTOK_REDIRECT_URI'] ?? 'mstudio://tiktok-callback';
+  String get _redirectUri => dotenv.env['TIKTOK_REDIRECT_URI'] ?? 'oneova://tiktok-callback';
   String get _userId => _auth.currentUser?.uid ?? '';
 
   Completer<String?>? _oauthCompleter;
@@ -114,7 +114,7 @@ class TikTokOAuthService extends Notifier<TikTokOAuthState> {
 
     // TikTok v2 scopes
     final scopeString = 'user.info.basic,video.list';
-    final csrfState = 'mstudio_tiktok_${DateTime.now().millisecondsSinceEpoch}';
+    final csrfState = 'oneova_tiktok_${DateTime.now().millisecondsSinceEpoch}';
 
     final uri = Uri.parse(_authUrl).replace(queryParameters: {
       'client_key': _clientKey,

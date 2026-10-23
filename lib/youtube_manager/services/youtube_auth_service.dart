@@ -2,7 +2,6 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:google_sign_in/google_sign_in.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
-import 'package:googleapis_auth/googleapis_auth.dart' as auth;
 import 'package:googleapis/youtube/v3.dart' as youtube;
 import 'package:googleapis/youtubeanalytics/v2.dart' as analytics;
 import 'package:http/http.dart' as http;
@@ -64,10 +63,6 @@ class YouTubeAuthService extends Notifier<GoogleSignInAccount?> {
       final account = await _googleSignIn.authenticate(
         scopeHint: _ytScopes,
       );
-      
-      if (account == null) {
-        return false;
-      }
 
       // Force the authorization flow immediately so the user sees the YouTube scopes consent screen
       try {

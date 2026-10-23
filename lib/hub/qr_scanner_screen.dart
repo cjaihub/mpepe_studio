@@ -46,7 +46,7 @@ class _QRScannerScreenState extends ConsumerState<QRScannerScreen> with SingleTi
     final List<Barcode> barcodes = capture.barcodes;
     if (barcodes.isNotEmpty && barcodes.first.rawValue != null) {
       final code = barcodes.first.rawValue!;
-      if (code.startsWith('MPEPE-') || code.length > 5) {
+      if (code.startsWith('ONEOVA-') || code.startsWith('MPEPE-') || code.length > 5) {
         setState(() => _isProcessing = true);
         controller.stop();
         
@@ -110,7 +110,7 @@ class _QRScannerScreenState extends ConsumerState<QRScannerScreen> with SingleTi
               width: 250,
               height: 250,
               decoration: BoxDecoration(
-                border: Border.all(color: AppColors.mpepeMaroon, width: 4),
+                border: Border.all(color: AppColors.brandBlue, width: 4),
                 borderRadius: BorderRadius.circular(30),
               ),
               child: Stack(
@@ -126,10 +126,10 @@ class _QRScannerScreenState extends ConsumerState<QRScannerScreen> with SingleTi
                         child: Container(
                           height: 4,
                           decoration: BoxDecoration(
-                            color: AppColors.mpepeMaroon,
+                            color: AppColors.brandBlue,
                             boxShadow: [
                               BoxShadow(
-                                color: AppColors.mpepeMaroon.withValues(alpha: 0.8),
+                                color: AppColors.brandBlue.withValues(alpha: 0.8),
                                 blurRadius: 15,
                                 spreadRadius: 5,
                               )
@@ -149,7 +149,7 @@ class _QRScannerScreenState extends ConsumerState<QRScannerScreen> with SingleTi
             Container(
               color: Colors.black.withValues(alpha: 0.8),
               child: const Center(
-                child: CircularProgressIndicator(color: AppColors.mpepeMaroon),
+                child: CircularProgressIndicator(color: AppColors.brandBlue),
               ),
             ).animate().fadeIn(),
             

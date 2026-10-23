@@ -38,7 +38,7 @@ class LinkedDevicesScreen extends ConsumerWidget {
                     .snapshots(),
                 builder: (context, snapshot) {
                   if (snapshot.connectionState == ConnectionState.waiting) {
-                    return const Center(child: CircularProgressIndicator(color: AppColors.mpepeMaroon));
+                    return const Center(child: CircularProgressIndicator(color: AppColors.brandBlue));
                   }
                   
                   if (snapshot.hasError) {
@@ -74,7 +74,7 @@ class LinkedDevicesScreen extends ConsumerWidget {
       child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
-          Icon(Icons.computer, size: 80, color: AppColors.textMuted.withOpacity(0.5)),
+          Icon(Icons.computer, size: 80, color: AppColors.textMuted.withValues(alpha: 0.5)),
           const SizedBox(height: 20),
           const Text(
             "No Linked Devices",
@@ -88,7 +88,7 @@ class LinkedDevicesScreen extends ConsumerWidget {
           const Padding(
             padding: EdgeInsets.symmetric(horizontal: 40),
             child: Text(
-              "Download the MPEPE Studio Desktop App on your Mac and log in with your account to link it.",
+              "Download the Oneova Studio Desktop App on your Mac and log in with your account to link it.",
               textAlign: TextAlign.center,
               style: TextStyle(fontSize: 14, color: AppColors.textSecondary),
             ),
@@ -111,12 +111,12 @@ class LinkedDevicesScreen extends ConsumerWidget {
         leading: Container(
           padding: const EdgeInsets.all(12),
           decoration: BoxDecoration(
-            color: AppColors.mpepeMaroon.withOpacity(0.1),
+            color: AppColors.brandBlue.withValues(alpha: 0.1),
             shape: BoxShape.circle,
           ),
           child: Icon(
             Icons.desktop_mac,
-            color: isOnline ? AppColors.mpepeMaroon : AppColors.textMuted,
+            color: isOnline ? AppColors.brandBlue : AppColors.textMuted,
           ),
         ),
         title: Text(

@@ -5,7 +5,6 @@ import 'package:flutter_animate/flutter_animate.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import '../backend/user_service.dart';
 import '../shared/theme/app_theme.dart';
-import '../shared/widgets/components.dart';
 import '../shared/widgets/theme_toggle_button.dart';
 import 'auth_repository.dart';
 import 'services/secure_logout_service.dart';

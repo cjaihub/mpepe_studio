@@ -7,6 +7,7 @@ import 'package:speech_to_text/speech_to_text.dart' as stt;
 import 'package:reorderable_grid_view/reorderable_grid_view.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../backend/project_repository.dart';
+import '../shared/theme/app_theme.dart';
 import 'pdf_export_service.dart';
 
 class StoryboardPresentationScreen extends ConsumerStatefulWidget {
@@ -189,14 +190,14 @@ class _StoryboardPresentationScreenState extends ConsumerState<StoryboardPresent
   Widget build(BuildContext context) {
     if (_currentUrls.isEmpty) {
       return Scaffold(
-        backgroundColor: Colors.black,
-        appBar: AppBar(title: const Text('Storyboard'), backgroundColor: Colors.black),
-        body: const Center(child: Text('No storyboard visuals available.', style: TextStyle(color: Colors.white70))),
+        backgroundColor: context.bg,
+        appBar: AppBar(title: Text('Storyboard', style: TextStyle(color: context.textPrimary)), backgroundColor: context.surface),
+        body: Center(child: Text('No storyboard visuals available.', style: TextStyle(color: context.textSecondary))),
       );
     }
 
     return Scaffold(
-      backgroundColor: Colors.black,
+      backgroundColor: context.bg,
       body: _isGridView ? _buildGridView() : _buildPresentationView(),
     );
   }
@@ -206,9 +207,9 @@ class _StoryboardPresentationScreenState extends ConsumerState<StoryboardPresent
       child: Column(
         children: [
           _buildHeader(),
-          const Padding(
-            padding: EdgeInsets.symmetric(horizontal: 20, vertical: 8),
-            child: Text('Drag and drop to reorder shots. Changes auto-save.', style: TextStyle(color: Colors.white54, fontSize: 12)),
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
+            child: Text('Drag and drop to reorder shots. Changes auto-save.', style: TextStyle(color: context.textMuted, fontSize: 12)),
           ),
           Expanded(
             child: Padding(
@@ -234,6 +235,7 @@ class _StoryboardPresentationScreenState extends ConsumerState<StoryboardPresent
                 },
                 itemBuilder: (context, index) {
                   return Card(
+                    color: context.surface,
                     key: ValueKey(_currentUrls[index]),
                     clipBehavior: Clip.antiAlias,
                     shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
@@ -344,7 +346,7 @@ class _StoryboardPresentationScreenState extends ConsumerState<StoryboardPresent
           child: GestureDetector(
             onTap: _prevSlide,
             behavior: HitTestBehavior.translucent,
-            child: const Align(alignment: Alignment.centerLeft, child: Icon(Icons.chevron_left, color: Colors.white38, size: 64)),
+            child: Align(alignment: Alignment.centerLeft, child: Icon(Icons.chevron_left, color: context.textMuted, size: 64)),
           ),
         ),
         Positioned(
@@ -355,20 +357,20 @@ class _StoryboardPresentationScreenState extends ConsumerState<StoryboardPresent
           child: GestureDetector(
             onTap: _nextSlide,
             behavior: HitTestBehavior.translucent,
-            child: const Align(alignment: Alignment.centerRight, child: Icon(Icons.chevron_right, color: Colors.white38, size: 64)),
+            child: Align(alignment: Alignment.centerRight, child: Icon(Icons.chevron_right, color: context.textMuted, size: 64)),
           ),
         ),
         
         if (_isGeneratingPdf)
           Container(
-            color: Colors.black87,
-            child: const Center(
+            color: context.surface.withValues(alpha: 0.87),
+            child: Center(
               child: Column(
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  CircularProgressIndicator(color: Colors.orange),
-                  SizedBox(height: 16),
-                  Text('Generating PDF...', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+                  const CircularProgressIndicator(color: AppColors.brandBlue),
+                  const SizedBox(height: 16),
+                  Text('Generating PDF...', style: TextStyle(color: context.textPrimary, fontWeight: FontWeight.bold)),
                 ],
               ),
             ),
@@ -384,23 +386,23 @@ class _StoryboardPresentationScreenState extends ConsumerState<StoryboardPresent
         mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
           IconButton(
-            icon: const Icon(Icons.close, color: Colors.white, size: 32),
+            icon: Icon(Icons.close, color: context.textPrimary, size: 32),
             onPressed: () => Navigator.of(context).pop(),
           ),
           
           if (!_isGridView)
             Container(
               padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-              decoration: BoxDecoration(color: Colors.black54, borderRadius: BorderRadius.circular(20)),
-              child: Text('Shot ${_currentIndex + 1} of ${_currentUrls.length}', style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+              decoration: BoxDecoration(color: context.surfaceMid, borderRadius: BorderRadius.circular(20), border: Border.all(color: context.border)),
+              child: Text('Shot ${_currentIndex + 1} of ${_currentUrls.length}', style: TextStyle(color: context.textPrimary, fontWeight: FontWeight.bold)),
             )
           else
-            const Text('Storyboard Grid', style: TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold)),
+            Text('Storyboard Grid', style: TextStyle(color: context.textPrimary, fontSize: 18, fontWeight: FontWeight.bold)),
             
           Row(
             children: [
               IconButton(
-                icon: Icon(_isGridView ? Icons.slideshow : Icons.grid_view, color: Colors.white, size: 28),
+                icon: Icon(_isGridView ? Icons.slideshow : Icons.grid_view, color: context.textPrimary, size: 28),
                 onPressed: () {
                   setState(() {
                     _isGridView = !_isGridView;
@@ -415,7 +417,7 @@ class _StoryboardPresentationScreenState extends ConsumerState<StoryboardPresent
                 },
               ),
               IconButton(
-                icon: const Icon(Icons.picture_as_pdf, color: Colors.white, size: 28),
+                icon: Icon(Icons.picture_as_pdf, color: context.textPrimary, size: 28),
                 onPressed: _sharePdf,
               ),
             ],
@@ -439,25 +441,25 @@ class _StoryboardPresentationScreenState extends ConsumerState<StoryboardPresent
               Container(
                 padding: const EdgeInsets.all(8),
                 decoration: BoxDecoration(
-                  color: Colors.black.withValues(alpha: 0.6),
+                  color: context.surface.withValues(alpha: 0.85),
                   borderRadius: BorderRadius.circular(30),
-                  border: Border.all(color: Colors.white24),
+                  border: Border.all(color: context.border),
                 ),
                 child: Row(
                   children: [
                     _buildColorBtn(Colors.orangeAccent),
-                    _buildColorBtn(Colors.redAccent),
-                    _buildColorBtn(Colors.white),
+                    _buildColorBtn(AppColors.brandPink),
+                    _buildColorBtn(context.textPrimary),
                     _buildColorBtn(Colors.transparent, isEraser: true),
-                    Container(width: 1, height: 24, color: Colors.white24, margin: const EdgeInsets.symmetric(horizontal: 8)),
+                    Container(width: 1, height: 24, color: context.border, margin: const EdgeInsets.symmetric(horizontal: 8)),
                     IconButton(
-                      icon: const Icon(Icons.undo, color: Colors.white70, size: 20),
+                      icon: Icon(Icons.undo, color: context.textSecondary, size: 20),
                       onPressed: () => _signatureControllers[_currentIndex].undo(),
                       constraints: const BoxConstraints(),
                       padding: const EdgeInsets.all(4),
                     ),
                     IconButton(
-                      icon: const Icon(Icons.delete_outline, color: Colors.white70, size: 20),
+                      icon: Icon(Icons.delete_outline, color: context.textSecondary, size: 20),
                       onPressed: () => _signatureControllers[_currentIndex].clear(),
                       constraints: const BoxConstraints(),
                       padding: const EdgeInsets.all(4),
@@ -475,9 +477,9 @@ class _StoryboardPresentationScreenState extends ConsumerState<StoryboardPresent
           child: Container(
             padding: const EdgeInsets.all(20),
             decoration: BoxDecoration(
-              color: Colors.black.withValues(alpha: 0.7),
+              color: context.surface.withValues(alpha: 0.85),
               borderRadius: BorderRadius.circular(20),
-              border: Border.all(color: Colors.white24),
+              border: Border.all(color: context.border),
             ),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
@@ -489,14 +491,14 @@ class _StoryboardPresentationScreenState extends ConsumerState<StoryboardPresent
                     Expanded(
                       child: Text(
                         widget.project.title,
-                        style: const TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold),
+                        style: TextStyle(color: context.textPrimary, fontSize: 18, fontWeight: FontWeight.bold),
                         overflow: TextOverflow.ellipsis,
                       ),
                     ),
                     Row(
                       children: [
                         IconButton(
-                          icon: Icon(_isPlaying ? Icons.pause_circle_filled : Icons.play_circle_fill, color: Colors.orange, size: 32),
+                          icon: Icon(_isPlaying ? Icons.pause_circle_filled : Icons.play_circle_fill, color: AppColors.brandBlue, size: 32),
                           onPressed: _toggleSlideshow,
                           padding: EdgeInsets.zero,
                           constraints: const BoxConstraints(),
@@ -507,7 +509,7 @@ class _StoryboardPresentationScreenState extends ConsumerState<StoryboardPresent
                             onTap: _isListening ? _stopListening : _startListening,
                             child: Icon(
                               _isListening ? Icons.mic : Icons.mic_none,
-                              color: _isListening ? Colors.redAccent : Colors.white54,
+                              color: _isListening ? AppColors.brandPink : context.textMuted,
                               size: 28,
                             ).animate(target: _isListening ? 1 : 0).scaleXY(end: 1.2, duration: 300.ms),
                           ),
@@ -518,7 +520,7 @@ class _StoryboardPresentationScreenState extends ConsumerState<StoryboardPresent
                 const SizedBox(height: 8),
                 Text(
                   'Draw directly on the screen to add notes.',
-                  style: TextStyle(color: Colors.orangeAccent.withValues(alpha: 0.8), fontSize: 12),
+                  style: TextStyle(color: AppColors.brandBlue.withValues(alpha: 0.8), fontSize: 12),
                 ),
               ],
             ),
@@ -545,9 +547,9 @@ class _StoryboardPresentationScreenState extends ConsumerState<StoryboardPresent
         decoration: BoxDecoration(
           color: isEraser ? Colors.grey : color,
           shape: BoxShape.circle,
-          border: Border.all(color: isSelected ? Colors.white : Colors.transparent, width: 2),
+          border: Border.all(color: isSelected ? context.textPrimary : Colors.transparent, width: 2),
         ),
-        child: isEraser ? const Icon(Icons.edit_off, size: 14, color: Colors.white) : null,
+        child: isEraser ? Icon(Icons.edit_off, size: 14, color: context.textPrimary) : null,
       ),
     );
   }

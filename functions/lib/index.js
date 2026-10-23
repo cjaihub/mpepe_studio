@@ -32,11 +32,14 @@ var __importStar = (this && this.__importStar) || (function () {
         return result;
     };
 })();
+var __exportStar = (this && this.__exportStar) || function(m, exports) {
+    for (var p in m) if (p !== "default" && !Object.prototype.hasOwnProperty.call(exports, p)) __createBinding(exports, m, p);
+};
 var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.generateAbTests = exports.publishToSocials = exports.processAiCommand = void 0;
+exports.lsLivekitWebhook = exports.lsShare = exports.lsReact = exports.lsMuteChat = exports.lsDeleteComment = exports.lsComment = exports.lsSetJoinRequests = exports.lsSetChatMode = exports.lsSecOnMemberWrite = exports.lsSecOnBlock = exports.lsSecOnIncident = exports.lsMediaKey = exports.lsPlayback = exports.lsSetTable = exports.lsLeaveStage = exports.lsModerate = exports.lsRespondRequest = exports.lsCancelRequest = exports.lsRequestJoin = exports.lsSetLayout = exports.lsSetSettings = exports.lsSetOwnMedia = exports.lsStateFull = exports.lsTime = exports.lsEnd = exports.lsToken = exports.lsStart = exports.globalSemanticSearch = exports.generateLiveApiToken = exports.aiGateway = exports.generateAbTests = exports.publishToSocials = exports.processAiCommand = void 0;
 const https_1 = require("firebase-functions/v2/https");
 const params_1 = require("firebase-functions/params");
 const admin = __importStar(require("firebase-admin"));
@@ -271,4 +274,53 @@ Return ONLY a strictly valid JSON array of 3 objects with properties: "title" (s
         throw new https_1.HttpsError('internal', 'AI request failed.');
     }
 });
+__exportStar(require("./calls"), exports);
+__exportStar(require("./notifications"), exports);
+__exportStar(require("./biometric"), exports);
+__exportStar(require("./security"), exports);
+__exportStar(require("./securityMail"), exports);
+__exportStar(require("./emailCodes"), exports);
+__exportStar(require("./metaOAuth"), exports);
+__exportStar(require("./inbox"), exports);
+var aiGateway_1 = require("./aiGateway");
+Object.defineProperty(exports, "aiGateway", { enumerable: true, get: function () { return aiGateway_1.aiGateway; } });
+Object.defineProperty(exports, "generateLiveApiToken", { enumerable: true, get: function () { return aiGateway_1.generateLiveApiToken; } });
+var searchQuery_1 = require("./search/searchQuery");
+Object.defineProperty(exports, "globalSemanticSearch", { enumerable: true, get: function () { return searchQuery_1.globalSemanticSearch; } });
+// Live Studio v2 (docs/live-studio/ARCHITECTURE.md §5)
+var media_1 = require("./liveStudio/media");
+Object.defineProperty(exports, "lsStart", { enumerable: true, get: function () { return media_1.lsStart; } });
+Object.defineProperty(exports, "lsToken", { enumerable: true, get: function () { return media_1.lsToken; } });
+Object.defineProperty(exports, "lsEnd", { enumerable: true, get: function () { return media_1.lsEnd; } });
+Object.defineProperty(exports, "lsTime", { enumerable: true, get: function () { return media_1.lsTime; } });
+Object.defineProperty(exports, "lsStateFull", { enumerable: true, get: function () { return media_1.lsStateFull; } });
+Object.defineProperty(exports, "lsSetOwnMedia", { enumerable: true, get: function () { return media_1.lsSetOwnMedia; } });
+var settings_1 = require("./liveStudio/settings");
+Object.defineProperty(exports, "lsSetSettings", { enumerable: true, get: function () { return settings_1.lsSetSettings; } });
+var layout_1 = require("./liveStudio/layout");
+Object.defineProperty(exports, "lsSetLayout", { enumerable: true, get: function () { return layout_1.lsSetLayout; } });
+var roles_1 = require("./liveStudio/roles");
+Object.defineProperty(exports, "lsRequestJoin", { enumerable: true, get: function () { return roles_1.lsRequestJoin; } });
+Object.defineProperty(exports, "lsCancelRequest", { enumerable: true, get: function () { return roles_1.lsCancelRequest; } });
+Object.defineProperty(exports, "lsRespondRequest", { enumerable: true, get: function () { return roles_1.lsRespondRequest; } });
+Object.defineProperty(exports, "lsModerate", { enumerable: true, get: function () { return roles_1.lsModerate; } });
+Object.defineProperty(exports, "lsLeaveStage", { enumerable: true, get: function () { return roles_1.lsLeaveStage; } });
+var table_1 = require("./liveStudio/table");
+Object.defineProperty(exports, "lsSetTable", { enumerable: true, get: function () { return table_1.lsSetTable; } });
+Object.defineProperty(exports, "lsPlayback", { enumerable: true, get: function () { return table_1.lsPlayback; } });
+var security_1 = require("./liveStudio/security");
+Object.defineProperty(exports, "lsMediaKey", { enumerable: true, get: function () { return security_1.lsMediaKey; } });
+Object.defineProperty(exports, "lsSecOnIncident", { enumerable: true, get: function () { return security_1.lsSecOnIncident; } });
+Object.defineProperty(exports, "lsSecOnBlock", { enumerable: true, get: function () { return security_1.lsSecOnBlock; } });
+Object.defineProperty(exports, "lsSecOnMemberWrite", { enumerable: true, get: function () { return security_1.lsSecOnMemberWrite; } });
+var controls_1 = require("./liveStudio/controls");
+Object.defineProperty(exports, "lsSetChatMode", { enumerable: true, get: function () { return controls_1.lsSetChatMode; } });
+Object.defineProperty(exports, "lsSetJoinRequests", { enumerable: true, get: function () { return controls_1.lsSetJoinRequests; } });
+var social_1 = require("./liveStudio/social");
+Object.defineProperty(exports, "lsComment", { enumerable: true, get: function () { return social_1.lsComment; } });
+Object.defineProperty(exports, "lsDeleteComment", { enumerable: true, get: function () { return social_1.lsDeleteComment; } });
+Object.defineProperty(exports, "lsMuteChat", { enumerable: true, get: function () { return social_1.lsMuteChat; } });
+Object.defineProperty(exports, "lsReact", { enumerable: true, get: function () { return social_1.lsReact; } });
+Object.defineProperty(exports, "lsShare", { enumerable: true, get: function () { return social_1.lsShare; } });
+Object.defineProperty(exports, "lsLivekitWebhook", { enumerable: true, get: function () { return social_1.lsLivekitWebhook; } });
 //# sourceMappingURL=index.js.map

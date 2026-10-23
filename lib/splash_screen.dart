@@ -1,9 +1,7 @@
-import 'dart:math';
 import 'package:flutter/material.dart';
 import 'package:flutter_animate/flutter_animate.dart';
 import 'package:go_router/go_router.dart';
-import 'package:font_awesome_flutter/font_awesome_flutter.dart';
-import 'shared/widgets/studio_background.dart';
+import 'package:google_fonts/google_fonts.dart';
 import 'shared/theme/app_theme.dart';
 
 class SplashScreen extends StatefulWidget {
@@ -17,183 +15,290 @@ class _SplashScreenState extends State<SplashScreen> {
   @override
   void initState() {
     super.initState();
-    Future.delayed(const Duration(seconds: 4), () {
+    Future.delayed(const Duration(milliseconds: 2300), () {
       if (mounted) {
-        context.go('/auth/main_login');
+        context.go('/hub/home');
       }
     });
   }
 
   @override
   Widget build(BuildContext context) {
+    final size = MediaQuery.sizeOf(context);
+
     return Scaffold(
-      backgroundColor: Colors.black, // Force black background to ensure rich dark theme
-      body: StudioBackground(
+      backgroundColor: context.bg,
+      body: GestureDetector(
+        behavior: HitTestBehavior.opaque,
+        onTap: () {
+          if (mounted) context.go('/hub/home');
+        },
         child: Stack(
           fit: StackFit.expand,
           children: [
-            // Background animated roaming media icons
-            ..._buildBackgroundIcons(),
-            
-            // Foreground logo and spinning dots
+            // Background Radial Lighting
+            Positioned.fill(
+              child: DecoratedBox(
+                decoration: BoxDecoration(
+                  gradient: RadialGradient(
+                    center: const Alignment(0, -0.15),
+                    radius: 0.9,
+                    colors: [
+                      AppColors.brandBlue.withValues(alpha: 0.16),
+                      context.bg.withValues(alpha: 0.8),
+                      context.bg,
+                    ],
+                    stops: const [0.0, 0.55, 1.0],
+                  ),
+                ),
+              ),
+            ),
+
+            // Corporate Broadcast Waves & Emblem
             Center(
-              child: Stack(
-                alignment: Alignment.center,
+              child: Transform.translate(
+                offset: const Offset(0, -40),
+                child: Stack(
+                  alignment: Alignment.center,
+                  children: [
+                    Container(
+                      width: 280,
+                      height: 280,
+                      decoration: BoxDecoration(
+                        shape: BoxShape.circle,
+                        border: Border.all(
+                          color: AppColors.brandBlue.withValues(alpha: 0.14),
+                          width: 1.0,
+                        ),
+                      ),
+                    )
+                        .animate(onPlay: (c) => c.repeat(reverse: true))
+                        .scale(
+                          begin: const Offset(0.94, 0.94),
+                          end: const Offset(1.06, 1.06),
+                          duration: 3000.ms,
+                        ),
+
+                    Container(
+                      width: 220,
+                      height: 220,
+                      decoration: BoxDecoration(
+                        shape: BoxShape.circle,
+                        border: Border.all(
+                          color: AppColors.brandBlue.withValues(alpha: 0.24),
+                          width: 1.2,
+                        ),
+                        boxShadow: [
+                          BoxShadow(
+                            color: AppColors.brandBlue.withValues(alpha: 0.3),
+                            blurRadius: 40,
+                            spreadRadius: 4,
+                          ),
+                        ],
+                      ),
+                    )
+                        .animate(onPlay: (c) => c.repeat(reverse: true))
+                        .scale(
+                          begin: const Offset(0.96, 0.96),
+                          end: const Offset(1.04, 1.04),
+                          duration: 2400.ms,
+                        ),
+
+                    // Logo Emblem
+                    Container(
+                      width: 136,
+                      height: 136,
+                      decoration: BoxDecoration(
+                        borderRadius: BorderRadius.circular(34),
+                        border: Border.all(
+                          color: Colors.white.withValues(alpha: 0.18),
+                          width: 1.5,
+                        ),
+                        boxShadow: [
+                          BoxShadow(
+                            color: Colors.black.withValues(alpha: 0.6),
+                            blurRadius: 28,
+                            offset: const Offset(0, 14),
+                          ),
+                          BoxShadow(
+                            color: AppColors.brandBlue.withValues(alpha: 0.4),
+                            blurRadius: 40,
+                            spreadRadius: 2,
+                          ),
+                        ],
+                      ),
+                      child: ClipRRect(
+                        borderRadius: BorderRadius.circular(32),
+                        child: Image.asset(
+                          'assets/images/oneova_logo.png',
+                          fit: BoxFit.cover,
+                        ),
+                      ),
+                    )
+                        .animate()
+                        .fadeIn(duration: 800.ms, curve: Curves.easeOutCubic)
+                        .scale(
+                          begin: const Offset(0.75, 0.75),
+                          end: const Offset(1.0, 1.0),
+                          duration: 900.ms,
+                          curve: Curves.easeOutBack,
+                        )
+                        .then()
+                        .animate(onPlay: (c) => c.repeat(reverse: true))
+                        .shimmer(
+                          duration: 2600.ms,
+                          color: Colors.white.withValues(alpha: 0.3),
+                        ),
+                  ],
+                ),
+              ),
+            ),
+
+            // Typography
+            Positioned(
+              left: 24,
+              right: 24,
+              top: (size.height * 0.5) + 60,
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.center,
                 children: [
-                  // Outer spinning dots ring (Clockwise)
-                  SizedBox(
-                    width: 220,
-                    height: 220,
-                    child: Stack(
-                      children: List.generate(16, (index) {
-                        final angle = (index * pi * 2) / 16;
-                        const offset = 100.0; // radius of the outer ring
-                        return Positioned(
-                          left: 110 + cos(angle) * offset - 4, // center + offset - half dot size
-                          top: 110 + sin(angle) * offset - 4,
-                          child: Container(
-                            width: 8,
-                            height: 8,
-                            decoration: BoxDecoration(
-                              color: AppColors.mpepeMaroon.withValues(alpha: 0.8),
-                              shape: BoxShape.circle,
-                              boxShadow: [
-                                BoxShadow(
-                                  color: AppColors.mpepeMaroon.withValues(alpha: 0.6),
-                                  blurRadius: 10,
-                                  spreadRadius: 2,
-                                )
-                              ]
-                            ),
-                          ).animate(onPlay: (c) => c.repeat())
-                           .fade(begin: 0.2, end: 1.0, duration: 1500.ms, delay: (index * 80).ms)
-                           .scale(begin: const Offset(0.6, 0.6), end: const Offset(1.2, 1.2), duration: 1500.ms, delay: (index * 80).ms),
-                        );
-                      }),
+                  Text(
+                    'ONEOVA',
+                    style: GoogleFonts.inter(
+                      fontSize: 32,
+                      fontWeight: FontWeight.w900,
+                      letterSpacing: 6.0,
+                      color: context.textPrimary,
                     ),
-                  ).animate(onPlay: (c) => c.repeat()).rotate(duration: 10000.ms), // Slow clockwise rotation
+                  )
+                      .animate()
+                      .fadeIn(delay: 350.ms, duration: 700.ms)
+                      .slideY(begin: 0.2, end: 0, duration: 700.ms),
 
-                  // Inner spinning dots ring (Counter-clockwise)
-                  SizedBox(
-                    width: 170,
-                    height: 170,
-                    child: Stack(
-                      children: List.generate(12, (index) {
-                        final angle = (index * pi * 2) / 12;
-                        const offset = 75.0; // radius of the inner ring
-                        return Positioned(
-                          left: 85 + cos(angle) * offset - 3, // center + offset - half dot size
-                          top: 85 + sin(angle) * offset - 3,
-                          child: Container(
-                            width: 6,
-                            height: 6,
-                            decoration: BoxDecoration(
-                              color: Colors.white.withValues(alpha: 0.9),
-                              shape: BoxShape.circle,
-                              boxShadow: [
-                                BoxShadow(
-                                  color: Colors.white.withValues(alpha: 0.5),
-                                  blurRadius: 8,
-                                  spreadRadius: 1,
-                                )
-                              ]
-                            ),
-                          ).animate(onPlay: (c) => c.repeat())
-                           .fade(begin: 0.1, end: 1.0, duration: 1200.ms, delay: (index * 100).ms)
-                           .scale(begin: const Offset(0.5, 0.5), end: const Offset(1.5, 1.5), duration: 1200.ms, delay: (index * 100).ms),
-                        );
-                      }),
+                  const SizedBox(height: 10),
+
+                  Text(
+                    'CREATIVE SOCIAL STUDIO',
+                    style: GoogleFonts.inter(
+                      fontSize: 11,
+                      fontWeight: FontWeight.w700,
+                      letterSpacing: 3.5,
+                      color: context.textSecondary,
                     ),
-                  ).animate(onPlay: (c) => c.repeat()).rotate(begin: 1.0, end: 0.0, duration: 8000.ms), // Slow counter-clockwise rotation
+                  )
+                      .animate()
+                      .fadeIn(delay: 550.ms, duration: 700.ms),
 
-                  // Logo
+                  const SizedBox(height: 18),
+
                   Container(
-                    width: 120, // Proper size to fit inside the inner dots
-                    height: 120,
-                    decoration: const BoxDecoration(
-                      shape: BoxShape.circle,
-                      color: Colors.transparent,
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 14,
+                      vertical: 6,
                     ),
-                    clipBehavior: Clip.antiAlias,
-                    child: Image.asset(
-                      'assets/logos/app_logo.png',
-                      fit: BoxFit.contain, // Ensure it fits the circle
+                    decoration: BoxDecoration(
+                      color: context.surfaceMid.withValues(alpha: 0.7),
+                      borderRadius: BorderRadius.circular(20),
+                      border: Border.all(
+                        color: context.border,
+                        width: 1,
+                      ),
                     ),
-                  ).animate(onPlay: (c) => c.repeat(reverse: true))
-                    .scale(duration: 2000.ms, curve: Curves.easeInOutSine, begin: const Offset(0.95, 0.95), end: const Offset(1.05, 1.05))
-                    .shimmer(delay: 1000.ms, duration: 2500.ms, color: Colors.white.withValues(alpha: 0.3)),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Container(
+                          width: 6,
+                          height: 6,
+                          decoration: const BoxDecoration(
+                            color: AppColors.brandPink,
+                            shape: BoxShape.circle,
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        Text(
+                          'ALL YOU NEED IN YOUR POCKET',
+                          style: GoogleFonts.inter(
+                            fontSize: 10,
+                            fontWeight: FontWeight.w800,
+                            letterSpacing: 1.4,
+                            color: context.textPrimary,
+                          ),
+                        ),
+                      ],
+                    ),
+                  )
+                      .animate()
+                      .fadeIn(delay: 750.ms, duration: 600.ms),
                 ],
+              ),
+            ),
+
+            // Bottom loading bar
+            Positioned(
+              left: 32,
+              right: 32,
+              bottom: 48,
+              child: SafeArea(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Container(
+                      width: 120,
+                      height: 2.5,
+                      decoration: BoxDecoration(
+                        color: context.surfaceMid,
+                        borderRadius: BorderRadius.circular(3),
+                      ),
+                      clipBehavior: Clip.antiAlias,
+                      child: Align(
+                        alignment: Alignment.centerLeft,
+                        child: Container(
+                          height: 2.5,
+                          decoration: BoxDecoration(
+                            color: AppColors.brandBlue,
+                            borderRadius: BorderRadius.circular(3),
+                            boxShadow: [
+                              BoxShadow(
+                                color: AppColors.brandBlue.withValues(alpha: 0.8),
+                                blurRadius: 6,
+                              ),
+                            ],
+                          ),
+                        )
+                            .animate()
+                            .custom(
+                              duration: 2100.ms,
+                              curve: Curves.easeInOutCubic,
+                              builder: (context, value, child) {
+                                return SizedBox(
+                                  width: 120 * value,
+                                  child: child,
+                                );
+                              },
+                            ),
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                    Text(
+                      'CONNECTING TO NETWORK',
+                      style: GoogleFonts.inter(
+                        fontSize: 9,
+                        fontWeight: FontWeight.w600,
+                        letterSpacing: 2.0,
+                        color: context.textMuted,
+                      ),
+                    )
+                        .animate()
+                        .fadeIn(delay: 850.ms, duration: 600.ms),
+                  ],
+                ),
               ),
             ),
           ],
         ),
       ),
     );
-  }
-
-  List<Widget> _buildBackgroundIcons() {
-    final random = Random(42); // Fixed seed for consistent layout
-    final iconDataList = [
-      FontAwesomeIcons.youtube,
-      FontAwesomeIcons.instagram,
-      FontAwesomeIcons.tiktok,
-      FontAwesomeIcons.video,
-      FontAwesomeIcons.music,
-      FontAwesomeIcons.headphones,
-      FontAwesomeIcons.microphone,
-      FontAwesomeIcons.camera,
-      FontAwesomeIcons.tv,
-      FontAwesomeIcons.film,
-      FontAwesomeIcons.play,
-      FontAwesomeIcons.clapperboard,
-      FontAwesomeIcons.podcast,
-      FontAwesomeIcons.compactDisc,
-    ];
-
-    return List.generate(25, (index) {
-      final iconData = iconDataList[index % iconDataList.length];
-      final top = random.nextDouble();
-      final left = random.nextDouble();
-      final size = 15.0 + random.nextDouble() * 45.0; // Varied sizes
-      
-      // Some icons are white, some are branded maroon for depth
-      final isMaroon = random.nextBool();
-      final opacity = isMaroon ? (0.05 + random.nextDouble() * 0.15) : (0.02 + random.nextDouble() * 0.08);
-      final color = isMaroon ? AppColors.mpepeMaroon.withValues(alpha: opacity) : Colors.white.withValues(alpha: opacity);
-      
-      return Positioned(
-        top: top * 850, // Approximate screen height
-        left: left * 450, // Approximate screen width
-        child: FaIcon(
-          iconData,
-          size: size,
-          color: color,
-        ).animate(onPlay: (controller) => controller.repeat(reverse: true))
-          .moveY(
-            begin: -40,
-            end: 40,
-            duration: (4000 + random.nextInt(5000)).ms,
-            curve: Curves.easeInOutSine,
-          )
-          .moveX(
-            begin: -30,
-            end: 30,
-            duration: (5000 + random.nextInt(4000)).ms,
-            curve: Curves.easeInOutSine,
-          )
-          .scale(
-            begin: const Offset(0.8, 0.8), 
-            end: const Offset(1.2, 1.2), 
-            duration: (3000 + random.nextInt(3000)).ms,
-            curve: Curves.easeInOutSine,
-          )
-          .fade(
-            begin: 0.5,
-            end: 1.0,
-            duration: (2000 + random.nextInt(2000)).ms,
-            curve: Curves.easeInOutSine,
-          ),
-      );
-    });
   }
 }

@@ -14,6 +14,7 @@
 				<key>CFBundleURLSchemes</key>
 				<array>
 					<string>mstudio</string>
+					<string>oneova</string>
 				</array>
 			</dict>
 			<dict>
@@ -28,17 +29,15 @@
 		<key>CFBundleDevelopmentRegion</key>
 		<string>$(DEVELOPMENT_LANGUAGE)</string>
 		<key>CFBundleDisplayName</key>
-		<string>Mpepe Studio</string>
+		<string>OneOva</string>
 		<key>CFBundleExecutable</key>
 		<string>$(EXECUTABLE_NAME)</string>
 		<key>CFBundleIdentifier</key>
 		<string>$(PRODUCT_BUNDLE_IDENTIFIER)</string>
 		<key>CFBundleInfoDictionaryVersion</key>
 		<string>6.0</string>
-		<key>CFBundleDisplayName</key>
-		<string>Mpepe</string>
 		<key>CFBundleName</key>
-		<string>Mpepe</string>
+		<string>OneOva</string>
 		<key>CFBundlePackageType</key>
 		<string>APPL</string>
 		<key>CFBundleShortVersionString</key>
@@ -89,8 +88,42 @@
 			<string>UIInterfaceOrientationLandscapeLeft</string>
 			<string>UIInterfaceOrientationLandscapeRight</string>
 		</array>
+		<key>UIBackgroundModes</key>
+		<array>
+			<string>audio</string>
+			<string>voip</string>
+			<string>remote-notification</string>
+		</array>
+		<key>NSCameraUsageDescription</key>
+		<string>Oneova uses the camera to record videos, go live and let Ova take photos for you.</string>
+		<key>NSMicrophoneUsageDescription</key>
+		<string>Oneova uses the microphone for recording, live streams and talking to Ova.</string>
+		<key>NSSpeechRecognitionUsageDescription</key>
+		<string>Ova turns your voice into commands so you can talk instead of type.</string>
+		<key>NSPhotoLibraryUsageDescription</key>
+		<string>Oneova lets you pick photos and videos to post or send.</string>
+		<key>NSContactsUsageDescription</key>
+		<string>Ova looks up a contact's number when you ask it to call or text someone.</string>
+		<key>NSCalendarsUsageDescription</key>
+		<string>Ova adds events to your calendar when you ask it to.</string>
+		<key>NSCalendarsWriteOnlyAccessUsageDescription</key>
+		<string>Ova adds events to your calendar when you ask it to.</string>
+		<key>NSLocationWhenInUseUsageDescription</key>
+		<string>Ova uses your location only when you ask where you are or for nearby places.</string>
+		<key>LSApplicationQueriesSchemes</key>
+		<array>
+			<string>tel</string>
+			<string>sms</string>
+			<string>mailto</string>
+			<string>whatsapp</string>
+			<string>youtube</string>
+			<string>instagram</string>
+			<string>tiktok</string>
+			<string>comgooglemaps</string>
+			<string>maps</string>
+		</array>
 		<key>NSFaceIDUsageDescription</key>
-		<string>Authenticate to unlock your MPEPE STUDIO account.</string>
+		<string>Authenticate to unlock your OneOva account.</string>
 		<key>UIStatusBarHidden</key>
 		<false/>
 	</dict>

@@ -12,8 +12,48 @@ class LinkedComputer {
   final String id;
   final String name;
   final bool isOnline;
+  final bool isLocked;
+  final bool isSleeping;
+  final String? activeWindow;
+  final bool requiresPasskey;
+  final String os;
+  final Map<String, dynamic> systemInfo;
 
-  LinkedComputer({required this.id, required this.name, required this.isOnline});
+  LinkedComputer({
+    required this.id,
+    required this.name,
+    required this.isOnline,
+    this.isLocked = false,
+    this.isSleeping = false,
+    this.activeWindow,
+    this.requiresPasskey = false,
+    this.os = '',
+    this.systemInfo = const {},
+  });
+
+  LinkedComputer copyWith({
+    String? id,
+    String? name,
+    bool? isOnline,
+    bool? isLocked,
+    bool? isSleeping,
+    String? activeWindow,
+    bool? requiresPasskey,
+    String? os,
+    Map<String, dynamic>? systemInfo,
+  }) {
+    return LinkedComputer(
+      id: id ?? this.id,
+      name: name ?? this.name,
+      isOnline: isOnline ?? this.isOnline,
+      isLocked: isLocked ?? this.isLocked,
+      isSleeping: isSleeping ?? this.isSleeping,
+      activeWindow: activeWindow ?? this.activeWindow,
+      requiresPasskey: requiresPasskey ?? this.requiresPasskey,
+      os: os ?? this.os,
+      systemInfo: systemInfo ?? this.systemInfo,
+    );
+  }
 }
 
 class RemoteConnectState {
@@ -83,8 +123,22 @@ class RemoteConnectService extends Notifier<RemoteConnectState> {
           if (data != null) {
             final name = data['computer_name'] as String? ?? 'Unknown Computer';
             final isOnline = data['desktop_connected'] as bool? ?? false;
+            final isLocked = data['is_locked'] as bool? ?? (data['status'] == 'locked');
+            final isSleeping = data['is_sleeping'] as bool? ?? (data['status'] == 'sleep');
+            final activeWindow = data['active_window'] as String? ?? data['current_app'] as String? ?? 'Studio Workspace';
+            final requiresPasskey = data['requires_passkey'] as bool? ?? true;
             
-            _updateComputerInState(LinkedComputer(id: token, name: name, isOnline: isOnline));
+            _updateComputerInState(LinkedComputer(
+              id: token,
+              name: name,
+              isOnline: isOnline,
+              isLocked: isLocked,
+              isSleeping: isSleeping,
+              activeWindow: activeWindow,
+              requiresPasskey: requiresPasskey,
+              os: data['os'] as String? ?? '',
+              systemInfo: Map<String, dynamic>.from(data['system_info'] as Map? ?? const {}),
+            ));
           }
         }
       });
@@ -128,10 +182,21 @@ class RemoteConnectService extends Notifier<RemoteConnectState> {
       final doc = await _firestore.collection('registered_computers').doc(token).get();
       if (doc.exists) {
         final data = doc.data()!;
+        final isLocked = data['is_locked'] as bool? ?? (data['status'] == 'locked');
+        final isSleeping = data['is_sleeping'] as bool? ?? (data['status'] == 'sleep');
+        final activeWindow = data['active_window'] as String? ?? data['current_app'] as String? ?? 'Studio Workspace';
+        final requiresPasskey = data['requires_passkey'] as bool? ?? true;
+
         _updateComputerInState(LinkedComputer(
           id: token,
           name: data['computer_name'] ?? 'New Computer',
           isOnline: data['desktop_connected'] ?? false,
+          isLocked: isLocked,
+          isSleeping: isSleeping,
+          activeWindow: activeWindow,
+          requiresPasskey: requiresPasskey,
+          os: data['os'] as String? ?? '',
+          systemInfo: Map<String, dynamic>.from(data['system_info'] as Map? ?? const {}),
         ));
       }
 
@@ -139,6 +204,20 @@ class RemoteConnectService extends Notifier<RemoteConnectState> {
     } catch (e) {
       debugPrint('Connection error: $e');
       state = state.copyWith(status: ConnectionStatus.error, errorMessage: e.toString());
+    }
+  }
+
+  Future<void> unlinkComputer(String token) async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final tokens = prefs.getStringList(_prefsKey) ?? [];
+      tokens.remove(token);
+      await prefs.setStringList(_prefsKey, tokens);
+      final currentList = List<LinkedComputer>.from(state.linkedComputers)..removeWhere((c) => c.id == token);
+      final activeId = state.activeComputerId == token ? null : state.activeComputerId;
+      state = state.copyWith(linkedComputers: currentList, activeComputerId: activeId);
+    } catch (e) {
+      debugPrint('Error unlinking computer: $e');
     }
   }
 
@@ -185,6 +264,83 @@ class RemoteConnectService extends Notifier<RemoteConnectState> {
 
   void setActiveComputer(String id) {
     state = state.copyWith(activeComputerId: id, status: ConnectionStatus.connected);
+  }
+
+  Future<String?> unlockWorkstation({String? passkey, String? password}) async {
+    final activeId = state.activeComputerId;
+    if (activeId == null) return null;
+
+    final cmdId = await sendCommand('system', 'unlock_workstation', {
+      'passkey': passkey ?? 'biometric_passkey_verified',
+      'password': password,
+      'timestamp': DateTime.now().toIso8601String(),
+    });
+
+    final currentList = List<LinkedComputer>.from(state.linkedComputers);
+    final idx = currentList.indexWhere((c) => c.id == activeId);
+    if (idx >= 0) {
+      currentList[idx] = currentList[idx].copyWith(
+        isLocked: false,
+        isSleeping: false,
+        isOnline: true,
+      );
+      state = state.copyWith(linkedComputers: currentList);
+    }
+
+    try {
+      await _firestore.collection('registered_computers').doc(activeId).update({
+        'is_locked': false,
+        'is_sleeping': false,
+        'desktop_connected': true,
+        'status': 'online',
+        'last_unlocked': FieldValue.serverTimestamp(),
+      });
+    } catch (_) {}
+
+    return cmdId;
+  }
+
+  Future<String?> sleepWorkstation() async {
+    final activeId = state.activeComputerId;
+    if (activeId == null) return null;
+
+    final cmdId = await sendCommand('system', 'sleep_workstation', {
+      'action': 'sleep',
+      'timestamp': DateTime.now().toIso8601String(),
+    });
+
+    final currentList = List<LinkedComputer>.from(state.linkedComputers);
+    final idx = currentList.indexWhere((c) => c.id == activeId);
+    if (idx >= 0) {
+      currentList[idx] = currentList[idx].copyWith(
+        isSleeping: true,
+        isLocked: true,
+      );
+      state = state.copyWith(linkedComputers: currentList);
+    }
+
+    try {
+      await _firestore.collection('registered_computers').doc(activeId).update({
+        'is_locked': true,
+        'is_sleeping': true,
+        'status': 'sleep',
+      });
+    } catch (_) {}
+
+    return cmdId;
+  }
+
+  Future<String?> executeComputerCommand(String command, {Map<String, dynamic>? payload}) async {
+    final activeId = state.activeComputerId;
+    if (activeId == null) return null;
+
+    String softwareId = 'system';
+    final lower = command.toLowerCase();
+    if (lower.contains('render') || lower.contains('timeline') || lower.contains('dr') || lower.contains('pr')) {
+      softwareId = 'dr';
+    }
+
+    return await sendCommand(softwareId, command, payload ?? {});
   }
 
   void disconnect() {

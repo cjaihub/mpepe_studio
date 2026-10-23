@@ -20,7 +20,7 @@ class _InteractiveCommentsTabState extends ConsumerState<InteractiveCommentsTab>
 
   final List<Map<String, dynamic>> _platforms = [
     {'name': 'All', 'platform': null, 'icon': Icons.all_inclusive, 'color': Colors.white},
-    {'name': 'Meta', 'platform': SocialPlatform.meta, 'icon': FontAwesomeIcons.facebook, 'color': const Color(0xFF1877F2)},
+    {'name': 'Meta', 'platform': SocialPlatform.meta, 'icon': FontAwesomeIcons.facebook, 'color': const Color(0xFF0C4FA8)},
     {'name': 'Instagram', 'platform': SocialPlatform.instagram, 'icon': FontAwesomeIcons.instagram, 'color': const Color(0xFFE1306C)},
     {'name': 'YouTube', 'platform': SocialPlatform.youtube, 'icon': FontAwesomeIcons.youtube, 'color': const Color(0xFFFF0000)},
     {'name': 'TikTok', 'platform': SocialPlatform.tiktok, 'icon': FontAwesomeIcons.tiktok, 'color': Colors.white},

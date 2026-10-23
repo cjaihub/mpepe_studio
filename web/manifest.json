@@ -1,11 +1,11 @@
 {
-    "name": "mpepe_studio",
-    "short_name": "mpepe_studio",
+    "name": "OneOva",
+    "short_name": "OneOva",
     "start_url": ".",
     "display": "standalone",
-    "background_color": "#0175C2",
-    "theme_color": "#0175C2",
-    "description": "A new Flutter project.",
+    "background_color": "#0A0A0A",
+    "theme_color": "#0C4FA8",
+    "description": "OneOva - Advanced Creator Social Studio",
     "orientation": "portrait-primary",
     "prefer_related_applications": false,
     "icons": [

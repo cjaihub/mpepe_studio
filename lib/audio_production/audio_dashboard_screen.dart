@@ -132,7 +132,7 @@ class _StatCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return MpepeCard(
+    return OneovaCard(
       padding: const EdgeInsets.all(12),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -212,7 +212,7 @@ class _ProductionCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return MpepeCard(
+    return OneovaCard(
       child: Row(
         mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
@@ -226,7 +226,7 @@ class _ProductionCard extends StatelessWidget {
                 ],
               ),
           ),
-          MpepePill(
+          OneovaPill(
             text: status,
             color: statusColor,
             isGhost: true,

@@ -50,7 +50,7 @@ class YtSettingsScreen extends ConsumerWidget {
                 'Account & Security',
                 [
                   _buildSettingsTile(context, Icons.account_circle, 'Linked Accounts', 'Manage connected Google accounts', true),
-                  _buildSettingsTile(context, Icons.security, 'App Permissions', 'View what MPEPE can access', false),
+                  _buildSettingsTile(context, Icons.security, 'App Permissions', 'View what Oneova can access', false),
                 ],
               ).animate().fadeIn(duration: 400.ms).slideY(begin: 0.1),
               
@@ -77,7 +77,7 @@ class YtSettingsScreen extends ConsumerWidget {
               ).animate().fadeIn(delay: 200.ms).slideY(begin: 0.1),
               
               const SizedBox(height: 32),
-              MpepeCard(
+              OneovaCard(
                 padding: EdgeInsets.zero,
                 child: InkWell(
                   onTap: () {},
@@ -119,7 +119,7 @@ class YtSettingsScreen extends ConsumerWidget {
             ),
           ),
         ),
-        MpepeCard(
+        OneovaCard(
           padding: EdgeInsets.zero,
           child: Column(
             children: children,
@@ -173,7 +173,7 @@ class YtSettingsScreen extends ConsumerWidget {
             onChanged: (val) {
               ref.read(settingsProvider.notifier).updateSetting('notifications', key, val);
             },
-            activeColor: Theme.of(context).colorScheme.primary,
+            activeThumbColor: Theme.of(context).colorScheme.primary,
           ),
         ),
         if (showDivider)

@@ -9,14 +9,18 @@ class VideoLibraryScreen extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     return Scaffold(
-      backgroundColor: AppColors.darkBackground,
+      backgroundColor: context.bg,
       appBar: AppBar(
-        title: const Text('Video Library', style: TextStyle(fontWeight: FontWeight.bold)),
-        backgroundColor: AppColors.darkSurface,
+        title: Text(
+          'Video Library',
+          style: TextStyle(fontWeight: FontWeight.bold, color: context.textPrimary),
+        ),
+        backgroundColor: context.surface,
         elevation: 0,
+        iconTheme: IconThemeData(color: context.textPrimary),
         actions: [
           IconButton(
-            icon: const Icon(Icons.cloud_upload, color: AppColors.mpepeMaroon),
+            icon: const Icon(Icons.cloud_upload, color: AppColors.brandBlue),
             onPressed: () {
               ScaffoldMessenger.of(context).showSnackBar(
                 const SnackBar(content: Text('Upload feature pending Firebase Storage integration')),
@@ -31,14 +35,24 @@ class VideoLibraryScreen extends ConsumerWidget {
             Padding(
               padding: const EdgeInsets.all(16.0),
               child: TextField(
+                style: TextStyle(color: context.textPrimary),
                 decoration: InputDecoration(
                   hintText: 'Search videos...',
-                  prefixIcon: const Icon(Icons.search, color: AppColors.textSecondary),
+                  hintStyle: TextStyle(color: context.textMuted),
+                  prefixIcon: Icon(Icons.search, color: context.textSecondary),
                   filled: true,
-                  fillColor: AppColors.darkSurface,
+                  fillColor: context.surface,
+                  enabledBorder: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(12),
+                    borderSide: BorderSide(color: context.border, width: 1.0),
+                  ),
+                  focusedBorder: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(12),
+                    borderSide: const BorderSide(color: AppColors.brandBlue, width: 1.5),
+                  ),
                   border: OutlineInputBorder(
                     borderRadius: BorderRadius.circular(12),
-                    borderSide: BorderSide.none,
+                    borderSide: BorderSide(color: context.border, width: 1.0),
                   ),
                 ),
               ),
@@ -56,21 +70,21 @@ class VideoLibraryScreen extends ConsumerWidget {
                 itemBuilder: (context, index) {
                   return Container(
                     decoration: BoxDecoration(
-                      color: AppColors.darkSurface,
+                      color: context.surface,
                       borderRadius: BorderRadius.circular(16),
-                      border: Border.all(color: AppColors.mpepeMaroon.withValues(alpha: 0.3)),
+                      border: Border.all(color: context.border),
                     ),
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         Expanded(
                           child: Container(
-                            decoration: const BoxDecoration(
-                              color: Colors.black26,
-                              borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
+                            decoration: BoxDecoration(
+                              color: context.surfaceMid,
+                              borderRadius: const BorderRadius.vertical(top: Radius.circular(16)),
                             ),
-                            child: const Center(
-                              child: Icon(Icons.play_circle_fill, size: 48, color: Colors.white54),
+                            child: Center(
+                              child: Icon(Icons.play_circle_fill, size: 48, color: context.textMuted),
                             ),
                           ),
                         ),
@@ -81,14 +95,14 @@ class VideoLibraryScreen extends ConsumerWidget {
                             children: [
                               Text(
                                 'Video Title ${index + 1}',
-                                style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.white),
+                                style: TextStyle(fontWeight: FontWeight.bold, color: context.textPrimary),
                                 maxLines: 1,
                                 overflow: TextOverflow.ellipsis,
                               ),
                               const SizedBox(height: 4),
                               Text(
                                 '1080p • 2 mins',
-                                style: TextStyle(color: AppColors.textSecondary, fontSize: 12),
+                                style: TextStyle(color: context.textSecondary, fontSize: 12),
                               ),
                             ],
                           ),

@@ -253,11 +253,6 @@ class YtAccountStore extends AsyncNotifier<YtAccountsState> {
         scopeHint: _ytScopes,
       );
 
-      if (googleAccount == null) {
-        state = AsyncData(state.requireValue.copyWith(isLoading: false));
-        return;
-      }
-
       final googleId = googleAccount.id;
 
       // Check if already added

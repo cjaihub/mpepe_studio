@@ -53,7 +53,7 @@ class TikTokAutomationService {
 
   Future<List<String>> generateSeoTags(String content) async {
     await _simulateDelay();
-    return ["#fyp", "#tech", "#mpepestudio", "#viral", "#creator"];
+    return ["#fyp", "#tech", "#oneovastudio", "#viral", "#creator"];
   }
 
   Future<String> runAbTest(String videoId) async {

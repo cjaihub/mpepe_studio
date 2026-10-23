@@ -50,7 +50,7 @@ class _VoiceAssistantOverlayState extends ConsumerState<VoiceAssistantOverlay> {
               padding: const EdgeInsets.symmetric(horizontal: 32.0),
               child: Text(
                 voiceState.currentText.isEmpty 
-                    ? (voiceState.state == VoiceState.listening ? "Listening..." : "Mpepe Voice")
+                    ? (voiceState.state == VoiceState.listening ? "Listening..." : "Oneova Voice")
                     : voiceState.currentText,
                 textAlign: TextAlign.center,
                 style: TextStyle(
@@ -144,7 +144,7 @@ class _VoiceAssistantOverlayState extends ConsumerState<VoiceAssistantOverlay> {
             height: baseSize,
             decoration: BoxDecoration(
               shape: BoxShape.circle,
-              color: AppColors.mpepeMaroon.withValues(alpha: 0.2),
+              color: AppColors.brandBlue.withValues(alpha: 0.2),
             ),
           ).animate(onPlay: (controller) => controller.repeat())
            .scaleXY(begin: 1.0, end: isSpeaking ? 2.5 : (1.8 * dynamicScale), duration: duration.ms, curve: Curves.easeOut, delay: (i * (duration / count)).ms)
@@ -167,13 +167,13 @@ class _VoiceAssistantOverlayState extends ConsumerState<VoiceAssistantOverlay> {
               shape: BoxShape.circle,
               gradient: RadialGradient(
                 colors: [
-                  AppColors.mpepeMaroon.withValues(alpha: 0.8),
-                  AppColors.mpepeMaroon,
+                  AppColors.brandBlue.withValues(alpha: 0.8),
+                  AppColors.brandBlue,
                 ]
               ),
               boxShadow: [
                 BoxShadow(
-                  color: AppColors.mpepeMaroon.withValues(alpha: 0.5),
+                  color: AppColors.brandBlue.withValues(alpha: 0.5),
                   blurRadius: isSpeaking ? 40 : 20,
                   spreadRadius: isSpeaking ? 10 : 0,
                 )
@@ -248,7 +248,7 @@ class _VoiceSettingsSheetState extends ConsumerState<_VoiceSettingsSheet> {
           const Text("AI Model", style: TextStyle(fontWeight: FontWeight.bold)),
           const SizedBox(height: 8),
           DropdownButtonFormField<String>(
-            value: _selectedModel,
+            initialValue: _selectedModel,
             items: _models.map((m) => DropdownMenuItem(value: m, child: Text(m))).toList(),
             onChanged: (val) {
               if (val != null) {
@@ -265,7 +265,7 @@ class _VoiceSettingsSheetState extends ConsumerState<_VoiceSettingsSheet> {
             const CircularProgressIndicator()
           else
             DropdownButtonFormField<String>(
-              value: _selectedVoice,
+              initialValue: _selectedVoice,
               items: _voices.map((v) => DropdownMenuItem(value: v['name'], child: Text(v['name']!))).toList(),
               onChanged: (val) {
                 if (val != null) {

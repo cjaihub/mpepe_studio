@@ -116,7 +116,7 @@ class _AISocialManagerPanelState extends ConsumerState<AISocialManagerPanel> {
                 mainAxisSize: MainAxisSize.min,
                 children: [
                   const Text(
-                    'MPEPE Advanced',
+                    'Oneova Advanced',
                     style: TextStyle(
                       fontSize: 16,
                       fontWeight: FontWeight.w600,
@@ -177,7 +177,7 @@ class _AISocialManagerPanelState extends ConsumerState<AISocialManagerPanel> {
         children: [
           const CircleAvatar(
             radius: 16,
-            backgroundImage: AssetImage('assets/logos/app_logo.png'),
+            backgroundImage: AssetImage('assets/images/oneova_logo.jpg'),
             backgroundColor: Colors.transparent,
           ),
           const SizedBox(width: 16),
@@ -307,7 +307,7 @@ class _AISocialManagerPanelState extends ConsumerState<AISocialManagerPanel> {
                     minLines: 1,
                     maxLines: 6,
                     decoration: InputDecoration(
-                      hintText: 'Ask MPEPE AI...',
+                      hintText: 'Ask Oneova AI...',
                       hintStyle: TextStyle(color: AppColors.textSecondary, fontSize: 16),
                       border: InputBorder.none,
                       contentPadding: const EdgeInsets.symmetric(vertical: 14),
@@ -329,7 +329,7 @@ class _AISocialManagerPanelState extends ConsumerState<AISocialManagerPanel> {
                   Padding(
                     padding: const EdgeInsets.only(bottom: 4, right: 4),
                     child: CircleAvatar(
-                      backgroundColor: AppColors.mpepeMaroon,
+                      backgroundColor: AppColors.brandBlue,
                       radius: 20,
                       child: IconButton(
                         icon: const Icon(Icons.send, color: Colors.white, size: 18),
@@ -342,7 +342,7 @@ class _AISocialManagerPanelState extends ConsumerState<AISocialManagerPanel> {
           ),
           const SizedBox(height: 8),
           Text(
-            'MPEPE AI may display inaccurate info, so double-check its answers.',
+            'Oneova AI may display inaccurate info, so double-check its answers.',
             style: TextStyle(fontSize: 10, color: AppColors.textSecondary.withValues(alpha: 0.7)),
             textAlign: TextAlign.center,
           ),

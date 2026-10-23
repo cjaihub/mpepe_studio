@@ -93,6 +93,58 @@
           ]
         }
       }
+    },
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:90836164478:android:c879629303a668c1a91d2f",
+        "android_client_info": {
+          "package_name": "com.oneova.app"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "90836164478-9b2eboufqlk94ai3knl6augn2piietfh.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.oneova.app",
+            "certificate_hash": "ef499b4fadfd1b0b9271205b72038b8b71a8571c"
+          }
+        },
+        {
+          "client_id": "90836164478-k2k3esp8mu6bn59k1iis4us9sqoa2g40.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.oneova.app",
+            "certificate_hash": "bc4cf182bb0c60c822ba2df171271ce85b4cbeb1"
+          }
+        },
+        {
+          "client_id": "90836164478-j7us06gelc2204aq103qvc1tcoa6nc5b.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyA2ygNTrmb_y58xXoXaDKGgnDqhOKtsdho"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "90836164478-j7us06gelc2204aq103qvc1tcoa6nc5b.apps.googleusercontent.com",
+              "client_type": 3
+            },
+            {
+              "client_id": "90836164478-cf0eefkadr7ihj68svgo59co9e1iu0k3.apps.googleusercontent.com",
+              "client_type": 2,
+              "ios_info": {
+                "bundle_id": "com.example.mpepeStudio"
+              }
+            }
+          ]
+        }
+      }
     }
   ],
   "configuration_version": "1"

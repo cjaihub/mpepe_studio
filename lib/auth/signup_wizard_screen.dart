@@ -1,24 +1,27 @@
+import 'dart:async';
+import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_auth/firebase_auth.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
+import 'package:flutter_animate/flutter_animate.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
-import 'package:url_launcher/url_launcher.dart';
-import 'package:intl_phone_field/country_picker_dialog.dart';
-import 'package:flutter_animate/flutter_animate.dart';
+import 'package:google_fonts/google_fonts.dart';
 import 'package:intl_phone_field/intl_phone_field.dart';
-import 'package:image_picker/image_picker.dart';
-import 'package:firebase_storage/firebase_storage.dart';
-import 'package:cloud_firestore/cloud_firestore.dart';
-import 'dart:io';
-import '../../backend/location_service.dart';
-import '../../backend/user_service.dart';
+import 'package:pinput/pinput.dart';
+import 'services/otp_autofill.dart';
+
 import '../../backend/onboarding_persistence_service.dart';
+import '../../backend/recommendation/algorithm/online_feature_store.dart';
 import '../../shared/theme/app_theme.dart';
-import '../../shared/widgets/components.dart';
-import '../../shared/widgets/social_preview_card.dart';
 import '../../shared/widgets/theme_toggle_button.dart';
-import 'package:firebase_auth/firebase_auth.dart';
 import 'auth_repository.dart';
-import 'services/secure_logout_service.dart';
+import 'services/oneova_ai_onboarding_guardian.dart';
+import 'services/oneova_biometrics_service.dart';
+import 'services/oneova_username_service.dart';
+import 'services/oneova_smart_phone_engine.dart';
+import 'security/login_security.dart';
 
 class SignupWizardScreen extends ConsumerStatefulWidget {
   const SignupWizardScreen({super.key});
@@ -30,629 +33,535 @@ class SignupWizardScreen extends ConsumerStatefulWidget {
 class _SignupWizardScreenState extends ConsumerState<SignupWizardScreen> {
   final PageController _pageController = PageController();
   int _currentStep = 0;
+  static const int _totalSteps = 5;
+
   bool _isSaving = false;
-  bool _isLoadingDraft = true;
+  bool _isLoading = false;
 
-  String? _initialCountryCode;
+  // Step 1: Phone & OTP (Smart Worldwide Engine)
+  final OneovaSmartPhoneEngine _phoneEngine = OneovaSmartPhoneEngine();
+  CountryPhoneMeta _selectedCountryMeta = OneovaSmartPhoneEngine.defaultCountry;
+  final TextEditingController _phoneController = TextEditingController();
+  final TextEditingController _otpController = TextEditingController();
+  // Fills the SMS code via Google's consent prompt (no SMS permission).
+  final OtpAutofill _otpAutofill = OtpAutofill();
+  String _selectedCountryCode = 'KE';
+  String get _selectedDialCode => _selectedCountryMeta.dialCode;
+  String _formatHint = 'e.g. 712 345 678';
   String _fullPhoneNumber = '';
+  String _verificationId = '';
+  // Reused by "Resend Code" for the same number (no new app check / reCAPTCHA).
+  int? _resendToken;
+  String _resendTokenPhone = '';
+  bool _isOtpSent = false;
+  int _otpResendTimer = 60;
+  Timer? _timer;
 
-  final _emailController = TextEditingController();
-  final _passwordController = TextEditingController();
-  final _nameController = TextEditingController();
-  final _phoneController = TextEditingController();
-  final _igController = TextEditingController();
-  final _ytController = TextEditingController();
-
-  // Password UI state
+  // Step 2: Password & Biometrics
+  final TextEditingController _passwordController = TextEditingController();
   bool _passwordVisible = false;
-  int _passwordStrength = 0; // 0-4
-  String _passwordStrengthLabel = '';
+  int _passwordStrength = 0;
+  String _passwordStrengthLabel = 'Weak';
+  bool _enableBiometrics = true;
+  String _biometricLabel = 'Biometric Passkey';
 
-  // Email availability
-  bool? _emailAvailable; // null = unchecked, true = available, false = taken
-  bool _isCheckingEmail = false;
+  // Step 3: Identity & Username
+  final TextEditingController _nameController = TextEditingController();
+  final TextEditingController _usernameController = TextEditingController();
+  String _selectedAccountType = 'Creator / Influencer';
+  final List<String> _accountTypes = [
+    'Creator / Influencer',
+    'Brand / Business',
+    'Community / Personal',
+  ];
+  UsernameCheckResult? _usernameCheckResult;
+  bool _isCheckingUsername = false;
+  Timer? _usernameDebounce;
 
-  // Avatar upload
-  File? _avatarFile;
-  double? _avatarUploadProgress;
-  bool _isUploadingAvatar = false;
+  // Step 4: Niches & AI Protection
+  final List<String> _allNiches = [
+    'Tech & AI',
+    'Filmmaking & VFX',
+    'Music & Audio',
+    'Fashion & Style',
+    'Comedy & Culture',
+    'Gaming',
+    'Business & Startups',
+    'Visual Arts',
+  ];
+  final Set<String> _selectedNiches = {'Tech & AI', 'Filmmaking & VFX'};
+  final TextEditingController _bioController = TextEditingController();
+  AiAccountSafetyReport? _aiSafetyReport;
+  bool _isAnalyzingSafety = false;
 
-  String _selectedRole = 'Client';
-  final List<String> _roles = ['Client', 'Artist', 'Staff'];
-
-  String? _selectedDepartment;
-  final List<String> _departments = ['Video Production', 'Audio Production', 'Post-Production', 'Marketing'];
-
-  String _avatarPath = '';
-  bool _agreedToTerms = false;
-  bool _optInEmails = true;
-  String _preferredLanguage = 'en';
-  String _themeMode = 'system';
-  // ── Google pre-auth state ────────────────────────────────────────────────────
-  // When user arrives from Google Sign-In (new account), we pre-fill their
-  // identity and skip the email/password security step entirely.
-  bool _isGoogleUser = false;
+  // Google pre-fill support
   String? _googleUid;
-  bool _googleDataApplied = false; // Prevent re-applying on every rebuild
-
+  bool _googleDataApplied = false;
 
   @override
   void initState() {
     super.initState();
+    _phoneController.addListener(_onPhoneChanged);
+    _initBiometrics();
     _loadDraft();
-    _detectLocation();
+
+    WidgetsBinding.instance.addPostFrameCallback((_) async {
+      final user = FirebaseAuth.instance.currentUser;
+      if (user != null && !user.isAnonymous && _googleUid == null) {
+        if (mounted) {
+          context.go('/hub/home');
+          return;
+        }
+      }
+      await _detectCountrySilently();
+    });
+  }
+
+  /// Silently detects user country in background
+  Future<void> _detectCountrySilently() async {
+    try {
+      final meta = await _phoneEngine.detectCountrySilently();
+      if (mounted) {
+        setState(() {
+          _selectedCountryMeta = meta;
+          _selectedCountryCode = meta.isoCode;
+          _formatHint = meta.formatHint;
+        });
+      }
+    } catch (_) {}
+  }
+
+  /// Parses typed/pasted numbers and dynamically auto-switches country if needed
+  void _onPhoneChanged() {
+    final raw = _phoneController.text;
+    if (raw.isNotEmpty) {
+      final parsed = _phoneEngine.parseAndNormalize(
+        input: raw,
+        fallbackCountry: _selectedCountryMeta,
+      );
+      if (parsed.wasCountryAutoSwitched && parsed.country.isoCode != _selectedCountryCode) {
+        setState(() {
+          _selectedCountryMeta = parsed.country;
+          _selectedCountryCode = parsed.country.isoCode;
+          _formatHint = parsed.country.formatHint;
+        });
+      }
+    }
   }
 
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
-    // Read GoRouter extra to detect Google Sign-In pre-fill
-    // This runs after the route is fully resolved, so GoRouterState is available
-    if (_googleDataApplied) return;
     final extra = GoRouterState.of(context).extra as Map<String, dynamic>?;
-    if (extra != null && extra['fromGoogle'] == true) {
-      _googleDataApplied = true;
-      _isGoogleUser = true;
-      _googleUid = extra['uid'] as String?;
-      final email = extra['email'] as String? ?? '';
-      final name = extra['name'] as String? ?? '';
-      _emailController.text = email;
-      _nameController.text = name;
-      // Jump to step 1 (Personal Identity) — skip step 0 (Role) isn't needed,
-      // but we DO skip step 2 (Security) via _nextStep logic below.
+    if (extra != null) {
+      if (!_googleDataApplied && extra['fromGoogle'] == true) {
+        _googleDataApplied = true;
+        _googleUid = extra['uid'] as String?;
+        final email = extra['email'] as String? ?? '';
+        final name = extra['name'] as String? ?? '';
+        _nameController.text = name;
+        if (email.contains('@')) {
+          _usernameController.text = email.split('@').first.replaceAll(RegExp(r'[^a-zA-Z0-9_]'), '');
+          _checkUsernameAvailability(_usernameController.text);
+        }
+      } else if (!_googleDataApplied && (extra['fromTikTok'] == true || extra['fromFacebook'] == true)) {
+        _googleDataApplied = true;
+        _googleUid = extra['uid'] as String?;
+        final name = extra['name'] as String? ?? '';
+        if (name.isNotEmpty && _nameController.text.isEmpty) {
+          _nameController.text = name;
+        }
+      }
+
+      if (extra['phone'] != null && _phoneController.text.isEmpty) {
+        final phone = extra['phone'] as String;
+        _fullPhoneNumber = phone;
+        _phoneController.text = phone.replaceFirst(_selectedDialCode, '').replaceFirst('+254', '');
+        if (extra['phoneVerified'] == true) {
+          _isOtpSent = true;
+          WidgetsBinding.instance.addPostFrameCallback((_) {
+            if (_currentStep == 0 && mounted) {
+              _goToStep(1);
+            }
+          });
+        }
+      }
     }
   }
 
-  Future<void> _detectLocation() async {
-    final code = await LocationService.getCountryCode();
-    if (mounted && code != null && _initialCountryCode == null) {
-      setState(() {
-        _initialCountryCode = code;
-      });
+  @override
+  void dispose() {
+    _phoneController.removeListener(_onPhoneChanged);
+    _timer?.cancel();
+    _usernameDebounce?.cancel();
+    _phoneController.dispose();
+    _otpAutofill.cancel();
+    _otpController.dispose();
+    _passwordController.dispose();
+    _nameController.dispose();
+    _usernameController.dispose();
+    _bioController.dispose();
+    _pageController.dispose();
+    super.dispose();
+  }
+
+  Future<void> _initBiometrics() async {
+    final bioService = ref.read(oneovaBiometricsServiceProvider);
+    final supported = await bioService.isDeviceSupported();
+    if (supported) {
+      final label = await bioService.getBiometricTypeLabel();
+      if (mounted) {
+        setState(() {
+          _biometricLabel = label;
+          _enableBiometrics = true;
+        });
+      }
+    } else {
+      if (mounted) setState(() => _enableBiometrics = false);
     }
   }
 
   Future<void> _loadDraft() async {
-    final draft = await ref.read(onboardingPersistenceProvider).loadDraft();
+    final persistence = ref.read(onboardingPersistenceProvider);
+    final draft = await persistence.loadDraft();
     if (draft != null && mounted) {
-      setState(() => _isLoadingDraft = false);
-      final resume = await showDialog<bool>(
-        context: context,
-        barrierDismissible: false,
-        builder: (ctx) => AlertDialog(
-          backgroundColor: Theme.of(context).colorScheme.surface,
-          title: Text('Resume Signup?', style: TextStyle(color: Theme.of(context).colorScheme.onSurface)),
-          content: Text('We found an incomplete signup draft. Would you like to resume where you left off?', style: TextStyle(color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.8))),
-          actions: [
-            TextButton(
-              onPressed: () {
-                ref.read(onboardingPersistenceProvider).clearDraft();
-                Navigator.of(context).pop(false);
-              },
-              child: Text('Start Over', style: TextStyle(color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.6))),
-            ),
-            ElevatedButton(
-              style: ElevatedButton.styleFrom(backgroundColor: Theme.of(context).colorScheme.primary, foregroundColor: Colors.white),
-              onPressed: () => Navigator.of(context).pop(true),
-              child: const Text('Resume'),
-            ),
-          ],
-        ),
-      );
-
-      if (resume == true) {
-        final data = draft['data'] as Map<String, dynamic>;
+      final resume = await _showResumeDraftDialog();
+      if (resume == true && mounted) {
+        final data = draft['data'] as Map<String, dynamic>? ?? {};
         setState(() {
-          _currentStep = draft['stepIndex'] as int;
-          _selectedRole = data['role'] ?? 'Client';
-          _emailController.text = data['email'] ?? '';
-          _passwordController.text = data['password'] ?? '';
           _nameController.text = data['name'] ?? '';
           _phoneController.text = data['phone'] ?? '';
-          _fullPhoneNumber = data['fullPhone'] ?? '';
-          if (data['countryCode'] != null) {
-            _initialCountryCode = data['countryCode'];
+          _selectedAccountType = data['accountType'] ?? 'Creator / Influencer';
+          _usernameController.text = data['username'] ?? '';
+          _bioController.text = data['bio'] ?? '';
+          if (data['niches'] is List) {
+            _selectedNiches.clear();
+            _selectedNiches.addAll(List<String>.from(data['niches']));
           }
-          _avatarPath = data['avatar'] ?? '';
-          _selectedDepartment = data['department'];
-          _igController.text = data['ig'] ?? '';
-          _ytController.text = data['yt'] ?? '';
-          _agreedToTerms = data['agreedToTerms'] ?? false;
-          _optInEmails = data['optInEmails'] ?? true;
+          final step = draft['stepIndex'] as int? ?? 0;
+          _currentStep = step.clamp(0, _totalSteps - 1);
         });
-        
-        WidgetsBinding.instance.addPostFrameCallback((_) {
-          if (_pageController.hasClients) {
-            _pageController.jumpToPage(_currentStep);
-          }
-        });
+        _pageController.jumpToPage(_currentStep);
+      } else {
+        await persistence.clearDraft();
       }
-    } else {
-      if (mounted) setState(() => _isLoadingDraft = false);
     }
   }
 
-  Future<void> _saveDraft() async {
-    final data = {
-      'role': _selectedRole,
-      'email': _emailController.text,
-      // ⚠️ SECURITY: password is NEVER persisted in drafts
-      'name': _nameController.text,
-      'phone': _phoneController.text,
-      'fullPhone': _fullPhoneNumber,
-      'countryCode': _initialCountryCode,
-      'avatar': _avatarPath,
-      'department': _selectedDepartment,
-      'ig': _igController.text,
-      'yt': _ytController.text,
-      'agreedToTerms': _agreedToTerms,
-      'emailOptIn': _optInEmails,
-      'currentStep': _currentStep,
-    };
-    await ref.read(onboardingPersistenceProvider).saveDraft(_currentStep, data);
+  Future<bool?> _showResumeDraftDialog() {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final surfaceColor = isDark ? AppColors.darkSurface : AppColors.lightSurface;
+    final textPrimary = isDark ? AppColors.textPrimary : AppColors.lightTextPrimary;
+    final textSecondary = isDark ? AppColors.textSecondary : AppColors.lightTextSecondary;
+
+    return showDialog<bool>(
+      context: context,
+      barrierDismissible: false,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: surfaceColor,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(AppRadius.lg)),
+        title: Text(
+          'Resume Signup?',
+          style: GoogleFonts.inter(
+            fontWeight: FontWeight.w800,
+            fontSize: 18,
+            color: textPrimary,
+          ),
+        ),
+        content: Text(
+          'We found an incomplete signup draft. Would you like to resume where you left off?',
+          style: GoogleFonts.inter(
+            fontSize: 13,
+            color: textSecondary,
+            height: 1.4,
+          ),
+        ),
+        actionsPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(false),
+            child: Text(
+              'Start Over',
+              style: GoogleFonts.inter(
+                fontSize: 13,
+                fontWeight: FontWeight.w600,
+                color: textSecondary,
+              ),
+            ),
+          ),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(
+              backgroundColor: AppColors.brandBlue,
+              foregroundColor: Colors.white,
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(AppRadius.sm)),
+            ),
+            onPressed: () => Navigator.of(ctx).pop(true),
+            child: Text(
+              'Resume',
+              style: GoogleFonts.inter(
+                fontSize: 13,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _saveCurrentDraft() {
+    ref.read(onboardingPersistenceProvider).saveDraft(_currentStep, {
+      'name': _nameController.text.trim(),
+      'phone': _phoneController.text.trim(),
+      'accountType': _selectedAccountType,
+      'username': _usernameController.text.trim(),
+      'bio': _bioController.text.trim(),
+      'niches': _selectedNiches.toList(),
+    });
+  }
+
+  void _goToStep(int step) {
+    if (step < 0 || step >= _totalSteps) return;
+    setState(() => _currentStep = step);
+    _pageController.animateToPage(
+      step,
+      duration: const Duration(milliseconds: 300),
+      curve: Curves.easeInOutCubic,
+    );
+    _saveCurrentDraft();
   }
 
   void _nextStep() {
-    final totalSteps = 9;
-    if (_currentStep < totalSteps) {
-      int nextStep = _currentStep + 1;
-      // For Google users, skip step index 2 (Account Security — email/password)
-      // since Firebase Auth is already handled by Google Sign-In
-      if (_isGoogleUser && nextStep == 2) nextStep = 3;
-      _pageController.animateToPage(
-        nextStep,
-        duration: const Duration(milliseconds: 300),
-        curve: Curves.easeInOut,
-      );
-      setState(() => _currentStep = nextStep);
-      _saveDraft();
-    }
-  }
-
-  Future<void> _attemptExit() async {
-    if (_currentStep > 0 || _emailController.text.isNotEmpty) {
-      final confirm = await showDialog<bool>(
-        context: context,
-        builder: (ctx) => AlertDialog(
-          backgroundColor: Theme.of(context).colorScheme.surface,
-          title: Text('Save & Exit?', style: TextStyle(color: Theme.of(context).colorScheme.onSurface)),
-          content: Text('Your progress will be saved. You can resume later.', style: TextStyle(color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.8))),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.of(context).pop(false),
-              child: Text('Cancel', style: TextStyle(color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.6))),
-            ),
-            ElevatedButton(
-              style: ElevatedButton.styleFrom(backgroundColor: Theme.of(context).colorScheme.primary, foregroundColor: Colors.white),
-              onPressed: () {
-                _saveDraft();
-                Navigator.of(context).pop(true);
-              },
-              child: const Text('Save & Exit'),
-            ),
-          ],
-        ),
-      );
-      if (confirm != true) return;
-    }
-    if (mounted) {
-      await ref.read(secureLogoutServiceProvider).logout();
+    if (_currentStep < _totalSteps - 1) {
+      _goToStep(_currentStep + 1);
     }
   }
 
   void _prevStep() {
     if (_currentStep > 0) {
-      int prevStep = _currentStep - 1;
-      // For Google users, skip back over step 2 (Account Security)
-      if (_isGoogleUser && prevStep == 2) prevStep = 1;
-      _pageController.animateToPage(
-        prevStep,
-        duration: const Duration(milliseconds: 300),
-        curve: Curves.easeInOut,
-      );
-      setState(() => _currentStep = prevStep);
-      _saveDraft();
+      _goToStep(_currentStep - 1);
     } else {
-      _attemptExit();
+      context.pop();
     }
   }
 
-  // ── Password strength calculator ─────────────────────────────────────────
-  void _evaluatePasswordStrength(String password) {
-    int score = 0;
-    if (password.length >= 8) score++;
-    if (password.contains(RegExp(r'[A-Z]'))) score++;
-    if (password.contains(RegExp(r'[0-9]'))) score++;
-    if (password.contains(RegExp(r'[!@#\$%^&*(),.?":{}|<>_\-]'))) score++;
-    final labels = ['', 'Weak', 'Fair', 'Strong', 'Very Strong'];
-    setState(() {
-      _passwordStrength = score;
-      _passwordStrengthLabel = score > 0 ? labels[score] : '';
-    });
+  // ── Phone & OTP Flow ───────────────────────────────────────────────────────
+
+  String _computeFullPhoneNumber() {
+    final raw = _phoneController.text.trim();
+    if (raw.isEmpty) return '';
+    final parsed = _phoneEngine.parseAndNormalize(
+      input: raw,
+      fallbackCountry: _selectedCountryMeta,
+    );
+    return parsed.e164;
   }
 
-  // ── Email availability check (debounced) ──────────────────────────────────
-  Future<void> _checkEmailAvailability(String email) async {
-    if (!email.contains('@') || !email.contains('.')) {
-      setState(() => _emailAvailable = null);
+  Future<void> _handleSendOtp() async {
+    final phone = _computeFullPhoneNumber();
+    if (phone.length < 9) {
+      _showSnackbar('Please enter a valid phone number.', isError: true);
       return;
     }
-    setState(() {
-      _isCheckingEmail = true;
-      _emailAvailable = null;
-    });
+    if (_isLoading) return;
+
+    setState(() => _isLoading = true);
+    _fullPhoneNumber = phone;
+
+    // 1. Check if phone is already registered
     try {
-      final snap = await FirebaseFirestore.instance
+      final existing = await FirebaseFirestore.instance
           .collection('users')
-          .where('email', isEqualTo: email.toLowerCase().trim())
+          .where('phoneNumber', isEqualTo: phone)
           .limit(1)
           .get();
-      if (mounted) {
-        setState(() {
-          _emailAvailable = snap.docs.isEmpty;
-          _isCheckingEmail = false;
-        });
+
+      if (existing.docs.isNotEmpty) {
+        setState(() => _isLoading = false);
+        _showPhoneAlreadyRegisteredModal();
+        return;
       }
-    } catch (_) {
-      if (mounted) setState(() => _isCheckingEmail = false);
-    }
-  }
+    } catch (_) {}
 
-  // ── Real avatar picker + Firebase Storage upload ──────────────────────────
-  Future<void> _pickAndUploadAvatar() async {
-    final picker = ImagePicker();
-    final source = await showModalBottomSheet<ImageSource>(
-      context: context,
-      backgroundColor: Theme.of(context).colorScheme.surface,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
-      ),
-      builder: (ctx) => SafeArea(
-        child: Padding(
-          padding: const EdgeInsets.symmetric(vertical: 16),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Container(
-                width: 40, height: 4,
-                decoration: BoxDecoration(
-                  color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.2),
-                  borderRadius: BorderRadius.circular(2),
-                ),
-              ),
-              const SizedBox(height: 16),
-              Text('Choose Photo', style: Theme.of(context).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.bold)),
-              const SizedBox(height: 16),
-              ListTile(
-                leading: const Icon(Icons.photo_library_rounded),
-                title: const Text('Choose from Gallery'),
-                onTap: () => Navigator.pop(ctx, ImageSource.gallery),
-              ),
-              ListTile(
-                leading: const Icon(Icons.camera_alt_rounded),
-                title: const Text('Take a Photo'),
-                onTap: () => Navigator.pop(ctx, ImageSource.camera),
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-    if (source == null) return;
-
-    final picked = await picker.pickImage(
-      source: source,
-      maxWidth: 512,
-      maxHeight: 512,
-      imageQuality: 85,
-    );
-    if (picked == null) return;
-
-    setState(() {
-      _avatarFile = File(picked.path);
-      _isUploadingAvatar = true;
-      _avatarUploadProgress = 0;
-    });
-
+    // 2. Trigger Firebase Phone Auth
     try {
-      // Upload to Firebase Storage (temp path; will be moved to uid path on signup)
-      final tempRef = FirebaseStorage.instance
-          .ref('avatars/temp/${DateTime.now().millisecondsSinceEpoch}.jpg');
-      final task = tempRef.putFile(_avatarFile!);
-      task.snapshotEvents.listen((snap) {
-        if (mounted) {
-          setState(() {
-            _avatarUploadProgress =
-                snap.bytesTransferred / snap.totalBytes;
-          });
-        }
-      });
-      await task;
-      final downloadUrl = await tempRef.getDownloadURL();
-      if (mounted) {
-        setState(() {
-          _avatarPath = downloadUrl;
-          _isUploadingAvatar = false;
-          _avatarUploadProgress = null;
-        });
-      }
+      final authRepo = ref.read(authRepositoryProvider);
+      await authRepo.verifyPhoneNumber(
+        phoneNumber: phone,
+        forceResendingToken: phone == _resendTokenPhone ? _resendToken : null,
+        verificationCompleted: (PhoneAuthCredential cred) async {
+          if (FirebaseAuth.instance.currentUser?.phoneNumber == phone) return;
+          _otpAutofill.cancel();
+          final UserCredential signed;
+          try {
+            signed = await FirebaseAuth.instance.signInWithCredential(cred);
+          } catch (e) {
+            debugPrint('[SignupWizard] auto-verify failed: $e');
+            if (mounted) setState(() => _isLoading = false);
+            return;
+          }
+          if (signed.user != null) LoginSecurity.instance.recordFactor(signed.user!.uid, AuthFactor.smsOtp);
+          if (mounted) {
+            setState(() {
+              _isLoading = false;
+              _isOtpSent = true;
+            });
+            _nextStep();
+          }
+        },
+        verificationFailed: (FirebaseAuthException e) {
+          if (mounted) {
+            setState(() => _isLoading = false);
+            _showSnackbar(e.message ?? 'Verification failed. Please retry.', isError: true);
+          }
+        },
+        codeSent: (String verId, int? resendToken) {
+          if (mounted) {
+            setState(() {
+              _verificationId = verId;
+              _resendToken = resendToken ?? _resendToken;
+              _resendTokenPhone = phone;
+              _isOtpSent = true;
+              _isLoading = false;
+            });
+            _startResendTimer();
+            _showSnackbar('Verification code sent to $phone');
+            _otpAutofill.restart(_otpController, onCode: (_) => _handleVerifyOtp());
+          }
+        },
+        codeAutoRetrievalTimeout: (String verId) {
+          _verificationId = verId;
+        },
+      );
     } catch (e) {
       if (mounted) {
-        setState(() {
-          _isUploadingAvatar = false;
-          _avatarUploadProgress = null;
-        });
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Failed to upload photo: $e'),
-            backgroundColor: Colors.redAccent,
-          ),
-        );
+        setState(() => _isLoading = false);
+        _showSnackbar('Failed to request OTP: $e', isError: true);
       }
     }
   }
 
-  Future<void> _completeSignup() async {
-    setState(() => _isSaving = true);
-
-    // ── Pre-flight: check for duplicate phone (skip email dupe for Google users) ─
-    try {
-      if (!_isGoogleUser) {
-        final emailSnap = await FirebaseFirestore.instance
-            .collection('users')
-            .where('email', isEqualTo: _emailController.text.toLowerCase().trim())
-            .limit(1)
-            .get();
-        if (emailSnap.docs.isNotEmpty) {
-          if (mounted) {
-            setState(() => _isSaving = false);
-            _showDuplicateSheet(isEmail: true, isPhone: false);
-          }
-          return;
-        }
-      }
-
-      if (_fullPhoneNumber.isNotEmpty) {
-        final phoneSnap = await FirebaseFirestore.instance
-            .collection('users')
-            .where('phoneNumber', isEqualTo: _fullPhoneNumber)
-            .limit(1)
-            .get();
-        if (phoneSnap.docs.isNotEmpty) {
-          if (mounted) {
-            setState(() => _isSaving = false);
-            _showDuplicateSheet(isEmail: false, isPhone: true);
-          }
-          return;
-        }
-      }
-    } catch (_) {
-      // Non-fatal: proceed if Firestore check fails
-    }
-
-    try {
-      String uid;
-
-      if (_isGoogleUser && _googleUid != null) {
-        // ✨ Google users are already Firebase-authenticated — just create Firestore profile
-        uid = _googleUid!;
+  void _startResendTimer() {
+    _otpResendTimer = 60;
+    _timer?.cancel();
+    _timer = Timer.periodic(const Duration(seconds: 1), (t) {
+      if (_otpResendTimer <= 1) {
+        t.cancel();
+        if (mounted) setState(() => _otpResendTimer = 0);
       } else {
-        final userCredential = await ref.read(authRepositoryProvider).createUserWithEmailAndPassword(
-          email: _emailController.text,
-          password: _passwordController.text,
-        );
-        uid = userCredential.user?.uid ?? (throw Exception('Failed to get user ID after creation.'));
+        if (mounted) setState(() => _otpResendTimer--);
       }
+    });
+  }
 
+  Future<void> _handleVerifyOtp() async {
+    final code = _otpController.text.trim();
+    if (code.length != 6) {
+      _showSnackbar('Please enter the complete 6-digit code.', isError: true);
+      return;
+    }
 
-      // Move temp avatar to permanent path if exists
-      String photoUrl = _avatarPath;
-      if (_avatarFile != null && _avatarPath.isNotEmpty) {
-        try {
-          final permRef = FirebaseStorage.instance.ref('avatars/$uid.jpg');
-          await permRef.putFile(_avatarFile!);
-          photoUrl = await permRef.getDownloadURL();
-        } catch (_) {}
-      }
-
-      final newUser = AppUser(
-        id: uid,
-        fullName: _nameController.text,
-        email: _emailController.text,
-        role: _selectedRole,
-        department: _selectedRole == 'Staff'
-            ? (_selectedDepartment ?? 'Video Production')
-            : '',
-        status: 'pending',
-        preferredLanguage: _preferredLanguage,
-        themeMode: _themeMode,
-        createdAt: DateTime.now(),
+    if (_isLoading) return;
+    setState(() => _isLoading = true);
+    try {
+      final authRepo = ref.read(authRepositoryProvider);
+      await authRepo.signInWithOTP(
+        verificationId: _verificationId,
+        smsCode: code,
       );
-
-      await ref.read(userProvider.notifier).createUser(newUser);
-
-      // Save phone + photoUrl to the Firestore user doc directly
-      await FirebaseFirestore.instance.collection('users').doc(uid).update({
-        if (_fullPhoneNumber.isNotEmpty) 'phoneNumber': _fullPhoneNumber,
-        if (photoUrl.isNotEmpty) 'photoUrl': photoUrl,
-        'optInEmails': _optInEmails,
-      });
-
-      await ref.read(onboardingPersistenceProvider).clearDraft();
-
+      final signedIn = FirebaseAuth.instance.currentUser;
+      if (signedIn != null) LoginSecurity.instance.recordFactor(signedIn.uid, AuthFactor.smsOtp);
       if (mounted) {
-        setState(() => _isSaving = false);
-        context.go('/auth/main_login');
-      }
-    } on FirebaseAuthException catch (e) {
-      if (mounted) {
-        setState(() => _isSaving = false);
-        String errorMessage = e.message ?? 'Authentication failed';
-        if (e.code == 'email-already-in-use') {
-          errorMessage = 'An account with this email already exists.';
-        } else if (e.code == 'weak-password') {
-          errorMessage = 'Password too weak. Add uppercase, numbers and symbols.';
-        } else if (e.code == 'invalid-email') {
-          errorMessage = 'Invalid email address.';
-        }
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(errorMessage),
-            backgroundColor: Colors.redAccent,
-            behavior: SnackBarBehavior.floating,
-            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-            action: e.code == 'email-already-in-use'
-                ? SnackBarAction(
-                    label: 'Log In',
-                    textColor: Colors.white,
-                    onPressed: () => context.go('/auth/main_login'),
-                  )
-                : null,
-          ),
-        );
+        setState(() => _isLoading = false);
+        _nextStep();
       }
     } catch (e) {
       if (mounted) {
-        setState(() => _isSaving = false);
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: const Text('An unexpected error occurred. Please try again.'),
-            backgroundColor: Colors.redAccent,
-            behavior: SnackBarBehavior.floating,
-            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-          ),
-        );
+        setState(() => _isLoading = false);
+        _showSnackbar('Invalid code. Please re-check and try again.', isError: true);
       }
     }
   }
 
-  void _showDuplicateSheet({required bool isEmail, required bool isPhone}) {
-    showModalBottomSheet(
+  void _showPhoneAlreadyRegisteredModal() {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final surfaceColor = isDark ? AppColors.darkSurface : AppColors.lightSurface;
+    final surfaceMid = isDark ? AppColors.darkSurfaceHighlight : AppColors.lightSurfaceHighlight;
+    final textPrimary = isDark ? AppColors.textPrimary : AppColors.lightTextPrimary;
+    final textSecondary = isDark ? AppColors.textSecondary : AppColors.lightTextSecondary;
+
+    showModalBottomSheet<void>(
       context: context,
-      backgroundColor: Theme.of(context).colorScheme.surface,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
-      ),
-      builder: (ctx) => SafeArea(
-        child: Padding(
-          padding: const EdgeInsets.all(28),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Container(
-                padding: const EdgeInsets.all(12),
-                decoration: BoxDecoration(
-                  color: AppColors.mpepeMaroon.withValues(alpha: 0.1),
-                  shape: BoxShape.circle,
-                ),
-                child: const Icon(Icons.warning_amber_rounded,
-                    color: AppColors.mpepeMaroon, size: 32),
-              ),
-              const SizedBox(height: 16),
-              Text(
-                isEmail && isPhone
-                    ? 'Email & Phone Already Registered'
-                    : isEmail
-                        ? 'Email Already Registered'
-                        : 'Phone Number Already Registered',
-                style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
-              ),
-              const SizedBox(height: 8),
-              Text(
-                isEmail && isPhone
-                    ? 'Both your email and phone are linked to an existing account. Please log in instead.'
-                    : isEmail
-                        ? 'This email is already linked to an existing MPEPE Studio account.'
-                        : 'This phone number is already linked to an existing account.',
-                style: TextStyle(
-                  color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.7),
-                  fontSize: 14,
-                  height: 1.5,
-                ),
-              ),
-              const SizedBox(height: 28),
-              SizedBox(
-                width: double.infinity,
-                child: ElevatedButton(
-                  onPressed: () async {
-                    Navigator.pop(ctx);
-                    await ref.read(secureLogoutServiceProvider).logout();
-                  },
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: Theme.of(context).colorScheme.primary,
-                    foregroundColor: Colors.white,
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
-                    padding: const EdgeInsets.symmetric(vertical: 14),
-                  ),
-                  child: const Text('Log In Instead',
-                      style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
-                ),
-              ),
-              const SizedBox(height: 12),
-              SizedBox(
-                width: double.infinity,
-                child: TextButton(
-                  onPressed: () => Navigator.pop(ctx),
-                  child: Text('Go Back & Edit',
-                      style: TextStyle(
-                        color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.6),
-                      )),
-                ),
-              ),
-            ],
-          ),
+      backgroundColor: Colors.transparent,
+      builder: (ctx) => Container(
+        padding: EdgeInsets.only(
+          left: 20,
+          right: 20,
+          top: 20,
+          bottom: MediaQuery.paddingOf(context).bottom + 20,
         ),
-      ),
-    );
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    if (_isLoadingDraft) {
-      return Scaffold(
-        backgroundColor: Theme.of(context).scaffoldBackgroundColor,
-        body: const Center(child: CircularProgressIndicator()),
-      );
-    }
-
-    return Scaffold(
-      backgroundColor: Theme.of(context).scaffoldBackgroundColor,
-      appBar: AppBar(
-        leading: IconButton(
-          icon: Icon(Icons.arrow_back, color: Theme.of(context).colorScheme.onSurface),
-          onPressed: _prevStep,
+        decoration: BoxDecoration(
+          color: surfaceColor,
+          borderRadius: const BorderRadius.vertical(top: Radius.circular(AppRadius.xl)),
+          border: Border(top: BorderSide(color: isDark ? AppColors.outline : AppColors.lightBorder, width: 1.0)),
         ),
-        title: Text('Join MPEPE Studio', style: TextStyle(color: Theme.of(context).colorScheme.onSurface, fontWeight: FontWeight.bold, fontSize: 18)),
-        centerTitle: true,
-        actions: const [
-          ThemeToggleButton(),
-          SizedBox(width: 8),
-        ],
-      ),
-      body: SafeArea(
         child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.center,
           children: [
-            _buildProgressIndicator(),
-            Expanded(
-              child: PageView(
-                controller: _pageController,
-                physics: const NeverScrollableScrollPhysics(),
-                children: [
-                  _buildStepContainer(1, 'Welcome & Intent', 'What brings you to MPEPE Studio?', _buildRoleSelection(), canAdvance: true),
-                  _buildStepContainer(2, 'Personal Identity', 'What should we call you?', _buildIdentityFields(), canAdvance: _nameController.text.trim().isNotEmpty),
-                  // Step 3 (index 2): Account Security — skipped for Google users via _nextStep logic
-                  _buildStepContainer(3, 'Account Security', 'Secure your account', _buildSecurityFields(),
-                      canAdvance: _isGoogleUser ||
-                          (_emailController.text.contains('@') && _passwordController.text.length >= 6)),
-                  _buildStepContainer(4, 'Contact Details', 'How can we reach you?', _buildContactFields(), canAdvance: _phoneController.text.trim().isNotEmpty),
-                  _buildStepContainer(5, 'Avatar Setup', 'Add a profile picture', _buildAvatarSelection(), canAdvance: true),
-                  _buildStepContainer(6, 'Focus Area', 'Select your main interest or department', _buildDepartmentSelection(), canAdvance: true),
-                  _buildStepContainer(7, 'Social Links', 'Connect your audience', _buildSocialFields(), canAdvance: true),
-                  _buildStepContainer(8, 'Preferences', 'Customize your experience', _buildPreferences(), canAdvance: true),
-                  _buildStepContainer(9, 'Agreements', 'Just a few rules to follow', _buildAgreements(), canAdvance: _agreedToTerms),
-                  _buildFinalStep(),
-                ],
+            Container(
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: surfaceMid,
+                shape: BoxShape.circle,
+              ),
+              child: const Icon(Icons.warning_amber_rounded, size: 28, color: AppColors.brandBlue),
+            ),
+            const SizedBox(height: 14),
+            Text(
+              'Phone Number Already Registered',
+              textAlign: TextAlign.center,
+              style: GoogleFonts.inter(
+                fontSize: 18,
+                fontWeight: FontWeight.w800,
+                color: textPrimary,
+              ),
+            ),
+            const SizedBox(height: 8),
+            Text(
+              'This phone number is already linked to an existing Oneova account.',
+              textAlign: TextAlign.center,
+              style: GoogleFonts.inter(
+                fontSize: 13,
+                color: textSecondary,
+              ),
+            ),
+            const SizedBox(height: 22),
+            SizedBox(
+              width: double.infinity,
+              height: 42,
+              child: ElevatedButton(
+                onPressed: () {
+                  Navigator.of(ctx).pop();
+                  context.push('/auth/main_login');
+                },
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: AppColors.brandBlue,
+                  foregroundColor: Colors.white,
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(AppRadius.sm)),
+                ),
+                child: Text(
+                  'Log In Instead',
+                  style: GoogleFonts.inter(fontSize: 13.5, fontWeight: FontWeight.w700),
+                ),
+              ),
+            ),
+            const SizedBox(height: 10),
+            TextButton(
+              onPressed: () => Navigator.of(ctx).pop(),
+              child: Text(
+                'Go Back & Edit',
+                style: GoogleFonts.inter(fontSize: 13, color: textSecondary, fontWeight: FontWeight.w600),
               ),
             ),
           ],
@@ -661,921 +570,1625 @@ class _SignupWizardScreenState extends ConsumerState<SignupWizardScreen> {
     );
   }
 
-  Widget _buildStepContainer(int step, String title, String subtitle, Widget child, {required bool canAdvance}) {
+  // ── Password Evaluation ────────────────────────────────────────────────────
+
+  void _calculatePasswordStrength(String pass) {
+    int score = 0;
+    if (pass.length >= 8) score++;
+    if (pass.contains(RegExp(r'[A-Z]'))) score++;
+    if (pass.contains(RegExp(r'[0-9]'))) score++;
+    if (pass.contains(RegExp(r'[!@#\$%^&*(),.?":{}|<>]'))) score++;
+
+    String label = 'Weak';
+    if (score == 2) {
+      label = 'Fair';
+    } else if (score == 3) {
+      label = 'Good';
+    } else if (score == 4) {
+      label = 'Strong';
+    }
+
+    setState(() {
+      _passwordStrength = score;
+      _passwordStrengthLabel = label;
+    });
+  }
+
+  // ── Username Debounce Check ────────────────────────────────────────────────
+
+  void _checkUsernameAvailability(String username) {
+    _usernameDebounce?.cancel();
+    if (username.trim().isEmpty) {
+      setState(() => _usernameCheckResult = null);
+      return;
+    }
+
+    setState(() => _isCheckingUsername = true);
+    _usernameDebounce = Timer(const Duration(milliseconds: 350), () async {
+      final usernameService = ref.read(oneovaUsernameServiceProvider);
+      final result = await usernameService.validateAndCheckAvailability(
+        username,
+        accountType: _selectedAccountType,
+      );
+      if (mounted) {
+        setState(() {
+          _usernameCheckResult = result;
+          _isCheckingUsername = false;
+        });
+      }
+    });
+  }
+
+  // ── AI Safety Analysis ─────────────────────────────────────────────────────
+
+  Future<void> _runAiSafetyScan() async {
+    setState(() => _isAnalyzingSafety = true);
+    final guardian = ref.read(oneovaAiOnboardingGuardianProvider);
+    final report = await guardian.evaluateProfileSafety(
+      username: _usernameController.text.trim(),
+      displayName: _nameController.text.trim(),
+      bio: _bioController.text.trim(),
+      contactPhoneOrEmail: _fullPhoneNumber,
+    );
+    if (mounted) {
+      setState(() {
+        _aiSafetyReport = report;
+        _isAnalyzingSafety = false;
+      });
+    }
+  }
+
+  // ── Final Completion ───────────────────────────────────────────────────────
+
+  Future<void> _secureNewAccount(User? user) async {
+    if (user == null || user.isAnonymous) return;
+    final sec = LoginSecurity.instance;
+    final pw = _passwordController.text;
+    try {
+      if (pw.length >= 6 && !user.providerData.any((p) => p.providerId == 'password')) {
+        await user.linkWithCredential(EmailAuthProvider.credential(
+          email: LoginSecurity.authEmailForPhone(user.phoneNumber ?? _fullPhoneNumber),
+          password: pw,
+        ));
+        sec.recordFactor(user.uid, AuthFactor.password);
+      }
+      final factors = sec.pendingFactorsFor(user.uid);
+      final scan = await sec.scanDevice(user.uid);
+      final trusted = scan.trusted && scan.isPhysicalDevice;
+      if (LoginSecurity.meetsPolicy(factors, deviceTrusted: trusted)) {
+        await sec.markVerified(user, factors, deviceTrusted: trusted);
+      }
+    } catch (e) {
+      debugPrint('[SignupWizard] securing account: $e');
+    }
+  }
+
+
+  Future<void> _completeOnboarding() async {
+    setState(() => _isSaving = true);
+    final user = FirebaseAuth.instance.currentUser;
+    final uid = user?.uid ?? _googleUid ?? 'temp_${DateTime.now().millisecondsSinceEpoch}';
+
+    try {
+      final username = _usernameController.text.trim().toLowerCase();
+      final displayName = _nameController.text.trim().isEmpty ? 'Oneova Creator' : _nameController.text.trim();
+      final role = (_selectedAccountType == 'Brand / Business') ? 'business' : 'creator';
+
+      // 1. Claim username
+      final usernameService = ref.read(oneovaUsernameServiceProvider);
+      try {
+        await usernameService.claimUsername(uid, username);
+      } catch (_) {}
+
+      // 2. Set profile data in Firestore
+      await FirebaseFirestore.instance.collection('users').doc(uid).set({
+        'displayName': displayName,
+        'username': username,
+        'phoneNumber': _fullPhoneNumber,
+        'role': role,
+        'accountType': _selectedAccountType,
+        'bio': _bioController.text.trim(),
+        'niches': _selectedNiches.toList(),
+        'status': 'active',
+        'isVerified': (_selectedAccountType != 'Community / Personal'),
+        'verifiedBadge': (_selectedAccountType == 'Brand / Business') ? 'business' : 'creator',
+        'createdAt': FieldValue.serverTimestamp(),
+        'updatedAt': FieldValue.serverTimestamp(),
+      }, SetOptions(merge: true));
+
+      // 3. Password -> Firebase Auth (never stored in Firestore), then accept
+      // the session if SMS code + password meet the two-check policy. If not,
+      // the login screen asks for what is missing.
+      await _secureNewAccount(user);
+
+      // 3b. Enroll biometrics if selected (only for a verified session)
+      if (_enableBiometrics && user != null && LoginSecurity.instance.isVerified(user)) {
+        final bioService = ref.read(oneovaBiometricsServiceProvider);
+        await bioService.enrollUserBiometrics(
+          userId: user.uid,
+          userEmail: user.phoneNumber ?? _fullPhoneNumber,
+          displayName: displayName,
+        );
+      }
+
+      // 4. Generate Algorithmic Taste Seed with OpenRouter live model
+      final guardian = ref.read(oneovaAiOnboardingGuardianProvider);
+      await guardian.generateAlgorithmicSeed(
+        userId: uid,
+        selectedNiches: _selectedNiches.toList(),
+        creatorRole: role,
+        primaryGoal: 'Viral audience growth',
+      );
+
+      // Hydrate local feature store
+      ref.read(onlineFeatureStoreProvider).hydrateProfile(uid);
+
+      // 5. Clear draft
+      await ref.read(onboardingPersistenceProvider).clearDraft();
+
+      // 6. Save last used account in device memory for 1-tap recognition next time
+      await _phoneEngine.saveLastUsedAccount(
+        phoneE164: _fullPhoneNumber,
+        countryIso: _selectedCountryCode,
+        displayName: _nameController.text.trim(),
+        username: _usernameController.text.trim(),
+      );
+
+      if (mounted) {
+        setState(() => _isSaving = false);
+        HapticFeedback.heavyImpact();
+        context.go('/hub/home');
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(() => _isSaving = false);
+        _showSnackbar('Failed to finalize profile: $e', isError: true);
+      }
+    }
+  }
+
+  void _showSnackbar(String message, {bool isError = false}) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(
+          message,
+          style: GoogleFonts.inter(fontWeight: FontWeight.w600, color: Colors.white),
+        ),
+        backgroundColor: isError ? Colors.redAccent : AppColors.brandBlue,
+        behavior: SnackBarBehavior.floating,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(AppRadius.sm)),
+      ),
+    );
+  }
+
+  // ── Welcoming Milestone Badge Helper ────────────────────────────────────
+  Widget _buildStepHeaderBadge({
+    required int stepNumber,
+    required String milestoneText,
+    required String stepTitle,
+    required String stepSubtitle,
+    required IconData headerIcon,
+    required Color textP,
+    required Color textS,
+  }) {
+    final isAlmostThere = stepNumber >= 3;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          children: [
+            Flexible(
+              child: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4.5),
+                decoration: BoxDecoration(
+                  color: AppColors.brandBlue.withValues(alpha: 0.12),
+                  borderRadius: BorderRadius.circular(AppRadius.full),
+                  border: Border.all(color: AppColors.brandBlue.withValues(alpha: 0.28), width: 1.0),
+                ),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(headerIcon, size: 13, color: AppColors.brandBlue),
+                    const SizedBox(width: 5),
+                    Flexible(
+                      child: Text(
+                        'STEP $stepNumber OF 5 • $milestoneText',
+                        overflow: TextOverflow.ellipsis,
+                        style: GoogleFonts.inter(
+                          fontSize: 10,
+                          fontWeight: FontWeight.w800,
+                          color: AppColors.brandBlue,
+                          letterSpacing: 0.6,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+            if (isAlmostThere)
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 3.5),
+                decoration: BoxDecoration(
+                  color: AppColors.brandPink.withValues(alpha: 0.15),
+                  borderRadius: BorderRadius.circular(AppRadius.full),
+                  border: Border.all(color: AppColors.brandPink.withValues(alpha: 0.35), width: 1.0),
+                ),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    const Icon(Icons.flash_on_rounded, size: 11, color: AppColors.brandPink),
+                    const SizedBox(width: 3),
+                    Text(
+                      stepNumber == 5 ? 'ALL SET!' : 'ALMOST THERE!',
+                      style: GoogleFonts.inter(
+                        fontSize: 9.5,
+                        fontWeight: FontWeight.w900,
+                        color: AppColors.brandPink,
+                        letterSpacing: 0.5,
+                      ),
+                    ),
+                  ],
+                ),
+              ).animate().scale(duration: 300.ms, curve: Curves.easeOutBack),
+          ],
+        ),
+        const SizedBox(height: 8),
+        Text(
+          stepTitle,
+          style: GoogleFonts.inter(
+            fontSize: 21,
+            fontWeight: FontWeight.w800,
+            color: textP,
+            letterSpacing: -0.4,
+          ),
+        ),
+        const SizedBox(height: 4),
+        Text(
+          stepSubtitle,
+          style: GoogleFonts.inter(
+            fontSize: 12.5,
+            color: textS,
+            height: 1.35,
+          ),
+        ),
+        const SizedBox(height: 14),
+      ],
+    );
+  }
+
+  // ── "Why This Matters" Contextual Value Box ───────────────────────────────
+  Widget _buildWhyItMatters({
+    required IconData icon,
+    required String title,
+    required String description,
+    required Color surfaceMid,
+    required Color border,
+    required Color textP,
+    required Color textS,
+    Color iconColor = AppColors.brandBlue,
+  }) {
+    return Container(
+      margin: const EdgeInsets.only(bottom: 16),
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 11),
+      decoration: BoxDecoration(
+        color: surfaceMid.withValues(alpha: 0.7),
+        borderRadius: BorderRadius.circular(AppRadius.md),
+        border: Border.all(color: iconColor.withValues(alpha: 0.22), width: 1.0),
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Container(
+            padding: const EdgeInsets.all(7),
+            decoration: BoxDecoration(
+              color: iconColor.withValues(alpha: 0.12),
+              shape: BoxShape.circle,
+            ),
+            child: Icon(icon, size: 16, color: iconColor),
+          ),
+          const SizedBox(width: 11),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    Expanded(
+                      child: Text(
+                        title,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: GoogleFonts.inter(
+                          fontSize: 12,
+                          fontWeight: FontWeight.w700,
+                          color: textP,
+                          letterSpacing: -0.2,
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 6),
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1.5),
+                      decoration: BoxDecoration(
+                        color: iconColor.withValues(alpha: 0.12),
+                        borderRadius: BorderRadius.circular(AppRadius.xs),
+                      ),
+                      child: Text(
+                        'WHY THIS MATTERS',
+                        style: GoogleFonts.inter(
+                          fontSize: 8.5,
+                          fontWeight: FontWeight.w800,
+                          color: iconColor,
+                          letterSpacing: 0.4,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 3),
+                Text(
+                  description,
+                  style: GoogleFonts.inter(
+                    fontSize: 11.5,
+                    color: textS,
+                    height: 1.35,
+                    fontWeight: FontWeight.w500,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final isDark = theme.brightness == Brightness.dark;
+    final bgColor = isDark ? AppColors.darkBackground : AppColors.lightBackground;
+    final surfaceColor = isDark ? AppColors.darkSurface : AppColors.lightSurface;
+    final borderColor = isDark ? AppColors.outline : AppColors.lightBorder;
+    final textPrimary = isDark ? AppColors.textPrimary : AppColors.lightTextPrimary;
+    final textSecondary = isDark ? AppColors.textSecondary : AppColors.lightTextSecondary;
+
+    final stepLabels = [
+      'Welcome • Phone Auth',
+      'Security & Passkeys',
+      'Creator Handle & Tier',
+      'AI Shield & Niches',
+      'VIP Creator Pass',
+    ];
+
+    return Scaffold(
+      backgroundColor: bgColor,
+      appBar: PreferredSize(
+        preferredSize: const Size.fromHeight(56),
+        child: AppBar(
+          backgroundColor: bgColor,
+          elevation: 0,
+          leading: IconButton(
+            icon: Icon(Icons.arrow_back, color: textPrimary, size: 20),
+            onPressed: _prevStep,
+          ),
+          title: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text(
+                'Join Oneova',
+                style: GoogleFonts.inter(
+                  fontSize: 15,
+                  fontWeight: FontWeight.w700,
+                  color: textPrimary,
+                ),
+              ),
+              const SizedBox(height: 1),
+              Text(
+                _currentStep == 4
+                    ? 'Almost there! Final Review'
+                    : 'Step ${_currentStep + 1} of 5: ${stepLabels[_currentStep]}',
+                style: GoogleFonts.inter(
+                  fontSize: 10.5,
+                  fontWeight: FontWeight.w600,
+                  color: _currentStep >= 3 ? AppColors.brandPink : AppColors.brandBlue,
+                ),
+              ),
+            ],
+          ),
+          centerTitle: true,
+          actions: const [
+            ThemeToggleButton(),
+            SizedBox(width: 8),
+          ],
+          bottom: PreferredSize(
+            preferredSize: const Size.fromHeight(8),
+            child: Row(
+              children: List.generate(_totalSteps, (index) {
+                final isActive = index <= _currentStep;
+                final isCurrent = index == _currentStep;
+                return Expanded(
+                  child: GestureDetector(
+                    behavior: HitTestBehavior.opaque,
+                    onTap: kDebugMode
+                        ? () {
+                            HapticFeedback.lightImpact();
+                            setState(() => _currentStep = index);
+                            _pageController.animateToPage(
+                              index,
+                              duration: const Duration(milliseconds: 300),
+                              curve: Curves.easeInOut,
+                            );
+                          }
+                        : null,
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(vertical: 2.5),
+                      child: AnimatedContainer(
+                        duration: const Duration(milliseconds: 300),
+                        height: 3,
+                        margin: const EdgeInsets.symmetric(horizontal: 2),
+                        decoration: BoxDecoration(
+                          color: isCurrent
+                              ? AppColors.brandPink
+                              : (isActive
+                                  ? AppColors.brandBlue
+                                  : (isDark ? AppColors.darkSurfaceHighlight : AppColors.lightSurfaceHighlight)),
+                          borderRadius: BorderRadius.circular(2),
+                        ),
+                      ),
+                    ),
+                  ),
+                );
+              }),
+            ),
+          ),
+        ),
+      ),
+      body: SafeArea(
+        child: Center(
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 440),
+            child: PageView(
+              controller: _pageController,
+              physics: const NeverScrollableScrollPhysics(),
+              children: [
+                _buildStep1PhoneAndOtp(surfaceColor, borderColor, textPrimary, textSecondary),
+                _buildStep2PasswordAndBiometrics(surfaceColor, borderColor, textPrimary, textSecondary),
+                _buildStep3IdentityAndUsername(surfaceColor, borderColor, textPrimary, textSecondary),
+                _buildStep4AiProtectionAndSeeds(surfaceColor, borderColor, textPrimary, textSecondary),
+                _buildStep5AccessPassReview(surfaceColor, borderColor, textPrimary, textSecondary),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // Step 1: Phone Authentication (Strictly 1 input on page: Phone OR OTP)
+  // ─────────────────────────────────────────────────────────────────────────
+  Widget _buildStep1PhoneAndOtp(Color surface, Color border, Color textP, Color textS) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final surfaceMid = isDark ? AppColors.darkSurfaceHighlight : AppColors.lightSurfaceHighlight;
+
     return SingleChildScrollView(
-      padding: const EdgeInsets.all(24.0),
+      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text('Step $step of 10', style: TextStyle(color: Theme.of(context).colorScheme.primary, fontWeight: FontWeight.bold, fontSize: 12)),
-          const SizedBox(height: 8),
-          Text(title, style: AppTheme.h1Style),
-          const SizedBox(height: 8),
-          Text(subtitle, style: TextStyle(color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.6), fontSize: 14)),
-          const SizedBox(height: 32),
-          child,
-          const SizedBox(height: 48),
-          SizedBox(
-            width: double.infinity,
-            child: MpepeButton(
-              text: 'Continue',
-              onPressed: canAdvance ? _nextStep : () {},
-              isPrimary: canAdvance,
-            ),
+          _buildStepHeaderBadge(
+            stepNumber: 1,
+            milestoneText: 'AUTHENTICATION',
+            stepTitle: 'Phone Authentication',
+            stepSubtitle: 'Enter your phone number to secure your creator account with high-entropy SMS verification.',
+            headerIcon: Icons.phone_android_rounded,
+            textP: textP,
+            textS: textS,
           ),
-        ],
-      ).animate().fadeIn().slideX(begin: 0.05),
-    );
-  }
 
-  Widget _buildProgressIndicator() {
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 16),
-      child: Row(
-        children: List.generate(10, (index) {
-          final isActive = index <= _currentStep;
-          return Expanded(
-            child: Container(
-              margin: const EdgeInsets.symmetric(horizontal: 2),
-              height: 4,
-              decoration: BoxDecoration(
-                color: isActive ? Theme.of(context).colorScheme.primary : Theme.of(context).colorScheme.outline,
-                borderRadius: BorderRadius.circular(2),
-              ),
-            ),
-          );
-        }),
-      ),
-    );
-  }
+          _buildWhyItMatters(
+            icon: Icons.verified_user_rounded,
+            title: 'Bot Defense & Royalties Security',
+            description: 'Phone verification guarantees 100% authentic human audiences, protects your monetization payouts, and enables instant 2-step account recovery.',
+            surfaceMid: surfaceMid,
+            border: border,
+            textP: textP,
+            textS: textS,
+            iconColor: AppColors.brandBlue,
+          ),
 
-  // --- Step 1: Role ---
-  Widget _buildRoleSelection() {
-    return Column(
-      children: _roles.map((role) {
-        final isSelected = _selectedRole == role;
-        return GestureDetector(
-          onTap: () => setState(() => _selectedRole = role),
-          child: Container(
-            margin: const EdgeInsets.only(bottom: 16),
-            padding: const EdgeInsets.all(20),
+          // Input Form Container (Strictly 1 input: Phone OR OTP)
+          Container(
+            padding: const EdgeInsets.all(16),
             decoration: BoxDecoration(
-              color: isSelected ? Theme.of(context).colorScheme.primary.withValues(alpha: 0.1) : Theme.of(context).colorScheme.surface,
-              borderRadius: BorderRadius.circular(16),
-              border: Border.all(
-                color: isSelected ? Theme.of(context).colorScheme.primary : Theme.of(context).colorScheme.outline,
-                width: isSelected ? 2 : 1,
-              ),
+              color: surface,
+              borderRadius: BorderRadius.circular(AppRadius.md),
+              border: Border.all(color: border, width: 1.0),
             ),
-            child: Row(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Icon(
-                  role == 'Client' ? Icons.work_outline : (role == 'Artist' ? Icons.mic_external_on_outlined : Icons.admin_panel_settings_outlined),
-                  color: isSelected ? Theme.of(context).colorScheme.primary : Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.6),
-                ),
-                const SizedBox(width: 16),
-                Expanded(
-                  child: Text(role, style: TextStyle(color: Theme.of(context).colorScheme.onSurface, fontWeight: FontWeight.bold, fontSize: 16)),
-                ),
-                if (isSelected) Icon(Icons.check_circle, color: Theme.of(context).colorScheme.primary),
-              ],
-            ),
-          ),
-        );
-      }).toList(),
-    );
-  }
-
-  // --- Step 2: Identity ---
-  Widget _buildIdentityFields() {
-    return Column(
-      children: [
-        _buildTextField('Full Legal Name', _nameController, icon: Icons.person_outline, onChanged: (_) => setState((){})),
-        const SizedBox(height: 16),
-        Text('We use this for billing and official communications.', style: TextStyle(color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.5), fontSize: 12)),
-      ],
-    );
-  }
-
-  // --- Step 3: Security ---
-  Widget _buildSecurityFields() {
-    final strengthColors = [
-      Colors.transparent,
-      Colors.redAccent,
-      Colors.orangeAccent,
-      Colors.lightGreen,
-      Colors.green,
-    ];
-    final strengthColor = _passwordStrength > 0
-        ? strengthColors[_passwordStrength]
-        : Theme.of(context).colorScheme.outline;
-
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        // Email field with availability indicator
-        TextField(
-          controller: _emailController,
-          style: TextStyle(color: Theme.of(context).colorScheme.onSurface),
-          keyboardType: TextInputType.emailAddress,
-          onChanged: (val) {
-            setState(() {});
-            _checkEmailAvailability(val);
-          },
-          decoration: InputDecoration(
-            labelText: 'Email Address',
-            labelStyle: TextStyle(
-                color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.6)),
-            prefixIcon: Icon(Icons.email_outlined,
-                color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.5)),
-            suffixIcon: _isCheckingEmail
-                ? const Padding(
-                    padding: EdgeInsets.all(14),
-                    child: SizedBox(
-                      width: 16, height: 16,
-                      child: CircularProgressIndicator(strokeWidth: 2),
-                    ),
-                  )
-                : _emailAvailable == null
-                    ? null
-                    : Icon(
-                        _emailAvailable! ? Icons.check_circle : Icons.cancel,
-                        color: _emailAvailable! ? Colors.green : Colors.redAccent,
+                if (!_isOtpSent) ...[
+                  // INPUT 1: Phone field
+                  Row(
+                    children: [
+                      const Icon(Icons.phone_iphone_rounded, size: 15, color: AppColors.brandBlue),
+                      const SizedBox(width: 6),
+                      Text(
+                        'Mobile Phone Number',
+                        style: GoogleFonts.inter(fontSize: 12, fontWeight: FontWeight.w600, color: textP),
                       ),
-            helperText: _emailAvailable == null
-                ? null
-                : _emailAvailable!
-                    ? '✓ Email is available'
-                    : '✗ This email is already registered',
-            helperStyle: TextStyle(
-              color: _emailAvailable == true ? Colors.green : Colors.redAccent,
-              fontSize: 12,
-            ),
-            border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
-            enabledBorder: OutlineInputBorder(
-              borderRadius: BorderRadius.circular(12),
-              borderSide: BorderSide(
-                color: _emailAvailable == false
-                    ? Colors.redAccent
-                    : _emailAvailable == true
-                        ? Colors.green
-                        : Theme.of(context).colorScheme.outline,
-              ),
-            ),
-            focusedBorder: OutlineInputBorder(
-              borderRadius: BorderRadius.circular(12),
-              borderSide: BorderSide(
-                  color: Theme.of(context).colorScheme.primary, width: 2),
-            ),
-          ),
-        ),
-        const SizedBox(height: 16),
-        // Password field with show/hide + strength meter
-        TextField(
-          controller: _passwordController,
-          obscureText: !_passwordVisible,
-          style: TextStyle(color: Theme.of(context).colorScheme.onSurface),
-          onChanged: (val) {
-            setState(() {});
-            _evaluatePasswordStrength(val);
-          },
-          decoration: InputDecoration(
-            labelText: 'Password',
-            labelStyle: TextStyle(
-                color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.6)),
-            prefixIcon: Icon(Icons.lock_outline,
-                color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.5)),
-            suffixIcon: IconButton(
-              icon: Icon(
-                _passwordVisible ? Icons.visibility_off : Icons.visibility,
-                color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.5),
-              ),
-              onPressed: () => setState(() => _passwordVisible = !_passwordVisible),
-            ),
-            border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
-            enabledBorder: OutlineInputBorder(
-              borderRadius: BorderRadius.circular(12),
-              borderSide: BorderSide(color: Theme.of(context).colorScheme.outline),
-            ),
-            focusedBorder: OutlineInputBorder(
-              borderRadius: BorderRadius.circular(12),
-              borderSide: BorderSide(
-                  color: Theme.of(context).colorScheme.primary, width: 2),
-            ),
-          ),
-        ),
-        if (_passwordController.text.isNotEmpty) ...[
-          const SizedBox(height: 12),
-          // Strength bar
-          ClipRRect(
-            borderRadius: BorderRadius.circular(4),
-            child: LinearProgressIndicator(
-              value: _passwordStrength / 4,
-              backgroundColor:
-                  Theme.of(context).colorScheme.outline.withValues(alpha: 0.3),
-              valueColor: AlwaysStoppedAnimation<Color>(strengthColor),
-              minHeight: 6,
-            ),
-          ),
-          const SizedBox(height: 6),
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              Text(
-                _passwordStrengthLabel,
-                style: TextStyle(
-                    color: strengthColor,
-                    fontSize: 12,
-                    fontWeight: FontWeight.w600),
-              ),
-              Text(
-                '${_passwordController.text.length} chars',
-                style: TextStyle(
-                    color: Theme.of(context)
-                        .colorScheme
-                        .onSurface
-                        .withValues(alpha: 0.4),
-                    fontSize: 11),
-              ),
-            ],
-          ),
-          const SizedBox(height: 10),
-          // Rule checklist
-          _buildPasswordRule(
-              '≥ 8 characters', _passwordController.text.length >= 8),
-          _buildPasswordRule('Uppercase letter',
-              _passwordController.text.contains(RegExp(r'[A-Z]'))),
-          _buildPasswordRule(
-              'Number', _passwordController.text.contains(RegExp(r'[0-9]'))),
-          _buildPasswordRule(
-              'Symbol (!@#...)',
-              _passwordController.text
-                  .contains(RegExp(r'[!@#\$%^&*(),.?":{}|<>_\-]'))),
-        ],
-      ],
-    );
-  }
+                    ],
+                  ),
+                  const SizedBox(height: 8),
+                  IntlPhoneField(
+                    key: ValueKey('wizard_phone_$_selectedCountryCode'),
+                    controller: _phoneController,
+                    initialCountryCode: _selectedCountryCode,
+                    disableLengthCheck: true,
+                    keyboardType: TextInputType.phone,
+                    cursorColor: AppColors.brandBlue,
+                    inputFormatters: [
+                      FilteringTextInputFormatter.allow(RegExp(r'[\d\s\-\+\(\)]')),
+                    ],
+                    style: GoogleFonts.inter(fontSize: 14, color: textP, fontWeight: FontWeight.w600),
+                    dropdownTextStyle: GoogleFonts.inter(fontSize: 13.5, color: textP),
+                    decoration: InputDecoration(
+                      hintText: _formatHint,
+                      hintStyle: GoogleFonts.inter(fontSize: 13, color: textS),
+                      filled: true,
+                      fillColor: surfaceMid,
+                      isDense: true,
+                      contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 11),
+                      border: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(AppRadius.sm),
+                        borderSide: BorderSide(color: border, width: 1.0),
+                      ),
+                      enabledBorder: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(AppRadius.sm),
+                        borderSide: BorderSide(color: border, width: 1.0),
+                      ),
+                      focusedBorder: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(AppRadius.sm),
+                        borderSide: const BorderSide(color: AppColors.brandBlue, width: 1.2),
+                      ),
+                    ),
+                    onCountryChanged: (country) {
+                      final meta = _phoneEngine.findByIso(country.code);
+                      setState(() {
+                        _selectedCountryCode = country.code;
+                        _selectedCountryMeta = meta;
+                        _formatHint = meta.formatHint;
+                      });
+                      _onPhoneChanged();
+                    },
+                  ),
+                  Padding(
+                    padding: const EdgeInsets.only(top: 4, left: 2),
+                    child: Text(
+                      '${_selectedCountryMeta.flagEmoji} ${_selectedCountryMeta.formatHint}',
+                      style: GoogleFonts.inter(fontSize: 11, color: textS, fontWeight: FontWeight.w500),
+                    ),
+                  ),
+                  const SizedBox(height: 16),
 
-  Widget _buildPasswordRule(String label, bool met) {
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 4),
-      child: Row(
-        children: [
-          Icon(
-            met ? Icons.check_circle_rounded : Icons.radio_button_unchecked,
-            size: 16,
-            color: met
-                ? Colors.green
-                : Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.35),
-          ),
-          const SizedBox(width: 8),
-          Text(
-            label,
-            style: TextStyle(
-              fontSize: 12,
-              color: met
-                  ? Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.8)
-                  : Theme.of(context)
-                      .colorScheme
-                      .onSurface
-                      .withValues(alpha: 0.35),
+                  SizedBox(
+                    width: double.infinity,
+                    height: 42,
+                    child: ElevatedButton(
+                      onPressed: _isLoading ? null : _handleSendOtp,
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: AppColors.brandBlue,
+                        foregroundColor: Colors.white,
+                        elevation: 0,
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(AppRadius.sm)),
+                      ),
+                      child: _isLoading
+                          ? const SizedBox(
+                              width: 18,
+                              height: 18,
+                              child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                            )
+                          : Row(
+                              mainAxisAlignment: MainAxisAlignment.center,
+                              children: [
+                                const Icon(Icons.send_rounded, size: 15, color: Colors.white),
+                                const SizedBox(width: 8),
+                                Text(
+                                  'Send Verification Code',
+                                  style: GoogleFonts.inter(fontSize: 13.5, fontWeight: FontWeight.w700),
+                                ),
+                              ],
+                            ),
+                    ),
+                  ),
+                ] else ...[
+                  // SUB-STATE: OTP input (1 input)
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      Row(
+                        children: [
+                          const Icon(Icons.pin_rounded, size: 15, color: AppColors.brandBlue),
+                          const SizedBox(width: 6),
+                          Text(
+                            'Enter 6-Digit SMS Code',
+                            style: GoogleFonts.inter(fontSize: 12, fontWeight: FontWeight.w600, color: textP),
+                          ),
+                        ],
+                      ),
+                      Text(
+                        _fullPhoneNumber,
+                        style: GoogleFonts.inter(fontSize: 11.5, fontWeight: FontWeight.w700, color: AppColors.brandBlue),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 12),
+                  Center(
+                    child: Pinput(
+                      controller: _otpController,
+                      length: 6,
+                      defaultPinTheme: PinTheme(
+                        width: 44,
+                        height: 48,
+                        textStyle: GoogleFonts.inter(fontSize: 18, fontWeight: FontWeight.w700, color: textP),
+                        decoration: BoxDecoration(
+                          color: surfaceMid,
+                          borderRadius: BorderRadius.circular(AppRadius.sm),
+                          border: Border.all(color: border, width: 1.0),
+                        ),
+                      ),
+                      focusedPinTheme: PinTheme(
+                        width: 44,
+                        height: 48,
+                        textStyle: GoogleFonts.inter(fontSize: 18, fontWeight: FontWeight.w700, color: textP),
+                        decoration: BoxDecoration(
+                          color: surfaceMid,
+                          borderRadius: BorderRadius.circular(AppRadius.sm),
+                          border: const BorderSide(color: AppColors.brandBlue, width: 1.5).toMP(),
+                        ),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 14),
+
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      TextButton.icon(
+                        icon: Icon(Icons.timer_outlined, size: 14, color: _otpResendTimer == 0 ? AppColors.brandBlue : textS),
+                        onPressed: _otpResendTimer == 0 ? _handleSendOtp : null,
+                        label: Text(
+                          _otpResendTimer == 0 ? 'Resend Code' : 'Resend in ${_otpResendTimer}s',
+                          style: GoogleFonts.inter(fontSize: 12, color: _otpResendTimer == 0 ? AppColors.brandBlue : textS),
+                        ),
+                      ),
+                      TextButton.icon(
+                        icon: Icon(Icons.edit_outlined, size: 14, color: textS),
+                        onPressed: () => setState(() => _isOtpSent = false),
+                        label: Text(
+                          'Edit Number',
+                          style: GoogleFonts.inter(fontSize: 12, color: textS),
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 10),
+
+                  SizedBox(
+                    width: double.infinity,
+                    height: 42,
+                    child: ElevatedButton(
+                      onPressed: _isLoading ? null : _handleVerifyOtp,
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: AppColors.brandBlue,
+                        foregroundColor: Colors.white,
+                        elevation: 0,
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(AppRadius.sm)),
+                      ),
+                      child: _isLoading
+                          ? const SizedBox(
+                              width: 18,
+                              height: 18,
+                              child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                            )
+                          : Row(
+                              mainAxisAlignment: MainAxisAlignment.center,
+                              children: [
+                                const Icon(Icons.verified_rounded, size: 15, color: Colors.white),
+                                const SizedBox(width: 8),
+                                Text(
+                                  'Verify & Continue →',
+                                  style: GoogleFonts.inter(fontSize: 13.5, fontWeight: FontWeight.w700),
+                                ),
+                              ],
+                            ),
+                    ),
+                  ),
+                ],
+              ],
             ),
           ),
         ],
       ),
-    );
+    ).animate().fadeIn(duration: 250.ms).slideY(begin: 0.04, end: 0);
   }
 
-  // --- Step 4: Contact ---
-  Widget _buildContactFields() {
-    return Column(
-      children: [
-        IntlPhoneField(
-          controller: _phoneController,
-          initialCountryCode: _initialCountryCode ?? 'KE', // Default to Kenya
-          decoration: InputDecoration(
-            labelText: 'Phone Number',
-            hintText: 'e.g. 07... / 70000...',
-            labelStyle: TextStyle(
-                color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.6)),
-            border: OutlineInputBorder(
-              borderRadius: BorderRadius.circular(12),
-              borderSide: BorderSide(color: Theme.of(context).colorScheme.outline),
-            ),
-            enabledBorder: OutlineInputBorder(
-              borderRadius: BorderRadius.circular(12),
-              borderSide: BorderSide(color: Theme.of(context).colorScheme.outline),
-            ),
-            focusedBorder: OutlineInputBorder(
-              borderRadius: BorderRadius.circular(12),
-              borderSide:
-                  BorderSide(color: Theme.of(context).colorScheme.primary, width: 2),
-            ),
-          ),
-          style: TextStyle(color: Theme.of(context).colorScheme.onSurface),
-          dropdownTextStyle:
-              TextStyle(color: Theme.of(context).colorScheme.onSurface),
-          pickerDialogStyle: PickerDialogStyle(
-            backgroundColor: const Color(0xFF161616),
-            listTileDivider: const SizedBox.shrink(),
-            countryCodeStyle: const TextStyle(
-                color: Colors.white70, fontWeight: FontWeight.w500),
-            countryNameStyle: const TextStyle(
-                color: Colors.white, fontWeight: FontWeight.w600, fontSize: 16),
-            searchFieldInputDecoration: InputDecoration(
-              hintText: 'Search country...',
-              hintStyle: const TextStyle(color: Colors.white54),
-              prefixIcon: const Icon(Icons.search, color: Colors.white70),
-              border: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(16),
-                borderSide: BorderSide.none,
-              ),
-              filled: true,
-              fillColor: Colors.white10,
-              contentPadding:
-                  const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-            ),
-          ),
-          onChanged: (phone) {
-            _fullPhoneNumber = phone.completeNumber;
-            _initialCountryCode = phone.countryISOCode;
-            setState(() {});
-          },
-        ),
-        const SizedBox(height: 12),
-        Row(
-          children: [
-            Icon(Icons.info_outline,
-                size: 14,
-                color: Theme.of(context)
-                    .colorScheme
-                    .onSurface
-                    .withValues(alpha: 0.4)),
-            const SizedBox(width: 6),
-            Expanded(
-              child: Text(
-                'Enter any format — 07, 7, 01, 1, +254... we handle it automatically.',
-                style: TextStyle(
-                  color: Theme.of(context)
-                      .colorScheme
-                      .onSurface
-                      .withValues(alpha: 0.5),
-                  fontSize: 12,
-                ),
-              ),
-            ),
-          ],
-        ),
-      ],
-    );
-  }
+  // ─────────────────────────────────────────────────────────────────────────
+  // Step 2: Password & Biometric Passkey (Strictly 2 inputs: Password & Passkey)
+  // ─────────────────────────────────────────────────────────────────────────
+  Widget _buildStep2PasswordAndBiometrics(Color surface, Color border, Color textP, Color textS) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final surfaceMid = isDark ? AppColors.darkSurfaceHighlight : AppColors.lightSurfaceHighlight;
 
-  // --- Step 5: Avatar ---
-  Widget _buildAvatarSelection() {
-    return Center(
+    return SingleChildScrollView(
+      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
       child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          GestureDetector(
-            onTap: _isUploadingAvatar ? null : _pickAndUploadAvatar,
-            child: Stack(
-              alignment: Alignment.center,
-              children: [
-                CircleAvatar(
-                  radius: 64,
-                  backgroundColor:
-                      Theme.of(context).colorScheme.primary.withValues(alpha: 0.1),
-                  backgroundImage:
-                      _avatarFile != null ? FileImage(_avatarFile!) : null,
-                  child: _avatarFile == null
-                      ? Icon(
-                          Icons.person_add_alt_1_rounded,
-                          size: 44,
-                          color: Theme.of(context)
-                              .colorScheme
-                              .onSurface
-                              .withValues(alpha: 0.35),
-                        )
-                      : null,
-                ),
-                if (_isUploadingAvatar)
-                  SizedBox(
-                    width: 128,
-                    height: 128,
-                    child: CircularProgressIndicator(
-                      value: _avatarUploadProgress,
-                      strokeWidth: 3,
-                      color: Theme.of(context).colorScheme.primary,
-                    ),
-                  ),
-                if (_avatarPath.isNotEmpty && !_isUploadingAvatar)
-                  Positioned(
-                    bottom: 2,
-                    right: 2,
-                    child: Container(
-                      padding: const EdgeInsets.all(4),
-                      decoration: BoxDecoration(
-                        color: Colors.green,
-                        shape: BoxShape.circle,
-                        border: Border.all(
-                            color: Theme.of(context).colorScheme.surface,
-                            width: 2),
-                      ),
-                      child: const Icon(Icons.check,
-                          color: Colors.white, size: 14),
-                    ),
-                  ),
-              ],
-            ),
+          _buildStepHeaderBadge(
+            stepNumber: 2,
+            milestoneText: 'SECURITY LAYER',
+            stepTitle: 'Password & Biometrics',
+            stepSubtitle: 'Set your master password as a secondary auth layer and enable passkeys for instant biometric login.',
+            headerIcon: Icons.shield_rounded,
+            textP: textP,
+            textS: textS,
           ),
-          const SizedBox(height: 20),
-          if (_isUploadingAvatar)
-            Text(
-              'Uploading... ${((_avatarUploadProgress ?? 0) * 100).toStringAsFixed(0)}%',
-              style: TextStyle(
-                  color: Theme.of(context).colorScheme.primary,
-                  fontWeight: FontWeight.w600),
-            )
-          else
-            Column(
+
+          _buildWhyItMatters(
+            icon: Icons.fingerprint_rounded,
+            title: 'Zero Phishing & Passkey Defense',
+            description: 'Enabling biometric passkeys anchors your session to device hardware (Fingerprint/Face ID), completely eliminating phishing and credential leaks.',
+            surfaceMid: surfaceMid,
+            border: border,
+            textP: textP,
+            textS: textS,
+            iconColor: AppColors.brandPink,
+          ),
+
+          // Container with strictly 2 inputs
+          Container(
+            padding: const EdgeInsets.all(16),
+            decoration: BoxDecoration(
+              color: surface,
+              borderRadius: BorderRadius.circular(AppRadius.md),
+              border: Border.all(color: border, width: 1.0),
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                ElevatedButton.icon(
-                  onPressed: _pickAndUploadAvatar,
-                  icon: const Icon(Icons.photo_camera_rounded, size: 18),
-                  label: Text(
-                      _avatarPath.isEmpty ? 'Upload Photo' : 'Change Photo'),
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor:
-                        Theme.of(context).colorScheme.primary,
-                    foregroundColor: Colors.white,
-                    shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(12)),
-                    padding: const EdgeInsets.symmetric(
-                        horizontal: 24, vertical: 12),
+                // INPUT 1: Password Field
+                Row(
+                  children: [
+                    const Icon(Icons.lock_outline_rounded, size: 15, color: AppColors.brandBlue),
+                    const SizedBox(width: 6),
+                    Text(
+                      'Master Account Password',
+                      style: GoogleFonts.inter(fontSize: 12, fontWeight: FontWeight.w600, color: textP),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 8),
+                TextField(
+                  controller: _passwordController,
+                  obscureText: !_passwordVisible,
+                  onChanged: _calculatePasswordStrength,
+                  style: GoogleFonts.inter(fontSize: 13.5, color: textP),
+                  decoration: InputDecoration(
+                    hintText: 'Enter strong password (min 8 characters)',
+                    hintStyle: GoogleFonts.inter(fontSize: 12.5, color: textS),
+                    filled: true,
+                    fillColor: surfaceMid,
+                    isDense: true,
+                    contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                    border: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(AppRadius.sm),
+                      borderSide: BorderSide(color: border, width: 1.0),
+                    ),
+                    enabledBorder: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(AppRadius.sm),
+                      borderSide: BorderSide(color: border, width: 1.0),
+                    ),
+                    focusedBorder: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(AppRadius.sm),
+                      borderSide: const BorderSide(color: AppColors.brandBlue, width: 1.2),
+                    ),
+                    suffixIcon: IconButton(
+                      icon: Icon(
+                        _passwordVisible ? Icons.visibility_off_outlined : Icons.visibility_outlined,
+                        size: 18,
+                        color: textS,
+                      ),
+                      onPressed: () => setState(() => _passwordVisible = !_passwordVisible),
+                    ),
                   ),
                 ),
                 const SizedBox(height: 8),
-                Text(
-                  _avatarPath.isEmpty
-                      ? 'Optional — you can add this later'
-                      : '✓ Photo uploaded successfully',
-                  style: TextStyle(
-                    color: _avatarPath.isEmpty
-                        ? Theme.of(context)
-                            .colorScheme
-                            .onSurface
-                            .withValues(alpha: 0.4)
-                        : Colors.green,
-                    fontSize: 12,
+
+                // Password strength bar
+                Row(
+                  children: [
+                    Expanded(
+                      child: ClipRRect(
+                        borderRadius: BorderRadius.circular(2),
+                        child: LinearProgressIndicator(
+                          value: _passwordStrength / 4.0,
+                          backgroundColor: surfaceMid,
+                          valueColor: AlwaysStoppedAnimation<Color>(
+                            _passwordStrength <= 1
+                                ? Colors.redAccent
+                                : _passwordStrength <= 3
+                                    ? Colors.amber
+                                    : AppColors.brandBlue,
+                          ),
+                          minHeight: 3.5,
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 10),
+                    Text(
+                      _passwordStrengthLabel,
+                      style: GoogleFonts.inter(
+                        fontSize: 11,
+                        fontWeight: FontWeight.w700,
+                        color: _passwordStrength <= 1
+                            ? Colors.redAccent
+                            : _passwordStrength <= 3
+                                ? Colors.amber
+                                : AppColors.brandBlue,
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 18),
+
+                // INPUT 2: Biometric passkey switch
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                  decoration: BoxDecoration(
+                    color: surfaceMid,
+                    borderRadius: BorderRadius.circular(AppRadius.sm),
+                    border: Border.all(color: border, width: 1.0),
+                  ),
+                  child: Row(
+                    children: [
+                      Container(
+                        padding: const EdgeInsets.all(7),
+                        decoration: BoxDecoration(
+                          color: AppColors.brandPink.withValues(alpha: 0.15),
+                          shape: BoxShape.circle,
+                        ),
+                        child: const Icon(Icons.fingerprint_rounded, size: 20, color: AppColors.brandPink),
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              _biometricLabel,
+                              style: GoogleFonts.inter(fontSize: 12.5, fontWeight: FontWeight.w700, color: textP),
+                            ),
+                            Text(
+                              'Instant 1-touch unlock & account takeover defense',
+                              style: GoogleFonts.inter(fontSize: 10.5, color: textS),
+                            ),
+                          ],
+                        ),
+                      ),
+                      Switch(
+                        value: _enableBiometrics,
+                        activeThumbColor: AppColors.brandBlue,
+                        onChanged: (val) => setState(() => _enableBiometrics = val),
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(height: 22),
+
+                SizedBox(
+                  width: double.infinity,
+                  height: 42,
+                  child: ElevatedButton(
+                    onPressed: () {
+                      if (_passwordController.text.length < 6) {
+                        _showSnackbar('Password must be at least 6 characters.', isError: true);
+                        return;
+                      }
+                      _nextStep();
+                    },
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: AppColors.brandBlue,
+                      foregroundColor: Colors.white,
+                      elevation: 0,
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(AppRadius.sm)),
+                    ),
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Text(
+                          'Continue (Step 3 of 5) →',
+                          style: GoogleFonts.inter(fontSize: 13.5, fontWeight: FontWeight.w700),
+                        ),
+                      ],
+                    ),
                   ),
                 ),
               ],
             ),
+          ),
         ],
       ),
-    );
+    ).animate().fadeIn(duration: 250.ms).slideY(begin: 0.04, end: 0);
   }
 
-  // --- Step 6: Department ---
-  Widget _buildDepartmentSelection() {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        if (_selectedRole == 'Staff') ...[
-          Text('Select your primary department:', style: TextStyle(color: Theme.of(context).colorScheme.onSurface, fontSize: 14)),
-          const SizedBox(height: 16),
-          _buildDropdown(_selectedDepartment ?? _departments[0], _departments, (val) => setState(() => _selectedDepartment = val)),
-        ] else ...[
-          Text('Which area of production interests you most?', style: TextStyle(color: Theme.of(context).colorScheme.onSurface, fontSize: 14)),
-          const SizedBox(height: 16),
-          _buildDropdown(_selectedDepartment ?? 'Video Production', ['Video Production', 'Audio Production', 'Both'], (val) => setState(() => _selectedDepartment = val)),
-        ],
-      ],
-    );
-  }
+  // ─────────────────────────────────────────────────────────────────────────
+  // Step 3: Identity & Unique Username (Strictly 3 inputs: Tier, Name, Handle)
+  // ─────────────────────────────────────────────────────────────────────────
+  Widget _buildStep3IdentityAndUsername(Color surface, Color border, Color textP, Color textS) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final surfaceMid = isDark ? AppColors.darkSurfaceHighlight : AppColors.lightSurfaceHighlight;
 
-  // --- Step 7: Social ---
-  Widget _buildSocialFields() {
-    return Column(
-      children: [
-        _buildSocialTextField('Instagram Handle / Link (Optional)', _igController, icon: Icons.camera_alt_outlined, prefixUrl: 'https://instagram.com/'),
-        const SizedBox(height: 16),
-        _buildSocialTextField('YouTube Channel URL (Optional)', _ytController, icon: Icons.play_arrow_outlined, prefixUrl: 'https://youtube.com/'),
-        const SizedBox(height: 16),
-        Text('Paste your profile links above to generate a preview card.', style: TextStyle(color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.5), fontSize: 12)),
-      ],
-    );
-  }
-
-  Widget _buildSocialTextField(String label, TextEditingController controller, {required IconData icon, required String prefixUrl}) {
-    String currentText = controller.text.trim();
-    bool hasValue = currentText.isNotEmpty;
-    // Format full URL to pass to preview card
-    String fullUrl = '';
-    if (hasValue) {
-      if (currentText.startsWith('http')) {
-        fullUrl = currentText;
-      } else {
-        fullUrl = prefixUrl + currentText;
-      }
-    }
-
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        TextField(
-          controller: controller,
-          style: TextStyle(color: Theme.of(context).colorScheme.onSurface),
-          onChanged: (_) => setState(() {}),
-          decoration: InputDecoration(
-            labelText: label,
-            labelStyle: TextStyle(color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.6)),
-            prefixIcon: Icon(icon, color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.5)),
-            suffixIcon: hasValue ? IconButton(
-              icon: Icon(Icons.open_in_new, color: Theme.of(context).colorScheme.primary),
-              tooltip: 'Verify Link',
-              onPressed: () => _verifySocialLink(currentText, prefixUrl),
-            ) : null,
-            border: OutlineInputBorder(
-              borderRadius: BorderRadius.circular(12),
-              borderSide: BorderSide(color: Theme.of(context).colorScheme.outline),
-            ),
-            enabledBorder: OutlineInputBorder(
-              borderRadius: BorderRadius.circular(12),
-              borderSide: BorderSide(color: Theme.of(context).colorScheme.outline),
-            ),
-            focusedBorder: OutlineInputBorder(
-              borderRadius: BorderRadius.circular(12),
-              borderSide: BorderSide(color: Theme.of(context).colorScheme.primary, width: 2),
-            ),
-            filled: true,
-            fillColor: Theme.of(context).colorScheme.surface,
-          ),
-        ),
-        if (hasValue) ...[
-          const SizedBox(height: 12),
-          SocialPreviewCard(url: fullUrl),
-        ],
-      ],
-    );
-  }
-
-  Future<void> _verifySocialLink(String input, String prefixUrl) async {
-    final String urlString;
-    if (input.startsWith('http://') || input.startsWith('https://')) {
-      urlString = input;
-    } else {
-      urlString = '$prefixUrl${input.replaceAll('@', '')}';
-    }
-    final uri = Uri.parse(urlString);
-    if (await canLaunchUrl(uri)) {
-      await launchUrl(uri, mode: LaunchMode.inAppWebView);
-    } else {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Could not open link')),
-        );
-      }
-    }
-  }
-
-  // --- Step 8: Preferences ---
-  Widget _buildPreferences() {
-    return Column(
-      children: [
-        Container(
-          padding: const EdgeInsets.all(16),
-          decoration: BoxDecoration(
-            color: Theme.of(context).colorScheme.surface,
-            borderRadius: BorderRadius.circular(12),
-            border: Border.all(color: Theme.of(context).colorScheme.outline),
-          ),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text('Preferred Language', style: TextStyle(fontWeight: FontWeight.bold, color: Theme.of(context).colorScheme.onSurface)),
-              const SizedBox(height: 8),
-              DropdownButtonFormField<String>(
-                initialValue: _preferredLanguage,
-                dropdownColor: Theme.of(context).colorScheme.surface,
-                decoration: InputDecoration(
-                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
-                  contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                ),
-                items: const [
-                  DropdownMenuItem(value: 'en', child: Text('English')),
-                  DropdownMenuItem(value: 'es', child: Text('Spanish (Español)')),
-                  DropdownMenuItem(value: 'fr', child: Text('French (Français)')),
-                ],
-                onChanged: (val) => setState(() => _preferredLanguage = val ?? 'en'),
-              ),
-              const SizedBox(height: 24),
-              Text('Theme Mode', style: TextStyle(fontWeight: FontWeight.bold, color: Theme.of(context).colorScheme.onSurface)),
-              const SizedBox(height: 8),
-              DropdownButtonFormField<String>(
-                initialValue: _themeMode,
-                dropdownColor: Theme.of(context).colorScheme.surface,
-                decoration: InputDecoration(
-                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
-                  contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                ),
-                items: const [
-                  DropdownMenuItem(value: 'system', child: Text('System Default')),
-                  DropdownMenuItem(value: 'light', child: Text('Light Mode')),
-                  DropdownMenuItem(value: 'dark', child: Text('Dark Mode')),
-                ],
-                onChanged: (val) => setState(() => _themeMode = val ?? 'system'),
-              ),
-              const SizedBox(height: 24),
-              const Divider(),
-              SwitchListTile(
-                contentPadding: EdgeInsets.zero,
-                title: const Text('Email Notifications'),
-                subtitle: const Text('Receive updates on sessions and productions.'),
-                value: _optInEmails,
-                activeThumbColor: Theme.of(context).colorScheme.primary,
-                onChanged: (val) => setState(() => _optInEmails = val),
-              ),
-            ],
-          ),
-        ),
-      ],
-    );
-  }
-
-  // --- Step 9: Agreements ---
-  Widget _buildAgreements() {
-    return Container(
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: Theme.of(context).colorScheme.surface,
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: Theme.of(context).colorScheme.outline),
-      ),
-      child: Row(
+    return SingleChildScrollView(
+      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Checkbox(
-            value: _agreedToTerms,
-            activeColor: Theme.of(context).colorScheme.primary,
-            onChanged: (val) => setState(() => _agreedToTerms = val ?? false),
+          _buildStepHeaderBadge(
+            stepNumber: 3,
+            milestoneText: 'CREATOR IDENTITY',
+            stepTitle: 'Claim Your Name & Handle',
+            stepSubtitle: 'Choose your account tier, display name, and permanent unique @username handle.',
+            headerIcon: Icons.badge_rounded,
+            textP: textP,
+            textS: textS,
           ),
-          Expanded(
-            child: Text(
-              'I agree to the MPEPE Studio Terms of Service and Privacy Policy.',
-              style: TextStyle(color: Theme.of(context).colorScheme.onSurface, fontSize: 13),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
 
-  // --- Step 10: Final ---
-  Widget _buildFinalStep() {
-    return Stack(
-      children: [
-        if (_isSaving) _buildAnimatedBackground(),
-        Padding(
-          padding: const EdgeInsets.all(24.0),
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              IDBadgeCard(
-                name: _nameController.text,
-                role: _selectedRole,
-                department: _selectedDepartment,
-                isLoading: _isSaving,
-              ).animate().fadeIn().scale(delay: 100.ms, duration: 400.ms, curve: Curves.easeOutBack),
-              const SizedBox(height: 48),
-              if (!_isSaving)
+          _buildWhyItMatters(
+            icon: Icons.alternate_email_rounded,
+            title: 'Global Identity & Verified Status',
+            description: 'Your @username is reserved on Oneova globally (oneova.app/@yourhandle). Early creators lock in premium short handles and qualify for verified badges.',
+            surfaceMid: surfaceMid,
+            border: border,
+            textP: textP,
+            textS: textS,
+            iconColor: AppColors.brandBlue,
+          ),
+
+          // Container with strictly 3 inputs
+          Container(
+            padding: const EdgeInsets.all(16),
+            decoration: BoxDecoration(
+              color: surface,
+              borderRadius: BorderRadius.circular(AppRadius.md),
+              border: Border.all(color: border, width: 1.0),
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                // INPUT 1: Account Type Selection Chips
+                Row(
+                  children: [
+                    const Icon(Icons.stars_rounded, size: 15, color: AppColors.brandBlue),
+                    const SizedBox(width: 6),
+                    Text(
+                      'Account Type & Tier',
+                      style: GoogleFonts.inter(fontSize: 12, fontWeight: FontWeight.w600, color: textP),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 8),
+                Wrap(
+                  spacing: 8,
+                  runSpacing: 8,
+                  children: _accountTypes.map((type) {
+                    final isSelected = _selectedAccountType == type;
+                    return ChoiceChip(
+                      label: Text(
+                        type,
+                        style: GoogleFonts.inter(
+                          fontSize: 11.5,
+                          fontWeight: isSelected ? FontWeight.w700 : FontWeight.w500,
+                          color: isSelected ? Colors.white : textP,
+                        ),
+                      ),
+                      selected: isSelected,
+                      selectedColor: AppColors.brandBlue,
+                      backgroundColor: surfaceMid,
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(AppRadius.xs),
+                        side: BorderSide(color: isSelected ? AppColors.brandBlue : border, width: 1.0),
+                      ),
+                      onSelected: (val) {
+                        if (val) {
+                          setState(() => _selectedAccountType = type);
+                          _checkUsernameAvailability(_usernameController.text);
+                        }
+                      },
+                    );
+                  }).toList(),
+                ),
+                const SizedBox(height: 16),
+
+                // INPUT 2: Display Name Field
+                Row(
+                  children: [
+                    const Icon(Icons.badge_outlined, size: 15, color: AppColors.brandBlue),
+                    const SizedBox(width: 6),
+                    Text(
+                      'Display Name / Brand',
+                      style: GoogleFonts.inter(fontSize: 12, fontWeight: FontWeight.w600, color: textP),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 8),
+                TextField(
+                  controller: _nameController,
+                  style: GoogleFonts.inter(fontSize: 13.5, color: textP),
+                  decoration: InputDecoration(
+                    hintText: 'e.g. Maya Lin or Horizon Media',
+                    hintStyle: GoogleFonts.inter(fontSize: 12.5, color: textS),
+                    filled: true,
+                    fillColor: surfaceMid,
+                    isDense: true,
+                    contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                    border: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(AppRadius.sm),
+                      borderSide: BorderSide(color: border, width: 1.0),
+                    ),
+                    enabledBorder: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(AppRadius.sm),
+                      borderSide: BorderSide(color: border, width: 1.0),
+                    ),
+                    focusedBorder: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(AppRadius.sm),
+                      borderSide: const BorderSide(color: AppColors.brandBlue, width: 1.2),
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 16),
+
+                // INPUT 3: Unique @username Handle Field
+                Row(
+                  children: [
+                    const Icon(Icons.alternate_email_rounded, size: 15, color: AppColors.brandBlue),
+                    const SizedBox(width: 6),
+                    Text(
+                      'Unique Handle (@username)',
+                      style: GoogleFonts.inter(fontSize: 12, fontWeight: FontWeight.w600, color: textP),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 8),
+                TextField(
+                  controller: _usernameController,
+                  onChanged: _checkUsernameAvailability,
+                  style: GoogleFonts.inter(fontSize: 13.5, color: textP, fontWeight: FontWeight.w700),
+                  decoration: InputDecoration(
+                    prefixText: '@',
+                    prefixStyle: GoogleFonts.inter(fontSize: 13.5, fontWeight: FontWeight.w800, color: AppColors.brandBlue),
+                    hintText: 'mayacreates (letters, numbers, _)',
+                    hintStyle: GoogleFonts.inter(fontSize: 12.5, color: textS, fontWeight: FontWeight.w400),
+                    filled: true,
+                    fillColor: surfaceMid,
+                    isDense: true,
+                    contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                    border: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(AppRadius.sm),
+                      borderSide: BorderSide(color: border, width: 1.0),
+                    ),
+                    enabledBorder: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(AppRadius.sm),
+                      borderSide: BorderSide(color: border, width: 1.0),
+                    ),
+                    focusedBorder: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(AppRadius.sm),
+                      borderSide: const BorderSide(color: AppColors.brandBlue, width: 1.2),
+                    ),
+                    suffixIcon: _isCheckingUsername
+                        ? const SizedBox(
+                            width: 16,
+                            height: 16,
+                            child: Padding(
+                              padding: EdgeInsets.all(12),
+                              child: CircularProgressIndicator(strokeWidth: 2, color: AppColors.brandBlue),
+                            ),
+                          )
+                        : null,
+                  ),
+                ),
+                const SizedBox(height: 8),
+
+                if (_usernameCheckResult != null)
+                  Row(
+                    children: [
+                      Icon(
+                        _usernameCheckResult!.isValidAndAvailable ? Icons.check_circle_rounded : Icons.cancel_rounded,
+                        size: 14,
+                        color: _usernameCheckResult!.isValidAndAvailable ? Colors.greenAccent : Colors.redAccent,
+                      ),
+                      const SizedBox(width: 6),
+                      Text(
+                        _usernameCheckResult!.message ?? '',
+                        style: GoogleFonts.inter(
+                          fontSize: 11,
+                          fontWeight: FontWeight.w600,
+                          color: _usernameCheckResult!.isValidAndAvailable ? Colors.greenAccent : Colors.redAccent,
+                        ),
+                      ),
+                      if (_usernameCheckResult!.potentialBadge != OneovaBadgeType.none) ...[
+                        const Spacer(),
+                        Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                          decoration: BoxDecoration(
+                            color: AppColors.brandBlue.withValues(alpha: 0.15),
+                            borderRadius: BorderRadius.circular(AppRadius.xs),
+                          ),
+                          child: Row(
+                            children: [
+                              const Icon(Icons.verified_rounded, size: 12, color: AppColors.brandBlue),
+                              const SizedBox(width: 4),
+                              Text(
+                                'Verified Qualification',
+                                style: GoogleFonts.inter(fontSize: 9.5, fontWeight: FontWeight.w700, color: AppColors.brandBlue),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ],
+                    ],
+                  ),
+                const SizedBox(height: 22),
+
                 SizedBox(
                   width: double.infinity,
-                  child: MpepeButton(text: 'Complete & Enter', onPressed: _completeSignup),
-                ).animate().slideY(begin: 1, delay: 300.ms).fadeIn(),
-            ],
-          ),
-        ),
-      ],
-    );
-  }
-
-  Widget _buildAnimatedBackground() {
-    return Positioned.fill(
-      child: Stack(
-        children: [
-          // Gentle pulsing background tint
-          Container(
-            color: Theme.of(context).colorScheme.primary.withValues(alpha: 0.05),
-          ).animate(onPlay: (controller) => controller.repeat(reverse: true)).fade(duration: 1.5.seconds, begin: 0.5, end: 1.0),
-          
-          // Floating Production Icons
-          Positioned(
-            top: 50, left: 30,
-            child: Icon(Icons.videocam_rounded, size: 120, color: Theme.of(context).colorScheme.primary.withValues(alpha: 0.08))
-              .animate(onPlay: (controller) => controller.repeat(reverse: true))
-              .moveY(begin: 0, end: -30, duration: 3.seconds, curve: Curves.easeInOutSine)
-              .rotate(begin: -0.05, end: 0.05, duration: 4.seconds),
-          ),
-          Positioned(
-            bottom: 80, right: 20,
-            child: Icon(Icons.mic_external_on_rounded, size: 140, color: Theme.of(context).colorScheme.primary.withValues(alpha: 0.06))
-              .animate(onPlay: (controller) => controller.repeat(reverse: true))
-              .moveY(begin: 0, end: 40, duration: 3.5.seconds, curve: Curves.easeInOutSine)
-              .rotate(begin: 0.05, end: -0.05, duration: 5.seconds),
-          ),
-          Positioned(
-            top: 150, right: -20,
-            child: Icon(Icons.movie_creation_rounded, size: 90, color: Theme.of(context).colorScheme.primary.withValues(alpha: 0.07))
-              .animate(onPlay: (controller) => controller.repeat(reverse: true))
-              .moveX(begin: 0, end: -25, duration: 4.seconds, curve: Curves.easeInOutSine)
-              .scale(begin: const Offset(0.9, 0.9), end: const Offset(1.1, 1.1), duration: 3.seconds),
-          ),
-          Positioned(
-            bottom: 200, left: -10,
-            child: Icon(Icons.graphic_eq_rounded, size: 100, color: Theme.of(context).colorScheme.primary.withValues(alpha: 0.05))
-              .animate(onPlay: (controller) => controller.repeat(reverse: true))
-              .moveX(begin: 0, end: 20, duration: 3.2.seconds, curve: Curves.easeInOutSine),
-          ),
-        ],
-      ),
-    );
-  }
-
-  // --- Helpers ---
-  Widget _buildTextField(String label, TextEditingController controller, {required IconData icon, bool isPassword = false, void Function(String)? onChanged}) {
-    return TextField(
-      controller: controller,
-      obscureText: isPassword,
-      onChanged: onChanged,
-      style: TextStyle(color: Theme.of(context).colorScheme.onSurface),
-      decoration: InputDecoration(
-        labelText: label,
-        labelStyle: TextStyle(color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.6)),
-        prefixIcon: Icon(icon, color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.5)),
-        border: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(12),
-          borderSide: BorderSide(color: Theme.of(context).colorScheme.outline),
-        ),
-        enabledBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(12),
-          borderSide: BorderSide(color: Theme.of(context).colorScheme.outline),
-        ),
-        focusedBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(12),
-          borderSide: BorderSide(color: Theme.of(context).colorScheme.primary),
-        ),
-      ),
-    );
-  }
-
-  Widget _buildDropdown(String value, List<String> items, ValueChanged<String?> onChanged) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
-      decoration: BoxDecoration(
-        color: Theme.of(context).colorScheme.surface,
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: Theme.of(context).colorScheme.outline),
-      ),
-      child: DropdownButtonHideUnderline(
-        child: DropdownButton<String>(
-          value: value,
-          isExpanded: true,
-          dropdownColor: Theme.of(context).colorScheme.surface,
-          items: items.map((e) => DropdownMenuItem(value: e, child: Text(e, style: TextStyle(color: Theme.of(context).colorScheme.onSurface)))).toList(),
-          onChanged: onChanged,
-        ),
-      ),
-    );
-  }
-}
-
-
-class IDBadgeCard extends StatefulWidget {
-  final String name;
-  final String role;
-  final String? department;
-  final bool isLoading;
-
-  const IDBadgeCard({
-    super.key,
-    required this.name,
-    required this.role,
-    this.department,
-    this.isLoading = false,
-  });
-
-  @override
-  State<IDBadgeCard> createState() => _IDBadgeCardState();
-}
-
-class _IDBadgeCardState extends State<IDBadgeCard> {
-  double _x = 0;
-  double _y = 0;
-
-  @override
-  Widget build(BuildContext context) {
-    return MouseRegion(
-      onHover: (event) {
-        final box = context.findRenderObject() as RenderBox?;
-        if (box == null) return;
-        final size = box.size;
-        final position = box.globalToLocal(event.position);
-        setState(() {
-          _x = (position.dy - size.height / 2) / (size.height / 2);
-          _y = (position.dx - size.width / 2) / (size.width / 2);
-        });
-      },
-      onExit: (_) => setState(() {
-        _x = 0;
-        _y = 0;
-      }),
-      child: GestureDetector(
-        onPanUpdate: (details) {
-          final box = context.findRenderObject() as RenderBox?;
-          if (box == null) return;
-          final size = box.size;
-          setState(() {
-            _x += details.delta.dy / size.height;
-            _y -= details.delta.dx / size.width;
-            _x = _x.clamp(-1.0, 1.0);
-            _y = _y.clamp(-1.0, 1.0);
-          });
-        },
-        onPanEnd: (_) => setState(() {
-          _x = 0;
-          _y = 0;
-        }),
-        child: TweenAnimationBuilder(
-          tween: Tween<Offset>(begin: Offset.zero, end: Offset(_x, _y)),
-          duration: const Duration(milliseconds: 150),
-          curve: Curves.easeOut,
-          builder: (context, Offset offset, child) {
-            return Transform(
-              transform: Matrix4.identity()
-                ..setEntry(3, 2, 0.001)
-                ..rotateX(-offset.dx * 0.5)
-                ..rotateY(offset.dy * 0.5),
-              alignment: Alignment.center,
-              child: child,
-            );
-          },
-          child: Container(
-            width: double.infinity,
-            padding: const EdgeInsets.all(32),
-            decoration: BoxDecoration(
-              color: Theme.of(context).colorScheme.surface,
-              borderRadius: BorderRadius.circular(24),
-              border: Border.all(color: Theme.of(context).colorScheme.outline),
-              boxShadow: [
-                BoxShadow(
-                  color: Theme.of(context).colorScheme.primary.withValues(alpha: 0.1),
-                  blurRadius: 30,
-                  offset: const Offset(0, 15),
+                  height: 42,
+                  child: ElevatedButton(
+                    onPressed: () {
+                      if (_nameController.text.trim().isEmpty) {
+                        _showSnackbar('Please enter your display name.', isError: true);
+                        return;
+                      }
+                      if (_usernameCheckResult != null && !_usernameCheckResult!.isValidAndAvailable) {
+                        _showSnackbar('Please select an available username.', isError: true);
+                        return;
+                      }
+                      _nextStep();
+                      _runAiSafetyScan();
+                    },
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: AppColors.brandBlue,
+                      foregroundColor: Colors.white,
+                      elevation: 0,
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(AppRadius.sm)),
+                    ),
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Text(
+                          'Continue (Step 4 of 5) →',
+                          style: GoogleFonts.inter(fontSize: 13.5, fontWeight: FontWeight.w700),
+                        ),
+                      ],
+                    ),
+                  ),
                 ),
               ],
             ),
-            child: widget.isLoading
-              ? Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    const SizedBox(height: 32),
-                    Icon(Icons.sync_rounded, size: 60, color: Theme.of(context).colorScheme.primary)
-                      .animate(onPlay: (controller) => controller.repeat())
-                      .rotate(duration: 2.seconds, curve: Curves.linear),
-                    const SizedBox(height: 24),
-                    Text('Provisioning Studio Access...', style: TextStyle(color: Theme.of(context).colorScheme.primary, fontWeight: FontWeight.bold, fontSize: 16))
-                      .animate(onPlay: (controller) => controller.repeat(reverse: true))
-                      .fade(begin: 0.5, end: 1.0, duration: 1.seconds),
-                    const SizedBox(height: 12),
-                    Text('Setting up your specialized workspace', style: TextStyle(color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.6), fontSize: 12)),
-                    const SizedBox(height: 32),
-                  ],
-                )
-              : Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Container(
-                      padding: const EdgeInsets.all(16),
-                      decoration: BoxDecoration(
-                        shape: BoxShape.circle,
-                        color: Theme.of(context).colorScheme.primary.withValues(alpha: 0.1),
+          ),
+        ],
+      ),
+    ).animate().fadeIn(duration: 250.ms).slideY(begin: 0.04, end: 0);
+  }
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // Step 4: AI Safety Shield & Niches (Strictly 2 inputs: Niches & Bio)
+  // ─────────────────────────────────────────────────────────────────────────
+  Widget _buildStep4AiProtectionAndSeeds(Color surface, Color border, Color textP, Color textS) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final surfaceMid = isDark ? AppColors.darkSurfaceHighlight : AppColors.lightSurfaceHighlight;
+
+    return SingleChildScrollView(
+      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          _buildStepHeaderBadge(
+            stepNumber: 4,
+            milestoneText: 'ALGORITHM SEEDING',
+            stepTitle: 'AI Shield & Content Niches',
+            stepSubtitle: 'Choose your creative niches so our AI models immediately calibrate your audience reach.',
+            headerIcon: Icons.auto_awesome_rounded,
+            textP: textP,
+            textS: textS,
+          ),
+
+          _buildWhyItMatters(
+            icon: Icons.rocket_launch_rounded,
+            title: 'Neural Recommendation Seed',
+            description: 'Selecting your niches immediately seeds Oneova distribution networks so your first posts are delivered to real users eager for your style.',
+            surfaceMid: surfaceMid,
+            border: border,
+            textP: textP,
+            textS: textS,
+            iconColor: AppColors.brandPink,
+          ),
+
+          // AI Anti-Scam Shield Live Score Card
+          Container(
+            margin: const EdgeInsets.only(bottom: 16),
+            padding: const EdgeInsets.all(14),
+            decoration: BoxDecoration(
+              color: surface,
+              borderRadius: BorderRadius.circular(AppRadius.md),
+              border: Border.all(color: AppColors.brandPink.withValues(alpha: 0.3), width: 1.0),
+            ),
+            child: Row(
+              children: [
+                Container(
+                  padding: const EdgeInsets.all(8),
+                  decoration: BoxDecoration(
+                    color: AppColors.brandPink.withValues(alpha: 0.15),
+                    shape: BoxShape.circle,
+                  ),
+                  child: const Icon(Icons.security_rounded, size: 20, color: AppColors.brandPink),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        'Oneova AI Anti-Phishing Shield',
+                        style: GoogleFonts.inter(fontSize: 12.5, fontWeight: FontWeight.w700, color: textP),
                       ),
-                      child: Icon(Icons.workspace_premium, size: 60, color: Theme.of(context).colorScheme.primary),
-                    ),
-                    const SizedBox(height: 24),
-                    Text('MPEPE STUDIO ACCESS', style: TextStyle(color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.5), fontSize: 12, letterSpacing: 1.5, fontWeight: FontWeight.bold)),
-                    const SizedBox(height: 8),
+                      Text(
+                        _isAnalyzingSafety
+                            ? 'Scanning credentials with OpenRouter model...'
+                            : 'Protection Score: ${_aiSafetyReport?.safetyScore ?? 98}/100 • Safe & Verified',
+                        style: GoogleFonts.inter(
+                          fontSize: 11,
+                          fontWeight: FontWeight.w600,
+                          color: (_aiSafetyReport?.isSafe ?? true) ? Colors.greenAccent : Colors.amber,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ),
+
+          // Container with strictly 2 inputs (Niches + Bio)
+          Container(
+            padding: const EdgeInsets.all(16),
+            decoration: BoxDecoration(
+              color: surface,
+              borderRadius: BorderRadius.circular(AppRadius.md),
+              border: Border.all(color: border, width: 1.0),
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                // INPUT 1: Content Niches FilterChips
+                Row(
+                  children: [
+                    const Icon(Icons.category_outlined, size: 15, color: AppColors.brandBlue),
+                    const SizedBox(width: 6),
                     Text(
-                      widget.name.isEmpty ? 'New User' : widget.name,
-                      style: const TextStyle(fontSize: 28, fontWeight: FontWeight.bold),
-                      textAlign: TextAlign.center,
+                      'Select Content Niches (Tap all that apply)',
+                      style: GoogleFonts.inter(fontSize: 12, fontWeight: FontWeight.w600, color: textP),
                     ),
-                    const SizedBox(height: 4),
-                    Text('${widget.role}${widget.department != null ? ' • ${widget.department}' : ''}', style: TextStyle(color: Theme.of(context).colorScheme.primary, fontWeight: FontWeight.w600)),
                   ],
                 ),
+                const SizedBox(height: 8),
+                Wrap(
+                  spacing: 8,
+                  runSpacing: 8,
+                  children: _allNiches.map((niche) {
+                    final isSelected = _selectedNiches.contains(niche);
+                    return FilterChip(
+                      label: Text(
+                        niche,
+                        style: GoogleFonts.inter(
+                          fontSize: 11,
+                          fontWeight: isSelected ? FontWeight.w700 : FontWeight.w500,
+                          color: isSelected ? Colors.white : textP,
+                        ),
+                      ),
+                      selected: isSelected,
+                      selectedColor: AppColors.brandBlue,
+                      backgroundColor: surfaceMid,
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(AppRadius.xs),
+                        side: BorderSide(color: isSelected ? AppColors.brandBlue : border, width: 1.0),
+                      ),
+                      onSelected: (selected) {
+                        setState(() {
+                          if (selected) {
+                            _selectedNiches.add(niche);
+                          } else {
+                            _selectedNiches.remove(niche);
+                          }
+                        });
+                      },
+                    );
+                  }).toList(),
+                ),
+                const SizedBox(height: 16),
+
+                // INPUT 2: Bio / Creator Intent Text Field
+                Row(
+                  children: [
+                    const Icon(Icons.edit_note_rounded, size: 16, color: AppColors.brandBlue),
+                    const SizedBox(width: 6),
+                    Text(
+                      'Creator Bio & Intent (Optional)',
+                      style: GoogleFonts.inter(fontSize: 12, fontWeight: FontWeight.w600, color: textP),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 6),
+                TextField(
+                  controller: _bioController,
+                  maxLines: 2,
+                  style: GoogleFonts.inter(fontSize: 12.5, color: textP),
+                  decoration: InputDecoration(
+                    hintText: 'e.g. Visual storyteller pushing cinematic reels & street culture',
+                    hintStyle: GoogleFonts.inter(fontSize: 12, color: textS),
+                    filled: true,
+                    fillColor: surfaceMid,
+                    isDense: true,
+                    contentPadding: const EdgeInsets.all(10),
+                    border: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(AppRadius.sm),
+                      borderSide: BorderSide(color: border, width: 1.0),
+                    ),
+                    enabledBorder: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(AppRadius.sm),
+                      borderSide: BorderSide(color: border, width: 1.0),
+                    ),
+                    focusedBorder: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(AppRadius.sm),
+                      borderSide: const BorderSide(color: AppColors.brandBlue, width: 1.2),
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 22),
+
+                SizedBox(
+                  width: double.infinity,
+                  height: 42,
+                  child: ElevatedButton(
+                    onPressed: () {
+                      if (_selectedNiches.isEmpty) {
+                        _showSnackbar('Please select at least 1 content niche.', isError: true);
+                        return;
+                      }
+                      _nextStep();
+                    },
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: AppColors.brandBlue,
+                      foregroundColor: Colors.white,
+                      elevation: 0,
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(AppRadius.sm)),
+                    ),
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        const Icon(Icons.military_tech_rounded, size: 16, color: Colors.white),
+                        const SizedBox(width: 8),
+                        Flexible(
+                          child: Text(
+                            'Review VIP Pass (Final Step) →',
+                            overflow: TextOverflow.ellipsis,
+                            style: GoogleFonts.inter(fontSize: 13, fontWeight: FontWeight.w700),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ],
+            ),
           ),
-        ),
+        ],
+      ),
+    ).animate().fadeIn(duration: 250.ms).slideY(begin: 0.04, end: 0);
+  }
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // Step 5: Creator Access Pass (Strictly 0 inputs: Celebration & Entry)
+  // ─────────────────────────────────────────────────────────────────────────
+  Widget _buildStep5AccessPassReview(Color surface, Color border, Color textP, Color textS) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final surfaceMid = isDark ? AppColors.darkSurfaceHighlight : AppColors.lightSurfaceHighlight;
+
+    return SingleChildScrollView(
+      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.center,
+        children: [
+          _buildStepHeaderBadge(
+            stepNumber: 5,
+            milestoneText: 'CREATOR VIP PASS',
+            stepTitle: 'Your VIP Pass is Ready!',
+            stepSubtitle: 'Review your creator credentials before launching into the global high-fidelity short video feed.',
+            headerIcon: Icons.military_tech_rounded,
+            textP: textP,
+            textS: textS,
+          ),
+
+          _buildWhyItMatters(
+            icon: Icons.stars_rounded,
+            title: 'All Systems Hardened & Ready',
+            description: 'Your pass verifies that your phone is authenticated, biometrics are armed, and your recommendation seeds are queued in the engine.',
+            surfaceMid: surfaceMid,
+            border: border,
+            textP: textP,
+            textS: textS,
+            iconColor: AppColors.brandBlue,
+          ),
+
+          // Luxury Pass Card (0 inputs)
+          Container(
+            width: double.infinity,
+            padding: const EdgeInsets.all(22),
+            decoration: BoxDecoration(
+              color: surface,
+              borderRadius: BorderRadius.circular(AppRadius.lg),
+              border: Border.all(color: AppColors.brandBlue.withValues(alpha: 0.4), width: 1.5),
+              boxShadow: [
+                BoxShadow(
+                  color: AppColors.brandBlue.withValues(alpha: 0.2),
+                  blurRadius: 30,
+                  spreadRadius: 2,
+                ),
+              ],
+            ),
+            child: Column(
+              children: [
+                // Emblem
+                Container(
+                  width: 64,
+                  height: 64,
+                  decoration: BoxDecoration(
+                    color: surfaceMid,
+                    shape: BoxShape.circle,
+                    border: Border.all(color: AppColors.brandBlue, width: 2.0),
+                  ),
+                  child: const Center(
+                    child: Icon(Icons.star_rounded, size: 34, color: AppColors.brandBlue),
+                  ),
+                ),
+                const SizedBox(height: 14),
+
+                Text(
+                  'ONEOVA ACCESS PASS',
+                  style: GoogleFonts.inter(
+                    fontSize: 11,
+                    fontWeight: FontWeight.w800,
+                    letterSpacing: 2.0,
+                    color: textS,
+                  ),
+                ),
+                const SizedBox(height: 6),
+
+                Text(
+                  _nameController.text.trim().isEmpty ? 'Oneova Creator' : _nameController.text.trim(),
+                  style: GoogleFonts.inter(
+                    fontSize: 21,
+                    fontWeight: FontWeight.w800,
+                    color: textP,
+                  ),
+                ),
+                const SizedBox(height: 4),
+
+                Text(
+                  '@${_usernameController.text.trim().isEmpty ? "creator" : _usernameController.text.trim()}',
+                  style: GoogleFonts.inter(
+                    fontSize: 13,
+                    fontWeight: FontWeight.w700,
+                    color: AppColors.brandPink,
+                  ),
+                ),
+                const SizedBox(height: 12),
+
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                  decoration: BoxDecoration(
+                    color: surfaceMid,
+                    borderRadius: BorderRadius.circular(AppRadius.xs),
+                    border: Border.all(color: border, width: 1.0),
+                  ),
+                  child: Text(
+                    '$_selectedAccountType • ${_selectedNiches.take(2).join(", ")}',
+                    style: GoogleFonts.inter(
+                      fontSize: 11,
+                      fontWeight: FontWeight.w600,
+                      color: textP,
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 18),
+
+                // Security Badges
+                Wrap(
+                  alignment: WrapAlignment.center,
+                  spacing: 8,
+                  runSpacing: 6,
+                  children: [
+                    _buildPassPill(Icons.shield_rounded, 'AI Vetted', surfaceMid, border, textP),
+                    _buildPassPill(Icons.fingerprint_rounded, 'Passkey Ready', surfaceMid, border, textP),
+                    _buildPassPill(Icons.trending_up_rounded, 'Viral Seeded', surfaceMid, border, textP),
+                  ],
+                ),
+              ],
+            ),
+          ).animate().scale(duration: 350.ms, curve: Curves.easeOutBack),
+          const SizedBox(height: 28),
+
+          // Complete & Enter CTA
+          SizedBox(
+            width: double.infinity,
+            height: 44,
+            child: ElevatedButton(
+              onPressed: _isSaving ? null : _completeOnboarding,
+              style: ElevatedButton.styleFrom(
+                backgroundColor: AppColors.brandBlue,
+                foregroundColor: Colors.white,
+                elevation: 0,
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(AppRadius.sm)),
+              ),
+              child: _isSaving
+                  ? const SizedBox(
+                      width: 20,
+                      height: 20,
+                      child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                    )
+                  : Row(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        const Icon(Icons.rocket_launch_rounded, size: 16, color: Colors.white),
+                        const SizedBox(width: 8),
+                        Text(
+                          'Complete & Enter Oneova',
+                          style: GoogleFonts.inter(fontSize: 14, fontWeight: FontWeight.w800),
+                        ),
+                      ],
+                    ),
+            ),
+          ),
+        ],
+      ),
+    ).animate().fadeIn(duration: 250.ms).slideY(begin: 0.04, end: 0);
+  }
+
+  Widget _buildPassPill(IconData icon, String label, Color bg, Color border, Color textP) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+      decoration: BoxDecoration(
+        color: bg,
+        borderRadius: BorderRadius.circular(AppRadius.xs),
+        border: Border.all(color: border, width: 1.0),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, size: 12, color: AppColors.brandBlue),
+          const SizedBox(width: 4),
+          Text(label, style: GoogleFonts.inter(fontSize: 10, fontWeight: FontWeight.w600, color: textP)),
+        ],
       ),
     );
   }
 }
+
+extension on BorderSide {
+  Border toMP() => Border.all(color: color, width: width);
+}
+

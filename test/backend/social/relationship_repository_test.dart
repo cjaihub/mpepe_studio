@@ -1,8 +1,7 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:fake_cloud_firestore/fake_cloud_firestore.dart';
-import 'package:mpepe_studio/backend/social/models/relationship.dart';
-import 'package:mpepe_studio/backend/social/repositories/relationship_repository.dart';
-import 'package:mpepe_studio/backend/security/models/privacy_enums.dart';
+import 'package:oneova/backend/social/models/relationship.dart';
+import 'package:oneova/backend/social/repositories/relationship_repository.dart';
 
 void main() {
   late FakeFirebaseFirestore firestore;

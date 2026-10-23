@@ -57,7 +57,7 @@ final tiktokProfileProvider = StreamProvider.autoDispose<TikTokProfileState>((re
     videos: [
       TikTokVideoModel(
         id: 'v1',
-        title: 'Behind the scenes at MPEPE Studio 🎬',
+        title: 'Behind the scenes at Oneova Studio 🎬',
         thumbnailUrl: 'https://images.unsplash.com/photo-1611162617213-7d7a39e9b1d7?auto=format&fit=crop&w=400&q=80',
         views: 15400,
         likes: 2100,

@@ -52,7 +52,7 @@ class DefaultFirebaseOptions {
 
   static const FirebaseOptions android = FirebaseOptions(
     apiKey: 'AIzaSyA2ygNTrmb_y58xXoXaDKGgnDqhOKtsdho',
-    appId: '1:90836164478:android:f4839af02373b3d9a91d2f',
+    appId: '1:90836164478:android:c879629303a668c1a91d2f',
     messagingSenderId: '90836164478',
     projectId: 'mpepe-2b4bd',
     storageBucket: 'mpepe-2b4bd.firebasestorage.app',
@@ -65,7 +65,7 @@ class DefaultFirebaseOptions {
     storageBucket: 'mpepe-2b4bd.firebasestorage.app',
     androidClientId: '90836164478-9p4bud37qdfirnv70in58sicf842nsjb.apps.googleusercontent.com',
     iosClientId: '90836164478-cf0eefkadr7ihj68svgo59co9e1iu0k3.apps.googleusercontent.com',
-    iosBundleId: 'com.example.mpepeStudio',
+    iosBundleId: 'com.example.oneovaStudio',
   );
 
   static const FirebaseOptions macos = FirebaseOptions(
@@ -76,7 +76,7 @@ class DefaultFirebaseOptions {
     storageBucket: 'mpepe-2b4bd.firebasestorage.app',
     androidClientId: '90836164478-9p4bud37qdfirnv70in58sicf842nsjb.apps.googleusercontent.com',
     iosClientId: '90836164478-cf0eefkadr7ihj68svgo59co9e1iu0k3.apps.googleusercontent.com',
-    iosBundleId: 'com.example.mpepeStudio',
+    iosBundleId: 'com.example.oneovaStudio',
   );
 
   static const FirebaseOptions windows = FirebaseOptions(

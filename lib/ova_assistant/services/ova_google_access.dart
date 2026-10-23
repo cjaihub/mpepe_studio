@@ -1,0 +1,50 @@
+import 'package:flutter/foundation.dart';
+import 'package:google_sign_in/google_sign_in.dart';
+import 'package:googleapis/gmail/v1.dart' as gmail;
+import 'package:googleapis/youtube/v3.dart' as yt;
+import 'package:http/http.dart' as http;
+
+/// Google API access for Ova (Gmail, YouTube) through google_sign_in v7.
+/// The first use shows Google's own consent screen for exactly these scopes;
+/// later calls get a fresh token silently.
+class OvaGoogleAccess {
+  static const gmailScopes = [
+    gmail.GmailApi.gmailReadonlyScope,
+    gmail.GmailApi.gmailSendScope,
+    gmail.GmailApi.gmailModifyScope,
+  ];
+  static const youtubeScopes = [
+    yt.YouTubeApi.youtubeReadonlyScope,
+    yt.YouTubeApi.youtubeForceSslScope,
+  ];
+
+  /// Returns an authorised client, or null if the user declined.
+  static Future<http.Client?> client(List<String> scopes, {bool prompt = true}) async {
+    try {
+      final headers = await GoogleSignIn.instance.authorizationClient.authorizationHeaders(scopes, promptIfNecessary: prompt);
+      if (headers == null) return null;
+      return _HeaderClient(headers);
+    } on GoogleSignInException catch (e) {
+      debugPrint('[OvaGoogleAccess] ${e.code}: ${e.description}');
+      return null;
+    } catch (e) {
+      debugPrint('[OvaGoogleAccess] $e');
+      return null;
+    }
+  }
+}
+
+class _HeaderClient extends http.BaseClient {
+  final Map<String, String> headers;
+  final http.Client _inner = http.Client();
+  _HeaderClient(this.headers);
+
+  @override
+  Future<http.StreamedResponse> send(http.BaseRequest request) => _inner.send(request..headers.addAll(headers));
+
+  @override
+  void close() {
+    _inner.close();
+    super.close();
+  }
+}

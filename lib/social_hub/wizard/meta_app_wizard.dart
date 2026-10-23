@@ -8,7 +8,6 @@ import 'package:google_fonts/google_fonts.dart';
 import '../../backend/meta_oauth_service.dart';
 import '../../shared/theme/app_theme.dart';
 import '../../shared/utils/friendly_error_parser.dart';
-import '../../shared/widgets/components.dart';
 
 // Platform accent colours (card glow / halo only)
 const _fbBlue = Color(0xFF0081FB);
@@ -158,7 +157,7 @@ class _MetaAppWizardState extends ConsumerState<MetaAppWizard>
     });
 
     return Scaffold(
-      backgroundColor: AppColors.darkBackground,
+      backgroundColor: context.bg,
       body: Stack(
         children: [
           // Ambient glow backdrop
@@ -168,10 +167,10 @@ class _MetaAppWizardState extends ConsumerState<MetaAppWizard>
             child: Column(
               children: [
                 // Top bar
-                _buildTopBar(),
+                _buildTopBar(context),
 
                 // Slim animated progress rail
-                _buildProgressRail(),
+                _buildProgressRail(context),
 
                 // Page view
                 Expanded(
@@ -179,10 +178,10 @@ class _MetaAppWizardState extends ConsumerState<MetaAppWizard>
                     controller: _pageController,
                     physics: const NeverScrollableScrollPhysics(),
                     children: [
-                      _buildWelcomeStep(),
-                      _buildOAuthLoadingStep(),
-                      _buildAccountPickerStep(),
-                      _buildSuccessStep(),
+                      _buildWelcomeStep(context),
+                      _buildOAuthLoadingStep(context),
+                      _buildAccountPickerStep(context),
+                      _buildSuccessStep(context),
                     ],
                   ),
                 ),
@@ -203,7 +202,7 @@ class _MetaAppWizardState extends ConsumerState<MetaAppWizard>
       right: _app == MetaApp.instagram ? -80 : null,
       child: AnimatedBuilder(
         animation: _pulseController,
-        builder: (_, __) {
+        builder: (context, child) {
           final scale = 1.0 + (_pulseController.value * 0.06);
           return Transform.scale(
             scale: scale,
@@ -229,14 +228,14 @@ class _MetaAppWizardState extends ConsumerState<MetaAppWizard>
 
   // ─── Top bar ─────────────────────────────────────────────────────────
 
-  Widget _buildTopBar() {
+  Widget _buildTopBar(BuildContext context) {
     return Padding(
       padding: const EdgeInsets.fromLTRB(8, 8, 16, 0),
       child: Row(
         children: [
           IconButton(
-            icon: const Icon(Icons.close_rounded,
-                color: AppColors.textSecondary, size: 22),
+            icon: Icon(Icons.close_rounded,
+                color: context.textSecondary, size: 22),
             onPressed: () {
               ref.read(metaOAuthProvider.notifier).reset();
               context.pop();
@@ -249,7 +248,7 @@ class _MetaAppWizardState extends ConsumerState<MetaAppWizard>
             style: GoogleFonts.outfit(
               fontSize: 12,
               fontWeight: FontWeight.w600,
-              color: AppColors.textSecondary,
+              color: context.textSecondary,
             ),
           ),
         ],
@@ -259,7 +258,7 @@ class _MetaAppWizardState extends ConsumerState<MetaAppWizard>
 
   // ─── Progress rail ────────────────────────────────────────────────────
 
-  Widget _buildProgressRail() {
+  Widget _buildProgressRail(BuildContext context) {
     return Padding(
       padding: const EdgeInsets.fromLTRB(20, 14, 20, 0),
       child: Row(
@@ -275,7 +274,7 @@ class _MetaAppWizardState extends ConsumerState<MetaAppWizard>
                 borderRadius: BorderRadius.circular(2),
                 color: isActive
                     ? _primaryColor
-                    : AppColors.outline,
+                    : context.border,
                 boxShadow: isActive
                     ? [
                         BoxShadow(
@@ -295,7 +294,7 @@ class _MetaAppWizardState extends ConsumerState<MetaAppWizard>
 
   // ─── Step 0: Welcome & Permissions ───────────────────────────────────
 
-  Widget _buildWelcomeStep() {
+  Widget _buildWelcomeStep(BuildContext context) {
     final permissions = _getPermissions();
 
     return SingleChildScrollView(
@@ -318,7 +317,7 @@ class _MetaAppWizardState extends ConsumerState<MetaAppWizard>
             'Connect your',
             style: GoogleFonts.outfit(
               fontSize: 16,
-              color: AppColors.textSecondary,
+              color: context.textSecondary,
               fontWeight: FontWeight.w500,
             ),
           ).animate().fadeIn(delay: 100.ms),
@@ -327,7 +326,7 @@ class _MetaAppWizardState extends ConsumerState<MetaAppWizard>
             style: GoogleFonts.outfit(
               fontSize: 38,
               fontWeight: FontWeight.w900,
-              color: AppColors.textPrimary,
+              color: context.textPrimary,
               letterSpacing: -1.2,
             ),
           ).animate().fadeIn(delay: 150.ms).slideY(begin: 0.08),
@@ -338,7 +337,7 @@ class _MetaAppWizardState extends ConsumerState<MetaAppWizard>
             _getSubtitle(),
             style: GoogleFonts.outfit(
               fontSize: 14.5,
-              color: AppColors.textSecondary,
+              color: context.textSecondary,
               height: 1.6,
             ),
           ).animate().fadeIn(delay: 200.ms),
@@ -347,11 +346,11 @@ class _MetaAppWizardState extends ConsumerState<MetaAppWizard>
 
           // Permissions
           Text(
-            'What MPEPE will access',
+            'What Oneova will access',
             style: GoogleFonts.outfit(
               fontSize: 13,
               fontWeight: FontWeight.w700,
-              color: AppColors.textSecondary,
+              color: context.textSecondary,
               letterSpacing: 0.5,
             ),
           ).animate().fadeIn(delay: 250.ms),
@@ -371,12 +370,13 @@ class _MetaAppWizardState extends ConsumerState<MetaAppWizard>
           const SizedBox(height: 32),
 
           // Terms agreement
-          _buildTermsToggle().animate().fadeIn(delay: 550.ms),
+          _buildTermsToggle(context).animate().fadeIn(delay: 550.ms),
 
           const SizedBox(height: 24),
 
           // CTA button
           _buildPrimaryButton(
+            context,
             label: _agreedToTerms
                 ? 'Continue to ${_app.displayName}'
                 : 'Agree to continue',
@@ -391,7 +391,7 @@ class _MetaAppWizardState extends ConsumerState<MetaAppWizard>
               'We never see your password',
               style: GoogleFonts.outfit(
                 fontSize: 12,
-                color: AppColors.textMuted,
+                color: context.textMuted,
               ),
             ),
           ).animate().fadeIn(delay: 650.ms),
@@ -400,7 +400,7 @@ class _MetaAppWizardState extends ConsumerState<MetaAppWizard>
     );
   }
 
-  Widget _buildTermsToggle() {
+  Widget _buildTermsToggle(BuildContext context) {
     return GestureDetector(
       onTap: () => setState(() => _agreedToTerms = !_agreedToTerms),
       child: AnimatedContainer(
@@ -409,12 +409,12 @@ class _MetaAppWizardState extends ConsumerState<MetaAppWizard>
         decoration: BoxDecoration(
           color: _agreedToTerms
               ? _primaryColor.withValues(alpha: 0.08)
-              : AppColors.darkSurface,
+              : context.surface,
           borderRadius: BorderRadius.circular(18),
           border: Border.all(
             color: _agreedToTerms
                 ? _primaryColor.withValues(alpha: 0.35)
-                : AppColors.outline,
+                : context.border,
           ),
         ),
         child: Row(
@@ -427,7 +427,7 @@ class _MetaAppWizardState extends ConsumerState<MetaAppWizard>
                 shape: BoxShape.circle,
                 color: _agreedToTerms ? _primaryColor : Colors.transparent,
                 border: Border.all(
-                  color: _agreedToTerms ? _primaryColor : AppColors.outline,
+                  color: _agreedToTerms ? _primaryColor : context.border,
                   width: 1.5,
                 ),
               ),
@@ -442,7 +442,7 @@ class _MetaAppWizardState extends ConsumerState<MetaAppWizard>
                 text: TextSpan(
                   style: GoogleFonts.outfit(
                     fontSize: 13.5,
-                    color: AppColors.textPrimary,
+                    color: context.textPrimary,
                     height: 1.4,
                   ),
                   children: [
@@ -454,7 +454,7 @@ class _MetaAppWizardState extends ConsumerState<MetaAppWizard>
                         fontWeight: FontWeight.w600,
                       ),
                     ),
-                    const TextSpan(text: ' and MPEPE Studio\'s '),
+                    const TextSpan(text: ' and Oneova Studio\'s '),
                     TextSpan(
                       text: 'Privacy Policy',
                       style: TextStyle(
@@ -474,7 +474,7 @@ class _MetaAppWizardState extends ConsumerState<MetaAppWizard>
 
   // ─── Step 1: OAuth Loading ────────────────────────────────────────────
 
-  Widget _buildOAuthLoadingStep() {
+  Widget _buildOAuthLoadingStep(BuildContext context) {
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 24),
       child: Column(
@@ -491,7 +491,7 @@ class _MetaAppWizardState extends ConsumerState<MetaAppWizard>
                 ...List.generate(3, (i) {
                   return AnimatedBuilder(
                     animation: _pulseController,
-                    builder: (_, __) {
+                    builder: (context, child) {
                       final progress =
                           (_pulseController.value + (i * 0.33)) % 1.0;
                       return Opacity(
@@ -552,7 +552,7 @@ class _MetaAppWizardState extends ConsumerState<MetaAppWizard>
               style: GoogleFonts.outfit(
                 fontSize: 22,
                 fontWeight: FontWeight.w700,
-                color: AppColors.textPrimary,
+                color: context.textPrimary,
                 letterSpacing: -0.5,
               ),
             ),
@@ -565,7 +565,7 @@ class _MetaAppWizardState extends ConsumerState<MetaAppWizard>
             textAlign: TextAlign.center,
             style: GoogleFonts.outfit(
               fontSize: 14,
-              color: AppColors.textSecondary,
+              color: context.textSecondary,
               height: 1.5,
             ),
           ),
@@ -577,10 +577,10 @@ class _MetaAppWizardState extends ConsumerState<MetaAppWizard>
             borderRadius: BorderRadius.circular(4),
             child: AnimatedBuilder(
               animation: _progressController,
-              builder: (_, __) {
+              builder: (context, child) {
                 return LinearProgressIndicator(
                   value: null, // indeterminate
-                  backgroundColor: AppColors.outline,
+                  backgroundColor: context.border,
                   valueColor: AlwaysStoppedAnimation(_primaryColor),
                   minHeight: 3,
                 );
@@ -596,10 +596,10 @@ class _MetaAppWizardState extends ConsumerState<MetaAppWizard>
               _goToStep(0);
             },
             icon: Icon(Icons.arrow_back_rounded,
-                size: 16, color: AppColors.textSecondary),
+                size: 16, color: context.textSecondary),
             label: Text(
               'Cancel',
-              style: GoogleFonts.outfit(color: AppColors.textSecondary),
+              style: GoogleFonts.outfit(color: context.textSecondary),
             ),
           ),
         ],
@@ -609,7 +609,7 @@ class _MetaAppWizardState extends ConsumerState<MetaAppWizard>
 
   // ─── Step 2: Account Picker ────────────────────────────────────────────
 
-  Widget _buildAccountPickerStep() {
+  Widget _buildAccountPickerStep(BuildContext context) {
     final oauthState = ref.watch(metaOAuthProvider);
 
     return Padding(
@@ -624,7 +624,7 @@ class _MetaAppWizardState extends ConsumerState<MetaAppWizard>
             style: GoogleFonts.outfit(
               fontSize: 28,
               fontWeight: FontWeight.w800,
-              color: AppColors.textPrimary,
+              color: context.textPrimary,
               letterSpacing: -0.8,
             ),
           ).animate().fadeIn().slideY(begin: 0.08),
@@ -632,10 +632,10 @@ class _MetaAppWizardState extends ConsumerState<MetaAppWizard>
           const SizedBox(height: 6),
 
           Text(
-            'Select the ${_app == MetaApp.instagram ? 'business account' : 'page'} you want to link to MPEPE Studio.',
+            'Select the ${_app == MetaApp.instagram ? 'business account' : 'page'} you want to link to Oneova Studio.',
             style: GoogleFonts.outfit(
               fontSize: 14,
-              color: AppColors.textSecondary,
+              color: context.textSecondary,
               height: 1.5,
             ),
           ).animate().fadeIn(delay: 80.ms),
@@ -645,10 +645,10 @@ class _MetaAppWizardState extends ConsumerState<MetaAppWizard>
           // Account list
           Expanded(
             child: oauthState.isLoading
-                ? _buildAccountsSkeleton()
+                ? _buildAccountsSkeleton(context)
                 : oauthState.availablePages.isEmpty
-                    ? _buildNoAccountsState()
-                    : _buildAccountsList(oauthState),
+                    ? _buildNoAccountsState(context)
+                    : _buildAccountsList(context, oauthState),
           ),
 
           // Niche Selection
@@ -658,28 +658,28 @@ class _MetaAppWizardState extends ConsumerState<MetaAppWizard>
             style: GoogleFonts.outfit(
               fontSize: 16,
               fontWeight: FontWeight.w600,
-              color: AppColors.textPrimary,
+              color: context.textPrimary,
             ),
           ),
           const SizedBox(height: 8),
           Container(
             padding: const EdgeInsets.symmetric(horizontal: 16),
             decoration: BoxDecoration(
-              color: AppColors.cardDark.withValues(alpha: 0.5),
+              color: context.surface,
               borderRadius: BorderRadius.circular(12),
-              border: Border.all(color: AppColors.cardBorder),
+              border: Border.all(color: context.border),
             ),
             child: DropdownButtonHideUnderline(
               child: DropdownButton<String>(
                 value: _selectedNiche,
-                hint: Text('Choose a niche for AI Optimization', style: TextStyle(color: AppColors.textSecondary)),
+                hint: Text('Choose a niche for AI Optimization', style: TextStyle(color: context.textSecondary)),
                 isExpanded: true,
-                dropdownColor: AppColors.cardDark,
-                icon: const Icon(Icons.arrow_drop_down, color: AppColors.mpepeGold),
+                dropdownColor: context.surfaceMid,
+                icon: const Icon(Icons.arrow_drop_down, color: AppColors.brandBlue),
                 items: _availableNiches.map((niche) {
                   return DropdownMenuItem<String>(
                     value: niche,
-                    child: Text(niche, style: const TextStyle(color: Colors.white)),
+                    child: Text(niche, style: TextStyle(color: context.textPrimary)),
                   );
                 }).toList(),
                 onChanged: (val) {
@@ -695,6 +695,7 @@ class _MetaAppWizardState extends ConsumerState<MetaAppWizard>
           Padding(
             padding: const EdgeInsets.symmetric(vertical: 20),
             child: _buildPrimaryButton(
+              context,
               label: 'Link This Account',
               icon: Icons.link_rounded,
               onPressed: (oauthState.selectedPage != null && _selectedNiche != null)
@@ -707,10 +708,10 @@ class _MetaAppWizardState extends ConsumerState<MetaAppWizard>
     );
   }
 
-  Widget _buildAccountsList(MetaOAuthState oauthState) {
+  Widget _buildAccountsList(BuildContext context, MetaOAuthState oauthState) {
     return ListView.separated(
       itemCount: oauthState.availablePages.length,
-      separatorBuilder: (_, __) => const SizedBox(height: 10),
+      separatorBuilder: (context, index) => const SizedBox(height: 10),
       itemBuilder: (context, index) {
         final page = oauthState.availablePages[index];
         final isSelected = oauthState.selectedPage?.id == page.id;
@@ -725,12 +726,12 @@ class _MetaAppWizardState extends ConsumerState<MetaAppWizard>
             decoration: BoxDecoration(
               color: isSelected
                   ? _primaryColor.withValues(alpha: 0.08)
-                  : AppColors.darkSurface,
+                  : context.surface,
               borderRadius: BorderRadius.circular(20),
               border: Border.all(
                 color: isSelected
                     ? _primaryColor.withValues(alpha: 0.45)
-                    : AppColors.outline,
+                    : context.border,
                 width: isSelected ? 1.5 : 1,
               ),
               boxShadow: isSelected
@@ -760,7 +761,7 @@ class _MetaAppWizardState extends ConsumerState<MetaAppWizard>
                           child: Image.network(
                             page.pictureUrl!,
                             fit: BoxFit.cover,
-                            errorBuilder: (_, __, ___) =>
+                            errorBuilder: (context, error, stackTrace) =>
                                 _initials(page.name),
                           ),
                         )
@@ -778,7 +779,7 @@ class _MetaAppWizardState extends ConsumerState<MetaAppWizard>
                         style: GoogleFonts.outfit(
                           fontSize: 15,
                           fontWeight: FontWeight.w700,
-                          color: AppColors.textPrimary,
+                          color: context.textPrimary,
                         ),
                       ),
                       if (page.category != null) ...[
@@ -787,7 +788,7 @@ class _MetaAppWizardState extends ConsumerState<MetaAppWizard>
                           page.category!,
                           style: GoogleFonts.outfit(
                             fontSize: 12,
-                            color: AppColors.textSecondary,
+                            color: context.textSecondary,
                           ),
                         ),
                       ],
@@ -797,7 +798,7 @@ class _MetaAppWizardState extends ConsumerState<MetaAppWizard>
                           '${_formatCount(page.fanCount!)} followers',
                           style: GoogleFonts.outfit(
                             fontSize: 12,
-                            color: AppColors.textMuted,
+                            color: context.textMuted,
                           ),
                         ),
                       ],
@@ -814,7 +815,7 @@ class _MetaAppWizardState extends ConsumerState<MetaAppWizard>
                     shape: BoxShape.circle,
                     color: isSelected ? _primaryColor : Colors.transparent,
                     border: Border.all(
-                      color: isSelected ? _primaryColor : AppColors.outline,
+                      color: isSelected ? _primaryColor : context.border,
                       width: 1.5,
                     ),
                   ),
@@ -831,7 +832,7 @@ class _MetaAppWizardState extends ConsumerState<MetaAppWizard>
     );
   }
 
-  Widget _buildAccountsSkeleton() {
+  Widget _buildAccountsSkeleton(BuildContext context) {
     return Column(
       children: List.generate(
         3,
@@ -839,34 +840,34 @@ class _MetaAppWizardState extends ConsumerState<MetaAppWizard>
           margin: const EdgeInsets.only(bottom: 10),
           height: 82,
           decoration: BoxDecoration(
-            color: AppColors.darkSurface,
+            color: context.surface,
             borderRadius: BorderRadius.circular(20),
-            border: Border.all(color: AppColors.outline),
+            border: Border.all(color: context.border),
           ),
         )
             .animate(onPlay: (c) => c.repeat(reverse: true))
             .shimmer(
               duration: 1200.ms,
-              color: AppColors.outline.withValues(alpha: 0.5),
+              color: context.border.withValues(alpha: 0.5),
             ),
       ),
     );
   }
 
-  Widget _buildNoAccountsState() {
+  Widget _buildNoAccountsState(BuildContext context) {
     return Center(
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
           Icon(Icons.inbox_outlined,
-              size: 52, color: AppColors.textMuted),
+              size: 52, color: context.textMuted),
           const SizedBox(height: 16),
           Text(
             'No pages found',
             style: GoogleFonts.outfit(
               fontSize: 18,
               fontWeight: FontWeight.w700,
-              color: AppColors.textSecondary,
+              color: context.textSecondary,
             ),
           ),
           const SizedBox(height: 8),
@@ -875,7 +876,7 @@ class _MetaAppWizardState extends ConsumerState<MetaAppWizard>
             textAlign: TextAlign.center,
             style: GoogleFonts.outfit(
               fontSize: 13,
-              color: AppColors.textMuted,
+              color: context.textMuted,
               height: 1.5,
             ),
           ),
@@ -910,7 +911,7 @@ class _MetaAppWizardState extends ConsumerState<MetaAppWizard>
 
   // ─── Step 3: Success ──────────────────────────────────────────────────
 
-  Widget _buildSuccessStep() {
+  Widget _buildSuccessStep(BuildContext context) {
     final oauthState = ref.watch(metaOAuthProvider);
     final page = oauthState.selectedPage;
 
@@ -959,7 +960,7 @@ class _MetaAppWizardState extends ConsumerState<MetaAppWizard>
                 'You\'re live on',
                 style: GoogleFonts.outfit(
                   fontSize: 16,
-                  color: AppColors.textSecondary,
+                  color: context.textSecondary,
                   fontWeight: FontWeight.w500,
                 ),
               ).animate().fadeIn(delay: 400.ms),
@@ -969,7 +970,7 @@ class _MetaAppWizardState extends ConsumerState<MetaAppWizard>
                 style: GoogleFonts.outfit(
                   fontSize: 38,
                   fontWeight: FontWeight.w900,
-                  color: AppColors.textPrimary,
+                  color: context.textPrimary,
                   letterSpacing: -1.2,
                 ),
               ).animate().fadeIn(delay: 450.ms).slideY(begin: 0.08),
@@ -982,7 +983,7 @@ class _MetaAppWizardState extends ConsumerState<MetaAppWizard>
                   width: double.infinity,
                   padding: const EdgeInsets.all(20),
                   decoration: BoxDecoration(
-                    color: AppColors.darkSurface,
+                    color: context.surface,
                     borderRadius: BorderRadius.circular(20),
                     border: Border.all(
                         color: _primaryColor.withValues(alpha: 0.3)),
@@ -1024,7 +1025,7 @@ class _MetaAppWizardState extends ConsumerState<MetaAppWizard>
                               style: GoogleFonts.outfit(
                                 fontSize: 16,
                                 fontWeight: FontWeight.w700,
-                                color: AppColors.textPrimary,
+                                color: context.textPrimary,
                               ),
                             ),
                             if (page.fanCount != null)
@@ -1032,7 +1033,7 @@ class _MetaAppWizardState extends ConsumerState<MetaAppWizard>
                                 '${_formatCount(page.fanCount!)} followers',
                                 style: GoogleFonts.outfit(
                                   fontSize: 12,
-                                  color: AppColors.textSecondary,
+                                  color: context.textSecondary,
                                 ),
                               ),
                           ],
@@ -1066,6 +1067,7 @@ class _MetaAppWizardState extends ConsumerState<MetaAppWizard>
 
               // CTAs
               _buildPrimaryButton(
+                context,
                 label: 'Done',
                 icon: Icons.check_circle_outline_rounded,
                 onPressed: () {
@@ -1103,7 +1105,7 @@ class _MetaAppWizardState extends ConsumerState<MetaAppWizard>
     final random = Random(42);
     final colors = [
       _primaryColor,
-      AppColors.mpepeGold,
+      AppColors.brandBlue,
       const Color(0xFF00E676),
       Colors.white.withValues(alpha: 0.5),
     ];
@@ -1145,7 +1147,7 @@ class _MetaAppWizardState extends ConsumerState<MetaAppWizard>
   Widget _buildPlatformHalo({required double size}) {
     return AnimatedBuilder(
       animation: _pulseController,
-      builder: (_, __) {
+      builder: (context, child) {
         final glowAlpha = 0.15 + (_pulseController.value * 0.1);
         return Container(
           width: size,
@@ -1200,7 +1202,8 @@ class _MetaAppWizardState extends ConsumerState<MetaAppWizard>
     );
   }
 
-  Widget _buildPrimaryButton({
+  Widget _buildPrimaryButton(
+    BuildContext context, {
     required String label,
     required IconData icon,
     required VoidCallback? onPressed,
@@ -1222,10 +1225,10 @@ class _MetaAppWizardState extends ConsumerState<MetaAppWizard>
                   end: Alignment.centerRight,
                 )
               : null,
-          color: isEnabled ? null : AppColors.darkSurface,
+          color: isEnabled ? null : context.surface,
           border: isEnabled
               ? null
-              : Border.all(color: AppColors.outline),
+              : Border.all(color: context.border),
           boxShadow: isEnabled
               ? [
                   BoxShadow(
@@ -1254,14 +1257,14 @@ class _MetaAppWizardState extends ConsumerState<MetaAppWizard>
                       fontSize: 15,
                       color: isEnabled
                           ? Colors.white
-                          : AppColors.textSecondary,
+                          : context.textSecondary,
                     ),
                   ),
                   const SizedBox(width: 8),
                   Icon(
                     icon,
                     size: 18,
-                    color: isEnabled ? Colors.white : AppColors.textSecondary,
+                    color: isEnabled ? Colors.white : context.textSecondary,
                   ),
                 ],
               ),
@@ -1281,7 +1284,7 @@ class _MetaAppWizardState extends ConsumerState<MetaAppWizard>
   String _getSubtitle() {
     switch (_app) {
       case MetaApp.facebook:
-        return 'Let MPEPE Studio post on your Pages, track what\'s working, and reply to comments — all without leaving the app.';
+        return 'Let Oneova Studio post on your Pages, track what\'s working, and reply to comments — all without leaving the app.';
       case MetaApp.instagram:
         return 'Publish Reels, manage story insights, and moderate comments on your Instagram Business Account from one place.';
       case MetaApp.whatsapp:
@@ -1435,7 +1438,7 @@ class _PermissionRow extends StatelessWidget {
                   style: GoogleFonts.outfit(
                     fontSize: 14,
                     fontWeight: FontWeight.w700,
-                    color: AppColors.textPrimary,
+                    color: context.textPrimary,
                   ),
                 ),
                 const SizedBox(height: 2),
@@ -1443,7 +1446,7 @@ class _PermissionRow extends StatelessWidget {
                   subtitle,
                   style: GoogleFonts.outfit(
                     fontSize: 12.5,
-                    color: AppColors.textSecondary,
+                    color: context.textSecondary,
                     height: 1.4,
                   ),
                 ),

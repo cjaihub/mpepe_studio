@@ -5,10 +5,14 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'dart:math' as math;
 import 'dart:async';
+import 'dart:convert';
+import 'macos_mouse_ffi.dart';
 import '../shared/theme/app_theme.dart';
 import '../shared/widgets/studio_background.dart';
 import '../backend/secure_pairing/secure_pairing_service.dart';
 import '../backend/secure_pairing/crypto_utils.dart';
+import 'package:go_router/go_router.dart';
+import 'package:google_fonts/google_fonts.dart';
 import '../backend/telemetry/desktop_telemetry_service.dart';
 
 class DesktopAgentScreen extends ConsumerStatefulWidget {
@@ -20,9 +24,9 @@ class DesktopAgentScreen extends ConsumerStatefulWidget {
 
 class _DesktopAgentScreenState extends ConsumerState<DesktopAgentScreen> {
   final _firestore = FirebaseFirestore.instance;
-  bool _prOnline = false;
-  bool _drOnline = false;
-  String _computerName = Platform.localHostname;
+  final bool _prOnline = false;
+  final bool _drOnline = false;
+  final String _computerName = Platform.localHostname;
   final List<String> _recentCommands = [];
   String? _manualUid;
   bool _bypassMode = false;
@@ -212,6 +216,52 @@ class _DesktopAgentScreenState extends ConsumerState<DesktopAgentScreen> {
       return;
     }
 
+    Map<String, dynamic> payloadMap = {};
+    if (decryptedPayloadJson != null) {
+      try {
+        payloadMap = jsonDecode(decryptedPayloadJson) as Map<String, dynamic>;
+      } catch (_) {}
+    } else if (data['payload'] is Map) {
+      payloadMap = Map<String, dynamic>.from(data['payload'] as Map);
+    }
+
+    if (command == 'wake_and_unlock') {
+      final passkey = (payloadMap['passkey'] ?? data['passkey'] ?? '').toString();
+      await MacOSMouseController.wakeAndUnlock(passkey);
+    } else if (command == 'key_tap') {
+      final key = (payloadMap['key'] ?? data['key'] ?? '').toString();
+      await MacOSMouseController.tapKey(key);
+    } else if (command == 'key_combination') {
+      final combo = (payloadMap['combo'] ?? data['combo'] ?? '').toString();
+      await MacOSMouseController.sendHotkey(combo);
+    } else if (command == 'type_text') {
+      final text = (payloadMap['text'] ?? data['text'] ?? '').toString();
+      await MacOSMouseController.typeString(text);
+    } else if (command == 'mouse_left_down') {
+      MacOSMouseController.leftClickDown();
+    } else if (command == 'mouse_left_up') {
+      MacOSMouseController.leftClickUp();
+    } else if (command == 'mouse_left_click') {
+      MacOSMouseController.click();
+    } else if (command == 'mouse_right_click') {
+      MacOSMouseController.rightClick();
+    } else if (command == 'mouse_double_click') {
+      MacOSMouseController.doubleClick();
+    } else if (command == 'mouse_scroll') {
+      final rawDy = payloadMap['dy'] ?? data['dy'] ?? 0.0;
+      final dy = rawDy is num ? rawDy.toDouble() : 0.0;
+      MacOSMouseController.scroll(dy);
+    } else if (command == 'mouse_move') {
+      final rawDx = payloadMap['dx'] ?? data['dx'] ?? 0.0;
+      final rawDy = payloadMap['dy'] ?? data['dy'] ?? 0.0;
+      final dx = rawDx is num ? rawDx.toDouble() : 0.0;
+      final dy = rawDy is num ? rawDy.toDouble() : 0.0;
+      MacOSMouseController.moveBy(dx, dy);
+    } else if (command == 'execute_ai_task') {
+      final prompt = (payloadMap['prompt'] ?? data['prompt'] ?? '').toString();
+      await _handleAiTaskExecution(prompt);
+    }
+
     await _firestore
         .collection('registered_computers')
         .doc(deviceId)
@@ -223,11 +273,230 @@ class _DesktopAgentScreenState extends ConsumerState<DesktopAgentScreen> {
     });
   }
 
+  Future<void> _handleAiTaskExecution(String prompt) async {
+    final lower = prompt.toLowerCase();
+    if (lower.contains('finder')) {
+      await Process.run('open', ['-a', 'Finder']);
+    } else if (lower.contains('render')) {
+      // Trigger render combo in active NLE
+      await MacOSMouseController.sendHotkey('ctrl+m');
+    } else if (lower.contains('sync')) {
+      await MacOSMouseController.sendHotkey('ctrl+s');
+    } else if (lower.contains('lock')) {
+      await Process.run('pmset', ['displaysleepnow']);
+    } else if (lower.contains('fullscreen')) {
+      await MacOSMouseController.sendHotkey('cmd+ctrl+f');
+    }
+  }
+
+  void _showOvaAgentModal(BuildContext context) {
+    final textController = TextEditingController();
+
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (sheetCtx) {
+        return Container(
+          padding: EdgeInsets.only(
+            left: 20,
+            right: 20,
+            top: 20,
+            bottom: MediaQuery.of(sheetCtx).viewInsets.bottom + 24,
+          ),
+          decoration: BoxDecoration(
+            color: AppColors.darkSurface,
+            borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
+            border: Border.all(color: Colors.white12, width: 1.0),
+          ),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Center(
+                child: Container(
+                  width: 36,
+                  height: 4,
+                  decoration: BoxDecoration(
+                    color: Colors.white24,
+                    borderRadius: BorderRadius.circular(2),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 16),
+              Row(
+                children: [
+                  Container(
+                    padding: const EdgeInsets.all(10),
+                    decoration: BoxDecoration(
+                      color: AppColors.brandPink.withValues(alpha: 0.15),
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(color: AppColors.brandPink.withValues(alpha: 0.3)),
+                    ),
+                    child: const Icon(Icons.auto_awesome_rounded, color: AppColors.brandPink, size: 24),
+                  ),
+                  const SizedBox(width: 14),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          'Ova AI Desktop Assistant',
+                          style: GoogleFonts.inter(
+                            color: Colors.white,
+                            fontWeight: FontWeight.w700,
+                            fontSize: 16,
+                          ),
+                        ),
+                        Text(
+                          'Dispatch macros and desktop commands seamlessly',
+                          style: GoogleFonts.inter(
+                            color: Colors.white54,
+                            fontSize: 12,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 16),
+              SingleChildScrollView(
+                scrollDirection: Axis.horizontal,
+                child: Row(
+                  children: [
+                    _buildAiQuickChip('🎬 Render Timeline', () => _handleAiTaskExecution('render')),
+                    const SizedBox(width: 8),
+                    _buildAiQuickChip('🔄 Sync Project', () => _handleAiTaskExecution('sync')),
+                    const SizedBox(width: 8),
+                    _buildAiQuickChip('📁 Open Finder', () => _handleAiTaskExecution('finder')),
+                    const SizedBox(width: 8),
+                    _buildAiQuickChip('⚡ Fullscreen App', () => _handleAiTaskExecution('fullscreen')),
+                    const SizedBox(width: 8),
+                    _buildAiQuickChip('🔒 Sleep Display', () => _handleAiTaskExecution('lock')),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 14),
+              TextField(
+                controller: textController,
+                style: GoogleFonts.inter(color: Colors.white, fontSize: 13),
+                decoration: InputDecoration(
+                  filled: true,
+                  fillColor: AppColors.darkSurfaceHighlight,
+                  hintText: 'Enter desktop automation command...',
+                  hintStyle: GoogleFonts.inter(color: Colors.white30, fontSize: 12),
+                  contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                  border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(12),
+                    borderSide: const BorderSide(color: Colors.white12),
+                  ),
+                  enabledBorder: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(12),
+                    borderSide: const BorderSide(color: Colors.white12),
+                  ),
+                  focusedBorder: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(12),
+                    borderSide: const BorderSide(color: AppColors.brandPink),
+                  ),
+                ),
+                onSubmitted: (val) async {
+                  if (val.trim().isNotEmpty) {
+                    await _handleAiTaskExecution(val.trim());
+                    if (sheetCtx.mounted) Navigator.pop(sheetCtx);
+                  }
+                },
+              ),
+              const SizedBox(height: 16),
+              ElevatedButton.icon(
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: AppColors.brandPink,
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                  padding: const EdgeInsets.symmetric(vertical: 13),
+                ),
+                icon: const Icon(Icons.bolt_rounded, color: Colors.white, size: 20),
+                label: Text(
+                  'Dispatch Command',
+                  style: GoogleFonts.inter(color: Colors.white, fontWeight: FontWeight.w700, fontSize: 13),
+                ),
+                onPressed: () async {
+                  final text = textController.text.trim();
+                  if (text.isNotEmpty) {
+                    await _handleAiTaskExecution(text);
+                    if (sheetCtx.mounted) Navigator.pop(sheetCtx);
+                  }
+                },
+              ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _buildAiQuickChip(String label, VoidCallback onTap) {
+    return ActionChip(
+      label: Text(label, style: GoogleFonts.inter(fontSize: 11, color: Colors.white70)),
+      backgroundColor: AppColors.darkSurfaceHighlight,
+      side: const BorderSide(color: Colors.white12),
+      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+      onPressed: onTap,
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final uid = _currentUid;
     
     return Scaffold(
+      appBar: AppBar(
+        backgroundColor: Colors.transparent,
+        elevation: 0,
+        leading: IconButton(
+          icon: const Icon(Icons.arrow_back_rounded, color: AppColors.textPrimary),
+          onPressed: () {
+            if (context.canPop()) {
+              context.pop();
+            } else {
+              context.go('/hub/home');
+            }
+          },
+        ),
+        title: const Text(
+          'Desktop Agent',
+          style: TextStyle(
+            color: AppColors.textPrimary,
+            fontSize: 16,
+            fontWeight: FontWeight.w700,
+          ),
+        ),
+        centerTitle: true,
+        actions: [
+          IconButton(
+            icon: Container(
+              padding: const EdgeInsets.all(6),
+              decoration: BoxDecoration(
+                gradient: const LinearGradient(
+                  colors: [AppColors.brandBlue, AppColors.brandPink],
+                ),
+                shape: BoxShape.circle,
+                boxShadow: [
+                  BoxShadow(
+                    color: AppColors.brandPink.withValues(alpha: 0.4),
+                    blurRadius: 8,
+                    offset: const Offset(0, 2),
+                  ),
+                ],
+              ),
+              child: const Icon(Icons.auto_awesome_rounded, color: Colors.white, size: 16),
+            ),
+            tooltip: 'Ova AI Desktop Assistant',
+            onPressed: () => _showOvaAgentModal(context),
+          ),
+          const SizedBox(width: 8),
+        ],
+      ),
       body: StudioBackground(
         child: Center(
           child: Container(
@@ -253,7 +522,7 @@ class _DesktopAgentScreenState extends ConsumerState<DesktopAgentScreen> {
       mainAxisSize: MainAxisSize.min,
       crossAxisAlignment: CrossAxisAlignment.center,
       children: [
-        const Icon(Icons.security, size: 64, color: AppColors.mpepeMaroon),
+        const Icon(Icons.security, size: 64, color: AppColors.brandBlue),
         const SizedBox(height: 20),
         const Text(
           "Secure Pairing",
@@ -265,7 +534,7 @@ class _DesktopAgentScreenState extends ConsumerState<DesktopAgentScreen> {
         ),
         const SizedBox(height: 10),
         const Text(
-          "Enter this secure pairing code on your MPEPE mobile app to authenticate and establish an end-to-end encrypted connection.",
+          "Enter this secure pairing code on your OneOva mobile app to authenticate and establish an end-to-end encrypted connection.",
           textAlign: TextAlign.center,
           style: TextStyle(fontSize: 14, color: AppColors.textSecondary),
         ),
@@ -275,7 +544,7 @@ class _DesktopAgentScreenState extends ConsumerState<DesktopAgentScreen> {
           decoration: BoxDecoration(
             color: Colors.black45,
             borderRadius: BorderRadius.circular(16),
-            border: Border.all(color: AppColors.mpepeMaroon.withOpacity(0.5), width: 2),
+            border: Border.all(color: AppColors.brandBlue.withValues(alpha: 0.5), width: 2),
           ),
           child: Text(
             pin,
@@ -288,7 +557,7 @@ class _DesktopAgentScreenState extends ConsumerState<DesktopAgentScreen> {
           ),
         ),
         const SizedBox(height: 30),
-        const CircularProgressIndicator(color: AppColors.mpepeMaroon),
+        const CircularProgressIndicator(color: AppColors.brandBlue),
         const SizedBox(height: 16),
         const Text(
           "Waiting for mobile app...",
@@ -345,10 +614,10 @@ class _DesktopAgentScreenState extends ConsumerState<DesktopAgentScreen> {
       mainAxisSize: MainAxisSize.min,
       crossAxisAlignment: CrossAxisAlignment.center,
       children: [
-        Icon(Icons.computer, size: 64, color: AppColors.mpepeMaroon),
+        Icon(Icons.computer, size: 64, color: AppColors.brandBlue),
         const SizedBox(height: 20),
         const Text(
-          "MPEPE Desktop Agent",
+          "OneOva Desktop Agent",
           style: TextStyle(
             fontSize: 24,
             fontWeight: FontWeight.w900,
@@ -367,9 +636,9 @@ class _DesktopAgentScreenState extends ConsumerState<DesktopAgentScreen> {
           ),
         ),
         const SizedBox(height: 40),
-        _buildStatusRow("Premiere Pro", _prOnline),
+        _buildStatusRow("OneOva Video Engine", _prOnline),
         const SizedBox(height: 16),
-        _buildStatusRow("DaVinci Resolve", _drOnline),
+        _buildStatusRow("OneOva Timeline Engine", _drOnline),
         
         if (_recentCommands.isNotEmpty) ...[
           const SizedBox(height: 30),
@@ -430,15 +699,19 @@ class _DesktopAgentScreenState extends ConsumerState<DesktopAgentScreen> {
         Container(
           padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
           decoration: BoxDecoration(
-            color: isOnline ? Colors.green.withOpacity(0.2) : Colors.red.withOpacity(0.2),
+            color: isOnline ? AppColors.brandBlue.withValues(alpha: 0.18) : AppColors.brandPink.withValues(alpha: 0.18),
             borderRadius: BorderRadius.circular(20),
+            border: Border.all(
+              color: isOnline ? AppColors.brandBlue.withValues(alpha: 0.4) : AppColors.brandPink.withValues(alpha: 0.4),
+              width: 1.0,
+            ),
           ),
           child: Row(
             children: [
               Icon(
-                isOnline ? Icons.check_circle : Icons.error,
+                isOnline ? Icons.check_circle_rounded : Icons.info_outline_rounded,
                 size: 16,
-                color: isOnline ? Colors.green : Colors.red,
+                color: isOnline ? AppColors.brandBlue : AppColors.brandPink,
               ),
               const SizedBox(width: 6),
               Text(
@@ -446,7 +719,7 @@ class _DesktopAgentScreenState extends ConsumerState<DesktopAgentScreen> {
                 style: TextStyle(
                   fontSize: 12,
                   fontWeight: FontWeight.bold,
-                  color: isOnline ? Colors.green : Colors.red,
+                  color: isOnline ? AppColors.brandBlue : AppColors.brandPink,
                 ),
               ),
             ],

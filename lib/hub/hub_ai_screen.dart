@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+import 'package:flutter_markdown/flutter_markdown.dart';
 import '../shared/theme/app_theme.dart';
 import '../shared/widgets/components.dart';
 import '../shared/widgets/studio_background.dart';
@@ -9,8 +10,14 @@ import '../backend/ai_brain_service.dart';
 import '../backend/project_repository.dart';
 import '../backend/remote_connect_service.dart';
 import '../backend/agents/youtube_agent.dart';
+import '../services/ai_assistant_service.dart';
+import '../ova_assistant/services/ova_agentic_orchestrator.dart';
+import '../ova_assistant/services/ova_thermal_watchdog.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 import 'dart:convert';
-import 'voice_assistant_overlay.dart';
+import '../backend/repair/oneova_self_repair_engine.dart';
+import '../backend/repair/oneova_auto_updater.dart';
+import '../ova_assistant/widgets/ova_live_calling_overlay.dart';
 
 class HubAiScreen extends ConsumerStatefulWidget {
   const HubAiScreen({super.key});
@@ -32,6 +39,36 @@ class _HubAiScreenState extends ConsumerState<HubAiScreen> {
   ScriptBreakdown? _breakdown;
   bool _isBreakdownLoading = false;
 
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _loadSharedInteractions();
+    });
+  }
+
+  void _loadSharedInteractions() async {
+    final uid = FirebaseAuth.instance.currentUser?.uid ?? 'guest';
+    try {
+      final service = ref.read(oneOvaAssistantServiceProvider);
+      final interactions = await service.getInteractions(uid).first;
+      if (mounted && _messages.isEmpty && interactions.isNotEmpty) {
+        setState(() {
+          for (final item in interactions.reversed) {
+            _messages.add({"role": "user", "content": item.query});
+            if (item.response != null &&
+                item.response!.isNotEmpty &&
+                !item.response!.contains('OPENROUTER_API_KEY is missing')) {
+              _messages.add({"role": "assistant", "content": item.response, "type": "text"});
+            }
+          }
+        });
+      }
+    } catch (e) {
+      debugPrint('[HubAiScreen] Error loading shared interactions: $e');
+    }
+  }
+
   void _sendMessage() async {
     final text = _chatController.text.trim();
     if (text.isEmpty) return;
@@ -43,9 +80,107 @@ class _HubAiScreenState extends ConsumerState<HubAiScreen> {
       _chatController.clear();
     });
 
+    // ─────────────────────────────────────────────────────────────────
+    // Autonomous Self-Repair & Diagnostics Routing
+    // ─────────────────────────────────────────────────────────────────
+    final lowerText = text.toLowerCase();
+    if (lowerText.contains('repair') ||
+        lowerText.contains('diagnos') ||
+        lowerText.contains('health check') ||
+        lowerText.contains('system health') ||
+        lowerText.contains('fix bug')) {
+      final repairEngine = ref.read(oneOvaSelfRepairEngineProvider);
+      final updater = ref.read(oneOvaAutoUpdaterProvider);
+      final uid = FirebaseAuth.instance.currentUser?.uid;
+
+      final profileResult = uid != null ? await repairEngine.repairUserProfile(uid) : null;
+      final cacheResult = await repairEngine.repairInterfaceAndCache();
+      final health = await repairEngine.runSystemHealthScan();
+      final updateInfo = await updater.checkForUpdates();
+
+      final buffer = StringBuffer();
+      buffer.writeln('## 🩺 Ova Autonomous System Diagnostics & Self-Repair Report');
+      buffer.writeln('');
+      buffer.writeln('**Overall System Health Score:** `${health.overallScore}%` — **${health.overallStatus.name.toUpperCase()}**');
+      buffer.writeln('');
+      buffer.writeln('### 🛠️ Autonomous Actions Executed:');
+      if (profileResult != null) {
+        buffer.writeln('- **Profile Schema Doctor:** ${profileResult.summary}');
+        if (profileResult.repairedFields.isNotEmpty) {
+          buffer.writeln('  - Normalized attributes: `${profileResult.repairedFields.join(', ')}`');
+        }
+      }
+      buffer.writeln('- **Interface & Cache Healer:** ${cacheResult.summary}');
+      buffer.writeln('');
+      buffer.writeln('### 🔍 Subsystem Status Breakdown:');
+      buffer.writeln('| Subsystem | Status | Latency / Details |');
+      buffer.writeln('|---|---|---|');
+      for (final check in health.checks) {
+        buffer.writeln('| ${check.component} | `${check.status.name.toUpperCase()}` | ${check.details} |');
+      }
+      buffer.writeln('');
+      buffer.writeln('### 🚀 Background Upgrade Engine:');
+      buffer.writeln('- **Installed Build:** `v${OneOvaAutoUpdater.currentVersion}+${OneOvaAutoUpdater.currentBuildNumber}` (${updateInfo.channel} channel)');
+      buffer.writeln('- **Remote Server Registry:** `v${updateInfo.latestVersion}+${updateInfo.latestBuildNumber}`');
+      buffer.writeln('- **OTA Status:** ${updateInfo.hasUpdate ? '🔔 **Upgrade Available** (${updateInfo.releaseNotes})' : '✅ **Up to Date**'}');
+
+      if (mounted) {
+        setState(() {
+          _messages.add({"role": "assistant", "content": buffer.toString(), "type": "text"});
+          _isChatLoading = false;
+        });
+      }
+      return;
+    }
+
+    // ─────────────────────────────────────────────────────────────────
+    // Autonomous Multi-Step Agentic Procedure Routing
+    // ─────────────────────────────────────────────────────────────────
+    final orchestrator = ref.read(ovaAgenticOrchestratorProvider);
+    final procType = orchestrator.detectProcedureType(text);
+    if (procType != AgenticProcedureType.generalReasoning) {
+      final plan = orchestrator.createPlan(procType, text);
+      final planIndex = _messages.length;
+      setState(() {
+        _messages.add({
+          "role": "assistant",
+          "type": "agentic_plan",
+          "plan": plan,
+        });
+        _isChatLoading = false;
+      });
+
+      orchestrator.executeProcedure(
+        plan: plan,
+        userId: FirebaseAuth.instance.currentUser?.uid ?? 'guest',
+        onStepProgress: (updatedPlan, currentStep) {
+          if (mounted) {
+            setState(() {
+              _messages[planIndex] = {
+                "role": "assistant",
+                "type": "agentic_plan",
+                "plan": updatedPlan,
+              };
+            });
+          }
+        },
+      ).then((completedPlan) {
+        if (mounted) {
+          setState(() {
+            _messages[planIndex] = {
+              "role": "assistant",
+              "type": "agentic_plan",
+              "plan": completedPlan,
+            };
+          });
+          ref.read(ovaThermalWatchdogProvider).pruneVisionMemory();
+        }
+      });
+      return;
+    }
+
     final taskType = text.toLowerCase().contains('audio') || text.toLowerCase().contains('voice') ? 'audio' : 'general';
     final aiService = ref.read(aiBrainProvider);
-    final remoteConnectState = ref.read(remoteConnectProvider);
     final remoteConnect = ref.read(remoteConnectProvider.notifier);
     
     bool keepProcessing = true;
@@ -59,6 +194,8 @@ class _HubAiScreenState extends ConsumerState<HubAiScreen> {
           _isChatLoading = false;
         });
         keepProcessing = false;
+        final uid = FirebaseAuth.instance.currentUser?.uid ?? 'guest';
+        ref.read(oneOvaAssistantServiceProvider).submitCommand(uid, text);
       } else if (response is AiWidgetResponse) {
         setState(() {
           _messages.add({
@@ -92,7 +229,7 @@ class _HubAiScreenState extends ConsumerState<HubAiScreen> {
           if (name == 'get_studio_calendar') {
              toolResult = "Studio Calendar: Today you have a shoot at 10 AM, and an editing session at 2 PM.";
           } else if (['apply_lut', 'add_marker', 'color_match', 'auto_balance', 'apply_film_emulation'].contains(name)) {
-             // Default to DaVinci for mockup since software is now tied to the remote computer
+             // Default to Oneova Studio remote workstation engine
              String targetSoftwareId = 'dr';
              remoteConnect.sendCommand(targetSoftwareId, name, arguments);
              toolResult = "Success: Executed $name on target software.";
@@ -171,51 +308,108 @@ class _HubAiScreenState extends ConsumerState<HubAiScreen> {
   }
 
   Widget _buildHeader() {
-    return Row(
-      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-      children: [
-        Row(
-          children: [
-            IconButton(
-              icon: const Icon(Icons.arrow_back),
-              onPressed: () {
-                HapticFeedback.lightImpact();
-                if (context.canPop()) {
-                  context.pop();
-                } else {
-                  context.go('/hub/home');
-                }
-              },
-              padding: EdgeInsets.zero,
-              constraints: const BoxConstraints(),
-            ),
-            const SizedBox(width: 12),
-            ShaderMask(
-              blendMode: BlendMode.srcIn,
-              shaderCallback: (bounds) => AppColors.aiGradient.createShader(bounds),
-              child: const Icon(Icons.auto_awesome, size: 24),
-            ),
-            const SizedBox(width: 8),
-            Text('Mpepe AI', style: TextStyle(fontSize: 20, fontWeight: FontWeight.w700, color: Theme.of(context).colorScheme.onSurface)),
-          ],
-        ),
-        Row(
-          children: [
-            const MpepePill(text: 'Mpepe Model', isAi: true),
-            const SizedBox(width: 8),
-            IconButton(
-              icon: const Icon(Icons.more_vert),
-              color: Colors.white70,
-              onPressed: () {
-                HapticFeedback.lightImpact();
-                context.push('/settings/ai');
-              },
-              padding: EdgeInsets.zero,
-              constraints: const BoxConstraints(),
-            ),
-          ],
-        )
-      ],
+    final topBarFg = context.topBarFg;
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+      decoration: BoxDecoration(
+        color: context.topBarBg,
+        borderRadius: BorderRadius.circular(AppRadius.md),
+        boxShadow: [
+          BoxShadow(
+            color: AppColors.brandBlue.withValues(alpha: 0.25),
+            blurRadius: 10,
+            offset: const Offset(0, 2),
+          ),
+        ],
+      ),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        children: [
+          Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              IconButton(
+                icon: Icon(Icons.arrow_back, color: topBarFg),
+                onPressed: () {
+                  HapticFeedback.lightImpact();
+                  if (context.canPop()) {
+                    context.pop();
+                  } else {
+                    context.go('/hub/home');
+                  }
+                },
+                padding: EdgeInsets.zero,
+                constraints: const BoxConstraints(),
+              ),
+              const SizedBox(width: 8),
+              const Icon(Icons.auto_awesome, size: 18, color: AppColors.brandPink),
+              const SizedBox(width: 6),
+              Text(
+                'Oneova AI',
+                style: TextStyle(
+                  fontSize: 16,
+                  fontWeight: FontWeight.w700,
+                  letterSpacing: -0.3,
+                  color: topBarFg,
+                ),
+              ),
+            ],
+          ),
+          Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              InkWell(
+                onTap: () {
+                  HapticFeedback.lightImpact();
+                  OvaLiveCallingOverlay.show(context);
+                },
+                borderRadius: BorderRadius.circular(AppRadius.full),
+                child: Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+                  decoration: BoxDecoration(
+                    gradient: AppColors.aiGradient,
+                    borderRadius: BorderRadius.circular(AppRadius.full),
+                    boxShadow: [
+                      BoxShadow(
+                        color: AppColors.brandPink.withValues(alpha: 0.35),
+                        blurRadius: 8,
+                        offset: const Offset(0, 2),
+                      ),
+                    ],
+                  ),
+                  child: const Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(Icons.graphic_eq, size: 14, color: Colors.white),
+                      SizedBox(width: 4),
+                      Text(
+                        'Live Call',
+                        style: TextStyle(
+                          fontSize: 11,
+                          fontWeight: FontWeight.w700,
+                          color: Colors.white,
+                          letterSpacing: 0.2,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+              const SizedBox(width: 8),
+              IconButton(
+                icon: Icon(Icons.tune, color: topBarFg, size: 20),
+                tooltip: 'AI & Diagnostics Settings',
+                onPressed: () {
+                  HapticFeedback.lightImpact();
+                  context.push('/settings/ai');
+                },
+                padding: EdgeInsets.zero,
+                constraints: const BoxConstraints(),
+              ),
+            ],
+          )
+        ],
+      ),
     );
   }
 
@@ -269,7 +463,10 @@ class _HubAiScreenState extends ConsumerState<HubAiScreen> {
   }
 
   Widget _buildChatMode() {
-    final visibleMessages = _messages.where((m) => m['role'] == 'user' || (m['role'] == 'assistant' && (m['type'] == 'text' || m['type'] == 'widget'))).toList();
+    final visibleMessages = _messages.where((m) =>
+        m['role'] == 'user' ||
+        (m['role'] == 'assistant' &&
+            (m['type'] == 'text' || m['type'] == 'widget' || m['type'] == 'agentic_plan'))).toList();
 
     return Column(
       children: [
@@ -281,6 +478,10 @@ class _HubAiScreenState extends ConsumerState<HubAiScreen> {
                   itemBuilder: (context, index) {
                     final msg = visibleMessages[index];
                     final isUser = msg['role'] == 'user';
+                    
+                    if (msg['type'] == 'agentic_plan') {
+                      return _buildAgenticPlanBubble(msg['plan'] as AgenticProcedurePlan);
+                    }
                     
                     if (msg['type'] == 'widget' && msg['widgetType'] == 'chart') {
                       return _buildChartWidget(msg['data']);
@@ -326,7 +527,7 @@ class _HubAiScreenState extends ConsumerState<HubAiScreen> {
                     minLines: 1,
                     textInputAction: TextInputAction.newline,
                     decoration: InputDecoration(
-                      hintText: 'Message Mpepe AI...',
+                      hintText: 'Message Oneova AI...',
                       hintStyle: TextStyle(color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.5), fontSize: 13),
                       border: InputBorder.none,
                       contentPadding: const EdgeInsets.symmetric(vertical: 12),
@@ -337,19 +538,14 @@ class _HubAiScreenState extends ConsumerState<HubAiScreen> {
               ),
               Semantics(
                 button: true,
-                label: 'Voice Assistant',
+                label: 'Gemini Live Voice Assistant',
                 child: IconButton(
                   icon: const Icon(Icons.mic, size: 22),
-                  color: Colors.white70,
+                  color: AppColors.brandPink,
+                  tooltip: 'Gemini Live Call & Self-Repair',
                   onPressed: () {
                     HapticFeedback.selectionClick();
-                    showModalBottomSheet(
-                      context: context,
-                      isScrollControlled: true,
-                      useSafeArea: true,
-                      backgroundColor: Colors.transparent,
-                      builder: (ctx) => const VoiceAssistantOverlay(),
-                    );
+                    OvaLiveCallingOverlay.show(context);
                   },
                 ),
               ),
@@ -365,7 +561,7 @@ class _HubAiScreenState extends ConsumerState<HubAiScreen> {
                       height: 32,
                       decoration: BoxDecoration(
                         shape: BoxShape.circle, 
-                        color: _isChatLoading ? Colors.grey[800] : AppColors.mpepeMaroon,
+                        color: _isChatLoading ? Colors.grey[800] : AppColors.brandBlue,
                       ),
                       child: const Icon(Icons.arrow_upward, color: Colors.white, size: 18),
                     ),
@@ -451,7 +647,7 @@ class _HubAiScreenState extends ConsumerState<HubAiScreen> {
                 children: [
                   const Text('Analysis Complete', style: TextStyle(color: Colors.greenAccent, fontWeight: FontWeight.bold, fontSize: 16)),
                   const SizedBox(height: 12),
-                  MpepeCard(
+                  OneovaCard(
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
@@ -549,23 +745,457 @@ class _HubAiScreenState extends ConsumerState<HubAiScreen> {
   }
 
   Widget _buildChatEmptyState() {
-    return MpepeCard(
-      borderColor: const Color(0x40FF6A00),
-      child: Row(
+    return SingleChildScrollView(
+      child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const MpepeAvatar(text: '', gradient: AppColors.aiGradient, size: 34),
-          const SizedBox(width: 10),
-          Expanded(
-            child: Column(
+          OneovaCard(
+            borderColor: AppColors.brandBlue.withValues(alpha: 0.4),
+            child: Row(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text("Mpepe AI is ready", style: TextStyle(fontWeight: FontWeight.w700, fontSize: 13.5, color: Theme.of(context).colorScheme.onSurface)),
-                const SizedBox(height: 8),
-                Text("I am your intelligent studio assistant. Attach files, talk to me via voice, or type a request about Mpepe or social media management.", style: TextStyle(color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.6), fontSize: 11, height: 1.4)),
+                Container(
+                  width: 36,
+                  height: 36,
+                  decoration: const BoxDecoration(shape: BoxShape.circle),
+                  child: ClipOval(
+                    child: Image.asset('assets/images/oneova_logo.png', fit: BoxFit.cover),
+                  ),
+                ),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text("Oneova AI • Autonomous Studio Agent",
+                          style: TextStyle(
+                              fontWeight: FontWeight.w700,
+                              fontSize: 13.5,
+                              color: Theme.of(context).colorScheme.onSurface)),
+                      const SizedBox(height: 6),
+                      Text(
+                        "Autonomous creative agent with thermal-cooling protection and direct execution of Oneova Reels LinUCB distribution, community safety moderation, and workstation actuation.",
+                        style: TextStyle(
+                            color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.6),
+                            fontSize: 11,
+                            height: 1.4),
+                      ),
+                    ],
+                  ),
+                ),
               ],
             ),
           ),
+          const SizedBox(height: 16),
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 4.0),
+            child: Text(
+              'Autonomous Procedures & Workflows',
+              style: TextStyle(
+                  fontSize: 12,
+                  fontWeight: FontWeight.w700,
+                  color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.7)),
+            ),
+          ),
+          const SizedBox(height: 8),
+          _buildPillAction(
+            'Autonomous Self-Repair & Diagnostics',
+            'Run autonomous system diagnostics, heal backend user records, inspect feed pipelines, and check for background updates',
+            Icons.healing_rounded,
+            badge: 'REPAIR',
+          ),
+          _buildPillAction(
+            'How to Reach Customer? (Vector + Graph)',
+            'How to reach them? Check customer preferences and orders',
+            Icons.hub_rounded,
+            badge: 'SEMANTIC',
+          ),
+          _buildPillAction(
+            'Safe Ticket & Refund (Avoid Mistakes)',
+            'Close ticket and process customer refund',
+            Icons.shield_rounded,
+            badge: 'SAFEGUARD',
+          ),
+          _buildPillAction(
+            'Boost to Oneova Reels',
+            'Export and boost this reel to Oneova public reels with LinUCB accelerator',
+            Icons.bolt_rounded,
+            badge: 'AGENT',
+          ),
+          _buildPillAction(
+            'Safety & Burn Notice Audit',
+            'Run community safety, adult moderation, and burn notice audit',
+            Icons.shield_outlined,
+            badge: 'AGENT',
+          ),
+          _buildPillAction(
+            'Live Stage Digital Twin',
+            'Activate my live stage digital twin persona for streaming',
+            Icons.face_retouching_natural_rounded,
+            badge: 'AGENT',
+          ),
+          _buildPillAction(
+            'Viral Hashtag Radar',
+            'Generate high-velocity viral hashtags and optimal timing for trending',
+            Icons.tag_rounded,
+            badge: 'AGENT',
+          ),
+          _buildPillAction(
+            'Plan a Budget-Friendly Safari',
+            'Plan a budget-friendly safari',
+            Icons.landscape_rounded,
+          ),
+          _buildPillAction(
+            'Draft Viral Reel Script (15s)',
+            'Draft a viral Reel script for creative studio',
+            Icons.auto_awesome_rounded,
+            badge: 'PRO',
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildPillAction(String title, String prompt, IconData icon, {String? badge}) {
+    return Container(
+      margin: const EdgeInsets.only(bottom: 6),
+      child: InkWell(
+        onTap: () {
+          HapticFeedback.lightImpact();
+          _chatController.text = prompt;
+          _sendMessage();
+        },
+        borderRadius: BorderRadius.circular(12),
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+          decoration: BoxDecoration(
+            color: Theme.of(context).colorScheme.surfaceContainerHighest.withValues(alpha: 0.5),
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(color: Theme.of(context).colorScheme.outlineVariant),
+          ),
+          child: Row(
+            children: [
+              Icon(icon, size: 16, color: badge != null ? AppColors.brandPink : AppColors.brandBlue),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Text(
+                  title,
+                  style: TextStyle(fontSize: 12.5, fontWeight: FontWeight.w600, color: Theme.of(context).colorScheme.onSurface),
+                ),
+              ),
+              if (badge != null)
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                  decoration: BoxDecoration(
+                    color: AppColors.brandPink.withValues(alpha: 0.15),
+                    borderRadius: BorderRadius.circular(4),
+                    border: Border.all(color: AppColors.brandPink.withValues(alpha: 0.4), width: 0.8),
+                  ),
+                  child: Text(
+                    badge,
+                    style: const TextStyle(fontSize: 9, fontWeight: FontWeight.w800, color: AppColors.brandPink),
+                  ),
+                ),
+              const SizedBox(width: 4),
+              Icon(Icons.arrow_forward_ios_rounded, size: 12, color: Theme.of(context).colorScheme.outline),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildAgenticPlanBubble(AgenticProcedurePlan plan) {
+    return Container(
+      margin: const EdgeInsets.symmetric(vertical: 8),
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: Theme.of(context).colorScheme.surfaceContainerHighest,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(
+          color: plan.isComplete
+              ? AppColors.brandPink.withValues(alpha: 0.6)
+              : AppColors.brandBlue.withValues(alpha: 0.6),
+          width: 1.0,
+        ),
+        boxShadow: [
+          BoxShadow(
+            color: plan.isComplete
+                ? AppColors.brandPink.withValues(alpha: 0.12)
+                : AppColors.brandBlue.withValues(alpha: 0.12),
+            blurRadius: 12,
+            offset: const Offset(0, 3),
+          ),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.all(6),
+                decoration: BoxDecoration(
+                  color: AppColors.brandBlue.withValues(alpha: 0.18),
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: const Icon(
+                  Icons.auto_mode_rounded,
+                  color: AppColors.brandBlue,
+                  size: 16,
+                ),
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      plan.title,
+                      style: const TextStyle(
+                        fontSize: 13.0,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                    Text(
+                      plan.isComplete
+                          ? 'Autonomous Procedure Complete'
+                          : 'Executing Autonomous Steps...',
+                      style: TextStyle(
+                        fontSize: 11.0,
+                        fontWeight: FontWeight.w600,
+                        color: plan.isComplete ? AppColors.brandPink : AppColors.brandBlue,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
+                decoration: BoxDecoration(
+                  color: Colors.teal.withValues(alpha: 0.15),
+                  borderRadius: BorderRadius.circular(6),
+                  border: Border.all(color: Colors.teal.withValues(alpha: 0.4), width: 0.8),
+                ),
+                child: const Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(Icons.ac_unit_rounded, size: 10, color: Colors.tealAccent),
+                    SizedBox(width: 3),
+                    Text(
+                      'Cool-Safe',
+                      style: TextStyle(
+                        fontSize: 9.5,
+                        fontWeight: FontWeight.w700,
+                        color: Colors.tealAccent,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+          // Badges row for Episodic Memory, Semantic Graph/Vector, and Peer Mesh
+          const SizedBox(height: 8),
+          Wrap(
+            spacing: 6,
+            runSpacing: 4,
+            children: [
+              if (plan.avoidedMistakes.isNotEmpty)
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                  decoration: BoxDecoration(
+                    color: AppColors.brandPink.withValues(alpha: 0.12),
+                    borderRadius: BorderRadius.circular(4),
+                    border: Border.all(color: AppColors.brandPink.withValues(alpha: 0.3), width: 0.8),
+                  ),
+                  child: const Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(Icons.shield_rounded, size: 10, color: AppColors.brandPink),
+                      SizedBox(width: 3),
+                      Text('Episodic Safeguard', style: TextStyle(fontSize: 9, fontWeight: FontWeight.w700, color: AppColors.brandPink)),
+                    ],
+                  ),
+                ),
+              if (plan.semanticInsights.isNotEmpty)
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                  decoration: BoxDecoration(
+                    color: AppColors.brandBlue.withValues(alpha: 0.12),
+                    borderRadius: BorderRadius.circular(4),
+                    border: Border.all(color: AppColors.brandBlue.withValues(alpha: 0.3), width: 0.8),
+                  ),
+                  child: const Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(Icons.hub_rounded, size: 10, color: AppColors.brandBlue),
+                      SizedBox(width: 3),
+                      Text('Vector DB + Graph', style: TextStyle(fontSize: 9, fontWeight: FontWeight.w700, color: AppColors.brandBlue)),
+                    ],
+                  ),
+                ),
+              if (plan.peerHandoffs.isNotEmpty)
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                  decoration: BoxDecoration(
+                    color: Colors.purple.withValues(alpha: 0.12),
+                    borderRadius: BorderRadius.circular(4),
+                    border: Border.all(color: Colors.purple.withValues(alpha: 0.3), width: 0.8),
+                  ),
+                  child: const Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(Icons.sync_alt_rounded, size: 10, color: Colors.purpleAccent),
+                      SizedBox(width: 3),
+                      Text('Peer Agent Mesh', style: TextStyle(fontSize: 9, fontWeight: FontWeight.w700, color: Colors.purpleAccent)),
+                    ],
+                  ),
+                ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          ...plan.steps.map((step) {
+            Widget icon;
+            Color textCol;
+            switch (step.status) {
+              case AgenticStepStatus.running:
+                icon = const SizedBox(
+                  width: 12,
+                  height: 12,
+                  child: CircularProgressIndicator(strokeWidth: 2, color: AppColors.brandPink),
+                );
+                textCol = Theme.of(context).colorScheme.onSurface;
+                break;
+              case AgenticStepStatus.completed:
+                icon = const Icon(Icons.check_circle_rounded, color: AppColors.brandPink, size: 15);
+                textCol = Theme.of(context).colorScheme.onSurfaceVariant;
+                break;
+              case AgenticStepStatus.failed:
+                icon = const Icon(Icons.error_outline_rounded, color: Colors.redAccent, size: 15);
+                textCol = Colors.redAccent;
+                break;
+              case AgenticStepStatus.pending:
+                icon = Icon(Icons.radio_button_unchecked_rounded,
+                    color: Theme.of(context).colorScheme.outline, size: 13);
+                textCol = Theme.of(context).colorScheme.outline;
+                break;
+            }
+            return Padding(
+              padding: const EdgeInsets.only(bottom: 8.0),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Padding(
+                        padding: const EdgeInsets.only(top: 2.0),
+                        child: icon,
+                      ),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Row(
+                              children: [
+                                Expanded(
+                                  child: Text(
+                                    step.title,
+                                    style: TextStyle(fontSize: 11.5, fontWeight: FontWeight.w600, color: textCol),
+                                  ),
+                                ),
+                                if (step.peerAgent != null)
+                                  Container(
+                                    padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1.5),
+                                    decoration: BoxDecoration(
+                                      color: Colors.white10,
+                                      borderRadius: BorderRadius.circular(4),
+                                    ),
+                                    child: Text(
+                                      step.handoffTarget != null
+                                          ? '${step.peerAgent} ➔ ${step.handoffTarget}'
+                                          : step.peerAgent!,
+                                      style: const TextStyle(fontSize: 8.5, fontWeight: FontWeight.w600, color: Colors.white70),
+                                    ),
+                                  ),
+                              ],
+                            ),
+                            Text(
+                              step.description,
+                              style: TextStyle(fontSize: 10.0, color: Theme.of(context).colorScheme.outline),
+                              maxLines: 2,
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
+                  if (step.mistakeAvoidance != null)
+                    Container(
+                      margin: const EdgeInsets.only(left: 20, top: 4),
+                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                      decoration: BoxDecoration(
+                        color: AppColors.brandPink.withValues(alpha: 0.08),
+                        borderRadius: BorderRadius.circular(6),
+                        border: Border.all(color: AppColors.brandPink.withValues(alpha: 0.25), width: 0.8),
+                      ),
+                      child: Row(
+                        children: [
+                          const Icon(Icons.shield_outlined, size: 11, color: AppColors.brandPink),
+                          const SizedBox(width: 5),
+                          Expanded(
+                            child: Text(
+                              step.mistakeAvoidance!,
+                              style: const TextStyle(fontSize: 9.5, fontWeight: FontWeight.w500, color: AppColors.brandPink),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  if (step.semanticInsight != null)
+                    Container(
+                      margin: const EdgeInsets.only(left: 20, top: 4),
+                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                      decoration: BoxDecoration(
+                        color: AppColors.brandBlue.withValues(alpha: 0.08),
+                        borderRadius: BorderRadius.circular(6),
+                        border: Border.all(color: AppColors.brandBlue.withValues(alpha: 0.25), width: 0.8),
+                      ),
+                      child: Row(
+                        children: [
+                          const Icon(Icons.hub_outlined, size: 11, color: AppColors.brandBlue),
+                          const SizedBox(width: 5),
+                          Expanded(
+                            child: Text(
+                              step.semanticInsight!,
+                              style: const TextStyle(fontSize: 9.5, fontWeight: FontWeight.w500, color: AppColors.brandBlue),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                ],
+              ),
+            );
+          }),
+          if (plan.isComplete && plan.summary.isNotEmpty) ...[
+            const SizedBox(height: 8),
+            Container(
+              padding: const EdgeInsets.all(10),
+              decoration: BoxDecoration(
+                color: AppColors.brandPink.withValues(alpha: 0.08),
+                borderRadius: BorderRadius.circular(10),
+                border: Border.all(color: AppColors.brandPink.withValues(alpha: 0.3)),
+              ),
+              child: Text(
+                plan.summary,
+                style: const TextStyle(fontSize: 11.5, fontWeight: FontWeight.w500, height: 1.3),
+              ),
+            ),
+          ],
         ],
       ),
     );
@@ -575,13 +1205,53 @@ class _HubAiScreenState extends ConsumerState<HubAiScreen> {
     return Container(
       margin: const EdgeInsets.symmetric(vertical: 6),
       alignment: isUser ? Alignment.centerRight : Alignment.centerLeft,
-      child: Container(
-        padding: const EdgeInsets.all(12),
-        decoration: BoxDecoration(
-          color: isUser ? Theme.of(context).colorScheme.primary.withValues(alpha: 0.2) : Theme.of(context).colorScheme.surfaceContainerHighest,
-          borderRadius: BorderRadius.circular(12),
-        ),
-        child: Text(text, style: TextStyle(color: Theme.of(context).colorScheme.onSurface, fontSize: 13)),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          if (!isUser) ...[
+            Container(
+              width: 26,
+              height: 26,
+              margin: const EdgeInsets.only(right: 8, top: 4),
+              decoration: const BoxDecoration(shape: BoxShape.circle),
+              child: ClipOval(
+                child: Image.asset('assets/images/oneova_logo.png', fit: BoxFit.cover),
+              ),
+            ),
+          ],
+          Flexible(
+            child: Container(
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: isUser
+                    ? AppColors.brandBlue.withValues(alpha: 0.2)
+                    : Theme.of(context).colorScheme.surfaceContainerHighest,
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(
+                  color: isUser
+                      ? AppColors.brandBlue.withValues(alpha: 0.3)
+                      : Theme.of(context).colorScheme.outlineVariant,
+                ),
+              ),
+              child: isUser
+                  ? Text(text, style: TextStyle(color: Theme.of(context).colorScheme.onSurface, fontSize: 13))
+                  : MarkdownBody(
+                      data: text,
+                      styleSheet: MarkdownStyleSheet.fromTheme(Theme.of(context)).copyWith(
+                        p: TextStyle(color: Theme.of(context).colorScheme.onSurface, fontSize: 13, height: 1.4),
+                        h1: TextStyle(color: Theme.of(context).colorScheme.onSurface, fontSize: 16, fontWeight: FontWeight.bold),
+                        h2: TextStyle(color: Theme.of(context).colorScheme.onSurface, fontSize: 14.5, fontWeight: FontWeight.bold),
+                        h3: TextStyle(color: Theme.of(context).colorScheme.onSurface, fontSize: 13.5, fontWeight: FontWeight.bold),
+                        tableBody: TextStyle(color: Theme.of(context).colorScheme.onSurface, fontSize: 11.5),
+                        tableHead: TextStyle(color: Theme.of(context).colorScheme.onSurface, fontSize: 12, fontWeight: FontWeight.bold),
+                        blockquote: const TextStyle(color: AppColors.brandPink, fontSize: 12.5, fontStyle: FontStyle.italic),
+                        listBullet: const TextStyle(color: AppColors.brandPink, fontSize: 13),
+                      ),
+                    ),
+            ),
+          ),
+        ],
       ),
     );
   }
@@ -714,7 +1384,7 @@ class _AiThinkingIndicatorState extends State<_AiThinkingIndicator> with SingleT
                   width: 12,
                   height: 12,
                   decoration: const BoxDecoration(
-                    color: AppColors.mpepeMaroon,
+                    color: AppColors.brandBlue,
                     shape: BoxShape.circle,
                   ),
                 ),

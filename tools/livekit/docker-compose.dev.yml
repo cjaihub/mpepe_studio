@@ -1,0 +1,19 @@
+# Local self-hosted LiveKit for Live Studio v2 development.
+#   docker compose -f tools/livekit/docker-compose.dev.yml up -d
+#
+# Dev mode uses the built-in key pair devkey / secret. These are for local
+# testing only — production uses our own generated keys (see README.md).
+#
+# NODE_IP is the address clients use for media. 127.0.0.1 works for the Mac
+# itself and the iOS Simulator. For the Android emulator use 10.0.2.2 in the
+# app URL; for real phones on Wi-Fi set NODE_IP to the Mac's LAN IP.
+services:
+  livekit:
+    image: livekit/livekit-server:v1.13.10
+    container_name: oneova-livekit-dev
+    command: ["--dev", "--bind", "0.0.0.0", "--node-ip", "${NODE_IP:-127.0.0.1}"]
+    ports:
+      - "7880:7880"       # HTTP API + WebSocket signaling
+      - "7881:7881"       # WebRTC over TCP (fallback)
+      - "7882:7882/udp"   # WebRTC over UDP (single muxed port in dev)
+    restart: unless-stopped

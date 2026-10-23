@@ -86,7 +86,7 @@ class PdfExportService {
     try {
       final bytes = await pdf.save();
       final tempDir = await getTemporaryDirectory();
-      final file = File('${tempDir.path}/mpepe_storyboard_${project.id.isNotEmpty ? project.id : "draft"}.pdf');
+      final file = File('${tempDir.path}/oneova_storyboard_${project.id.isNotEmpty ? project.id : "draft"}.pdf');
       await file.writeAsBytes(bytes);
       return file;
     } catch (e) {

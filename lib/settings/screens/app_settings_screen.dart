@@ -1,13 +1,17 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+import 'package:google_fonts/google_fonts.dart';
 import '../../shared/theme/app_theme.dart';
-import '../../shared/widgets/components.dart';
 import '../../providers/settings_provider.dart';
 import '../commands/update_setting_command.dart';
 import '../../shared/undo/undo_manager.dart';
 import '../../shared/undo/undo_snackbar.dart';
+import '../widgets/settings_kit.dart';
 
+/// App Settings Screen
+/// Controls calling, instant messaging persistence, and desktop workstation links.
+/// Universal dual-mode (Light/Dark), high-density compact scale, and instant auto-save.
 class AppSettingsScreen extends ConsumerWidget {
   const AppSettingsScreen({super.key});
 
@@ -16,40 +20,58 @@ class AppSettingsScreen extends ConsumerWidget {
     final settingsAsync = ref.watch(settingsProvider);
 
     return Scaffold(
-      backgroundColor: AppColors.darkBackground,
+      backgroundColor: context.bg,
       appBar: AppBar(
-        title: Text('App Settings', style: AppTheme.h2Style),
-        backgroundColor: Colors.transparent,
+        title: Row(
+          children: [
+            Text(
+              'App Settings',
+              style: GoogleFonts.inter(
+                fontSize: 17,
+                fontWeight: FontWeight.w800,
+                color: context.topBarFg,
+                letterSpacing: -0.3,
+              ),
+            ),
+            const SizedBox(width: 8),
+            _buildAutoSavePill(context),
+          ],
+        ),
+        backgroundColor: AppColors.brandBlue,
         elevation: 0,
         leading: IconButton(
-          icon: const Icon(Icons.arrow_back_ios_new),
+          icon: Icon(Icons.arrow_back_ios_new, color: context.topBarFg, size: 18),
           onPressed: () => context.pop(),
         ),
       ),
       body: settingsAsync.when(
-        loading: () => const Center(child: CircularProgressIndicator()),
-        error: (e, s) => Center(child: Text('Error: $e')),
+        loading: () => const Center(
+          child: CircularProgressIndicator(color: AppColors.brandBlue),
+        ),
+        error: (e, s) => Center(
+          child: Text('Error: $e', style: const TextStyle(color: AppColors.brandPink)),
+        ),
         data: (settings) {
           final appSettings = settings['app'] as Map<String, dynamic>? ?? {};
 
           return ListView(
-            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 24),
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
             children: [
               _buildSettingsGroup(
                 context,
-                'Communication',
+                'Communication & Sessions',
                 [
-                  _buildSwitch(context, ref, appSettings, Icons.phone, 'Calls Enabled', 'callsEnabled', true),
-                  _buildSwitch(context, ref, appSettings, Icons.message, 'Messaging Enabled', 'messagingEnabled', true),
-                  _buildSwitch(context, ref, appSettings, Icons.history, 'Save Chat History', 'saveHistory', false),
+                  _buildSwitch(context, ref, appSettings, Icons.phone_rounded, 'Calls Enabled', 'Audio & video incoming call sessions', 'callsEnabled', true),
+                  _buildSwitch(context, ref, appSettings, Icons.chat_rounded, 'Messaging Enabled', 'Receive incoming direct & team messages', 'messagingEnabled', true),
+                  _buildSwitch(context, ref, appSettings, Icons.history_rounded, 'Save Chat History', 'Retain chat transcripts locally on this device', 'saveHistory', false),
                 ],
               ),
-              const SizedBox(height: 24),
+              const SizedBox(height: 20),
               _buildSettingsGroup(
                 context,
-                'Integrations',
+                'Workstation Integrations',
                 [
-                  _buildSwitch(context, ref, appSettings, Icons.computer, 'Desktop Auto-Connect', 'desktopAutoConnect', false),
+                  _buildSwitch(context, ref, appSettings, Icons.desktop_windows_rounded, 'Desktop Auto-Connect', 'Automatically sync with Studio PC/Mac daemon', 'desktopAutoConnect', false),
                 ],
               ),
             ],
@@ -59,24 +81,33 @@ class AppSettingsScreen extends ConsumerWidget {
     );
   }
 
+  Widget _buildAutoSavePill(BuildContext context) {
+    return const SettingsSaveIndicator();
+  }
+
   Widget _buildSettingsGroup(BuildContext context, String title, List<Widget> children) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Padding(
-          padding: const EdgeInsets.only(left: 16, bottom: 12),
+          padding: const EdgeInsets.only(left: 4, bottom: 6),
           child: Text(
-            title,
-            style: TextStyle(
-              color: Theme.of(context).colorScheme.primary,
+            title.toUpperCase(),
+            style: GoogleFonts.inter(
+              fontSize: 10.5,
               fontWeight: FontWeight.w800,
-              fontSize: 14,
-              letterSpacing: 0.5,
+              letterSpacing: 0.8,
+              color: AppColors.brandBlue,
             ),
           ),
         ),
-        MpepeCard(
-          padding: EdgeInsets.zero,
+        Container(
+          decoration: BoxDecoration(
+            color: context.surface,
+            borderRadius: BorderRadius.circular(AppRadius.md),
+            border: Border.all(color: context.border, width: 1.0),
+          ),
+          clipBehavior: Clip.antiAlias,
           child: Column(
             children: children,
           ),
@@ -85,39 +116,82 @@ class AppSettingsScreen extends ConsumerWidget {
     );
   }
 
-  Widget _buildSwitch(BuildContext context, WidgetRef ref, Map<String, dynamic> appSettings, IconData icon, String title, String key, bool showDivider) {
+  Widget _buildSwitch(
+    BuildContext context,
+    WidgetRef ref,
+    Map<String, dynamic> appSettings,
+    IconData icon,
+    String title,
+    String subtitle,
+    String key,
+    bool showDivider,
+  ) {
     final bool oldValue = appSettings[key] ?? false;
     return Column(
       children: [
-        ListTile(
-          contentPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
-          leading: Container(
-            padding: const EdgeInsets.all(10),
-            decoration: BoxDecoration(
-              color: Theme.of(context).colorScheme.primary.withValues(alpha: 0.1),
-              borderRadius: BorderRadius.circular(12),
-            ),
-            child: Icon(icon, color: Theme.of(context).colorScheme.primary, size: 22),
-          ),
-          title: Text(title, style: TextStyle(fontWeight: FontWeight.bold, color: Theme.of(context).colorScheme.onSurface, fontSize: 15)),
-          trailing: Switch(
-            value: oldValue,
-            onChanged: (newVal) {
-              final command = UpdateSettingCommand(
-                ref: ref,
-                category: 'app',
-                undoData: {key: oldValue},
-                data: {key: newVal},
-                name: 'Toggle $title',
-              );
-              ref.read(undoManagerProvider.notifier).executeAndRegister(command);
-              UndoSnackbar.show(context, ref, '$title ${newVal ? 'enabled' : 'disabled'}');
-            },
-            activeThumbColor: AppColors.mpepeMaroon,
+        Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+          child: Row(
+            children: [
+              Container(
+                width: 32,
+                height: 32,
+                decoration: BoxDecoration(
+                  color: context.surfaceMid,
+                  borderRadius: BorderRadius.circular(8),
+                  border: Border.all(color: context.border, width: 1.0),
+                ),
+                child: Icon(icon, color: AppColors.brandBlue, size: 17),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      title,
+                      style: GoogleFonts.inter(
+                        fontSize: 13.0,
+                        fontWeight: FontWeight.w600,
+                        color: context.textPrimary,
+                      ),
+                    ),
+                    const SizedBox(height: 1.5),
+                    Text(
+                      subtitle,
+                      style: GoogleFonts.inter(
+                        fontSize: 11.0,
+                        color: context.textMuted,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(width: 8),
+              Transform.scale(
+                scale: 0.85,
+                child: Switch(
+                  value: oldValue,
+                  onChanged: (newVal) {
+                    final command = UpdateSettingCommand(
+                      ref: ref,
+                      category: 'app',
+                      undoData: {key: oldValue},
+                      data: {key: newVal},
+                      name: 'Toggle $title',
+                    );
+                    ref.read(undoManagerProvider.notifier).executeAndRegister(command);
+                    UndoSnackbar.show(context, ref, '$title ${newVal ? 'enabled' : 'disabled'}');
+                  },
+                  activeThumbColor: AppColors.brandBlue,
+                  activeTrackColor: AppColors.brandBlue.withValues(alpha: 0.35),
+                ),
+              ),
+            ],
           ),
         ),
         if (showDivider)
-          Divider(height: 1, color: Theme.of(context).colorScheme.outline.withValues(alpha: 0.1), indent: 70, endIndent: 20),
+          Divider(height: 1, thickness: 1, color: context.border, indent: 58, endIndent: 14),
       ],
     );
   }

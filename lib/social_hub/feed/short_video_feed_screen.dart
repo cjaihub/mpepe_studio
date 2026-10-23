@@ -4,7 +4,7 @@ import 'package:media_kit_video/media_kit_video.dart';
 import '../../../backend/social/models/content.dart';
 import '../../../backend/social/services/video_playback_manager.dart';
 import '../../../backend/social/services/recommendation_service.dart';
-import '../../../shared/design_system/app_colors.dart';
+import 'package:oneova/shared/theme/app_theme.dart';
 
 class ShortVideoFeedScreen extends ConsumerStatefulWidget {
   final FeedMode initialMode;
@@ -65,21 +65,21 @@ class _ShortVideoFeedScreenState extends ConsumerState<ShortVideoFeedScreen> {
   @override
   Widget build(BuildContext context) {
     if (_isLoading) {
-      return const Scaffold(
-        backgroundColor: AppColors.darkBackground,
-        body: Center(child: CircularProgressIndicator(color: AppColors.mpepeMaroon)),
+      return Scaffold(
+        backgroundColor: context.bg,
+        body: const Center(child: CircularProgressIndicator(color: AppColors.brandBlue)),
       );
     }
 
     if (_feed.isEmpty) {
-      return const Scaffold(
-        backgroundColor: AppColors.darkBackground,
-        body: Center(child: Text('No content available', style: TextStyle(color: Colors.white))),
+      return Scaffold(
+        backgroundColor: context.bg,
+        body: Center(child: Text('No content available', style: TextStyle(color: context.textPrimary))),
       );
     }
 
     return Scaffold(
-      backgroundColor: AppColors.darkBackground,
+      backgroundColor: context.bg,
       extendBodyBehindAppBar: true,
       body: PageView.builder(
         controller: _pageController,
@@ -154,7 +154,7 @@ class _ShortVideoItemState extends ConsumerState<_ShortVideoItem> {
         fit: BoxFit.cover,
       );
     }
-    return Container(color: AppColors.darkSurface);
+    return Container(color: context.surfaceMid);
   }
 
   Widget _buildEngagementOverlay() {
@@ -243,9 +243,10 @@ class _ShortVideoItemState extends ConsumerState<_ShortVideoItem> {
   void _showFeedControls(BuildContext context) {
     showModalBottomSheet(
       context: context,
-      backgroundColor: AppColors.darkSurface,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
+      backgroundColor: context.surface,
+      shape: RoundedRectangleBorder(
+        borderRadius: const BorderRadius.vertical(top: Radius.circular(16)),
+        side: BorderSide(color: context.border),
       ),
       builder: (context) {
         return SafeArea(
@@ -253,8 +254,8 @@ class _ShortVideoItemState extends ConsumerState<_ShortVideoItem> {
             mainAxisSize: MainAxisSize.min,
             children: [
               ListTile(
-                leading: const Icon(Icons.visibility_off, color: Colors.white),
-                title: const Text('Not Interested', style: TextStyle(color: Colors.white)),
+                leading: Icon(Icons.visibility_off, color: context.textPrimary),
+                title: Text('Not Interested', style: TextStyle(color: context.textPrimary)),
                 onTap: () {
                   ref.read(recommendationServiceProvider).markNotInterested('currentUser', widget.content.id);
                   Navigator.pop(context);
@@ -262,8 +263,8 @@ class _ShortVideoItemState extends ConsumerState<_ShortVideoItem> {
                 },
               ),
               ListTile(
-                leading: const Icon(Icons.person_off, color: Colors.white),
-                title: Text('Hide @${widget.content.authorId}', style: const TextStyle(color: Colors.white)),
+                leading: Icon(Icons.person_off, color: context.textPrimary),
+                title: Text('Hide @${widget.content.authorId}', style: TextStyle(color: context.textPrimary)),
                 onTap: () {
                   ref.read(recommendationServiceProvider).hideCreator('currentUser', widget.content.authorId);
                   Navigator.pop(context);
@@ -272,8 +273,8 @@ class _ShortVideoItemState extends ConsumerState<_ShortVideoItem> {
               ),
               if (widget.content.hashtags.isNotEmpty)
                 ListTile(
-                  leading: const Icon(Icons.tag_faces, color: Colors.white), // Using tag_faces as proxy for topic hide
-                  title: Text('Hide #${widget.content.hashtags.first}', style: const TextStyle(color: Colors.white)),
+                  leading: Icon(Icons.tag_faces, color: context.textPrimary), // Using tag_faces as proxy for topic hide
+                  title: Text('Hide #${widget.content.hashtags.first}', style: TextStyle(color: context.textPrimary)),
                   onTap: () {
                     ref.read(recommendationServiceProvider).hideTopic('currentUser', widget.content.hashtags.first);
                     Navigator.pop(context);
@@ -281,8 +282,8 @@ class _ShortVideoItemState extends ConsumerState<_ShortVideoItem> {
                   },
                 ),
               ListTile(
-                leading: const Icon(Icons.info_outline, color: Colors.white),
-                title: const Text('Why am I seeing this?', style: TextStyle(color: Colors.white)),
+                leading: Icon(Icons.info_outline, color: context.textPrimary),
+                title: Text('Why am I seeing this?', style: TextStyle(color: context.textPrimary)),
                 onTap: () async {
                   Navigator.pop(context);
                   final explanation = await ref.read(recommendationServiceProvider).getWhyAmISeeingThis(widget.content.id);
@@ -290,11 +291,11 @@ class _ShortVideoItemState extends ConsumerState<_ShortVideoItem> {
                     showDialog(
                       context: context,
                       builder: (c) => AlertDialog(
-                        backgroundColor: AppColors.darkSurface,
-                        title: const Text('About this video', style: TextStyle(color: Colors.white)),
-                        content: Text(explanation['reason'], style: const TextStyle(color: Colors.white70)),
+                        backgroundColor: context.surface,
+                        title: Text('About this video', style: TextStyle(color: context.textPrimary)),
+                        content: Text(explanation['reason'], style: TextStyle(color: context.textSecondary)),
                         actions: [
-                          TextButton(onPressed: () => Navigator.pop(c), child: const Text('Close', style: TextStyle(color: AppColors.mpepeMaroon)))
+                          TextButton(onPressed: () => Navigator.pop(c), child: const Text('Close', style: TextStyle(color: AppColors.brandBlue)))
                         ],
                       )
                     );
@@ -302,8 +303,8 @@ class _ShortVideoItemState extends ConsumerState<_ShortVideoItem> {
                 },
               ),
               ListTile(
-                leading: Icon((ref.watch(videoPlaybackManagerProvider).getController(widget.content.id)?.player.state.volume ?? 100) == 0 ? Icons.volume_off : Icons.volume_up, color: Colors.white),
-                title: Text((ref.watch(videoPlaybackManagerProvider).getController(widget.content.id)?.player.state.volume ?? 100) == 0 ? 'Unmute' : 'Mute sound', style: const TextStyle(color: Colors.white)),
+                leading: Icon((ref.watch(videoPlaybackManagerProvider).getController(widget.content.id)?.player.state.volume ?? 100) == 0 ? Icons.volume_off : Icons.volume_up, color: context.textPrimary),
+                title: Text((ref.watch(videoPlaybackManagerProvider).getController(widget.content.id)?.player.state.volume ?? 100) == 0 ? 'Unmute' : 'Mute sound', style: TextStyle(color: context.textPrimary)),
                 onTap: () {
                   final player = ref.read(videoPlaybackManagerProvider).getController(widget.content.id)?.player;
                   if (player != null) {
@@ -315,8 +316,8 @@ class _ShortVideoItemState extends ConsumerState<_ShortVideoItem> {
                 },
               ),
               ListTile(
-                leading: const Icon(Icons.flag, color: Colors.white),
-                title: const Text('Report', style: TextStyle(color: Colors.white)),
+                leading: Icon(Icons.flag, color: context.textPrimary),
+                title: Text('Report', style: TextStyle(color: context.textPrimary)),
                 onTap: () {
                   ref.read(recommendationServiceProvider).trackEvent('currentUser', widget.content.id, ContentInteractionType.report, {});
                   Navigator.pop(context);

@@ -9,7 +9,7 @@ class DesktopAgentApp extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     return MaterialApp(
-      title: 'MPEPE Studio Connect',
+      title: 'OneOva Connect',
       theme: AppTheme.darkTheme,
       // No auth gate — DesktopAgentScreen handles its own pairing/bypass flow.
       home: const DesktopAgentScreen(),

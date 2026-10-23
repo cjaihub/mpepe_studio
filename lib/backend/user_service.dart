@@ -1,6 +1,39 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter/foundation.dart';
+import 'security/models/privacy_enums.dart';
+
+/// Consent + storage metadata for the user's AI voice personalization sample.
+class AiVoicePersonalizationMetadata {
+  final bool enabled;
+  final DateTime? consentGrantedAt;
+  final String? sampleStoragePath;
+
+  const AiVoicePersonalizationMetadata({
+    this.enabled = false,
+    this.consentGrantedAt,
+    this.sampleStoragePath,
+  });
+
+  factory AiVoicePersonalizationMetadata.fromMap(Map<String, dynamic>? map) {
+    if (map == null) return const AiVoicePersonalizationMetadata();
+    return AiVoicePersonalizationMetadata(
+      enabled: map['enabled'] as bool? ?? false,
+      consentGrantedAt: (map['consentGrantedAt'] as Timestamp?)?.toDate(),
+      sampleStoragePath: map['sampleStoragePath'] as String?,
+    );
+  }
+
+  Map<String, dynamic> toMap() {
+    return {
+      'enabled': enabled,
+      'consentGrantedAt':
+          consentGrantedAt != null ? Timestamp.fromDate(consentGrantedAt!) : null,
+      'sampleStoragePath': sampleStoragePath,
+    };
+  }
+}
 
 class AppUser {
   final String id;
@@ -14,8 +47,17 @@ class AppUser {
   final String preferredLanguage;
   final String themeMode;
   final String lastActiveRoute;
+  final String? profilePhotoUrl;
+  final String? username;
+  final String? bio;
+  final String? coverPhotoUrl;
+  final bool isVerified;
+  final bool isBusiness;
+  final String? location;
   final DateTime createdAt;
   final String? fcmToken;
+  final PrivacyMode defaultPrivacyMode;
+  final AiVoicePersonalizationMetadata aiVoicePersonalization;
 
   AppUser({
     required this.id,
@@ -29,14 +71,31 @@ class AppUser {
     this.preferredLanguage = 'en',
     this.themeMode = 'system',
     this.lastActiveRoute = '/',
+    this.profilePhotoUrl,
+    this.username,
+    this.bio,
+    this.coverPhotoUrl,
+    this.isVerified = false,
+    this.isBusiness = false,
+    this.location,
     required this.createdAt,
     this.fcmToken,
+    this.defaultPrivacyMode = PrivacyMode.public,
+    this.aiVoicePersonalization = const AiVoicePersonalizationMetadata(),
   });
+
+  String? get photoUrl => profilePhotoUrl;
 
   factory AppUser.fromMap(Map<String, dynamic> map, String id) {
     return AppUser(
       id: id,
-      fullName: map['fullName'] ?? '',
+      fullName: (map['fullName'] as String?)?.isNotEmpty == true
+          ? map['fullName']
+          : (map['displayName'] as String?)?.isNotEmpty == true
+              ? map['displayName']
+              : (map['username'] as String?)?.isNotEmpty == true
+                  ? map['username']
+                  : (map['name'] as String?) ?? '',
       email: map['email'] ?? '',
       role: map['role'] ?? '',
       department: map['department'] ?? '',
@@ -46,8 +105,22 @@ class AppUser {
       preferredLanguage: map['preferredLanguage'] ?? 'en',
       themeMode: map['themeMode'] ?? 'system',
       lastActiveRoute: map['lastActiveRoute'] ?? '/',
+      profilePhotoUrl: map['profilePhotoUrl'] ?? map['photoUrl'] ?? map['avatarUrl'],
+      username: map['username'],
+      bio: map['bio'],
+      coverPhotoUrl: map['coverPhotoUrl'],
+      isVerified: map['isVerified'] ?? false,
+      isBusiness: map['isBusiness'] ?? false,
+      location: map['location'],
       createdAt: (map['createdAt'] as Timestamp?)?.toDate() ?? DateTime.now(),
       fcmToken: map['fcmToken'] as String?,
+      defaultPrivacyMode: PrivacyMode.values.firstWhere(
+        (e) => e.name == map['defaultPrivacyMode'],
+        orElse: () => PrivacyMode.public,
+      ),
+      aiVoicePersonalization: AiVoicePersonalizationMetadata.fromMap(
+        map['aiVoicePersonalization'] as Map<String, dynamic>?,
+      ),
     );
   }
 
@@ -63,6 +136,11 @@ class AppUser {
       'preferredLanguage': preferredLanguage,
       'themeMode': themeMode,
       'lastActiveRoute': lastActiveRoute,
+      if (bio != null) 'bio': bio,
+      if (coverPhotoUrl != null) 'coverPhotoUrl': coverPhotoUrl,
+      'isVerified': isVerified,
+      'isBusiness': isBusiness,
+      if (location != null) 'location': location,
       'createdAt': FieldValue.serverTimestamp(),
       // fcmToken is managed separately via FirebaseService — not written here
     };
@@ -159,4 +237,17 @@ class UserService extends AsyncNotifier<List<AppUser>> {
 
 final userProvider = AsyncNotifierProvider<UserService, List<AppUser>>(() {
   return UserService();
+});
+
+final currentUserProfileProvider = StreamProvider.autoDispose<AppUser?>((ref) {
+  final uid = FirebaseAuth.instance.currentUser?.uid;
+  if (uid == null) return Stream.value(null);
+  return FirebaseFirestore.instance
+      .collection('users')
+      .doc(uid)
+      .snapshots()
+      .map((doc) {
+    if (!doc.exists || doc.data() == null) return null;
+    return AppUser.fromMap(doc.data()!, doc.id);
+  });
 });

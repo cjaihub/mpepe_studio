@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """
-MPEPE Studio DaVinci Resolve Integration Plugin
+Oneova Studio DaVinci Resolve Integration Plugin
 
 This script runs inside DaVinci Resolve's Python environment.
-It connects to the MPEPE Studio Flutter application via WebSocket and listens for commands
+It connects to the Oneova Studio Flutter application via WebSocket and listens for commands
 like applying LUTs, adding markers, or triggering renders.
 
 Prerequisites:
@@ -34,7 +34,7 @@ except ImportError:
 WS_URL = "ws://127.0.0.1:8080"
 
 def on_message(ws, message):
-    print(f"[MPEPE Studio] Received: {message}")
+    print(f"[Oneova Studio] Received: {message}")
     if not resolve:
         return
         
@@ -64,7 +64,7 @@ def on_message(ws, message):
                 timeline.AddMarker(
                     0, # placeholder frame 0
                     payload.get("color", "Blue"),
-                    payload.get("name", "MPEPE Marker"),
+                    payload.get("name", "Oneova Marker"),
                     payload.get("note", ""),
                     1,
                     ""
@@ -82,13 +82,13 @@ def on_message(ws, message):
         print(f"Error handling message: {e}")
 
 def on_error(ws, error):
-    print(f"[MPEPE Studio] Error: {error}")
+    print(f"[Oneova Studio] Error: {error}")
 
 def on_close(ws, close_status_code, close_msg):
-    print("[MPEPE Studio] Connection closed")
+    print("[Oneova Studio] Connection closed")
 
 def on_open(ws):
-    print("[MPEPE Studio] Connected to MPEPE Studio Native Bridge!")
+    print("[Oneova Studio] Connected to Oneova Studio Native Bridge!")
     # Say hello
     ws.send(json.dumps({
         "type": "status",
@@ -97,7 +97,7 @@ def on_open(ws):
     }))
 
 if __name__ == "__main__":
-    print(f"Connecting to MPEPE Studio at {WS_URL}...")
+    print(f"Connecting to Oneova Studio at {WS_URL}...")
     
     # We run the websocket in a thread so it doesn't freeze the DaVinci UI
     ws = websocket.WebSocketApp(WS_URL,

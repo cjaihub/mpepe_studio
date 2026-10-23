@@ -257,3 +257,24 @@ Return ONLY a strictly valid JSON array of 3 objects with properties: "title" (s
     throw new HttpsError('internal', 'AI request failed.');
   }
 });
+
+export * from './calls';
+export * from './notifications';
+export * from './biometric';
+export * from './security';
+export * from './securityMail';
+export * from './emailCodes';
+export * from './metaOAuth';
+export * from './inbox';
+export { aiGateway, generateLiveApiToken } from './aiGateway';
+export { globalSemanticSearch } from './search/searchQuery';
+
+// Live Studio v2 (docs/live-studio/ARCHITECTURE.md §5)
+export { lsStart, lsToken, lsEnd, lsTime, lsStateFull, lsSetOwnMedia } from './liveStudio/media';
+export { lsSetSettings } from './liveStudio/settings';
+export { lsSetLayout } from './liveStudio/layout';
+export { lsRequestJoin, lsCancelRequest, lsRespondRequest, lsModerate, lsLeaveStage } from './liveStudio/roles';
+export { lsSetTable, lsPlayback } from './liveStudio/table';
+export { lsMediaKey, lsSecOnIncident, lsSecOnBlock, lsSecOnMemberWrite } from './liveStudio/security';
+export { lsSetChatMode, lsSetJoinRequests } from './liveStudio/controls';
+export { lsComment, lsDeleteComment, lsMuteChat, lsReact, lsShare, lsLivekitWebhook } from './liveStudio/social';

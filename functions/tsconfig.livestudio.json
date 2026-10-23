@@ -1,0 +1,5 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": { "rootDir": "src", "outDir": ".ls-build", "sourceMap": false },
+  "include": ["src/liveStudio"]
+}

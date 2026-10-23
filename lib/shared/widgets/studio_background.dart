@@ -1,6 +1,4 @@
 import 'package:flutter/material.dart';
-import 'dart:ui';
-import 'package:flutter_animate/flutter_animate.dart';
 
 class StudioBackground extends StatelessWidget {
   final Widget child;

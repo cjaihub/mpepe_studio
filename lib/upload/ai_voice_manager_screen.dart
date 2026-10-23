@@ -6,7 +6,6 @@ import 'package:go_router/go_router.dart';
 import 'package:flutter_animate/flutter_animate.dart';
 
 import '../shared/theme/app_theme.dart';
-import '../shared/widgets/studio_background.dart';
 import 'models/omnichannel_upload_task.dart';
 import 'services/ai_upload_assistant.dart';
 import 'services/omnichannel_upload_engine.dart';
@@ -114,7 +113,7 @@ class _AiVoiceManagerScreenState extends ConsumerState<AiVoiceManagerScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: AppColors.darkBackground,
+      backgroundColor: context.bg,
       body: SafeArea(
         child: Column(
             children: [
@@ -131,21 +130,21 @@ class _AiVoiceManagerScreenState extends ConsumerState<AiVoiceManagerScreen> {
                         decoration: BoxDecoration(
                           shape: BoxShape.circle,
                           color: _isListening 
-                              ? AppColors.mpepeMaroon
-                              : AppColors.darkSurface,
+                              ? AppColors.brandBlue
+                              : context.surface,
                           border: Border.all(
-                            color: _isListening ? AppColors.mpepeMaroon : Colors.white10,
+                            color: _isListening ? AppColors.brandBlue : context.border,
                             width: 2,
                           ),
                           boxShadow: [
                             if (_isListening) ...[
                               BoxShadow(
-                                color: AppColors.mpepeMaroon.withValues(alpha: 0.6),
+                                color: AppColors.brandBlue.withValues(alpha: 0.6),
                                 blurRadius: 60,
                                 spreadRadius: 15,
                               ),
                               BoxShadow(
-                                color: AppColors.mpepeMaroon.withValues(alpha: 0.3),
+                                color: AppColors.brandBlue.withValues(alpha: 0.3),
                                 blurRadius: 100,
                                 spreadRadius: 30,
                               ),
@@ -160,7 +159,7 @@ class _AiVoiceManagerScreenState extends ConsumerState<AiVoiceManagerScreen> {
                         child: Icon(
                           _isProcessing ? Icons.auto_awesome : Icons.graphic_eq,
                           size: 72,
-                          color: _isListening || _isProcessing ? Colors.white : Colors.white38,
+                          color: _isListening || _isProcessing ? Colors.white : context.textMuted,
                         ).animate(target: (_isListening || _isProcessing) ? 1 : 0)
                          .scaleXY(end: 1.2, duration: 400.ms)
                          .shimmer(duration: 1.seconds, color: Colors.white54),
@@ -181,16 +180,16 @@ class _AiVoiceManagerScreenState extends ConsumerState<AiVoiceManagerScreen> {
                           margin: const EdgeInsets.symmetric(horizontal: 48),
                           padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 16),
                           decoration: BoxDecoration(
-                            color: AppColors.darkSurfaceHighlight,
+                            color: context.surfaceMid,
                             borderRadius: BorderRadius.circular(24),
-                            border: Border.all(color: Colors.white12, width: 1),
+                            border: Border.all(color: context.border, width: 1),
                           ),
                           child: Text(
                             '"$_transcript"',
                             textAlign: TextAlign.center,
                             style: GoogleFonts.inter(
                               fontSize: 16,
-                              color: AppColors.textPrimary,
+                              color: context.textPrimary,
                               fontWeight: FontWeight.w500,
                               fontStyle: FontStyle.italic,
                             ),
@@ -208,7 +207,7 @@ class _AiVoiceManagerScreenState extends ConsumerState<AiVoiceManagerScreen> {
                           style: GoogleFonts.inter(
                             fontSize: 28,
                             fontWeight: FontWeight.w900,
-                            color: Colors.white,
+                            color: context.textPrimary,
                             height: 1.3,
                             letterSpacing: -0.5,
                           ),
@@ -228,7 +227,7 @@ class _AiVoiceManagerScreenState extends ConsumerState<AiVoiceManagerScreen> {
                           height: _isListening ? 100 : 88,
                           decoration: BoxDecoration(
                             shape: BoxShape.circle,
-                            color: _isListening ? AppColors.mpepeMaroon : AppColors.darkSurfaceHighlight,
+                            color: _isListening ? AppColors.brandBlue : context.surfaceMid,
                             boxShadow: [
                               BoxShadow(
                                 color: Colors.black.withValues(alpha: 0.4),
@@ -237,21 +236,21 @@ class _AiVoiceManagerScreenState extends ConsumerState<AiVoiceManagerScreen> {
                               )
                             ],
                             border: Border.all(
-                              color: _isListening ? AppColors.mpepeMaroon : Colors.white24,
+                              color: _isListening ? AppColors.brandBlue : context.border,
                               width: 2,
                             )
                           ),
                           child: Icon(
                             Icons.mic, 
                             size: _isListening ? 42 : 32, 
-                            color: _isListening ? Colors.white : Colors.white70
+                            color: _isListening ? Colors.white : context.textSecondary
                           ),
                         ),
                       ),
                       const SizedBox(height: 24),
                       Text(
                         'Hold to speak',
-                        style: TextStyle(color: Colors.white.withValues(alpha: 0.5)),
+                        style: TextStyle(color: context.textMuted),
                       ),
                     ],
                   ),
@@ -275,7 +274,7 @@ class _AiVoiceManagerScreenState extends ConsumerState<AiVoiceManagerScreen> {
           const SizedBox(width: 16),
           Text(
             'Upload Manager AI',
-            style: AppTheme.h1Style,
+            style: AppTheme.h1Style.copyWith(color: context.textPrimary),
           ),
         ],
       ),

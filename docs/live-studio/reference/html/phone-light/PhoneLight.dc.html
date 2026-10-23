@@ -1,0 +1,490 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Live studio — phone, light</title>
+<script src="./vendor/react.js"></script>
+<script src="./vendor/react-dom.js"></script>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<style>
+body{margin:0;background:#D3DAE6}
+a{color:#FF2D75}a:hover{color:#FF4D8D}
+@keyframes ss-pulse{0%,100%{opacity:1;transform:scale(1)}50%{opacity:.35;transform:scale(.7)}}
+@keyframes ss-float{0%{opacity:0;transform:translateY(0) scale(.6)}15%{opacity:1}100%{opacity:0;transform:translateY(-120px) scale(1.1)}}
+.ss-dot{animation:ss-pulse 1.4s ease-in-out infinite}
+.ss-heart{animation:ss-float 3.2s ease-out infinite}
+.ss-tile{transition:box-shadow .2s ease,border-color .2s ease}
+.ss-tile:hover{box-shadow:0 0 0 2px #FF2D75,0 0 22px rgba(255,45,117,.6),0 12px 28px rgba(0,0,0,.75) !important}
+.ss-tile:focus-visible,.ss-btn:focus-visible{outline:2px solid #2F7BFF;outline-offset:2px}
+.ss-btn{transition:background .15s ease,border-color .15s ease,color .15s ease,transform .1s ease}
+.ss-btn:active{transform:scale(.98)}
+.ss-ghost:hover{background:rgba(255,45,117,.08) !important;color:#FF2D75 !important}
+.ss-sec:hover{border-color:#FF2D75 !important}
+.ss-blue:hover{background:#4D8FFF !important;box-shadow:0 0 18px rgba(47,123,255,.55) !important}
+.ss-exp:hover{background:#2F7BFF !important}
+@keyframes ss-eq{0%,100%{height:30%}50%{height:100%}}
+.ss-eq span{border-radius:2px;height:40%;animation:ss-eq .9s ease-in-out infinite}
+.ss-eq span:nth-child(2){animation-delay:.25s}
+.ss-eq span:nth-child(3){animation-delay:.5s}
+@keyframes ss-rise{0%{opacity:0;transform:translateY(18px) scale(.96)}100%{opacity:1;transform:none}}
+.ss-rise{animation:ss-rise .45s cubic-bezier(.2,.8,.2,1) both}
+@keyframes ss-up{0%{transform:translateY(100%)}100%{transform:none}}
+.ss-up{animation:ss-up .32s cubic-bezier(.2,.8,.2,1) both}
+.ss-pri:hover{background:#FF4D8D !important;box-shadow:0 0 16px rgba(255,45,117,.4)}
+.ss-in::placeholder{color:#7A8194}
+.ss-in:focus{outline:none;border-color:#FF2D75 !important;box-shadow:0 0 0 3px rgba(255,45,117,.2)}
+.ss-sr{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
+</style>
+</helmet>
+<div class="ss-root" style="position: relative; width: 390px; height: 844px; overflow: hidden; border-radius: 20px; background: #D3DAE6; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; color: #14141A">
+
+<div style="position: absolute; left: -259px; top: 30px; width: 1376px; height: 768px; transform-origin: 0 0; color: #FFFFFF; transform: scale(0.66)">
+<img src="./assets/a5e5834b4817a105d7b80caa15db0123.jpg" alt="Broadcast studio with a curved video wall" style="position: absolute; left: 0; top: 0; width: 1376px; height: 768px; display: block">
+<div aria-hidden="true" style="position: absolute; inset: 0; {{dim}}"></div>
+
+<div style="position: absolute; left: 0; top: 0; width: 1376px; height: 768px; pointer-events: none; filter: drop-shadow(0 14px 22px rgba(0,0,0,0.75)) drop-shadow(0 0 16px rgba(255,45,117,0.3))">
+<div style="position: absolute; left: 590px; top: 240.14px; width: 196px; height: 279.9px; clip-path: path('M29.9 5.5 L31.5 5.6 L35.0 5.8 L38.5 6.1 L42.0 6.3 L45.5 6.5 L49.0 6.7 L52.5 6.8 L56.0 7.0 L59.5 7.1 L63.0 7.2 L66.5 7.4 L70.0 7.5 L73.5 7.6 L77.0 7.7 L80.5 7.7 L84.0 7.8 L87.5 7.8 L91.0 7.8 L94.5 7.9 L98.0 7.9 L101.5 7.9 L105.0 7.8 L108.5 7.8 L112.0 7.7 L115.5 7.6 L119.0 7.6 L122.5 7.5 L126.0 7.4 L129.5 7.3 L133.0 7.2 L136.5 7.0 L140.0 6.9 L143.5 6.7 L147.0 6.5 L150.5 6.3 L154.0 6.1 L157.5 5.9 L161.0 5.7 L164.5 5.4 L166.1 5.3 Q196.0 2.7 196.0 32.7 L196.0 249.9 Q196.0 279.9 166.0 279.9 L161.7 279.9 L156.8 279.9 L151.9 279.9 L147.0 279.9 L142.1 279.9 L137.2 279.9 L132.3 279.9 L127.4 279.9 L122.5 279.9 L117.6 279.9 L112.7 279.9 L107.8 279.9 L102.9 279.9 L98.0 279.9 L93.1 279.9 L88.2 279.9 L83.3 279.9 L78.4 279.9 L73.5 279.9 L68.6 279.9 L63.7 279.9 L58.8 279.9 L53.9 279.9 L49.0 279.9 L44.1 279.9 L39.2 279.9 L34.3 279.9 L30.0 279.9 Q0.0 279.9 0.0 249.9 L0.0 33.0 Q0.0 3.0 29.9 5.5 Z'); background: {{s0.bg}}">
+<svg aria-hidden="true" viewBox="0 0 100 100" preserveAspectRatio="xMidYMax meet" style="position: absolute; left: 0; bottom: 0; width: 196px; height: 230px; left: 0; bottom: 44px"><circle cx="50" cy="42" r="15" fill="#3a3a48"></circle><path d="M16 100c0-24 15-36 34-36s34 12 34 36z" fill="#2b2b36"></path><path d="M36 33a15 15 0 0128-4" stroke="rgba(255,45,117,0.55)" stroke-width="1.5" fill="none"></path></svg>
+<div style="position: absolute; left: 0; right: 0; bottom: 0; height: 130px; background: linear-gradient(to top, rgba(8,8,10,0.85), transparent)"></div>
+<div style="position: absolute; left: 14px; right: 14px; bottom: 14px; display: flex; flex-direction: column; gap: 3px">
+<span style="align-self: flex-start; padding: 3px 9px; border-radius: 5px; background: #FF2D75; font: 600 13px/17px -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; letter-spacing: 0.06em">ON STAGE</span>
+<span style="font: 700 24px/28px -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; white-space: nowrap; overflow: hidden; text-overflow: ellipsis">{{s0.name}}</span>
+<span style="font: 400 15px/19px -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; color: #A3A3B2">{{s0.role}}</span>
+</div>
+<span style="position: absolute; right: 14px; top: 22px; display: flex; align-items: center; gap: 7px; padding: 4px 11px; border-radius: 9999px; background: #FF1744; font: 600 14px/18px -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; letter-spacing: 0.06em"><span class="ss-dot" style="width: 8px; height: 8px; border-radius: 9999px; background: #FFFFFF"></span>LIVE</span>
+<svg aria-hidden="true" width="196" height="279.9" viewBox="0 0 196 279.9" style="position: absolute; left: 0; top: 0"><path d="M29.9 5.5 L31.5 5.6 L35.0 5.8 L38.5 6.1 L42.0 6.3 L45.5 6.5 L49.0 6.7 L52.5 6.8 L56.0 7.0 L59.5 7.1 L63.0 7.2 L66.5 7.4 L70.0 7.5 L73.5 7.6 L77.0 7.7 L80.5 7.7 L84.0 7.8 L87.5 7.8 L91.0 7.8 L94.5 7.9 L98.0 7.9 L101.5 7.9 L105.0 7.8 L108.5 7.8 L112.0 7.7 L115.5 7.6 L119.0 7.6 L122.5 7.5 L126.0 7.4 L129.5 7.3 L133.0 7.2 L136.5 7.0 L140.0 6.9 L143.5 6.7 L147.0 6.5 L150.5 6.3 L154.0 6.1 L157.5 5.9 L161.0 5.7 L164.5 5.4 L166.1 5.3 Q196.0 2.7 196.0 32.7 L196.0 249.9 Q196.0 279.9 166.0 279.9 L161.7 279.9 L156.8 279.9 L151.9 279.9 L147.0 279.9 L142.1 279.9 L137.2 279.9 L132.3 279.9 L127.4 279.9 L122.5 279.9 L117.6 279.9 L112.7 279.9 L107.8 279.9 L102.9 279.9 L98.0 279.9 L93.1 279.9 L88.2 279.9 L83.3 279.9 L78.4 279.9 L73.5 279.9 L68.6 279.9 L63.7 279.9 L58.8 279.9 L53.9 279.9 L49.0 279.9 L44.1 279.9 L39.2 279.9 L34.3 279.9 L30.0 279.9 Q0.0 279.9 0.0 249.9 L0.0 33.0 Q0.0 3.0 29.9 5.5 Z" fill="none" stroke="rgba(255,45,117,0.75)" stroke-width="{{hostRim}}"></path><path d="M29.9 5.5 L31.5 5.6 L35.0 5.8 L38.5 6.1 L42.0 6.3 L45.5 6.5 L49.0 6.7 L52.5 6.8 L56.0 7.0 L59.5 7.1 L63.0 7.2 L66.5 7.4 L70.0 7.5 L73.5 7.6 L77.0 7.7 L80.5 7.7 L84.0 7.8 L87.5 7.8 L91.0 7.8 L94.5 7.9 L98.0 7.9 L101.5 7.9 L105.0 7.8 L108.5 7.8 L112.0 7.7 L115.5 7.6 L119.0 7.6 L122.5 7.5 L126.0 7.4 L129.5 7.3 L133.0 7.2 L136.5 7.0 L140.0 6.9 L143.5 6.7 L147.0 6.5 L150.5 6.3 L154.0 6.1 L157.5 5.9 L161.0 5.7 L164.5 5.4 L166.1 5.3 Q196.0 2.7 196.0 32.7 L196.0 249.9 Q196.0 279.9 166.0 279.9 L161.7 279.9 L156.8 279.9 L151.9 279.9 L147.0 279.9 L142.1 279.9 L137.2 279.9 L132.3 279.9 L127.4 279.9 L122.5 279.9 L117.6 279.9 L112.7 279.9 L107.8 279.9 L102.9 279.9 L98.0 279.9 L93.1 279.9 L88.2 279.9 L83.3 279.9 L78.4 279.9 L73.5 279.9 L68.6 279.9 L63.7 279.9 L58.8 279.9 L53.9 279.9 L49.0 279.9 L44.1 279.9 L39.2 279.9 L34.3 279.9 L30.0 279.9 Q0.0 279.9 0.0 249.9 L0.0 33.0 Q0.0 3.0 29.9 5.5 Z" fill="none" stroke="{{frameColor}}" stroke-width="{{hostStroke}}"></path></svg>
+<button class="ss-btn ss-exp" aria-label="Pop out {{s0.name}}" onClick="{{s0.open}}" style="position: absolute; left: 16px; top: 22px; width: 40px; height: 40px; margin: 0; padding: 0; border: 0; border-radius: 8px; background: rgba(8,8,10,0.72); color: #FFFFFF; display: flex; align-items: center; justify-content: center; cursor: pointer; z-index: 2"><svg aria-hidden="true" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 4h6v6M10 20H4v-6M20 4l-7 7M4 20l7-7"></path></svg></button>
+</div>
+</div>
+<div aria-hidden="true" style="position: absolute; left: 600px; top: 522px; width: 176px; height: 10px; border-radius: 50%; background: radial-gradient(ellipse, rgba(255,45,117,0.45), transparent 70%)"></div>
+
+<span aria-hidden="true" style="position: absolute; left: 0; top: 0; width: 150px; height: 92px; transform-origin: 0 0; transform: matrix3d(1.97137,0.580613,0,0.00152011,0,1.04397,0,0,0,0,1,0,419,211.692,0,1) translate(-18.0px, -9.2px) scale(1.24, 1.2); border-radius: 18px; background: {{s1.accent}}; opacity: 0.32; filter: blur(22px); pointer-events: none"></span>
+<button class="ss-tile" aria-label="Spotlight {{s1.name}}" onClick="{{s1.pick}}" style="position: absolute; left: 0; top: 0; width: 150px; height: 92px; box-sizing: border-box; margin: 0; padding: 0; transform-origin: 0 0; transform: matrix3d(1.97137,0.580613,0,0.00152011,0,1.04397,0,0,0,0,1,0,419,211.692,0,1); border: {{tileFrame}}px solid {{frameColor}}; border-radius: 14px; box-shadow: 0 0 0 2px rgba(47,123,255,0.85), 0 14px 30px rgba(0,0,0,0.75), 0 0 20px rgba(47,123,255,0.35); overflow: hidden; cursor: pointer; color: #FFFFFF; background: {{s1.bg}}">
+<span aria-hidden="true" style="position: absolute; inset: 0; background: radial-gradient(80% 70% at 50% 100%, {{s1.accentGlow}}, transparent 70%)"></span>
+<svg aria-hidden="true" viewBox="0 0 100 100" preserveAspectRatio="xMidYMax meet" style="position: absolute; left: 0; bottom: 0; width: 100%; height: 86%; {{s1.avatarStyle}}"><path d="M14 100c0-25 16-37 36-37s36 12 36 37z" fill="{{s1.accent}}"></path><path d="M38 66c3 5 7 7 12 7s9-2 12-7" fill="none" stroke="rgba(255,255,255,0.5)" stroke-width="2.5" stroke-linecap="round"></path><circle cx="50" cy="40" r="21" fill="#FFF4EC"></circle><path d="M29 38c1-13 10-20 21-20s20 7 21 20c-6-6-13-8-21-8s-15 2-21 8z" fill="{{s1.accent}}" opacity="0.85"></path><circle cx="42.5" cy="43" r="2.6" fill="#1B1B24"></circle><circle cx="57.5" cy="43" r="2.6" fill="#1B1B24"></circle><path d="M44 50.5c3.5 3.2 8.5 3.2 12 0" fill="none" stroke="#1B1B24" stroke-width="2.2" stroke-linecap="round"></path><circle cx="37" cy="49" r="3.4" fill="#FF8FB1" opacity="0.6"></circle><circle cx="63" cy="49" r="3.4" fill="#FF8FB1" opacity="0.6"></circle></svg>
+<span aria-hidden="true" style="position: absolute; inset: 0; background: linear-gradient(118deg, rgba(255,255,255,0.16) 0%, rgba(255,255,255,0.04) 28%, transparent 42%); pointer-events: none"></span>
+<sc-if value="{{showNames}}" hint-placeholder-val="{{true}}"><span style="position: absolute; left: 7px; right: 7px; bottom: 7px; display: flex; justify-content: center"><span style="max-width: 100%; box-sizing: border-box; display: inline-flex; align-items: center; gap: 6px; padding: 3px 9px; border-radius: 9999px; background: rgba(10,12,20,0.62); backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px); border: 1px solid rgba(255,255,255,0.14)">
+<sc-if value="{{s1.live}}" hint-placeholder-val="{{true}}"><span class="ss-eq" style="display: inline-flex; align-items: flex-end; gap: 2px; height: 12px; flex-shrink: 0"><span style="width: 3px; background: {{s1.accent}}"></span><span style="width: 3px; background: {{s1.accent}}"></span><span style="width: 3px; background: {{s1.accent}}"></span></span></sc-if>
+<sc-if value="{{s1.muted}}" hint-placeholder-val="{{false}}"><svg aria-hidden="true" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#FF5A7A" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink: 0"><path d="M3 3l18 18"></path><path d="M9 9v2a3 3 0 005 2.2M15 9.3V6a3 3 0 00-5.8-1"></path><path d="M5 11a7 7 0 0011.2 5.6M19 11a7 7 0 01-.6 2.8M12 18v3"></path></svg></sc-if>
+<span style="min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font: 600 13px/1.25 -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; color: #FFFFFF">{{s1.name}}</span>
+</span></span></sc-if>
+</button>
+<button class="ss-btn ss-exp" aria-label="Pop out {{s1.name}}" onClick="{{s1.open}}" style="position: absolute; left: 0; top: 0; width: 30px; height: 30px; margin: 0; padding: 0; transform-origin: 0 0; transform: matrix3d(1.97137,0.580613,0,0.00152011,0,1.04397,0,0,0,0,1,0,419,211.692,0,1) translate(114px, 6px); border: 0; border-radius: 6px; background: rgba(8,8,10,0.72); color: #FFFFFF; display: flex; align-items: center; justify-content: center; cursor: pointer"><svg aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 4h6v6M10 20H4v-6M20 4l-7 7M4 20l7-7"></path></svg></button>
+<span aria-hidden="true" style="position: absolute; left: 0; top: 0; width: 150px; height: 110px; transform-origin: 0 0; transform: matrix3d(0.859643,-0.0807457,0,-0.000390076,0,1.06719,0,0,0,0,1,0,419,350.477,0,1) translate(-18.0px, -11.0px) scale(1.24, 1.2); border-radius: 18px; background: {{s2.accent}}; opacity: 0.32; filter: blur(22px); pointer-events: none"></span>
+<button class="ss-tile" aria-label="Spotlight {{s2.name}}" onClick="{{s2.pick}}" style="position: absolute; left: 0; top: 0; width: 150px; height: 110px; box-sizing: border-box; margin: 0; padding: 0; transform-origin: 0 0; transform: matrix3d(0.859643,-0.0807457,0,-0.000390076,0,1.06719,0,0,0,0,1,0,419,350.477,0,1); border: {{tileFrame}}px solid {{frameColor}}; border-radius: 14px; box-shadow: 0 0 0 2px rgba(47,123,255,0.85), 0 14px 30px rgba(0,0,0,0.75), 0 0 20px rgba(47,123,255,0.35); overflow: hidden; cursor: pointer; color: #FFFFFF; background: {{s2.bg}}">
+<span aria-hidden="true" style="position: absolute; inset: 0; background: radial-gradient(80% 70% at 50% 100%, {{s2.accentGlow}}, transparent 70%)"></span>
+<svg aria-hidden="true" viewBox="0 0 100 100" preserveAspectRatio="xMidYMax meet" style="position: absolute; left: 0; bottom: 0; width: 100%; height: 86%; {{s2.avatarStyle}}"><path d="M14 100c0-25 16-37 36-37s36 12 36 37z" fill="{{s2.accent}}"></path><path d="M38 66c3 5 7 7 12 7s9-2 12-7" fill="none" stroke="rgba(255,255,255,0.5)" stroke-width="2.5" stroke-linecap="round"></path><circle cx="50" cy="40" r="21" fill="#FFF4EC"></circle><path d="M29 38c1-13 10-20 21-20s20 7 21 20c-6-6-13-8-21-8s-15 2-21 8z" fill="{{s2.accent}}" opacity="0.85"></path><circle cx="42.5" cy="43" r="2.6" fill="#1B1B24"></circle><circle cx="57.5" cy="43" r="2.6" fill="#1B1B24"></circle><path d="M44 50.5c3.5 3.2 8.5 3.2 12 0" fill="none" stroke="#1B1B24" stroke-width="2.2" stroke-linecap="round"></path><circle cx="37" cy="49" r="3.4" fill="#FF8FB1" opacity="0.6"></circle><circle cx="63" cy="49" r="3.4" fill="#FF8FB1" opacity="0.6"></circle></svg>
+<span aria-hidden="true" style="position: absolute; inset: 0; background: linear-gradient(118deg, rgba(255,255,255,0.16) 0%, rgba(255,255,255,0.04) 28%, transparent 42%); pointer-events: none"></span>
+<sc-if value="{{showNames}}" hint-placeholder-val="{{true}}"><span style="position: absolute; left: 7px; right: 7px; bottom: 7px; display: flex; justify-content: center"><span style="max-width: 100%; box-sizing: border-box; display: inline-flex; align-items: center; gap: 6px; padding: 3px 9px; border-radius: 9999px; background: rgba(10,12,20,0.62); backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px); border: 1px solid rgba(255,255,255,0.14)">
+<sc-if value="{{s2.live}}" hint-placeholder-val="{{true}}"><span class="ss-eq" style="display: inline-flex; align-items: flex-end; gap: 2px; height: 12px; flex-shrink: 0"><span style="width: 3px; background: {{s2.accent}}"></span><span style="width: 3px; background: {{s2.accent}}"></span><span style="width: 3px; background: {{s2.accent}}"></span></span></sc-if>
+<sc-if value="{{s2.muted}}" hint-placeholder-val="{{false}}"><svg aria-hidden="true" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#FF5A7A" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink: 0"><path d="M3 3l18 18"></path><path d="M9 9v2a3 3 0 005 2.2M15 9.3V6a3 3 0 00-5.8-1"></path><path d="M5 11a7 7 0 0011.2 5.6M19 11a7 7 0 01-.6 2.8M12 18v3"></path></svg></sc-if>
+<span style="min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font: 600 13px/1.25 -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; color: #FFFFFF">{{s2.name}}</span>
+</span></span></sc-if>
+</button>
+<button class="ss-btn ss-exp" aria-label="Pop out {{s2.name}}" onClick="{{s2.open}}" style="position: absolute; left: 0; top: 0; width: 30px; height: 30px; margin: 0; padding: 0; transform-origin: 0 0; transform: matrix3d(0.859643,-0.0807457,0,-0.000390076,0,1.06719,0,0,0,0,1,0,419,350.477,0,1) translate(114px, 6px); border: 0; border-radius: 6px; background: rgba(8,8,10,0.72); color: #FFFFFF; display: flex; align-items: center; justify-content: center; cursor: pointer"><svg aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 4h6v6M10 20H4v-6M20 4l-7 7M4 20l7-7"></path></svg></button>
+<span aria-hidden="true" style="position: absolute; left: 0; top: 0; width: 150px; height: 92px; transform-origin: 0 0; transform: matrix3d(-0.101864,-0.467847,0,-0.00122488,0,0.852161,0,0,0,0,1,0,794,242.975,0,1) translate(-18.0px, -9.2px) scale(1.24, 1.2); border-radius: 18px; background: {{s3.accent}}; opacity: 0.32; filter: blur(22px); pointer-events: none"></span>
+<button class="ss-tile" aria-label="Spotlight {{s3.name}}" onClick="{{s3.pick}}" style="position: absolute; left: 0; top: 0; width: 150px; height: 92px; box-sizing: border-box; margin: 0; padding: 0; transform-origin: 0 0; transform: matrix3d(-0.101864,-0.467847,0,-0.00122488,0,0.852161,0,0,0,0,1,0,794,242.975,0,1); border: {{tileFrame}}px solid {{frameColor}}; border-radius: 14px; box-shadow: 0 0 0 2px rgba(47,123,255,0.85), 0 14px 30px rgba(0,0,0,0.75), 0 0 20px rgba(47,123,255,0.35); overflow: hidden; cursor: pointer; color: #FFFFFF; background: {{s3.bg}}">
+<span aria-hidden="true" style="position: absolute; inset: 0; background: radial-gradient(80% 70% at 50% 100%, {{s3.accentGlow}}, transparent 70%)"></span>
+<svg aria-hidden="true" viewBox="0 0 100 100" preserveAspectRatio="xMidYMax meet" style="position: absolute; left: 0; bottom: 0; width: 100%; height: 86%; {{s3.avatarStyle}}"><path d="M14 100c0-25 16-37 36-37s36 12 36 37z" fill="{{s3.accent}}"></path><path d="M38 66c3 5 7 7 12 7s9-2 12-7" fill="none" stroke="rgba(255,255,255,0.5)" stroke-width="2.5" stroke-linecap="round"></path><circle cx="50" cy="40" r="21" fill="#FFF4EC"></circle><path d="M29 38c1-13 10-20 21-20s20 7 21 20c-6-6-13-8-21-8s-15 2-21 8z" fill="{{s3.accent}}" opacity="0.85"></path><circle cx="42.5" cy="43" r="2.6" fill="#1B1B24"></circle><circle cx="57.5" cy="43" r="2.6" fill="#1B1B24"></circle><path d="M44 50.5c3.5 3.2 8.5 3.2 12 0" fill="none" stroke="#1B1B24" stroke-width="2.2" stroke-linecap="round"></path><circle cx="37" cy="49" r="3.4" fill="#FF8FB1" opacity="0.6"></circle><circle cx="63" cy="49" r="3.4" fill="#FF8FB1" opacity="0.6"></circle></svg>
+<span aria-hidden="true" style="position: absolute; inset: 0; background: linear-gradient(118deg, rgba(255,255,255,0.16) 0%, rgba(255,255,255,0.04) 28%, transparent 42%); pointer-events: none"></span>
+<sc-if value="{{showNames}}" hint-placeholder-val="{{true}}"><span style="position: absolute; left: 7px; right: 7px; bottom: 7px; display: flex; justify-content: center"><span style="max-width: 100%; box-sizing: border-box; display: inline-flex; align-items: center; gap: 6px; padding: 3px 9px; border-radius: 9999px; background: rgba(10,12,20,0.62); backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px); border: 1px solid rgba(255,255,255,0.14)">
+<sc-if value="{{s3.live}}" hint-placeholder-val="{{true}}"><span class="ss-eq" style="display: inline-flex; align-items: flex-end; gap: 2px; height: 12px; flex-shrink: 0"><span style="width: 3px; background: {{s3.accent}}"></span><span style="width: 3px; background: {{s3.accent}}"></span><span style="width: 3px; background: {{s3.accent}}"></span></span></sc-if>
+<sc-if value="{{s3.muted}}" hint-placeholder-val="{{false}}"><svg aria-hidden="true" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#FF5A7A" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink: 0"><path d="M3 3l18 18"></path><path d="M9 9v2a3 3 0 005 2.2M15 9.3V6a3 3 0 00-5.8-1"></path><path d="M5 11a7 7 0 0011.2 5.6M19 11a7 7 0 01-.6 2.8M12 18v3"></path></svg></sc-if>
+<span style="min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font: 600 13px/1.25 -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; color: #FFFFFF">{{s3.name}}</span>
+</span></span></sc-if>
+</button>
+<button class="ss-btn ss-exp" aria-label="Pop out {{s3.name}}" onClick="{{s3.open}}" style="position: absolute; left: 0; top: 0; width: 30px; height: 30px; margin: 0; padding: 0; transform-origin: 0 0; transform: matrix3d(-0.101864,-0.467847,0,-0.00122488,0,0.852161,0,0,0,0,1,0,794,242.975,0,1) translate(114px, 6px); border: 0; border-radius: 6px; background: rgba(8,8,10,0.72); color: #FFFFFF; display: flex; align-items: center; justify-content: center; cursor: pointer"><svg aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 4h6v6M10 20H4v-6M20 4l-7 7M4 20l7-7"></path></svg></button>
+<span aria-hidden="true" style="position: absolute; left: 0; top: 0; width: 150px; height: 110px; transform-origin: 0 0; transform: matrix3d(1.45778,0.0848643,0,0.000409972,0,1.13281,0,0,0,0,1,0,794,359.301,0,1) translate(-18.0px, -11.0px) scale(1.24, 1.2); border-radius: 18px; background: {{s4.accent}}; opacity: 0.32; filter: blur(22px); pointer-events: none"></span>
+<button class="ss-tile" aria-label="Spotlight {{s4.name}}" onClick="{{s4.pick}}" style="position: absolute; left: 0; top: 0; width: 150px; height: 110px; box-sizing: border-box; margin: 0; padding: 0; transform-origin: 0 0; transform: matrix3d(1.45778,0.0848643,0,0.000409972,0,1.13281,0,0,0,0,1,0,794,359.301,0,1); border: {{tileFrame}}px solid {{frameColor}}; border-radius: 14px; box-shadow: 0 0 0 2px rgba(47,123,255,0.85), 0 14px 30px rgba(0,0,0,0.75), 0 0 20px rgba(47,123,255,0.35); overflow: hidden; cursor: pointer; color: #FFFFFF; background: {{s4.bg}}">
+<span aria-hidden="true" style="position: absolute; inset: 0; background: radial-gradient(80% 70% at 50% 100%, {{s4.accentGlow}}, transparent 70%)"></span>
+<svg aria-hidden="true" viewBox="0 0 100 100" preserveAspectRatio="xMidYMax meet" style="position: absolute; left: 0; bottom: 0; width: 100%; height: 86%; {{s4.avatarStyle}}"><path d="M14 100c0-25 16-37 36-37s36 12 36 37z" fill="{{s4.accent}}"></path><path d="M38 66c3 5 7 7 12 7s9-2 12-7" fill="none" stroke="rgba(255,255,255,0.5)" stroke-width="2.5" stroke-linecap="round"></path><circle cx="50" cy="40" r="21" fill="#FFF4EC"></circle><path d="M29 38c1-13 10-20 21-20s20 7 21 20c-6-6-13-8-21-8s-15 2-21 8z" fill="{{s4.accent}}" opacity="0.85"></path><circle cx="42.5" cy="43" r="2.6" fill="#1B1B24"></circle><circle cx="57.5" cy="43" r="2.6" fill="#1B1B24"></circle><path d="M44 50.5c3.5 3.2 8.5 3.2 12 0" fill="none" stroke="#1B1B24" stroke-width="2.2" stroke-linecap="round"></path><circle cx="37" cy="49" r="3.4" fill="#FF8FB1" opacity="0.6"></circle><circle cx="63" cy="49" r="3.4" fill="#FF8FB1" opacity="0.6"></circle></svg>
+<span aria-hidden="true" style="position: absolute; inset: 0; background: linear-gradient(118deg, rgba(255,255,255,0.16) 0%, rgba(255,255,255,0.04) 28%, transparent 42%); pointer-events: none"></span>
+<sc-if value="{{showNames}}" hint-placeholder-val="{{true}}"><span style="position: absolute; left: 7px; right: 7px; bottom: 7px; display: flex; justify-content: center"><span style="max-width: 100%; box-sizing: border-box; display: inline-flex; align-items: center; gap: 6px; padding: 3px 9px; border-radius: 9999px; background: rgba(10,12,20,0.62); backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px); border: 1px solid rgba(255,255,255,0.14)">
+<sc-if value="{{s4.live}}" hint-placeholder-val="{{true}}"><span class="ss-eq" style="display: inline-flex; align-items: flex-end; gap: 2px; height: 12px; flex-shrink: 0"><span style="width: 3px; background: {{s4.accent}}"></span><span style="width: 3px; background: {{s4.accent}}"></span><span style="width: 3px; background: {{s4.accent}}"></span></span></sc-if>
+<sc-if value="{{s4.muted}}" hint-placeholder-val="{{false}}"><svg aria-hidden="true" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#FF5A7A" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink: 0"><path d="M3 3l18 18"></path><path d="M9 9v2a3 3 0 005 2.2M15 9.3V6a3 3 0 00-5.8-1"></path><path d="M5 11a7 7 0 0011.2 5.6M19 11a7 7 0 01-.6 2.8M12 18v3"></path></svg></sc-if>
+<span style="min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font: 600 13px/1.25 -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; color: #FFFFFF">{{s4.name}}</span>
+</span></span></sc-if>
+</button>
+<button class="ss-btn ss-exp" aria-label="Pop out {{s4.name}}" onClick="{{s4.open}}" style="position: absolute; left: 0; top: 0; width: 30px; height: 30px; margin: 0; padding: 0; transform-origin: 0 0; transform: matrix3d(1.45778,0.0848643,0,0.000409972,0,1.13281,0,0,0,0,1,0,794,359.301,0,1) translate(114px, 6px); border: 0; border-radius: 6px; background: rgba(8,8,10,0.72); color: #FFFFFF; display: flex; align-items: center; justify-content: center; cursor: pointer"><svg aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 4h6v6M10 20H4v-6M20 4l-7 7M4 20l7-7"></path></svg></button>
+</div>
+
+<div aria-hidden="true" style="position: absolute; left: 0; right: 0; top: 0; height: 150px; background: linear-gradient(to bottom, rgba(211,218,230,0.92) 0%, rgba(211,218,230,0.6) 45%, rgba(211,218,230,0) 100%); backdrop-filter: blur(6px); -webkit-backdrop-filter: blur(6px); -webkit-mask-image: linear-gradient(to bottom, #000000 35%, transparent 100%); mask-image: linear-gradient(to bottom, #000000 35%, transparent 100%)"></div>
+<div aria-hidden="true" style="position: absolute; left: 0; right: 0; top: 430px; height: 180px; background: linear-gradient(to bottom, transparent, #D3DAE6 60%)"></div>
+
+<div style="position: absolute; left: 32px; top: 377px; box-sizing: border-box; padding: 4px; border-radius: 9999px; display: flex; flex-direction: column; gap: 4px; background: rgba(232,237,246,0.82); backdrop-filter: blur(16px); -webkit-backdrop-filter: blur(16px); border: 1px solid rgba(20,30,60,0.12)">
+<button class="ss-btn" aria-label="Put Goods on the table" onClick="{{m0.pick}}" title="Goods" style="width: 30px; height: 30px; border-radius: 9999px; border: 1px solid transparent; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 0; cursor: pointer; padding: 0; font: 600 9px/11px -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; letter-spacing: 0.04em; {{m0.style}}"><svg aria-hidden="true" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="{{m0.iconColor}}" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink: 0"><path d="M3 7l9-4 9 4-9 4-9-4z"></path><path d="M3 7v10l9 4 9-4V7M12 11v10"></path></svg></button>
+<button class="ss-btn" aria-label="Put Screen on the table" onClick="{{m1.pick}}" title="Screen" style="width: 30px; height: 30px; border-radius: 9999px; border: 1px solid transparent; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 0; cursor: pointer; padding: 0; font: 600 9px/11px -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; letter-spacing: 0.04em; {{m1.style}}"><svg aria-hidden="true" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="{{m1.iconColor}}" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink: 0"><rect x="3" y="4" width="18" height="12" rx="2"></rect><path d="M8 20h8M12 16v4"></path></svg></button>
+<button class="ss-btn" aria-label="Put Match on the table" onClick="{{m2.pick}}" title="Match" style="width: 30px; height: 30px; border-radius: 9999px; border: 1px solid transparent; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 0; cursor: pointer; padding: 0; font: 600 9px/11px -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; letter-spacing: 0.04em; {{m2.style}}"><svg aria-hidden="true" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="{{m2.iconColor}}" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink: 0"><circle cx="12" cy="12" r="9"></circle><path d="M12 8l3.8 2.8-1.5 4.4H9.7l-1.5-4.4z"></path><path d="M12 3v5M15.8 10.8l4.6-1.6M14.3 15.2l2.8 4M9.7 15.2l-2.8 4M8.2 10.8L3.6 9.2"></path></svg></button>
+<button class="ss-btn" aria-label="Put Movie on the table" onClick="{{m3.pick}}" title="Movie" style="width: 30px; height: 30px; border-radius: 9999px; border: 1px solid transparent; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 0; cursor: pointer; padding: 0; font: 600 9px/11px -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; letter-spacing: 0.04em; {{m3.style}}"><svg aria-hidden="true" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="{{m3.iconColor}}" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink: 0"><rect x="3" y="5" width="18" height="14" rx="2"></rect><path d="M7 5v14M17 5v14M3 9.5h4M3 14.5h4M17 9.5h4M17 14.5h4"></path></svg></button>
+</div>
+
+<div aria-hidden="true" style="position: absolute; left: 150px; top: 496px; width: 90px; height: 30px; background: linear-gradient(to top, rgba(0,240,255,0.25), transparent); clip-path: polygon(0 100%, 100% 100%, 80% 0, 20% 0)"></div>
+<div aria-hidden="true" style="position: absolute; left: 105px; top: 512px; width: 180px; height: 28px; border-radius: 50%; box-sizing: border-box; border: 1px solid rgba(47,123,255,0.75); background: radial-gradient(ellipse at 50% 40%, rgba(47,123,255,0.4), rgba(228,233,242,0.8) 70%); box-shadow: 0 0 22px rgba(255,45,117,0.35), inset 0 0 12px rgba(0,240,255,0.25)"></div>
+<div aria-hidden="true" style="position: absolute; left: 135px; top: 517px; width: 120px; height: 18px; border-radius: 50%; box-sizing: border-box; border: 1px solid rgba(0,240,255,0.45)"></div>
+
+<div style="position: absolute; left: 74px; top: 378px; width: 240px; height: 135px; box-sizing: border-box; border-radius: 12px; overflow: hidden; color: #FFFFFF; background: #0b0b0f; border: {{frameW}}px solid {{frameColor}}; box-shadow: 0 0 0 1.5px rgba(47,123,255,0.85), 0 16px 32px rgba(0,0,0,0.8), 0 0 28px rgba(47,123,255,0.4)">
+<sc-if value="{{stage.isGoods}}" hint-placeholder-val="{{true}}"><div aria-hidden="true" style="position: absolute; inset: 0; background: radial-gradient(70% 80% at 50% 40%, #1e2a3a 0%, #121218 60%, #0b0b0f 100%)"></div><div aria-hidden="true" style="position: absolute; left: 50%; top: 26px; width: 56px; height: 56px; margin-left: -28px; border-radius: 12px; background: #191920; border: 1px solid rgba(0,240,255,0.35); box-shadow: 0 0 24px rgba(0,240,255,0.25); display: flex; align-items: center; justify-content: center"><svg aria-hidden="true" width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="#00F0FF" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink: 0"><path d="M3 7l9-4 9 4-9 4-9-4z"></path><path d="M3 7v10l9 4 9-4V7M12 11v10"></path></svg></div></sc-if>
+<sc-if value="{{stage.isScreen}}" hint-placeholder-val="{{false}}"><div aria-hidden="true" style="position: absolute; inset: 0; background: linear-gradient(160deg, #13283a 0%, #0b0b0f 100%)"></div><div aria-hidden="true" style="position: absolute; left: 18px; top: 14px; right: 18px; bottom: 30px; border-radius: 6px; background: #191920; border: 1px solid rgba(255,255,255,0.1); overflow: hidden"><div style="height: 12px; background: #23232C; display: flex; gap: 4px; align-items: center; padding-left: 6px"><span style="width: 5px; height: 5px; border-radius: 9999px; background: #FF2D75"></span><span style="width: 5px; height: 5px; border-radius: 9999px; background: #525263"></span><span style="width: 5px; height: 5px; border-radius: 9999px; background: #525263"></span></div><div style="display: flex; gap: 8px; padding: 8px"><div style="width: 40px; height: 56px; border-radius: 4px; background: rgba(255,255,255,0.06)"></div><div style="flex: 1 1 0; display: flex; flex-direction: column; gap: 6px"><div style="height: 8px; width: 70%; border-radius: 3px; background: rgba(0,240,255,0.35)"></div><div style="height: 6px; border-radius: 3px; background: rgba(255,255,255,0.1)"></div><div style="height: 6px; width: 85%; border-radius: 3px; background: rgba(255,255,255,0.1)"></div><div style="height: 6px; width: 60%; border-radius: 3px; background: rgba(255,255,255,0.1)"></div></div></div></div></sc-if>
+<sc-if value="{{stage.isMatch}}" hint-placeholder-val="{{false}}"><svg aria-hidden="true" width="100%" height="100%" viewBox="0 0 236 133" preserveAspectRatio="none" style="position: absolute; left: 0; top: 0"><rect width="236" height="133" fill="#0c2622"></rect><g fill="none" stroke="rgba(255,255,255,0.32)" stroke-width="1.2"><rect x="10" y="8" width="216" height="117"></rect><path d="M118 8v117"></path><circle cx="118" cy="66.5" r="17"></circle><rect x="10" y="38" width="28" height="57"></rect><rect x="198" y="38" width="28" height="57"></rect><rect x="10" y="53" width="10" height="27"></rect><rect x="216" y="53" width="10" height="27"></rect></g><circle cx="138" cy="58" r="3" fill="#FFFFFF"></circle></svg></sc-if>
+<sc-if value="{{stage.isMovie}}" hint-placeholder-val="{{false}}"><div aria-hidden="true" style="position: absolute; inset: 0; background: radial-gradient(90% 80% at 60% 35%, #3a1630 0%, #150f1c 55%, #08080A 100%)"></div><div aria-hidden="true" style="position: absolute; left: 0; right: 0; top: 0; height: 12px; background: #000000"></div><div aria-hidden="true" style="position: absolute; left: 50%; top: 40px; width: 40px; height: 40px; margin-left: -20px; border-radius: 9999px; background: rgba(255,255,255,0.12); border: 1px solid rgba(255,255,255,0.35); display: flex; align-items: center; justify-content: center"><svg width="16" height="16" viewBox="0 0 24 24"><path d="M8 5v14l11-7z" fill="#FFFFFF"></path></svg></div></sc-if>
+<button class="ss-btn ss-exp" aria-label="Pop out the table screen" onClick="{{openTable}}" style="position: absolute; right: 6px; top: 6px; width: 28px; height: 28px; padding: 0; border: 0; border-radius: 6px; background: rgba(8,8,10,0.72); color: #FFFFFF; display: flex; align-items: center; justify-content: center; cursor: pointer; z-index: 2"><svg aria-hidden="true" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 4h6v6M10 20H4v-6M20 4l-7 7M4 20l7-7"></path></svg></button>
+<div style="position: absolute; left: 8px; top: 8px; right: 40px; display: flex; justify-content: space-between; align-items: center">
+<span style="padding: 2px 7px; border-radius: 4px; background: rgba(8,8,10,0.75); color: #FF2D75; font: 600 9px/13px -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; letter-spacing: 0.06em">{{stage.tag}}</span>
+<sc-if value="{{stage.isStream}}" hint-placeholder-val="{{false}}"><span style="display: flex; align-items: center; gap: 5px; padding: 2px 7px; border-radius: 9999px; background: #FF1744; font: 600 9px/13px -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; letter-spacing: 0.06em"><span class="ss-dot" style="width: 5px; height: 5px; border-radius: 9999px; background: #FFFFFF"></span>LIVE</span></sc-if>
+</div>
+<div style="position: absolute; left: 0; right: 0; bottom: 0; box-sizing: border-box; padding: 18px 8px 8px 10px; background: linear-gradient(to top, rgba(8,8,10,0.95) 40%, transparent); display: flex; align-items: flex-end; gap: 8px">
+<div style="flex: 1 1 0; min-width: 0; display: flex; flex-direction: column">
+<span style="font: 600 13px/16px -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; white-space: nowrap; overflow: hidden; text-overflow: ellipsis">{{stage.title}}</span>
+<span style="font: 400 11px/14px -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; color: #A3A3B2; white-space: nowrap; overflow: hidden; text-overflow: ellipsis">{{stage.sub}}</span>
+</div>
+<button class="ss-btn ss-pri" onClick="{{stage.onCta}}" style="height: 36px; padding: 0 12px; border-radius: 8px; cursor: pointer; display: flex; align-items: center; gap: 6px; font: 600 12px/16px -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; white-space: nowrap; {{stage.ctaStyle}}">{{stage.cta}}</button>
+</div>
+</div>
+
+<div style="position: absolute; left: 8px; right: 8px; top: 10px; display: flex; align-items: center; gap: 4px">
+<div style="flex: 1 1 0; min-width: 0; height: 48px; box-sizing: border-box; padding: 4px 4px 4px 4px; border-radius: 9999px; display: flex; align-items: center; gap: 8px; background: rgba(232,237,246,0.82); backdrop-filter: blur(20px); -webkit-backdrop-filter: blur(20px); border: 1px solid rgba(20,30,60,0.12); box-shadow: 0 6px 18px rgba(0,0,0,0.12)">
+<span aria-hidden="true" style="width: 40px; height: 40px; flex-shrink: 0; box-sizing: border-box; border-radius: 9999px; padding: 2px; background: linear-gradient(135deg, #FF2D75, #2F7BFF)"><span style="width: 100%; height: 100%; box-sizing: border-box; border-radius: 9999px; border: 2px solid #E8EDF6; background: radial-gradient(120% 90% at 50% 20%, #3a1830 0%, #15121c 60%); display: flex; align-items: flex-end; justify-content: center; overflow: hidden"><svg width="28" height="28" viewBox="0 0 100 100"><circle cx="50" cy="42" r="17" fill="#4a4a5a"></circle><path d="M14 100c0-26 16-38 36-38s36 12 36 38z" fill="#35354a"></path></svg></span></span>
+<div style="flex: 1 1 0; min-width: 0; display: flex; flex-direction: column; gap: 2px">
+<span style="font: 700 13px/16px -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; color: #14141A; white-space: nowrap; overflow: hidden; text-overflow: ellipsis">Single Searching</span>
+<div style="display: flex; align-items: center; gap: 6px">
+<span style="display: flex; align-items: center; gap: 4px; height: 16px; padding: 0 6px; border-radius: 9999px; background: #FF1744; color: #FFFFFF; font: 700 9px/12px -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; letter-spacing: 0.04em"><span class="ss-dot" style="width: 5px; height: 5px; border-radius: 9999px; background: #FFFFFF"></span>LIVE</span>
+<span style="display: flex; align-items: center; gap: 3px; color: #5A6072; font: 600 11px/14px -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; font-variant-numeric: tabular-nums"><svg aria-hidden="true" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#2F7BFF" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink: 0"><path d="M2 12s3.6-7 10-7 10 7 10 7-3.6 7-10 7S2 12 2 12z"></path><circle cx="12" cy="12" r="3"></circle></svg>200K</span>
+</div>
+</div>
+<button class="ss-btn" onClick="{{toggleFollow}}" style="height: 36px; flex-shrink: 0; padding: 0 14px; border-radius: 9999px; cursor: pointer; font: 700 12px/16px -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; {{followStyle}}">{{followLabel}}</button>
+</div>
+<button class="ss-btn ss-blue" aria-label="Request to join" title="Request to join" style="width: 36px; height: 36px; flex-shrink: 0; padding: 0; border-radius: 9999px; background: #2F7BFF; border: 1px solid #2F7BFF; color: #FFFFFF; box-shadow: 0 4px 12px rgba(47,123,255,0.45); display: flex; align-items: center; justify-content: center; cursor: pointer"><svg aria-hidden="true" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#FFFFFF" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round"><circle cx="9" cy="8" r="3.5"></circle><path d="M2.5 20a6.5 6.5 0 0113 0"></path><path d="M19 8v6M16 11h6"></path></svg></button>
+<button class="ss-btn" aria-label="Participants, 36" title="Participants" onClick="{{openPeople}}" style="height: 36px; flex-shrink: 0; padding: 0 8px; border-radius: 9999px; display: flex; align-items: center; gap: 3px; cursor: pointer; color: #14141A; font: 700 12px/16px -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; font-variant-numeric: tabular-nums; background: rgba(232,237,246,0.82); backdrop-filter: blur(20px); -webkit-backdrop-filter: blur(20px); border: 1px solid rgba(20,30,60,0.12); box-shadow: 0 4px 12px rgba(0,0,0,0.12)"><svg aria-hidden="true" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><circle cx="9" cy="8" r="3.5"></circle><path d="M2.5 20a6.5 6.5 0 0113 0"></path><path d="M16 4.6a3.5 3.5 0 010 6.8M18 14a6.5 6.5 0 013.5 6"></path></svg>36</button>
+<button class="ss-btn ss-ghost" aria-label="Leave live" title="Leave live" style="width: 36px; height: 36px; flex-shrink: 0; border-radius: 9999px; display: flex; align-items: center; justify-content: center; cursor: pointer; color: #14141A; background: rgba(232,237,246,0.82); backdrop-filter: blur(20px); -webkit-backdrop-filter: blur(20px); border: 1px solid rgba(20,30,60,0.12); box-shadow: 0 4px 12px rgba(0,0,0,0.12)"><svg aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"></path></svg></button>
+</div>
+
+
+<div aria-live="polite" style="position: absolute; left: 12px; top: 556px; width: 272px; height: 212px; overflow: hidden; display: flex; flex-direction: column; justify-content: flex-end; gap: 6px; -webkit-mask-image: linear-gradient(to bottom, transparent 0%, #000000 35%); mask-image: linear-gradient(to bottom, transparent 0%, #000000 35%)">
+<sc-for list="{{comments}}" as="c" hint-placeholder-count="3">
+<div class="ss-rise" style="align-self: flex-start; max-width: 100%; box-sizing: border-box; display: flex; gap: 8px; align-items: flex-start; padding: 5px 12px 5px 5px; border-radius: 16px; background: rgba(232,237,246,0.8)">
+<span style="width: 26px; height: 26px; flex-shrink: 0; box-sizing: border-box; border-radius: 9999px; border: 1.5px solid #2F7BFF; background: #CBD5E6; display: flex; align-items: center; justify-content: center; font: 700 11px/1 -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; color: #14141A">{{c.initial}}</span>
+<span style="min-width: 0; padding-top: 4px; font: 400 13px/18px -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; color: #14141A; overflow-wrap: anywhere"><span style="font: 600 12px/18px -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; color: #5A6072; margin-right: 6px">{{c.who}}</span><sc-if value="{{c.msg}}" hint-placeholder-val="{{true}}"><span>{{c.text}}</span></sc-if><sc-if value="{{c.sys}}" hint-placeholder-val="{{false}}"><span style="color: #D61F5C">{{c.text}}</span></sc-if></span>
+</div>
+</sc-for>
+</div>
+
+<div aria-hidden="true" style="position: absolute; right: 10px; bottom: 62px; width: 40px; height: 150px; pointer-events: none">
+<svg class="ss-heart" aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" style="position: absolute; left: 24px; bottom: 0; animation-delay: 0s; opacity: 0"><path d="M12 20s-7-4.4-9.2-9A5 5 0 0112 5.6 5 5 0 0121.2 11C19 15.6 12 20 12 20z" fill="#FF2D75"></path></svg><svg class="ss-heart" aria-hidden="true" width="12" height="12" viewBox="0 0 24 24" style="position: absolute; left: 8px; bottom: 0; animation-delay: 0.7s; opacity: 0"><path d="M12 20s-7-4.4-9.2-9A5 5 0 0112 5.6 5 5 0 0121.2 11C19 15.6 12 20 12 20z" fill="#00F0FF"></path></svg><svg class="ss-heart" aria-hidden="true" width="18" height="18" viewBox="0 0 24 24" style="position: absolute; left: 36px; bottom: 0; animation-delay: 1.3s; opacity: 0"><path d="M12 20s-7-4.4-9.2-9A5 5 0 0112 5.6 5 5 0 0121.2 11C19 15.6 12 20 12 20z" fill="#FF4D8D"></path></svg><svg class="ss-heart" aria-hidden="true" width="12" height="12" viewBox="0 0 24 24" style="position: absolute; left: 20px; bottom: 0; animation-delay: 2.0s; opacity: 0"><path d="M12 20s-7-4.4-9.2-9A5 5 0 0112 5.6 5 5 0 0121.2 11C19 15.6 12 20 12 20z" fill="#FF2D75"></path></svg><svg class="ss-heart" aria-hidden="true" width="14" height="14" viewBox="0 0 24 24" style="position: absolute; left: 4px; bottom: 0; animation-delay: 2.6s; opacity: 0"><path d="M12 20s-7-4.4-9.2-9A5 5 0 0112 5.6 5 5 0 0121.2 11C19 15.6 12 20 12 20z" fill="#FF4D8D"></path></svg>
+</div>
+
+<div style="position: absolute; left: 10px; right: 10px; bottom: 12px; height: 44px; display: flex; align-items: center; gap: 5px">
+<div style="flex: 1 1 0; min-width: 0; height: 42px; box-sizing: border-box; padding: 0 3px 0 14px; border-radius: 9999px; display: flex; align-items: center; gap: 2px; background: rgba(232,237,246,0.82); backdrop-filter: blur(20px); -webkit-backdrop-filter: blur(20px); border: 1px solid rgba(20,30,60,0.12); box-shadow: 0 6px 18px rgba(0,0,0,0.12)">
+<label for="ss-comment-p" class="ss-sr">Comment</label>
+<input id="ss-comment-p" class="ss-in" type="text" placeholder="Add a comment…" value="{{draft}}" onChange="{{onDraft}}" onKeyDown="{{onKey}}" style="flex: 1 1 0; min-width: 0; height: 36px; box-sizing: border-box; padding: 0; border: 0; background: transparent; color: #14141A; font: 400 14px/18px -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; box-shadow: none">
+<button class="ss-btn ss-ghost" aria-label="Send sparkles" onClick="{{sendSpark}}" style="width: 32px; height: 32px; flex-shrink: 0; border-radius: 9999px; border: 0; background: transparent; color: #0FA3B1; display: flex; align-items: center; justify-content: center; cursor: pointer"><svg aria-hidden="true" width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink: 0"><path d="M12 3l1.8 5.2L19 10l-5.2 1.8L12 17l-1.8-5.2L5 10l5.2-1.8z"></path><path d="M19 15l.8 2.2L22 18l-2.2.8L19 21l-.8-2.2L16 18l2.2-.8z"></path></svg></button>
+<button class="ss-btn ss-pri" aria-label="Send comment" onClick="{{send}}" style="width: 34px; height: 34px; flex-shrink: 0; border-radius: 9999px; border: 0; background: #FF2D75; color: #FFFFFF; box-shadow: 0 4px 12px rgba(255,45,117,0.4); display: flex; align-items: center; justify-content: center; cursor: pointer"><svg aria-hidden="true" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#FFFFFF" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink: 0"><path d="M21 3L10 14"></path><path d="M21 3l-7 18-4-7-7-4z"></path></svg></button>
+</div>
+<button class="ss-btn ss-blue" aria-label="Share to the table" onClick="{{shareScreen}}" style="width: 40px; height: 40px; flex-shrink: 0; border-radius: 9999px; border: 1px solid rgba(47,123,255,0.5); background: rgba(47,123,255,0.18); color: #1F4FB8; display: flex; align-items: center; justify-content: center; cursor: pointer"><svg aria-hidden="true" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink: 0"><path d="M3 8V6a2 2 0 012-2h14a2 2 0 012 2v12a2 2 0 01-2 2h-6"></path><path d="M3 12a8 8 0 018 8M3 16a4 4 0 014 4"></path><path d="M3.5 20h.01"></path></svg></button>
+<button class="ss-btn" aria-label="Share this live" title="Share this live" onClick="{{shareLive}}" style="width: 40px; height: 40px; flex-shrink: 0; border-radius: 9999px; display: flex; align-items: center; justify-content: center; cursor: pointer; color: #14141A; background: rgba(232,237,246,0.82); backdrop-filter: blur(20px); -webkit-backdrop-filter: blur(20px); border: 1px solid rgba(20,30,60,0.12); box-shadow: 0 6px 18px rgba(0,0,0,0.12)"><svg aria-hidden="true" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink: 0"><path d="M14 4h6v6"></path><path d="M20 4l-9 9"></path><path d="M18 14v4a2 2 0 01-2 2H6a2 2 0 01-2-2V8a2 2 0 012-2h4"></path></svg></button>
+<button class="ss-btn" aria-label="Live features" onClick="{{openDrawer}}" style="position: relative; width: 40px; height: 40px; flex-shrink: 0; border-radius: 9999px; display: flex; align-items: center; justify-content: center; cursor: pointer; color: #14141A; background: rgba(232,237,246,0.82); backdrop-filter: blur(20px); -webkit-backdrop-filter: blur(20px); border: 1px solid rgba(20,30,60,0.12); box-shadow: 0 6px 18px rgba(0,0,0,0.12)"><svg aria-hidden="true" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink: 0"><rect x="4" y="4" width="7" height="7" rx="2"></rect><rect x="13" y="4" width="7" height="7" rx="2"></rect><rect x="4" y="13" width="7" height="7" rx="2"></rect><rect x="13" y="13" width="7" height="7" rx="2"></rect></svg><span aria-hidden="true" style="position: absolute; top: 6px; right: 6px; width: 7px; height: 7px; border-radius: 9999px; background: #FF2D75; border: 2px solid #E8EDF6"></span></button>
+<button class="ss-btn" aria-label="Show love" onClick="{{addLove}}" style="position: relative; width: 40px; height: 40px; flex-shrink: 0; border-radius: 9999px; background: linear-gradient(135deg, #FF2D75, #FF6FA3); border: 0; box-shadow: 0 6px 18px rgba(255,45,117,0.45); display: flex; align-items: center; justify-content: center; cursor: pointer"><svg aria-hidden="true" width="20" height="20" viewBox="0 0 24 24"><path d="M12 20s-7-4.4-9.2-9A5 5 0 0112 5.6 5 5 0 0121.2 11C19 15.6 12 20 12 20z" fill="#FFFFFF"></path></svg><sc-if value="{{loved}}" hint-placeholder-val="{{false}}"><span style="position: absolute; top: -6px; right: -4px; min-width: 18px; box-sizing: border-box; padding: 1px 5px; border-radius: 9999px; background: #FFFFFF; color: #FF2D75; box-shadow: 0 2px 6px rgba(0,0,0,0.25); font: 700 10px/14px -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; font-variant-numeric: tabular-nums">{{loveCount}}</span></sc-if></button>
+</div>
+
+<sc-if value="{{drawer}}" hint-placeholder-val="{{false}}">
+<button aria-label="Close live features" onClick="{{closeDrawer}}" style="position: absolute; inset: 0; z-index: 40; margin: 0; padding: 0; border: 0; background: rgba(8,8,10,0.35); cursor: pointer"></button>
+<div role="dialog" aria-label="Live features" class="ss-up" style="position: absolute; left: 0; right: 0; bottom: 0; z-index: 41; box-sizing: border-box; padding: 8px 12px 22px; border-radius: 20px 20px 0 0; background: linear-gradient(180deg, #C9D6EE 0%, #DDE3EC 55%); border-top: 1px solid rgba(47,123,255,0.45); box-shadow: 0 -14px 40px rgba(0,0,0,0.35); display: flex; flex-direction: column; gap: 12px">
+<span aria-hidden="true" style="align-self: center; width: 36px; height: 4px; border-radius: 9999px; background: #C3C9D6"></span>
+<div style="display: flex; align-items: center; justify-content: space-between">
+<span style="font: 700 16px/20px -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; color: #14141A">Live features</span>
+<button class="ss-btn ss-ghost" aria-label="Close" onClick="{{closeDrawer}}" style="width: 44px; height: 44px; border-radius: 9999px; border: 0; background: transparent; color: #5A6072; display: flex; align-items: center; justify-content: center; cursor: pointer"><svg aria-hidden="true" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"></path></svg></button>
+</div>
+<div style="display: flex; flex-direction: column; gap: 6px">
+<span style="font: 600 12px/16px -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; color: #5A6072">On the table</span>
+<div style="display: flex; gap: 6px">
+<button class="ss-btn" aria-label="Put Goods on the table" onClick="{{m0.pick}}" style="flex: 1 1 0; min-width: 0; height: 44px; border-radius: 12px; border: 1px solid transparent; display: flex; flex-direction: row; align-items: center; justify-content: center; gap: 6px; cursor: pointer; padding: 0; font: 600 12px/16px -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; {{m0.style}}"><svg aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="{{m0.iconColor}}" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink: 0"><path d="M3 7l9-4 9 4-9 4-9-4z"></path><path d="M3 7v10l9 4 9-4V7M12 11v10"></path></svg><span>Goods</span></button>
+<button class="ss-btn" aria-label="Put Screen on the table" onClick="{{m1.pick}}" style="flex: 1 1 0; min-width: 0; height: 44px; border-radius: 12px; border: 1px solid transparent; display: flex; flex-direction: row; align-items: center; justify-content: center; gap: 6px; cursor: pointer; padding: 0; font: 600 12px/16px -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; {{m1.style}}"><svg aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="{{m1.iconColor}}" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink: 0"><rect x="3" y="4" width="18" height="12" rx="2"></rect><path d="M8 20h8M12 16v4"></path></svg><span>Screen</span></button>
+<button class="ss-btn" aria-label="Put Match on the table" onClick="{{m2.pick}}" style="flex: 1 1 0; min-width: 0; height: 44px; border-radius: 12px; border: 1px solid transparent; display: flex; flex-direction: row; align-items: center; justify-content: center; gap: 6px; cursor: pointer; padding: 0; font: 600 12px/16px -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; {{m2.style}}"><svg aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="{{m2.iconColor}}" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink: 0"><circle cx="12" cy="12" r="9"></circle><path d="M12 8l3.8 2.8-1.5 4.4H9.7l-1.5-4.4z"></path><path d="M12 3v5M15.8 10.8l4.6-1.6M14.3 15.2l2.8 4M9.7 15.2l-2.8 4M8.2 10.8L3.6 9.2"></path></svg><span>Match</span></button>
+<button class="ss-btn" aria-label="Put Movie on the table" onClick="{{m3.pick}}" style="flex: 1 1 0; min-width: 0; height: 44px; border-radius: 12px; border: 1px solid transparent; display: flex; flex-direction: row; align-items: center; justify-content: center; gap: 6px; cursor: pointer; padding: 0; font: 600 12px/16px -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; {{m3.style}}"><svg aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="{{m3.iconColor}}" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink: 0"><rect x="3" y="5" width="18" height="14" rx="2"></rect><path d="M7 5v14M17 5v14M3 9.5h4M3 14.5h4M17 9.5h4M17 14.5h4"></path></svg><span>Movie</span></button>
+</div>
+</div>
+<span style="font: 600 12px/16px -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; color: #5A6072">Room</span>
+<div style="display: flex; gap: 6px">
+<button class="ss-btn" onClick="{{t0.pick}}" style="position: relative; flex: 1 1 0; min-width: 0; height: 84px; padding: 8px 4px; box-sizing: border-box; border-radius: 12px; border: 1px solid transparent; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 6px; cursor: pointer; text-align: center; font: 600 11px/13px -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; {{t0.style}}">
+<svg aria-hidden="true" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="{{t0.iconColor}}" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink: 0"><path d="M4 11l8-7 8 7v8a1 1 0 01-1 1h-4v-6H9v6H5a1 1 0 01-1-1z"></path></svg>
+<span>{{t0.short}}</span>
+<sc-if value="{{t0.hasDot}}" hint-placeholder-val="{{false}}"><span aria-label="New activity" style="position: absolute; top: 8px; right: 10px; width: 7px; height: 7px; border-radius: 9999px; background: #FF2D75; box-shadow: 0 0 8px rgba(255,45,117,0.6)"></span></sc-if>
+<sc-if value="{{t0.hasCount}}" hint-placeholder-val="{{false}}"><span style="position: absolute; top: 5px; right: 5px; padding: 1px 5px; border-radius: 9999px; background: #2F7BFF; color: #FFFFFF; font: 600 10px/13px -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; font-variant-numeric: tabular-nums">{{t0.badge}}</span></sc-if>
+</button>
+<button class="ss-btn" onClick="{{t1.pick}}" style="position: relative; flex: 1 1 0; min-width: 0; height: 84px; padding: 8px 4px; box-sizing: border-box; border-radius: 12px; border: 1px solid transparent; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 6px; cursor: pointer; text-align: center; font: 600 11px/13px -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; {{t1.style}}">
+<svg aria-hidden="true" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="{{t1.iconColor}}" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink: 0"><path d="M3 7l9-4 9 4-9 4-9-4z"></path><path d="M3 7v10l9 4 9-4V7M12 11v10"></path></svg>
+<span>{{t1.short}}</span>
+<sc-if value="{{t1.hasDot}}" hint-placeholder-val="{{false}}"><span aria-label="New activity" style="position: absolute; top: 8px; right: 10px; width: 7px; height: 7px; border-radius: 9999px; background: #FF2D75; box-shadow: 0 0 8px rgba(255,45,117,0.6)"></span></sc-if>
+<sc-if value="{{t1.hasCount}}" hint-placeholder-val="{{false}}"><span style="position: absolute; top: 5px; right: 5px; padding: 1px 5px; border-radius: 9999px; background: #2F7BFF; color: #FFFFFF; font: 600 10px/13px -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; font-variant-numeric: tabular-nums">{{t1.badge}}</span></sc-if>
+</button>
+<button class="ss-btn" onClick="{{t2.pick}}" style="position: relative; flex: 1 1 0; min-width: 0; height: 84px; padding: 8px 4px; box-sizing: border-box; border-radius: 12px; border: 1px solid transparent; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 6px; cursor: pointer; text-align: center; font: 600 11px/13px -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; {{t2.style}}">
+<svg aria-hidden="true" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="{{t2.iconColor}}" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink: 0"><path d="M9 4L3 6v14l6-2 6 2 6-2V4l-6 2-6-2z"></path><path d="M9 4v14M15 6v14"></path></svg>
+<span>{{t2.short}}</span>
+<sc-if value="{{t2.hasDot}}" hint-placeholder-val="{{false}}"><span aria-label="New activity" style="position: absolute; top: 8px; right: 10px; width: 7px; height: 7px; border-radius: 9999px; background: #FF2D75; box-shadow: 0 0 8px rgba(255,45,117,0.6)"></span></sc-if>
+<sc-if value="{{t2.hasCount}}" hint-placeholder-val="{{false}}"><span style="position: absolute; top: 5px; right: 5px; padding: 1px 5px; border-radius: 9999px; background: #2F7BFF; color: #FFFFFF; font: 600 10px/13px -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; font-variant-numeric: tabular-nums">{{t2.badge}}</span></sc-if>
+</button>
+<button class="ss-btn" onClick="{{t3.pick}}" style="position: relative; flex: 1 1 0; min-width: 0; height: 84px; padding: 8px 4px; box-sizing: border-box; border-radius: 12px; border: 1px solid transparent; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 6px; cursor: pointer; text-align: center; font: 600 11px/13px -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; {{t3.style}}">
+<svg aria-hidden="true" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="{{t3.iconColor}}" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink: 0"><circle cx="9" cy="8" r="3.5"></circle><path d="M2.5 20a6.5 6.5 0 0113 0"></path><path d="M16 4.6a3.5 3.5 0 010 6.8M18 14a6.5 6.5 0 013.5 6"></path></svg>
+<span>{{t3.short}}</span>
+<sc-if value="{{t3.hasDot}}" hint-placeholder-val="{{false}}"><span aria-label="New activity" style="position: absolute; top: 8px; right: 10px; width: 7px; height: 7px; border-radius: 9999px; background: #FF2D75; box-shadow: 0 0 8px rgba(255,45,117,0.6)"></span></sc-if>
+<sc-if value="{{t3.hasCount}}" hint-placeholder-val="{{false}}"><span style="position: absolute; top: 5px; right: 5px; padding: 1px 5px; border-radius: 9999px; background: #2F7BFF; color: #FFFFFF; font: 600 10px/13px -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; font-variant-numeric: tabular-nums">{{t3.badge}}</span></sc-if>
+</button>
+<button class="ss-btn" onClick="{{t4.pick}}" style="position: relative; flex: 1 1 0; min-width: 0; height: 84px; padding: 8px 4px; box-sizing: border-box; border-radius: 12px; border: 1px solid transparent; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 6px; cursor: pointer; text-align: center; font: 600 11px/13px -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; {{t4.style}}">
+<svg aria-hidden="true" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="{{t4.iconColor}}" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink: 0"><path d="M4 5h16v11H9l-5 4z"></path><path d="M8 9h8M8 12h5"></path></svg>
+<span>{{t4.short}}</span>
+<sc-if value="{{t4.hasDot}}" hint-placeholder-val="{{false}}"><span aria-label="New activity" style="position: absolute; top: 8px; right: 10px; width: 7px; height: 7px; border-radius: 9999px; background: #FF2D75; box-shadow: 0 0 8px rgba(255,45,117,0.6)"></span></sc-if>
+<sc-if value="{{t4.hasCount}}" hint-placeholder-val="{{false}}"><span style="position: absolute; top: 5px; right: 5px; padding: 1px 5px; border-radius: 9999px; background: #2F7BFF; color: #FFFFFF; font: 600 10px/13px -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; font-variant-numeric: tabular-nums">{{t4.badge}}</span></sc-if>
+</button>
+</div>
+<div style="display: flex; justify-content: center; gap: 8px">
+<button class="ss-btn ss-ghost" aria-label="Grid view" style="width: 44px; height: 44px; border-radius: 8px; border: 0; background: transparent; color: #5A6072; display: flex; align-items: center; justify-content: center; cursor: pointer"><svg aria-hidden="true" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink: 0"><rect x="4" y="4" width="7" height="7" rx="1.5"></rect><rect x="13" y="4" width="7" height="7" rx="1.5"></rect><rect x="4" y="13" width="7" height="7" rx="1.5"></rect><rect x="13" y="13" width="7" height="7" rx="1.5"></rect></svg></button>
+<button class="ss-btn ss-ghost" aria-label="Switch layout" style="width: 44px; height: 44px; border-radius: 8px; border: 0; background: transparent; color: #5A6072; display: flex; align-items: center; justify-content: center; cursor: pointer"><svg aria-hidden="true" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink: 0"><rect x="8" y="8" width="12" height="12" rx="2"></rect><path d="M16 8V5a1 1 0 00-1-1H5a1 1 0 00-1 1v10a1 1 0 001 1h3"></path></svg></button>
+<button class="ss-btn ss-ghost" aria-label="Camera" style="width: 44px; height: 44px; border-radius: 8px; border: 0; background: transparent; color: #5A6072; display: flex; align-items: center; justify-content: center; cursor: pointer"><svg aria-hidden="true" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink: 0"><rect x="3" y="6" width="13" height="12" rx="2"></rect><path d="M16 10.5l5-3v9l-5-3"></path></svg></button>
+<button class="ss-btn ss-ghost" aria-label="Share to the table" onClick="{{shareScreen}}" style="width: 44px; height: 44px; border-radius: 8px; border: 0; background: transparent; color: #5A6072; display: flex; align-items: center; justify-content: center; cursor: pointer"><svg aria-hidden="true" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink: 0"><path d="M3 8V6a2 2 0 012-2h14a2 2 0 012 2v12a2 2 0 01-2 2h-6"></path><path d="M3 12a8 8 0 018 8M3 16a4 4 0 014 4"></path><path d="M3.5 20h.01"></path></svg></button>
+</div>
+</div>
+</sc-if>
+
+<sc-if value="{{popOpen}}" hint-placeholder-val="{{false}}">
+<div style="position: absolute; {{popBox}}; z-index: 50; box-sizing: border-box; overflow: hidden; background: #0b0b0f; color: #FFFFFF; border: {{frameW}}px solid {{frameColor}}; box-shadow: 0 0 0 1.5px rgba(47,123,255,0.85), 0 24px 60px rgba(0,0,0,0.6); display: flex; flex-direction: column">
+<div onPointerDown="{{dragStart}}" onDoubleClick="{{toggleFull}}" style="height: 44px; flex-shrink: 0; display: flex; align-items: center; gap: 8px; padding: 0 4px 0 12px; background: rgba(17,17,21,0.94); cursor: {{popCursor}}; touch-action: none; user-select: none; -webkit-user-select: none">
+<svg aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="#8FB6FF"><circle cx="9" cy="6" r="1.6"></circle><circle cx="15" cy="6" r="1.6"></circle><circle cx="9" cy="12" r="1.6"></circle><circle cx="15" cy="12" r="1.6"></circle><circle cx="9" cy="18" r="1.6"></circle><circle cx="15" cy="18" r="1.6"></circle></svg>
+<span style="flex: 1 1 0; min-width: 0; font: 600 13px/18px -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; white-space: nowrap; overflow: hidden; text-overflow: ellipsis">{{popTitle}}</span>
+<span style="display: flex; align-items: center; gap: 5px; padding: 2px 8px; border-radius: 9999px; background: #FF1744; font: 700 10px/14px -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; letter-spacing: 0.04em"><span class="ss-dot" style="width: 6px; height: 6px; border-radius: 9999px; background: #FFFFFF"></span>LIVE</span>
+<button class="ss-btn ss-ghost" aria-label="{{fullLabel}}" onClick="{{toggleFull}}" style="width: 36px; height: 36px; border-radius: 8px; border: 0; background: transparent; color: #E5E1E6; display: flex; align-items: center; justify-content: center; cursor: pointer">
+<sc-if value="{{popNotFull}}" hint-placeholder-val="{{true}}"><svg aria-hidden="true" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5"></path></svg></sc-if>
+<sc-if value="{{popFull}}" hint-placeholder-val="{{false}}"><svg aria-hidden="true" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 4v5H4M15 4v5h5M9 20v-5H4M15 20v-5h5"></path></svg></sc-if>
+</button>
+<button class="ss-btn ss-ghost" aria-label="Close window" onClick="{{closePop}}" style="width: 36px; height: 36px; border-radius: 8px; border: 0; background: transparent; color: #E5E1E6; display: flex; align-items: center; justify-content: center; cursor: pointer"><svg aria-hidden="true" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"></path></svg></button>
+</div>
+<div style="position: relative; flex: 1 1 0; min-height: 0; overflow: hidden; background: {{popBg}}">
+<sc-if value="{{popIsPerson}}" hint-placeholder-val="{{true}}">
+<svg aria-hidden="true" viewBox="0 0 100 100" preserveAspectRatio="xMidYMax meet" style="position: absolute; left: 0; bottom: 0; width: 100%; height: 90%"><circle cx="50" cy="42" r="15" fill="#3a3a48"></circle><path d="M16 100c0-24 15-36 34-36s34 12 34 36z" fill="#2b2b36"></path><path d="M36 33a15 15 0 0128-4" stroke="rgba(255,45,117,0.55)" stroke-width="1.5" fill="none"></path></svg>
+<span style="position: absolute; left: 12px; bottom: 12px; padding: 4px 10px; border-radius: 9999px; background: rgba(8,8,10,0.75); font: 600 13px/18px -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif">{{popTitle}}</span>
+</sc-if>
+<sc-if value="{{popIsTable}}" hint-placeholder-val="{{false}}">
+<sc-if value="{{stage.isGoods}}" hint-placeholder-val="{{true}}"><div aria-hidden="true" style="position: absolute; inset: 0; background: radial-gradient(70% 80% at 50% 40%, #1e2a3a 0%, #121218 60%, #0b0b0f 100%)"></div><div aria-hidden="true" style="position: absolute; left: 50%; top: 26px; width: 56px; height: 56px; margin-left: -28px; border-radius: 12px; background: #191920; border: 1px solid rgba(0,240,255,0.35); box-shadow: 0 0 24px rgba(0,240,255,0.25); display: flex; align-items: center; justify-content: center"><svg aria-hidden="true" width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="#00F0FF" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink: 0"><path d="M3 7l9-4 9 4-9 4-9-4z"></path><path d="M3 7v10l9 4 9-4V7M12 11v10"></path></svg></div></sc-if>
+<sc-if value="{{stage.isScreen}}" hint-placeholder-val="{{false}}"><div aria-hidden="true" style="position: absolute; inset: 0; background: linear-gradient(160deg, #13283a 0%, #0b0b0f 100%)"></div><div aria-hidden="true" style="position: absolute; left: 18px; top: 14px; right: 18px; bottom: 30px; border-radius: 6px; background: #191920; border: 1px solid rgba(255,255,255,0.1); overflow: hidden"><div style="height: 12px; background: #23232C; display: flex; gap: 4px; align-items: center; padding-left: 6px"><span style="width: 5px; height: 5px; border-radius: 9999px; background: #FF2D75"></span><span style="width: 5px; height: 5px; border-radius: 9999px; background: #525263"></span><span style="width: 5px; height: 5px; border-radius: 9999px; background: #525263"></span></div><div style="display: flex; gap: 8px; padding: 8px"><div style="width: 40px; height: 56px; border-radius: 4px; background: rgba(255,255,255,0.06)"></div><div style="flex: 1 1 0; display: flex; flex-direction: column; gap: 6px"><div style="height: 8px; width: 70%; border-radius: 3px; background: rgba(0,240,255,0.35)"></div><div style="height: 6px; border-radius: 3px; background: rgba(255,255,255,0.1)"></div><div style="height: 6px; width: 85%; border-radius: 3px; background: rgba(255,255,255,0.1)"></div><div style="height: 6px; width: 60%; border-radius: 3px; background: rgba(255,255,255,0.1)"></div></div></div></div></sc-if>
+<sc-if value="{{stage.isMatch}}" hint-placeholder-val="{{false}}"><svg aria-hidden="true" width="100%" height="100%" viewBox="0 0 236 133" preserveAspectRatio="none" style="position: absolute; left: 0; top: 0"><rect width="236" height="133" fill="#0c2622"></rect><g fill="none" stroke="rgba(255,255,255,0.32)" stroke-width="1.2"><rect x="10" y="8" width="216" height="117"></rect><path d="M118 8v117"></path><circle cx="118" cy="66.5" r="17"></circle><rect x="10" y="38" width="28" height="57"></rect><rect x="198" y="38" width="28" height="57"></rect><rect x="10" y="53" width="10" height="27"></rect><rect x="216" y="53" width="10" height="27"></rect></g><circle cx="138" cy="58" r="3" fill="#FFFFFF"></circle></svg></sc-if>
+<sc-if value="{{stage.isMovie}}" hint-placeholder-val="{{false}}"><div aria-hidden="true" style="position: absolute; inset: 0; background: radial-gradient(90% 80% at 60% 35%, #3a1630 0%, #150f1c 55%, #08080A 100%)"></div><div aria-hidden="true" style="position: absolute; left: 0; right: 0; top: 0; height: 12px; background: #000000"></div><div aria-hidden="true" style="position: absolute; left: 50%; top: 40px; width: 40px; height: 40px; margin-left: -20px; border-radius: 9999px; background: rgba(255,255,255,0.12); border: 1px solid rgba(255,255,255,0.35); display: flex; align-items: center; justify-content: center"><svg width="16" height="16" viewBox="0 0 24 24"><path d="M8 5v14l11-7z" fill="#FFFFFF"></path></svg></div></sc-if>
+<div style="position: absolute; left: 0; right: 0; bottom: 0; padding: 24px 14px 12px; background: linear-gradient(to top, rgba(8,8,10,0.95) 40%, transparent); display: flex; flex-direction: column">
+<span style="font: 600 15px/20px -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif">{{stage.title}}</span>
+<span style="font: 400 12px/16px -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; color: #A3A3B2">{{stage.sub}}</span>
+</div>
+</sc-if>
+</div>
+<sc-if value="{{popNotFull}}" hint-placeholder-val="{{true}}"><button class="ss-btn" aria-label="Resize window" onPointerDown="{{resizeStart}}" style="position: absolute; right: 0; bottom: 0; width: 28px; height: 28px; padding: 0; border: 0; background: transparent; cursor: nwse-resize; touch-action: none; display: flex; align-items: flex-end; justify-content: flex-end"><svg aria-hidden="true" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#8FB6FF" stroke-width="2.2" stroke-linecap="round"><path d="M20 10L10 20M20 15l-5 5M20 20h0"></path></svg></button></sc-if>
+</div>
+</sc-if>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"studioDim":{"editor":"range","default":0,"min":0,"max":0.6,"step":0.05},"showNames":{"editor":"boolean","default":true},"frameWidth":{"editor":"range","default":4,"min":0,"max":12,"step":1,"unit":"px"},"frameColor":{"editor":"color","default":"#3B4763","options":["#3B4763","#8C97AE","#2F7BFF","#FF2D75"]},"$preview":{"width":390,"height":844}}'>
+class Component extends DCLogic {
+  constructor(props) {
+    super(props);
+    this.state = {
+      order: [0, 1, 2, 3, 4, 5, 6],
+      tab: 'room',
+      mode: 'goods',
+      joined: {},
+      pop: null,
+      drawer: false,
+      follow: false,
+      full: false,
+      win: { x: 20, y: 120, w: 350, h: 240 },
+      love: 0,
+      draft: '',
+      comments: [
+        { id: 1, who: 'babbe', text: 'joined the live', sys: true },
+        { id: 2, who: 'Guest 06', text: 'requested to join the stage', sys: true }
+      ]
+    };
+  }
+  componentDidMount() {
+    var self = this;
+    var pool = [
+      ['amani', 'This looks great'], ['lee', 'joined the live', 1], ['kofi', 'How much is it?'],
+      ['sara', 'Can I join the stage?'], ['babbe', 'sent love', 1], ['nia', 'Watching from home'],
+      ['joe', 'Love the studio'], ['amani', 'Put the match on the table next'], ['mo', 'joined the live', 1]
+    ];
+    var i = 0;
+    this._feed = setInterval(function () {
+      var p = pool[i % pool.length]; i++;
+      var c = self.state.comments.concat([{ id: Date.now(), who: p[0], text: p[1], sys: !!p[2] }]);
+      if (c.length > 200) c = c.slice(-200);
+      self.setState({ comments: c });
+    }, 2600);
+  }
+  componentWillUnmount() {
+    clearInterval(this._feed);
+  }
+  dragWin(e, mode) {
+    if (mode === 'move' && (this.state.full || (e.target.closest && e.target.closest('button')))) return;
+    e.preventDefault();
+    var root = e.currentTarget.closest('.ss-root');
+    var r = root.getBoundingClientRect();
+    var k = (r.width / root.offsetWidth) || 1;
+    var W = root.offsetWidth, H = root.offsetHeight;
+    var sx = e.clientX, sy = e.clientY, w0 = Object.assign({}, this.state.win), self = this;
+    var view = e.currentTarget.ownerDocument.defaultView;
+    function mv(ev) {
+      var dx = (ev.clientX - sx) / k, dy = (ev.clientY - sy) / k, w = Object.assign({}, w0);
+      if (mode === 'move') {
+        w.x = Math.min(Math.max(0, w0.x + dx), W - w0.w);
+        w.y = Math.min(Math.max(0, w0.y + dy), H - w0.h);
+      } else {
+        w.w = Math.min(Math.max(160, w0.w + dx), W - w0.x);
+        w.h = Math.min(Math.max(120, w0.h + dy), H - w0.y);
+      }
+      self.setState({ win: w });
+    }
+    function up() { view.removeEventListener('pointermove', mv); view.removeEventListener('pointerup', up); }
+    view.addEventListener('pointermove', mv);
+    view.addEventListener('pointerup', up);
+  }
+  renderVals() {
+    var people = [
+      { name: 'Host', accent: '#FF2D75', role: 'Presenting', muted: false, bg: 'radial-gradient(120% 90% at 50% 20%, #3a1830 0%, #15121c 55%, #0b0b0f 100%)' },
+      { name: 'Guest 01', accent: '#22C3D6', role: 'Guest', muted: false, bg: 'radial-gradient(120% 90% at 50% 15%, #123540 0%, #121218 60%, #0b0b0f 100%)' },
+      { name: 'Guest 02', accent: '#8B5CF6', role: 'Guest', muted: true, bg: 'radial-gradient(120% 90% at 50% 15%, #2a1a3a 0%, #121218 60%, #0b0b0f 100%)' },
+      { name: 'Guest 03', accent: '#FF6FA3', role: 'Guest', muted: false, bg: 'radial-gradient(120% 90% at 50% 15%, #3a1626 0%, #121218 60%, #0b0b0f 100%)' },
+      { name: 'Guest 04', accent: '#3D8BFF', role: 'Guest', muted: true, bg: 'radial-gradient(120% 90% at 50% 15%, #10303a 0%, #121218 60%, #0b0b0f 100%)' },
+      { name: 'Guest 05', accent: '#FFB547', role: 'Guest', muted: false, bg: 'radial-gradient(120% 90% at 50% 15%, #2c1830 0%, #121218 60%, #0b0b0f 100%)' },
+      { name: 'Guest 06', accent: '#2DD4BF', role: 'Guest', muted: true, bg: 'radial-gradient(120% 90% at 50% 15%, #13283a 0%, #121218 60%, #0b0b0f 100%)' }
+    ];
+    var self = this;
+    var slot = function (i) {
+      var p = people[self.state.order[i]];
+      return Object.assign({}, p, {
+        live: !p.muted,
+        accentGlow: p.accent + '55',
+        avatarStyle: p.muted ? 'opacity: 0.78; filter: saturate(0.7)' : 'opacity: 1',
+        open: function () { self.setState({ pop: { person: self.state.order[i] }, full: false, win: { x: 20, y: 120, w: 350, h: 240 } }); },
+        pick: function () {
+          if (i === 0) return;
+          var o = self.state.order.slice();
+          var t = o[0]; o[0] = o[i]; o[i] = t;
+          self.setState({ order: o });
+        }
+      });
+    };
+    var tabs = [
+      { id: 'lobby', label: 'Lobby', short: 'Lobby', badge: '' },
+      { id: 'goods', label: 'Presenter\u2019s Goods', short: 'Presenter\u2019s Goods', badge: 'dot' },
+      { id: 'room', label: 'Interactive Map / Room', short: 'Map / Room', badge: '' },
+      { id: 'people', label: 'Participants', short: 'Participants', badge: '36' },
+      { id: 'chat', label: 'Activity & Chat', short: 'Activity & Chat', badge: 'dot' }
+    ].map(function (t) {
+      var on = self.state.tab === t.id;
+      return Object.assign({}, t, {
+        on: on,
+        hasDot: t.badge === 'dot',
+        hasCount: t.badge !== '' && t.badge !== 'dot',
+        style: on
+          ? 'background: rgba(255,45,117,0.12); border-color: #FF2D75; color: #14141A'
+          : 'background: transparent; border-color: transparent; color: #5A6072',
+        iconColor: on ? '#FF2D75' : '#5A6072',
+        pick: function () { self.setState({ tab: t.id }); }
+      });
+    });
+    var modeDefs = [
+      { id: 'goods', label: 'Goods', tag: 'PRESENTER\u2019S GOODS', title: '[Product name]', sub: '[Price]', cta: 'View item' },
+      { id: 'screen', label: 'Screen', tag: 'SCREEN SHARE', title: 'Host\u2019s screen', sub: 'Shared to the table', cta: 'Join' },
+      { id: 'match', label: 'Match', tag: 'LIVE MATCH', title: '[Home] vs [Away]', sub: 'Football \u00b7 watch together', cta: 'Join' },
+      { id: 'movie', label: 'Movie', tag: 'WATCH PARTY', title: '[Movie title]', sub: 'Streaming live to the room', cta: 'Join' }
+    ];
+    var modes = modeDefs.map(function (m) {
+      var on = self.state.mode === m.id;
+      return {
+        on: on,
+        style: on ? 'background: rgba(255,45,117,0.12); border-color: #FF2D75; color: #14141A' : 'background: rgba(47,123,255,0.08); border-color: rgba(47,123,255,0.35); color: #1F4FB8',
+        iconColor: on ? '#FF2D75' : '#2F7BFF',
+        pick: function () { self.setState({ mode: m.id }); }
+      };
+    });
+    var cur = modeDefs.filter(function (m) { return m.id === self.state.mode; })[0];
+    var isStream = cur.id !== 'goods';
+    var joined = !!self.state.joined[cur.id];
+    var stage = {
+      tag: cur.tag, title: cur.title, sub: cur.sub,
+      isGoods: cur.id === 'goods', isScreen: cur.id === 'screen', isMatch: cur.id === 'match', isMovie: cur.id === 'movie',
+      isStream: isStream,
+      cta: isStream && joined ? 'Watching' : cur.cta,
+      ctaStyle: isStream && joined ? 'background: #191920; border: 1px solid #FF2D75; color: #FFFFFF' : 'background: #FF2D75; border: 1px solid #FF2D75; color: #FFFFFF',
+      onCta: function () {
+        if (!isStream) { self.setState({ tab: 'goods' }); return; }
+        var j = Object.assign({}, self.state.joined); j[cur.id] = !j[cur.id];
+        self.setState({ joined: j });
+      }
+    };
+    var fw = this.props.frameWidth ?? 4;
+    var P = this.state.pop, wn = this.state.win, isFull = this.state.full;
+    var popPerson = P && !P.table ? people[P.person] : null;
+    var popVals = {
+      frameW: fw,
+      frameColor: this.props.frameColor ?? '#3B4763',
+      tileFrame: Math.round(fw * 15) / 10,
+      hostStroke: Math.round(2 * fw / 0.66 * 10) / 10,
+      hostRim: Math.round((2 * fw / 0.66 + 4) * 10) / 10,
+      popOpen: !!P,
+      popIsPerson: !!popPerson,
+      popIsTable: !!(P && P.table),
+      popTitle: popPerson ? popPerson.name : stage.tag,
+      popBg: popPerson ? popPerson.bg : '#0b0b0f',
+      popFull: isFull,
+      popNotFull: !isFull,
+      popCursor: isFull ? 'default' : 'move',
+      fullLabel: isFull ? 'Exit full screen' : 'Full screen',
+      popBox: isFull ? 'left: 0; top: 0; width: 100%; height: 100%; border-radius: 20px' : 'left: ' + wn.x + 'px; top: ' + wn.y + 'px; width: ' + wn.w + 'px; height: ' + wn.h + 'px; border-radius: 14px',
+      toggleFull: function () { self.setState({ full: !self.state.full }); },
+      closePop: function () { self.setState({ pop: null, full: false }); },
+      openTable: function () { self.setState({ pop: { table: true }, full: false, win: { x: 20, y: 120, w: 350, h: 240 } }); },
+      dragStart: function (e) { self.dragWin(e, 'move'); },
+      resizeStart: function (e) { e.stopPropagation(); self.dragWin(e, 'size'); }
+    };
+    var send = function () {
+      var v = (self.state.draft || '').trim();
+      if (!v) return;
+      var c = self.state.comments.concat([{ id: Date.now(), who: 'You', text: v, sys: false }]).slice(-200);
+      self.setState({ comments: c, draft: '' });
+    };
+    var comments = this.state.comments.map(function (c) {
+      return Object.assign({}, c, { initial: c.who.charAt(0).toUpperCase(), msg: !c.sys });
+    });
+    return Object.assign({
+      s0: slot(0), s1: slot(1), s2: slot(2), s3: slot(3), s4: slot(4), s5: slot(5), s6: slot(6),
+      tabs: tabs,
+      t0: tabs[0], t1: tabs[1], t2: tabs[2], t3: tabs[3], t4: tabs[4],
+      comments: comments,
+      draft: this.state.draft,
+      onDraft: function (e) { self.setState({ draft: e.target.value }); },
+      onKey: function (e) { if (e.key === 'Enter') send(); },
+      send: send,
+      loved: this.state.love > 0,
+      loveCount: this.state.love,
+      addLove: function () { self.setState({ love: self.state.love + 1 }); },
+      openGoods: function () { self.setState({ tab: 'goods' }); },
+      m0: modes[0], m1: modes[1], m2: modes[2], m3: modes[3],
+      stage: stage,
+      shareScreen: function () { self.setState({ mode: 'screen' }); },
+      dim: 'background: rgba(8,8,10,' + (this.props.studioDim ?? 0) + ')',
+      showNames: this.props.showNames ?? true
+    }, popVals, {
+      drawer: this.state.drawer,
+      openDrawer: function () { self.setState({ drawer: true }); },
+      shareLive: function () { self.setState({ comments: self.state.comments.concat([{ id: Date.now(), who: 'You', text: 'shared this live', sys: true }]).slice(-200) }); },
+      followLabel: this.state.follow ? 'Following' : 'Follow',
+      followStyle: this.state.follow ? 'background: rgba(20,30,60,0.06); border: 1px solid rgba(20,30,60,0.12); color: #14141A' : 'background: #FF2D75; border: 1px solid #FF2D75; color: #FFFFFF',
+      toggleFollow: function () { self.setState({ follow: !self.state.follow }); },
+      openPeople: function () { self.setState({ tab: 'people', drawer: true }); },
+      sendSpark: function () { self.setState({ comments: self.state.comments.concat([{ id: Date.now(), who: 'You', text: 'sent sparkles', sys: true }]).slice(-200) }); },
+      closeDrawer: function () { self.setState({ drawer: false }); }
+    });
+  }
+}
+</script>
+</body>
+</html>

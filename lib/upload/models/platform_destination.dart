@@ -24,7 +24,7 @@ final List<PlatformDestination> kAvailablePlatforms = [
   const PlatformDestination(id: 'yt', name: 'YouTube', icon: Icons.smart_display_rounded, category: PlatformCategory.video, isConnected: true),
   const PlatformDestination(id: 'tt', name: 'TikTok', icon: Icons.music_note_rounded, category: PlatformCategory.video, isConnected: true),
   const PlatformDestination(id: 'ig', name: 'Instagram Reels', icon: Icons.camera_alt_rounded, category: PlatformCategory.video),
-  const PlatformDestination(id: 'vimeo', name: 'Vimeo', icon: Icons.video_library_rounded, category: PlatformCategory.video),
+  const PlatformDestination(id: 'vimeo', name: 'Vimeo', icon: Icons.video_library, category: PlatformCategory.video),
   const PlatformDestination(id: 'twitch', name: 'Twitch', icon: Icons.live_tv_rounded, category: PlatformCategory.video),
   
   // Audio Platforms

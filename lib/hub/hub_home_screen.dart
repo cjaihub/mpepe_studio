@@ -2,9 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:flutter_animate/flutter_animate.dart';
-import 'package:flutter_svg/flutter_svg.dart';
 import '../backend/notification_service.dart';
-import '../shared/widgets/theme_toggle_button.dart';
 import '../backend/remote_connect_service.dart';
 import '../backend/webrtc_desktop_service.dart';
 import 'package:popover/popover.dart';
@@ -24,7 +22,7 @@ class HubHomeScreen extends ConsumerStatefulWidget {
 }
 
 class _HubHomeScreenState extends ConsumerState<HubHomeScreen> {
-  bool _showAllActions = false;
+
 
   PopupMenuItem<String> _buildAdvancedPopupItem(String value, IconData icon, String label, {Color color = Colors.white}) {
     return PopupMenuItem(
@@ -111,7 +109,7 @@ class _HubHomeScreenState extends ConsumerState<HubHomeScreen> {
             ),
             child: const CircleAvatar(
               radius: 20,
-              backgroundImage: AssetImage('assets/logos/app_logo.png'),
+              backgroundImage: AssetImage('assets/images/oneova_logo.jpg'),
             ),
           ),
           Text(
@@ -186,7 +184,7 @@ class _HubHomeScreenState extends ConsumerState<HubHomeScreen> {
                   
                   return PopupMenuButton<String>(
                     offset: const Offset(0, 56),
-                    color: AppColors.mpepeMaroon,
+                    color: AppColors.brandBlue,
                     elevation: 12,
                     shape: RoundedRectangleBorder(
                       borderRadius: BorderRadius.circular(16),
@@ -212,7 +210,7 @@ class _HubHomeScreenState extends ConsumerState<HubHomeScreen> {
                               ),
                               ElevatedButton(
                                 style: ElevatedButton.styleFrom(
-                                  backgroundColor: AppColors.mpepeMaroon,
+                                  backgroundColor: AppColors.brandBlue,
                                   foregroundColor: Colors.white,
                                 ),
                                 onPressed: () => Navigator.pop(ctx, true),
@@ -237,7 +235,7 @@ class _HubHomeScreenState extends ConsumerState<HubHomeScreen> {
                                 radius: 26,
                                 backgroundImage: photoUrl != null 
                                   ? NetworkImage(photoUrl) as ImageProvider
-                                  : const AssetImage('assets/logos/app_logo.png'),
+                                  : const AssetImage('assets/images/oneova_logo.jpg'),
                               ),
                               const SizedBox(height: 12),
                             ],
@@ -263,7 +261,7 @@ class _HubHomeScreenState extends ConsumerState<HubHomeScreen> {
                         radius: 18,
                         backgroundImage: photoUrl != null 
                           ? NetworkImage(photoUrl) as ImageProvider
-                          : const AssetImage('assets/logos/app_logo.png'),
+                          : const AssetImage('assets/images/oneova_logo.jpg'),
                       ),
                     ),
                   );
@@ -314,7 +312,7 @@ class _HubHomeScreenState extends ConsumerState<HubHomeScreen> {
                 text: TextSpan(
                   children: [
                     TextSpan(
-                      text: '$greeting, ',
+                      text: '$greeting $emoji, ',
                       style: TextStyle(
                         fontSize: 24,
                         color: Theme.of(
@@ -354,17 +352,18 @@ class _HubHomeScreenState extends ConsumerState<HubHomeScreen> {
 
   Widget _buildSystemStatsSection(BuildContext context, WidgetRef ref) {
     final webrtcState = ref.watch(webrtcDesktopProvider);
-    final String webrtcStatusText = 'Active'; // Hardcoded for mockup as dashboard manages multiple computers now
-    final Color webrtcStatusColor = Colors.greenAccent;
+    final hasActiveDesktop = webrtcState.connections.values.any((c) => c.status == WebRTCStatus.connected);
+    final String webrtcStatusText = hasActiveDesktop ? 'Connected' : 'Active';
+    final Color webrtcStatusColor = AppColors.brandBlue;
 
     final stats = [
-      _SystemStat('System Health', '99.9%', 'All services operational', Icons.monitor_heart_rounded, Colors.greenAccent),
-      _SystemStat('Active Tasks', '12', 'Processing in background', Icons.task_alt_rounded, AppColors.mpepeMaroon),
+      _SystemStat('System Health', '100%', 'All services operational', Icons.monitor_heart_rounded, AppColors.brandBlue),
+      _SystemStat('Active Tasks', '12', 'Processing in background', Icons.task_alt_rounded, AppColors.brandPink),
       _SystemStat('Desktop Monitor', webrtcStatusText, 'Real-time WebRTC', Icons.desktop_mac_rounded, webrtcStatusColor),
-      _SystemStat('Network Sync', 'Optimal', 'Low latency connection', Icons.sync_rounded, AppColors.mpepeMaroon),
-      _SystemStat('AI Voice Mode', 'Standby', 'Ready for voice commands', Icons.mic_rounded, AppColors.mpepeMaroon),
-      _SystemStat('Studio Storage', '45% Used', 'Cloud sync active', Icons.cloud_done_rounded, AppColors.mpepeMaroon),
-      _SystemStat('Daily Uploads', '8/50', 'Omnichannel queue', Icons.rocket_launch_rounded, AppColors.mpepeMaroon),
+      _SystemStat('Network Sync', 'Optimal', 'Low latency connection', Icons.sync_rounded, AppColors.brandBlue),
+      _SystemStat('AI Voice Mode', 'Standby', 'Ready for voice commands', Icons.mic_rounded, AppColors.brandPink),
+      _SystemStat('Studio Storage', '45% Used', 'Cloud sync active', Icons.cloud_done_rounded, AppColors.brandBlue),
+      _SystemStat('Daily Uploads', '8/50', 'Omnichannel queue', Icons.rocket_launch_rounded, AppColors.brandPink),
     ];
 
     return Column(
@@ -412,7 +411,7 @@ class _HubHomeScreenState extends ConsumerState<HubHomeScreen> {
         'Mix & Master',
       ),
       _QuickAction(
-        Icons.videocam_rounded,
+        Icons.videocam,
         'Video',
         '/video/dashboard',
         const Color(0xFF8B5CF6),
@@ -504,12 +503,12 @@ class _HubHomeScreenState extends ConsumerState<HubHomeScreen> {
           color: Theme.of(context).colorScheme.surface,
           borderRadius: BorderRadius.circular(12),
           border: Border.all(
-            color: AppColors.mpepeMaroon.withValues(alpha: isDark ? 0.4 : 0.25), // Increased alpha for boldness
+            color: AppColors.brandBlue.withValues(alpha: isDark ? 0.4 : 0.25), // Increased alpha for boldness
             width: 2.0,
           ),
           boxShadow: [
             BoxShadow(
-              color: AppColors.mpepeMaroon.withValues(alpha: 0.05),
+              color: AppColors.brandBlue.withValues(alpha: 0.05),
               blurRadius: 8,
               offset: const Offset(0, 2),
             ),
@@ -521,11 +520,11 @@ class _HubHomeScreenState extends ConsumerState<HubHomeScreen> {
             Container(
               padding: const EdgeInsets.all(10),
               decoration: BoxDecoration(
-                color: AppColors.mpepeMaroon,
+                color: AppColors.brandBlue,
                 shape: BoxShape.circle,
                 boxShadow: [
                   BoxShadow(
-                    color: AppColors.mpepeMaroon.withValues(alpha: 0.3),
+                    color: AppColors.brandBlue.withValues(alpha: 0.3),
                     blurRadius: 6,
                     offset: const Offset(0, 2),
                   ),
@@ -596,12 +595,12 @@ class _HubHomeScreenState extends ConsumerState<HubHomeScreen> {
                   return Container(
                     padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
                     decoration: BoxDecoration(
-                      color: AppColors.mpepeMaroon,
+                      color: AppColors.brandBlue,
                       borderRadius: BorderRadius.circular(12),
                       border: Border.all(color: Colors.white24),
                       boxShadow: [
                         BoxShadow(
-                          color: AppColors.mpepeMaroon.withValues(alpha: 0.2),
+                          color: AppColors.brandBlue.withValues(alpha: 0.2),
                           blurRadius: 8,
                           offset: const Offset(0, 2),
                         ),
@@ -627,7 +626,7 @@ class _HubHomeScreenState extends ConsumerState<HubHomeScreen> {
                   );
                 },
                 loading: () => const SizedBox.shrink(),
-                error: (_, __) => const SizedBox.shrink(),
+                error: (_, _) => const SizedBox.shrink(),
               )
             ],
           ),
@@ -709,12 +708,12 @@ class _HubHomeScreenState extends ConsumerState<HubHomeScreen> {
           color: Theme.of(context).colorScheme.surface,
           borderRadius: BorderRadius.circular(16),
           border: Border.all(
-            color: AppColors.mpepeMaroon.withValues(alpha: 0.3),
+            color: AppColors.brandBlue.withValues(alpha: 0.3),
             width: 1.0,
           ),
           boxShadow: [
             BoxShadow(
-              color: AppColors.mpepeMaroon.withValues(alpha: 0.05),
+              color: AppColors.brandBlue.withValues(alpha: 0.05),
               blurRadius: 10,
               offset: const Offset(0, 4),
             ),
@@ -750,7 +749,7 @@ class _HubHomeScreenState extends ConsumerState<HubHomeScreen> {
                     ],
                   ),
                 ),
-                if (trailing != null) trailing,
+                ?trailing,
               ],
             ),
             const SizedBox(height: 16),
@@ -772,7 +771,7 @@ class _HubHomeScreenState extends ConsumerState<HubHomeScreen> {
       trailing: IconButton(
         icon: Icon(
           Icons.add_circle,
-          color: AppColors.mpepeMaroon,
+          color: AppColors.brandBlue,
         ),
         padding: EdgeInsets.zero,
         constraints: const BoxConstraints(),
@@ -819,7 +818,7 @@ class _HubHomeScreenState extends ConsumerState<HubHomeScreen> {
                         color: AppColors.darkSurface,
                         borderRadius: BorderRadius.circular(16),
                         border: Border.all(
-                          color: isConnected ? AppColors.mpepeMaroon : Colors.white24,
+                          color: isConnected ? AppColors.brandBlue : Colors.white24,
                           width: 2,
                         ),
                       ),
@@ -895,7 +894,7 @@ class _HubHomeScreenState extends ConsumerState<HubHomeScreen> {
         style: TextStyle(
           fontSize: 12,
           fontWeight: FontWeight.w600,
-          color: AppColors.mpepeMaroon,
+          color: AppColors.brandBlue,
         ),
       ),
       child: _buildProjectsList(context, ref),
@@ -950,8 +949,9 @@ class _HubHomeScreenState extends ConsumerState<HubHomeScreen> {
       margin: const EdgeInsets.symmetric(horizontal: 8.0),
       padding: const EdgeInsets.all(16.0),
       decoration: BoxDecoration(
-        color: const Color(0xFF631D26), // Mpepe Maroon
+        color: AppColors.darkSurface,
         borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: AppColors.brandBlue.withValues(alpha: 0.3)),
         boxShadow: [
           BoxShadow(
             color: Colors.black.withValues(alpha: 0.2),
@@ -1035,7 +1035,7 @@ class _HubHomeScreenState extends ConsumerState<HubHomeScreen> {
       child: Container(
         decoration: BoxDecoration(
           shape: BoxShape.circle,
-          border: Border.all(color: const Color(0xFF631D26), width: 2),
+          border: Border.all(color: AppColors.brandBlue, width: 2),
         ),
         child: CircleAvatar(
           radius: 12,
@@ -1060,7 +1060,7 @@ class _HubHomeScreenState extends ConsumerState<HubHomeScreen> {
       context: context,
       title: 'Updates & Feed',
       description: 'Latest notifications and hub activity.',
-      trailing: Icon(Icons.sort, color: AppColors.mpepeMaroon, size: 20),
+      trailing: Icon(Icons.sort, color: AppColors.brandBlue, size: 20),
       child: _buildUpdatesFeedList(context, ref),
     );
   }
@@ -1216,7 +1216,7 @@ class _HubHomeScreenState extends ConsumerState<HubHomeScreen> {
             color: AppColors.darkSurface,
             borderRadius: BorderRadius.circular(16),
             border: Border.all(
-              color: AppColors.mpepeMaroon.withValues(alpha: 0.5),
+              color: AppColors.brandBlue.withValues(alpha: 0.5),
               width: 1.5,
             ),
           ),
@@ -1238,8 +1238,8 @@ class _HubHomeScreenState extends ConsumerState<HubHomeScreen> {
                 spacing: 12,
                 runSpacing: 12,
                 children: [
-                  _buildQuickCreateItem(context, Icons.video_call_rounded, 'New Video', 'Premiere project'),
-                  _buildQuickCreateItem(context, Icons.music_note_rounded, 'New Audio', 'Logic/FL session'),
+                  _buildQuickCreateItem(context, Icons.video_call_rounded, 'New Video', 'OneOva Video project'),
+                  _buildQuickCreateItem(context, Icons.music_note_rounded, 'New Audio', 'OneOva Audio session'),
                   _buildQuickCreateItem(context, Icons.schedule_send_rounded, 'Schedule Post', 'Social media'),
                   _buildQuickCreateItem(context, Icons.link_rounded, 'Connect App', 'Link software'),
                 ],
@@ -1279,7 +1279,7 @@ class _HubHomeScreenState extends ConsumerState<HubHomeScreen> {
             Container(
               padding: const EdgeInsets.all(8),
               decoration: BoxDecoration(
-                color: AppColors.mpepeMaroon,
+                color: AppColors.brandBlue,
                 shape: BoxShape.circle,
               ),
               child: Icon(icon, color: Colors.white, size: 20),
@@ -1304,7 +1304,7 @@ class _HubHomeScreenState extends ConsumerState<HubHomeScreen> {
         return StatefulBuilder(
           builder: (context, setState) {
             return Dialog(
-              backgroundColor: AppColors.mpepeMaroon,
+              backgroundColor: AppColors.brandBlue,
               shape: RoundedRectangleBorder(
                 borderRadius: BorderRadius.circular(24),
               ),
@@ -1326,7 +1326,7 @@ class _HubHomeScreenState extends ConsumerState<HubHomeScreen> {
                       ),
                       const SizedBox(height: 8),
                       const Text(
-                        'Pair your device with DaVinci Resolve, Premiere Pro, Logic Pro, or FL Studio.',
+                        'Pair your workstation with OneOva Studio Engine.',
                         style: TextStyle(color: Colors.white70, fontSize: 13),
                         textAlign: TextAlign.center,
                       ),
@@ -1348,7 +1348,7 @@ class _HubHomeScreenState extends ConsumerState<HubHomeScreen> {
                         label: const Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            Text('Link via MPEPE Account', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 15)),
+                            Text('Link via Oneova Account', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 15)),
                             SizedBox(height: 2),
                             Text('Auto-connect to any logged-in desktop.', style: TextStyle(fontSize: 11, color: Colors.white70)),
                           ],
@@ -1415,7 +1415,7 @@ class _HubHomeScreenState extends ConsumerState<HubHomeScreen> {
                         style: const TextStyle(color: Colors.white, letterSpacing: 2.0, fontWeight: FontWeight.bold),
                         textCapitalization: TextCapitalization.characters,
                         decoration: InputDecoration(
-                          hintText: 'e.g. MPEPE-9X42',
+                          hintText: 'e.g. ONEOVA-9X42',
                           hintStyle: const TextStyle(color: Colors.white54, letterSpacing: 0, fontWeight: FontWeight.normal),
                           filled: true,
                           fillColor: Colors.black.withValues(alpha: 0.2),
@@ -1433,7 +1433,7 @@ class _HubHomeScreenState extends ConsumerState<HubHomeScreen> {
                         child: ElevatedButton(
                           style: ElevatedButton.styleFrom(
                             backgroundColor: Colors.white,
-                            foregroundColor: AppColors.mpepeMaroon,
+                            foregroundColor: AppColors.brandBlue,
                             padding: const EdgeInsets.symmetric(vertical: 16),
                             shape: RoundedRectangleBorder(
                               borderRadius: BorderRadius.circular(12),
@@ -1503,12 +1503,12 @@ class _SystemStatCard extends StatelessWidget {
         color: AppColors.darkSurface,
         borderRadius: BorderRadius.circular(16),
         border: Border.all(
-          color: AppColors.mpepeMaroon.withValues(alpha: 0.3),
+          color: AppColors.brandBlue.withValues(alpha: 0.3),
           width: 2.0,
         ),
         boxShadow: [
           BoxShadow(
-            color: AppColors.mpepeMaroon.withValues(alpha: 0.05),
+            color: AppColors.brandBlue.withValues(alpha: 0.05),
             blurRadius: 10,
             offset: const Offset(0, 4),
           ),

@@ -88,6 +88,8 @@ class Content {
   final List<String> hashtags;
   final List<String> mentions; // user IDs mentioned
   final String? location;
+  final double? latitude;
+  final double? longitude;
   final String visibility; // 'public', 'private', 'friends', 'close_friends'
 
   // Engagement Counts (must not be faked)
@@ -98,9 +100,15 @@ class Content {
   final int shareCount;
   final int saveCount;
   final int repostCount;
+  // Real watch signals for ranking (incremented by RecommendationService).
+  final int completionCount; // full plays to the end
+  final int watchTimeMs; // total milliseconds watched across viewers
+  final int followerConversions; // follows started from this content
   
   final bool downloadsPermitted;
 
+  final CreatorPermissions permissions;
+  final ContentAttribution? attribution;
   final DateTime createdAt;
 
   Content({
@@ -113,6 +121,8 @@ class Content {
     this.hashtags = const [],
     this.mentions = const [],
     this.location,
+    this.latitude,
+    this.longitude,
     this.visibility = 'public',
     this.viewCount = 0,
     this.commentCount = 0,
@@ -121,7 +131,12 @@ class Content {
     this.shareCount = 0,
     this.saveCount = 0,
     this.repostCount = 0,
+    this.completionCount = 0,
+    this.watchTimeMs = 0,
+    this.followerConversions = 0,
     this.downloadsPermitted = true,
+    this.permissions = const CreatorPermissions(),
+    this.attribution,
     required this.createdAt,
   });
 
@@ -140,6 +155,8 @@ class Content {
       hashtags: List<String>.from(data['hashtags'] ?? []),
       mentions: List<String>.from(data['mentions'] ?? []),
       location: data['location'] as String?,
+      latitude: (data['latitude'] as num?)?.toDouble(),
+      longitude: (data['longitude'] as num?)?.toDouble(),
       visibility: data['visibility'] ?? 'public',
       viewCount: data['viewCount'] ?? 0,
       commentCount: data['commentCount'] ?? 0,
@@ -148,6 +165,9 @@ class Content {
       shareCount: data['shareCount'] ?? 0,
       saveCount: data['saveCount'] ?? 0,
       repostCount: data['repostCount'] ?? 0,
+      completionCount: (data['completionCount'] as num?)?.toInt() ?? 0,
+      watchTimeMs: (data['watchTimeMs'] as num?)?.toInt() ?? 0,
+      followerConversions: (data['followerConversions'] as num?)?.toInt() ?? 0,
       downloadsPermitted: data['downloadsPermitted'] ?? true,
       createdAt: (data['createdAt'] as Timestamp?)?.toDate() ?? DateTime.now(),
     );
@@ -163,6 +183,8 @@ class Content {
       'hashtags': hashtags,
       'mentions': mentions,
       'location': location,
+      'latitude': latitude,
+      'longitude': longitude,
       'visibility': visibility,
       'viewCount': viewCount,
       'commentCount': commentCount,
@@ -175,4 +197,30 @@ class Content {
       'createdAt': FieldValue.serverTimestamp(),
     };
   }
+}
+
+enum DerivativeType { duet, stitch, remix, repost, quote_repost, video_reply, reaction_video, green_screen, split_screen }
+
+class CreatorPermissions {
+  final bool allowDuet;
+  final bool allowStitch;
+  final bool allowRemix;
+  final bool allowSharing;
+  const CreatorPermissions({
+    this.allowDuet = true,
+    this.allowStitch = true,
+    this.allowRemix = true,
+    this.allowSharing = true,
+  });
+}
+
+class ContentAttribution {
+  final String originalContentId;
+  final String originalAuthorId;
+  final DerivativeType derivativeType;
+  const ContentAttribution({
+    this.originalContentId = "",
+    this.originalAuthorId = "",
+    this.derivativeType = DerivativeType.duet,
+  });
 }
