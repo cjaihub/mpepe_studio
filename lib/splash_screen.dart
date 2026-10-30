@@ -179,7 +179,7 @@ class _SplashScreenState extends State<SplashScreen> {
                   const SizedBox(height: 10),
 
                   Text(
-                    'CREATIVE SOCIAL STUDIO',
+                    'THE REASON YOU MATTER',
                     style: GoogleFonts.inter(
                       fontSize: 11,
                       fontWeight: FontWeight.w700,
@@ -218,7 +218,7 @@ class _SplashScreenState extends State<SplashScreen> {
                         ),
                         const SizedBox(width: 8),
                         Text(
-                          'ALL YOU NEED IN YOUR POCKET',
+                          'REELS · CHAT · LIVE · STUDIO',
                           style: GoogleFonts.inter(
                             fontSize: 10,
                             fontWeight: FontWeight.w800,

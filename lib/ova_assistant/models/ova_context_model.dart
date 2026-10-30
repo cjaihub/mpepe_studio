@@ -26,7 +26,7 @@ class AssistantPersona {
     AssistantPersona(
       id: AssistantPersonaId.oneova,
       name: 'Oneova',
-      tagline: 'All you need in your Pocket as a creative',
+      tagline: 'The reason you matter',
       description: 'Your intelligent creative studio and phone copilot with real-time tools.',
       icon: Icons.auto_awesome,
     ),

@@ -16,7 +16,7 @@ Oneova
 Short videos, chat, calls, live streams and a full video studio in one app.
 
 **Full description (≤4000):**
-Oneova brings creating, sharing and connecting together in one app.
+Oneova — the reason you matter. Creating, sharing and connecting, together in one app.
 
 REELS
 Watch a full-screen feed of short videos, made for you or from the people you follow. Like, comment, share, save, remix and follow creators. Use Following, For You and Biz to switch feeds, and tune your recommendations in Feed Controls.
@@ -50,8 +50,8 @@ Report or block anyone, choose who can see and message you, and download or dele
 ⚠️ The policy text links to `oneova.app`, which does not load right now. Use the web.app URLs here, or connect the domain first.
 
 **Graphics needed (not created yet):**
-- App icon 512×512 PNG (from `assets/images/oneova_logo.png`)
-- Feature graphic 1024×500
+- App icon 512×512 PNG: `docs/play-store/oneova-icon-512.png` ✅
+- Feature graphic 1024×500: `docs/play-store/oneova-feature-graphic-1024x500.png` ✅ (motto "The reason you matter")
 - At least 2 phone screenshots (16:9 or 9:16, 320–3840 px), ideally 4–8: Reels feed, Studio editor, Chat, Live, Ova
 
 ---

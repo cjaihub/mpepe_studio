@@ -168,15 +168,17 @@ flutter_launcher_icons:
     background_color: "#0A0A0A"
     theme_color: "#0C4FA8"
   image_path: "assets/images/oneova_logo.png"
-  adaptive_icon_background: "#0A0A0A"
+  adaptive_icon_background: "#FFFFFF"
   adaptive_icon_foreground: "assets/images/oneova_logo_adaptive.png"
+  remove_alpha_ios: true
+  background_color_ios: "#FFFFFF"
 
 flutter_native_splash:
   color: "#0A0A0A"
   image: "assets/images/oneova_logo.png"
   android_12:
     color: "#0A0A0A"
-    image: "assets/images/oneova_logo.png"
+    image: "assets/images/oneova_splash_icon.png"
 # For information on the generic Dart part of this file, see the
 # following page: https://dart.dev/tools/pub/pubspec
 

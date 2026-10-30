@@ -326,7 +326,7 @@ class OvaActionEngine {
     String reply;
     switch (persona.id) {
       case AssistantPersonaId.oneova:
-        reply = "I'm right here with you! All you need in your Pocket as a creative. Whether you want to send photos, check messages, or organize your studio, just command me.";
+        reply = "I'm right here with you! Oneova — the reason you matter. Whether you want to send photos, check messages, or organize your studio, just command me.";
         break;
       case AssistantPersonaId.ova:
         reply = "Ova Studio Engine is active and connected to your device. Ready to execute phone automation or content workflows whenever you are.";

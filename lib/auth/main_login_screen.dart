@@ -2095,7 +2095,7 @@ class _MainLoginScreenState extends ConsumerState<MainLoginScreen> {
         'authPasswordLinked': true,
         'followers': 0,
         'following': 0,
-        'bio': 'All you need in your Pocket as a creative',
+        'bio': 'Oneova — the reason you matter',
         'createdAt': FieldValue.serverTimestamp(),
         'updatedAt': FieldValue.serverTimestamp(),
       }, SetOptions(merge: true));
