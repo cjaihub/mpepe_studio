@@ -137,6 +137,7 @@ dependencies:
   smart_auth: ^3.2.0
   pdfx: ^2.11.0
   in_app_update: ^5.0.0
+  firebase_ai: ^4.0.0
 dev_dependencies:
   flutter_test:
     sdk: flutter

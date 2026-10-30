@@ -1,6 +1,6 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.lsRecordingDecision = exports.lsBroadcast = exports.lsDestinations = exports.LIVE_RECORDING_BUCKET = exports.LIVE_RECORDING_GCS_KEY = void 0;
+exports.lsRecordingDecision = exports.lsBroadcast = exports.lsDestinations = exports.LIVE_RECORDING_BUCKET = void 0;
 exports.stopStreamEgress = stopStreamEgress;
 exports.onEgressEnded = onEgressEnded;
 /**
@@ -18,8 +18,11 @@ exports.onEgressEnded = onEgressEnded;
  *   lsRecordingDecision({streamId, keep})
  *       After the live: keep the MP4 in the host's library or delete it.
  *
- * Recordings upload with the `LIVE_RECORDING_GCS_KEY` service-account JSON
- * (LiveKit Cloud needs explicit storage credentials). Pure rules: broadcast_logic.ts.
+ * Recordings upload with a service-account JSON kept in Secret Manager as
+ * `LIVE_RECORDING_GCS_KEY` (LiveKit Cloud needs explicit storage
+ * credentials). It is read at runtime with the function's own identity, so a
+ * missing key only disables recording and never blocks a deploy.
+ * Pure rules: broadcast_logic.ts.
  */
 const https_1 = require("firebase-functions/v2/https");
 const params_1 = require("firebase-functions/params");
@@ -27,11 +30,16 @@ const firestore_1 = require("firebase-admin/firestore");
 const storage_1 = require("firebase-admin/storage");
 const livekit_server_sdk_1 = require("livekit-server-sdk");
 const contracts_1 = require("./contracts");
+const optionalSecrets_1 = require("../optionalSecrets");
 const shared_1 = require("./shared");
 const broadcast_logic_1 = require("./broadcast_logic");
-exports.LIVE_RECORDING_GCS_KEY = (0, params_1.defineSecret)('LIVE_RECORDING_GCS_KEY');
 exports.LIVE_RECORDING_BUCKET = (0, params_1.defineString)('LIVE_RECORDING_BUCKET', { default: 'mpepe-2b4bd.firebasestorage.app' });
-const SECRETS = [...shared_1.LIVEKIT_SECRETS, exports.LIVE_RECORDING_GCS_KEY];
+const RECORDING_KEY_SECRET = 'LIVE_RECORDING_GCS_KEY';
+/** Service-account JSON for recording uploads, or null when not configured. */
+async function recordingKey() {
+    const v = await (0, optionalSecrets_1.optionalSecret)(RECORDING_KEY_SECRET);
+    return v && v.startsWith('{') ? v : null;
+}
 const destRef = (uid) => (0, shared_1.db)().doc(`live_destinations_private/${uid}`);
 const recRef = (streamId) => (0, shared_1.db)().doc(`live_recordings/${streamId}`);
 function egressClient() {
@@ -93,7 +101,7 @@ async function stopStreamEgress(streamId) {
         console.warn(`[liveStudio] stop egress ${streamId}:`, e.message);
     }
 }
-exports.lsBroadcast = (0, https_1.onCall)({ secrets: SECRETS }, async (req) => {
+exports.lsBroadcast = (0, https_1.onCall)({ secrets: shared_1.LIVEKIT_SECRETS }, async (req) => {
     var _a, _b;
     const uid = (0, shared_1.requireUid)(req);
     const data = (req.data && typeof req.data === 'object' ? req.data : {});
@@ -127,8 +135,8 @@ exports.lsBroadcast = (0, https_1.onCall)({ secrets: SECRETS }, async (req) => {
     const path = (0, broadcast_logic_1.recordingPath)(state.hostId, streamId);
     const outputs = {};
     if (record) {
-        const key = exports.LIVE_RECORDING_GCS_KEY.value();
-        if (!key || !key.trim().startsWith('{')) {
+        const key = await recordingKey();
+        if (!key) {
             throw new https_1.HttpsError('failed-precondition', 'Recording storage is not configured yet.');
         }
         outputs.file = new livekit_server_sdk_1.EncodedFileOutput({

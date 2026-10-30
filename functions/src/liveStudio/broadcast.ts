@@ -13,11 +13,14 @@
  *   lsRecordingDecision({streamId, keep})
  *       After the live: keep the MP4 in the host's library or delete it.
  *
- * Recordings upload with the `LIVE_RECORDING_GCS_KEY` service-account JSON
- * (LiveKit Cloud needs explicit storage credentials). Pure rules: broadcast_logic.ts.
+ * Recordings upload with a service-account JSON kept in Secret Manager as
+ * `LIVE_RECORDING_GCS_KEY` (LiveKit Cloud needs explicit storage
+ * credentials). It is read at runtime with the function's own identity, so a
+ * missing key only disables recording and never blocks a deploy.
+ * Pure rules: broadcast_logic.ts.
  */
 import { onCall, HttpsError } from 'firebase-functions/v2/https';
-import { defineSecret, defineString } from 'firebase-functions/params';
+import { defineString } from 'firebase-functions/params';
 import { FieldValue } from 'firebase-admin/firestore';
 import { getStorage } from 'firebase-admin/storage';
 import {
@@ -30,6 +33,7 @@ import {
   StreamProtocol,
 } from 'livekit-server-sdk';
 import { Paths } from './contracts';
+import { optionalSecret } from '../optionalSecrets';
 import {
   LIVEKIT_API_KEY,
   LIVEKIT_API_SECRET,
@@ -55,9 +59,14 @@ import {
   recordingPath,
 } from './broadcast_logic';
 
-export const LIVE_RECORDING_GCS_KEY = defineSecret('LIVE_RECORDING_GCS_KEY');
 export const LIVE_RECORDING_BUCKET = defineString('LIVE_RECORDING_BUCKET', { default: 'mpepe-2b4bd.firebasestorage.app' });
-const SECRETS = [...LIVEKIT_SECRETS, LIVE_RECORDING_GCS_KEY];
+const RECORDING_KEY_SECRET = 'LIVE_RECORDING_GCS_KEY';
+
+/** Service-account JSON for recording uploads, or null when not configured. */
+async function recordingKey(): Promise<string | null> {
+  const v = await optionalSecret(RECORDING_KEY_SECRET);
+  return v && v.startsWith('{') ? v : null;
+}
 
 const destRef = (uid: string) => db().doc(`live_destinations_private/${uid}`);
 const recRef = (streamId: string) => db().doc(`live_recordings/${streamId}`);
@@ -116,7 +125,7 @@ export async function stopStreamEgress(streamId: string): Promise<void> {
   }
 }
 
-export const lsBroadcast = onCall({ secrets: SECRETS }, async (req) => {
+export const lsBroadcast = onCall({ secrets: LIVEKIT_SECRETS }, async (req) => {
   const uid = requireUid(req);
   const data = (req.data && typeof req.data === 'object' ? req.data : {}) as Record<string, unknown>;
   const streamId = requireString(data.streamId, 'streamId', 128);
@@ -151,8 +160,8 @@ export const lsBroadcast = onCall({ secrets: SECRETS }, async (req) => {
   const path = recordingPath(state.hostId, streamId);
   const outputs: { file?: EncodedFileOutput; stream?: StreamOutput } = {};
   if (record) {
-    const key = LIVE_RECORDING_GCS_KEY.value();
-    if (!key || !key.trim().startsWith('{')) {
+    const key = await recordingKey();
+    if (!key) {
       throw new HttpsError('failed-precondition', 'Recording storage is not configured yet.');
     }
     outputs.file = new EncodedFileOutput({

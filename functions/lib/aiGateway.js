@@ -2,38 +2,19 @@
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.aiGateway = exports.generateLiveApiToken = void 0;
 const https_1 = require("firebase-functions/v2/https");
-const params_1 = require("firebase-functions/params");
 const genai_1 = require("@google/genai");
 const ToolExecutionLayer_1 = require("./services/ToolExecutionLayer");
 const firestore_1 = require("firebase-admin/firestore");
 const accountSettings_1 = require("./accountSettings");
 const vertexAi_1 = require("./vertexAi");
-const geminiSecret = (0, params_1.defineSecret)('GEMINI_API_KEY');
 /**
- * Short-lived Gemini Live token for the app's voice mode. It can only open
- * one Live session for 30 minutes; it is NOT a Google Cloud credential.
- * (The previous version returned the server's own cloud-platform access
- * token to any signed-in user, which would have exposed the whole project.)
+ * Retired: voice mode now talks to the Gemini Live model on Vertex AI
+ * directly through Firebase AI Logic (App Check + Auth, no API key), see
+ * lib/ai_messaging/services/gemini_live_service.dart. Kept so older app
+ * builds get a clear error instead of a missing-function failure.
  */
-exports.generateLiveApiToken = (0, https_1.onCall)({ secrets: [geminiSecret] }, async (request) => {
-    var _a;
-    var _b;
-    if (!request.auth || ((_a = request.auth.token.firebase) === null || _a === void 0 ? void 0 : _a.sign_in_provider) === 'anonymous') {
-        throw new https_1.HttpsError('unauthenticated', 'User must be logged in.');
-    }
-    try {
-        const ai = new genai_1.GoogleGenAI({ apiKey: geminiSecret.value(), httpOptions: { apiVersion: 'v1alpha' } });
-        const expireTime = new Date(Date.now() + 30 * 60 * 1000).toISOString();
-        const newSessionExpireTime = new Date(Date.now() + 60 * 1000).toISOString();
-        const token = await ai.authTokens.create({
-            config: { uses: 1, expireTime, newSessionExpireTime },
-        });
-        return { token: token.name, expiresAt: Date.parse(expireTime) };
-    }
-    catch (error) {
-        console.error('Live token error:', (_b = error === null || error === void 0 ? void 0 : error.message) !== null && _b !== void 0 ? _b : error);
-        throw new https_1.HttpsError('internal', 'Failed to generate Live API token.');
-    }
+exports.generateLiveApiToken = (0, https_1.onCall)(async () => {
+    throw new https_1.HttpsError('failed-precondition', 'Voice mode moved to Vertex AI. Update Oneova to the latest version.');
 });
 // Define tools using Gemini SDK Schema
 const applicationTools = [{
