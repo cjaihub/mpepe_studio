@@ -940,6 +940,7 @@ class StudioCallables {
   static const String start = 'lsStart';
   static const String token = 'lsToken';
   static const String end = 'lsEnd';
+  static const String heartbeat = 'lsHeartbeat';
   static const String comment = 'lsComment';
   static const String deleteComment = 'lsDeleteComment';
   static const String muteChat = 'lsMuteChat';

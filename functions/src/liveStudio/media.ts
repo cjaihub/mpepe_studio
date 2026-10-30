@@ -15,7 +15,6 @@ import {
   db,
   isBlocked,
   loadState,
-  patchState,
   requireLive,
   requireRole,
   requireString,
@@ -25,6 +24,9 @@ import {
   roomService,
 } from './shared';
 import { normalizeSettings } from './settings_logic';
+import { endStudioStream } from './lifecycle';
+import { parseStartExtras } from './lifecycle_logic';
+import { followDocId, isAcceptedFollow } from './controls_logic';
 import { mediaKeyForToken, recordStudioSignal, recordTokenSignal } from './security';
 import {
   PublishSource,
@@ -77,7 +79,16 @@ function streamIdArg(data: unknown): string {
 /** Host starts a v2 live. Returns `{streamId, token, url, role}`. */
 export const lsStart = onCall({ secrets: LIVEKIT_SECRETS }, async (req) => {
   const uid = requireUid(req);
-  const data = (req.data ?? {}) as { title?: unknown; settings?: unknown; kind?: unknown; gameTitle?: unknown };
+  const data = (req.data ?? {}) as {
+    title?: unknown;
+    settings?: unknown;
+    kind?: unknown;
+    gameTitle?: unknown;
+    category?: unknown;
+    coverUrl?: unknown;
+    audienceMode?: unknown;
+    allowGuestRequests?: unknown;
+  };
   const title = requireString(data.title, 'title', 200);
   let start;
   try {
@@ -87,6 +98,7 @@ export const lsStart = onCall({ secrets: LIVEKIT_SECRETS }, async (req) => {
     throw e;
   }
   const { kind, gameTitle } = start;
+  const extras = parseStartExtras(data);
   const [profile, savedSnap] = await Promise.all([
     profileOf(uid, req.auth?.token),
     db().doc(Paths.hostSettings(uid)).get(),
@@ -111,7 +123,12 @@ export const lsStart = onCall({ secrets: LIVEKIT_SECRETS }, async (req) => {
   const batch = db().batch();
   batch.set(streamRef, {
     ...buildStreamDoc({ streamId, hostId: uid, title, profile, kind, gameTitle }),
+    audienceMode: extras.audienceMode,
+    allowGuestRequests: extras.allowGuestRequests,
+    ...(extras.category && kind !== 'gaming' ? { category: extras.category } : {}),
+    ...(extras.coverUrl ? { coverUrl: extras.coverUrl, thumbnailUrl: extras.coverUrl } : {}),
     createdAt: FieldValue.serverTimestamp(),
+    hostHeartbeatAt: FieldValue.serverTimestamp(),
   });
   batch.set(db().doc(Paths.state(streamId)), {
     ...buildInitialState({ streamId, hostId: uid, title, settings, nowMs: now, gameTitle }),
@@ -144,6 +161,16 @@ export const lsToken = onCall({ secrets: LIVEKIT_SECRETS }, async (req) => {
   }
 
   const role = await roleOf(streamId, uid, state);
+  if (role === 'viewer' && uid !== state.hostId) {
+    // Followers-only lives (setup wizard → audienceMode): viewers must follow the host.
+    const stream = await db().doc(`${Paths.streams}/${streamId}`).get();
+    if (stream.get('audienceMode') === 'followers') {
+      const rel = await db().doc(`relationships/${followDocId(uid, state.hostId)}`).get();
+      if (!rel.exists || !isAcceptedFollow(rel.get('status'))) {
+        throw new HttpsError('permission-denied', 'This live is for followers only. Follow the host to watch.');
+      }
+    }
+  }
   const member = await db().doc(`${Paths.members(streamId)}/${uid}`).get();
   const name = member.exists
     ? (member.data() as StageMember).displayName
@@ -161,16 +188,7 @@ export const lsEnd = onCall({ secrets: LIVEKIT_SECRETS }, async (req) => {
   const uid = requireUid(req);
   const streamId = streamIdArg(req.data);
   await requireRole(streamId, uid, ['host']);
-  await patchState(streamId, 'status', (s) => (s.status === 'ended' ? undefined : 'ended'));
-  await db().doc(`${Paths.streams}/${streamId}`).set(
-    { status: 'ended', endedAt: FieldValue.serverTimestamp() },
-    { merge: true },
-  );
-  try {
-    await roomService().deleteRoom(roomName(streamId));
-  } catch (e) {
-    console.warn(`[liveStudio] deleteRoom ${streamId}:`, (e as Error).message);
-  }
+  await endStudioStream(streamId, 'host');
   return { ok: true };
 });
 

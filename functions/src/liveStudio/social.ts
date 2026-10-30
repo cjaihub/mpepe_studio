@@ -52,6 +52,7 @@ import { FieldValue, DocumentReference } from 'firebase-admin/firestore';
 import { WebhookReceiver } from 'livekit-server-sdk';
 import { enforceChatMode } from './controls';
 import { recordStudioSignal } from './security';
+import { endStudioStream, onHostPresence } from './lifecycle';
 import { Paths, Limits, StudioRole, StudioState, StageMember, ReactionKind, StudioCounts, shareUrl, isManager } from './contracts';
 import {
   LIVEKIT_SECRETS,
@@ -503,7 +504,12 @@ export const lsLivekitWebhook = onRequest({ secrets: LIVEKIT_SECRETS }, async (r
     const streamId = streamIdFromRoom(event.room?.name);
     const p = event.participant;
     // Only standard clients count as viewers (kind 0); skip egress/ingress/agents.
+    if (streamId && event.event === 'room_finished') {
+      // The room closed (empty timeout / deleted): the live is over.
+      await endStudioStream(streamId, 'room_closed');
+    }
     if (streamId && p && (p.kind ?? 0) === 0 && (event.event === 'participant_joined' || event.event === 'participant_left')) {
+      await onHostPresence(streamId, p.identity, event.event === 'participant_joined');
       await handlePresence(
         streamId,
         event.event === 'participant_joined',

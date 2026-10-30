@@ -135,7 +135,7 @@ class _Empty extends StatelessWidget {
             textColor: LiveStudioAccent.white,
             height: 48,
             padding: const EdgeInsets.symmetric(horizontal: 20),
-            onTap: () => context.push('/live/broadcast?mode=gaming'),
+            onTap: () => context.push('/live/setup?mode=gaming'),
           ),
         ]),
       ),

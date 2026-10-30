@@ -275,6 +275,7 @@ export { globalSemanticSearch } from './search/searchQuery';
 // Live Studio v2 (docs/live-studio/ARCHITECTURE.md §5)
 export { lsStart, lsToken, lsEnd, lsTime, lsStateFull, lsSetOwnMedia } from './liveStudio/media';
 export { lsSetSettings } from './liveStudio/settings';
+export { lsHeartbeat, lsSweepOrphanLives } from './liveStudio/lifecycle';
 export { lsSetLayout } from './liveStudio/layout';
 export { lsRequestJoin, lsCancelRequest, lsRespondRequest, lsModerate, lsLeaveStage } from './liveStudio/roles';
 export { lsSetTable, lsPlayback } from './liveStudio/table';

@@ -19,8 +19,13 @@ final liveStudioV2EnabledProvider = FutureProvider<bool>((ref) async {
 });
 
 /// `studioVersion` of a live stream doc (2 = Live Studio v2, else v1).
-final liveStudioVersionProvider = FutureProvider.autoDispose.family<int, String>((ref, streamId) async {
-  final snap = await FirebaseFirestore.instance.collection('live_streams').doc(streamId).get();
-  final v = snap.data()?['studioVersion'];
-  return v is num ? v.toInt() : 1;
+///
+/// A snapshot listener rather than a one-time get: it shares the stream
+/// doc listener the viewer gate already holds, so it resolves from cache
+/// instead of adding a server round trip before the studio opens.
+final liveStudioVersionProvider = StreamProvider.autoDispose.family<int, String>((ref, streamId) {
+  return FirebaseFirestore.instance.collection('live_streams').doc(streamId).snapshots().map((snap) {
+    final v = snap.data()?['studioVersion'];
+    return v is num ? v.toInt() : 1;
+  });
 });

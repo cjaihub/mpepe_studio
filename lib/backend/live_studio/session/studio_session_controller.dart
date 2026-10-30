@@ -70,6 +70,14 @@ final studioRoomProvider = Provider.autoDispose.family<StudioRoomPort, String>((
   room.onCameraTrackUnpublished = (trackId) {
     ref.read(liveLooksControllerProvider.notifier).detachCameraTrack();
   };
+  final started = ref.read(studioStartCredentialsProvider).remove(streamId);
+  if (started != null) room.useInitialCredentials(started);
+  final media = ref.read(studioStartMediaProvider).remove(streamId);
+  if (media != null) {
+    room
+      ..hostStartsWithMic = media.mic
+      ..hostStartsWithCamera = media.camera;
+  }
   unawaited(room.connect());
   ref.onDispose(() => unawaited(room.disconnect()));
   return room;

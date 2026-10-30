@@ -101,7 +101,7 @@ class _CreationTypeModalState extends ConsumerState<CreationTypeModal> {
       subtitle: 'Full-screen LIVE',
       category: 'Cinema Live',
       icon: Icons.sensors_rounded,
-      route: '/live/broadcast',
+      route: '/live/setup',
       badge: 'LIVE',
       description:
           'Go live full-screen to your followers. They get notified the moment you start and can comment, like, send gifts and request to join.',
@@ -117,7 +117,7 @@ class _CreationTypeModalState extends ConsumerState<CreationTypeModal> {
       subtitle: 'Corporate video windows',
       category: 'Cinema Live',
       icon: Icons.view_quilt_rounded,
-      route: '/live/broadcast?mode=studio',
+      route: '/live/setup?mode=studio',
       badge: 'STUDIO',
       description:
           'Host a broadcast studio: you on the center stage, guests as video windows on the studio walls. Built for panels, briefings and business shows.',
@@ -133,7 +133,7 @@ class _CreationTypeModalState extends ConsumerState<CreationTypeModal> {
       subtitle: 'Stream your phone game',
       category: 'Cinema Live',
       icon: Icons.sports_esports,
-      route: '/live/broadcast?mode=gaming',
+      route: '/live/setup?mode=gaming',
       badge: 'GAME',
       description:
           'Go live while you play any game on your phone. Your screen is the main stage, your camera sits in a bubble, and the live keeps going while you are in the game.',
@@ -859,7 +859,7 @@ class _CreationTypeModalState extends ConsumerState<CreationTypeModal> {
                         HapticFeedback.mediumImpact();
                         final router = GoRouter.of(context);
                         Navigator.of(context).pop();
-                        router.push('/live/broadcast');
+                        router.push('/live/setup');
                       },
                       onInfoTap: () {
                         _showFeatureIntroductionSheet(
@@ -878,7 +878,7 @@ class _CreationTypeModalState extends ConsumerState<CreationTypeModal> {
                           onLaunch: () {
                             final router = GoRouter.of(context);
                             Navigator.of(context).pop();
-                            router.push('/live/broadcast');
+                            router.push('/live/setup');
                           },
                         );
                       },

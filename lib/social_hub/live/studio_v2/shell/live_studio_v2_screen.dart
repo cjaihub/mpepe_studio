@@ -1,5 +1,7 @@
 import 'dart:async';
 
+import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:cloud_functions/cloud_functions.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -10,6 +12,7 @@ import '../../../../backend/live_studio/contracts/studio_contracts.dart';
 import '../../../../backend/live_studio/contracts/studio_ports.dart';
 import '../../../../backend/live_studio/layout/layout.dart';
 import '../../../../backend/live_studio/media/livekit_studio_room.dart';
+import '../../../../backend/live_studio/media/studio_media_api.dart';
 import '../../../../backend/live_studio/media/studio_video_view.dart';
 import '../../../../backend/live_studio/roles/studio_moderation_controller.dart';
 import '../../../../backend/live_studio/roles/studio_request_queue_controller.dart';
@@ -27,9 +30,17 @@ import '../settings/host_settings_sheet.dart';
 import '../stage/stage.dart';
 import '../table/table.dart';
 import '../theme/live_studio_tokens.dart';
+import 'live_session_status.dart';
 import 'shell_widgets.dart';
 
-/// Live Studio v2 (feature flag `live_studio_v2`). Route: /live/studio2/:streamId.
+/// The stream doc (`live_streams/{id}`): status / endedReason / host info.
+/// Catches server-side endings (sweeper, room closed) even if the room's
+/// state.patch was missed during a network drop.
+final _liveDocProvider = StreamProvider.autoDispose.family<Map<String, dynamic>?, String>(
+    (ref, id) => FirebaseFirestore.instance.collection('live_streams').doc(id).snapshots().map((d) => d.data()));
+
+/// The Live Studio (every live, every host). Route: /live/studio2/:streamId;
+/// hosts arrive from the setup wizard (/live/setup), viewers via /live/viewer.
 ///
 /// Composes the workstreams: stage (#3), table (#5), join/moderation (#4),
 /// social (#2), settings (#6) on top of the media/session layer (#1).
@@ -48,6 +59,16 @@ class _LiveStudioV2ScreenState extends ConsumerState<LiveStudioV2Screen> {
   final List<StreamSubscription<Object?>> _mediaSubs = [];
   StudioRoomPort? _boundRoom;
   bool _gameStarting = false;
+
+  /// Host keep-alive (lsHeartbeat) so the server closes orphaned lives.
+  Timer? _heartbeat;
+  StudioLinkPhase _phase = StudioLinkPhase.connecting;
+  bool _connectedOnce = false;
+
+  /// Set when this client saw the live end (host tapped End, or heartbeat
+  /// learned the server closed it); value is the end reason.
+  String? _endedReason;
+  int _peakViewers = 0;
 
   String get _id => widget.streamId;
 
@@ -72,6 +93,7 @@ class _LiveStudioV2ScreenState extends ConsumerState<LiveStudioV2Screen> {
   @override
   void dispose() {
     WakelockPlus.disable();
+    _heartbeat?.cancel();
     _presenceTimer?.cancel();
     _leader?.dispose();
     for (final s in _mediaSubs) {
@@ -88,12 +110,60 @@ class _LiveStudioV2ScreenState extends ConsumerState<LiveStudioV2Screen> {
     }
     _mediaSubs.clear();
     _boundRoom = room;
+    if (room is LiveKitStudioRoom && room.isConnected) {
+      _connectedOnce = true;
+      _phase = StudioLinkPhase.connected;
+    }
+    _mediaSubs.add(room.quality.listen(_onQuality));
     _mediaSubs.add(room.activeSpeakers.listen((_) => _rebuild()));
     if (room is LiveKitStudioRoom) _mediaSubs.add(room.mediaChanged.listen((_) => _rebuild()));
   }
 
   void _rebuild() {
     if (mounted) setState(() {});
+  }
+
+  void _onQuality(StudioLinkQuality q) {
+    final StudioLinkPhase next;
+    if (q == StudioLinkQuality.lost) {
+      next = _connectedOnce ? StudioLinkPhase.reconnecting : StudioLinkPhase.connecting;
+    } else {
+      _connectedOnce = true;
+      next = StudioLinkPhase.connected;
+    }
+    final room = _boundRoom;
+    final fatal = room is LiveKitStudioRoom && room.fatalError != null;
+    if ((next != _phase || fatal) && mounted) setState(() => _phase = next);
+  }
+
+  void _syncHeartbeat(StudioRole role) {
+    if (role != StudioRole.host || _endedReason != null) {
+      _heartbeat?.cancel();
+      _heartbeat = null;
+      return;
+    }
+    if (_heartbeat != null) return;
+    unawaited(_beat());
+    _heartbeat = Timer.periodic(const Duration(seconds: 20), (_) => unawaited(_beat()));
+  }
+
+  Future<void> _beat() async {
+    try {
+      final ended = await ref.read(studioMediaApiProvider).heartbeat(_id);
+      if (ended && mounted) _markEnded('timeout');
+    } catch (_) {
+      // Offline: LiveKit keeps reconnecting; the server sweeps after ~90 s.
+    }
+  }
+
+  void _markEnded(String reason) {
+    if (_endedReason != null) return;
+    _heartbeat?.cancel();
+    _heartbeat = null;
+    final room = _boundRoom;
+    // Release camera / mic right away; the provider's dispose is then a no-op.
+    if (room != null) unawaited(room.disconnect());
+    setState(() => _endedReason = reason);
   }
 
   /// Host / co-hosts run the auto-speaker leader election (ARCHITECTURE §8).
@@ -132,9 +202,47 @@ class _LiveStudioV2ScreenState extends ConsumerState<LiveStudioV2Screen> {
       final ended = await ref
           .read(studioModerationControllerProvider(_id).notifier)
           .endLive(confirm: studioConfirmFor(context, tokens));
-      if (!ended) return;
+      if (!mounted) return;
+      if (!ended) {
+        // Confirmed but lsEnd failed (offline): leave anyway; with no more
+        // heartbeats the server closes the live within ~90 s.
+        if (ref.read(studioModerationControllerProvider(_id)).error == null) return;
+        ScaffoldMessenger.maybeOf(context)?.showSnackBar(
+            const SnackBar(content: Text('No connection. Your live will close automatically.')));
+      }
+      _markEnded('host');
+      return;
     }
     if (mounted) _leave();
+  }
+
+  Widget _endedView(
+      StudioRole role, Map<String, dynamic>? doc, StudioState? s, Map<String, StageMember> members, StudioCounts counts) {
+    final hostId = (doc?['hostId'] as String?) ?? s?.hostId ?? '';
+    final host = members[hostId];
+    final created = doc?['createdAt'];
+    final endedAt = doc?['endedAt'];
+    Duration? duration;
+    if (created is Timestamp) {
+      final end = endedAt is Timestamp ? endedAt.toDate() : DateTime.now();
+      duration = end.difference(created.toDate());
+      if (duration.isNegative) duration = null;
+    }
+    final isHost = role == StudioRole.host || (hostId.isNotEmpty && hostId == ref.read(studioMyUidProvider));
+    return Scaffold(
+      backgroundColor: LiveStudioTokens.dark.base,
+      body: StudioLiveEndedView(
+        isHost: isHost,
+        hostName: host?.displayName ?? (doc?['hostDisplayName'] as String?) ?? 'The host',
+        hostAvatarUrl: host?.avatarUrl ?? (doc?['hostAvatarUrl'] as String?) ?? '',
+        reason: _endedReason ?? (doc?['endedReason'] as String?),
+        onClose: _leave,
+        onViewHost: !isHost && hostId.isNotEmpty ? () => context.push('/profile/$hostId') : null,
+        duration: isHost ? duration : null,
+        viewers: isHost ? _peakViewers : null,
+        loves: isHost ? counts.loves : null,
+      ),
+    );
   }
 
   Future<void> _share(StudioState s) async {
@@ -218,6 +326,18 @@ class _LiveStudioV2ScreenState extends ConsumerState<LiveStudioV2Screen> {
 
     final geometry = geometryAsync.value;
     final base = stateAsync.value;
+    final doc = ref.watch(_liveDocProvider(_id)).value;
+    final counts = ref.watch(studioCountsProvider(_id));
+    if (counts.viewers > _peakViewers) _peakViewers = counts.viewers;
+    if (_endedReason != null || doc?['status'] == 'ended' || base?.status == StudioStatus.ended) {
+      return _endedView(role, doc, base, members, counts);
+    }
+    final fatal = room is LiveKitStudioRoom ? room.fatalError : null;
+    if (fatal != null && role != StudioRole.host) {
+      // Cannot join (followers-only, blocked…): say why instead of spinning.
+      final msg = fatal is FirebaseFunctionsException ? fatal.message : null;
+      return Scaffold(backgroundColor: LiveStudioTokens.dark.base, body: _Unavailable(onClose: _leave, message: msg));
+    }
     if (geometry == null || base == null) {
       return Scaffold(
         backgroundColor: LiveStudioTokens.dark.base,
@@ -228,16 +348,15 @@ class _LiveStudioV2ScreenState extends ConsumerState<LiveStudioV2Screen> {
         ),
       );
     }
-    if (base.status == StudioStatus.ended) {
-      return Scaffold(backgroundColor: LiveStudioTokens.dark.base, body: _Unavailable(onClose: _leave, ended: true));
-    }
 
     // The host previews unsaved setting edits immediately.
     final state = role == StudioRole.host
         ? base.copyWith(settings: ref.watch(studioPreviewSettingsProvider(_id)))
         : base;
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (mounted) _syncLeader(role, room, base, members);
+      if (!mounted) return;
+      _syncLeader(role, room, base, members);
+      _syncHeartbeat(role);
     });
     final tokens = LiveStudioTokens.forTheme(state.settings.theme);
 
@@ -346,6 +465,7 @@ class _LiveStudioV2ScreenState extends ConsumerState<LiveStudioV2Screen> {
           return Stack(fit: StackFit.expand, children: [
             Positioned.fill(child: stage),
             Positioned.fill(child: SafeArea(child: chrome)),
+            Positioned.fill(child: StudioConnectionBanner(phase: _phase)),
             if (gaming) ...[
               if (state.gameTitle case final game?)
                 Positioned.fill(
@@ -1191,19 +1311,25 @@ class _ParticipantsSheet extends ConsumerWidget {
 }
 
 class _Unavailable extends StatelessWidget {
-  const _Unavailable({required this.onClose, this.ended = false});
+  const _Unavailable({required this.onClose, this.message});
   final VoidCallback onClose;
-  final bool ended;
+  final String? message;
 
   @override
   Widget build(BuildContext context) {
     const t = LiveStudioTokens.dark;
     return Center(
       child: Column(mainAxisSize: MainAxisSize.min, children: [
-        Icon(ended ? Icons.live_tv_outlined : Icons.error_outline, size: 40, color: t.textMedium),
+        Icon(Icons.error_outline, size: 40, color: t.textMedium),
         const SizedBox(height: 12),
-        Text(ended ? 'This live has ended' : 'This live is unavailable',
-            style: LiveStudioType.s(17, FontWeight.w700, t.textHigh)),
+        Text('This live is unavailable', style: LiveStudioType.s(17, FontWeight.w700, t.textHigh)),
+        if (message != null && message!.isNotEmpty) ...[
+          const SizedBox(height: 6),
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 32),
+            child: Text(message!, textAlign: TextAlign.center, style: LiveStudioType.s(13, FontWeight.w500, t.textMedium)),
+          ),
+        ],
         const SizedBox(height: 16),
         StudioPillButton(
           label: 'Back',

@@ -42,9 +42,9 @@ void main() {
           },
         ),
         GoRoute(
-          path: '/live/broadcast',
+          path: '/live/setup',
           builder: (_, s) {
-            pushed.add('/live/broadcast?mode=${s.uri.queryParameters['mode']}');
+            pushed.add('/live/setup?mode=${s.uri.queryParameters['mode']}');
             return const Scaffold(body: Text('broadcast'));
           },
         ),
@@ -118,7 +118,7 @@ void main() {
     expect(find.text(GamingLivesScreen.emptyText), findsOneWidget);
     await tester.tap(find.text(GamingLivesScreen.goLiveLabel));
     await settle(tester);
-    expect(pushed, ['/live/broadcast?mode=gaming']);
+    expect(pushed, ['/live/setup?mode=gaming']);
   });
 
   test('GamingLive.fromDoc tolerates missing fields', () {

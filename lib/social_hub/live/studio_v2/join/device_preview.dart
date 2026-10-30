@@ -134,6 +134,10 @@ class LiveKitDevicePreview implements StudioDevicePreview {
   @override
   Stream<double> get micLevel => _level.stream;
 
+  /// Media track id of the camera preview (for the beauty/looks processor),
+  /// or null while the camera is off.
+  String? get videoTrackId => _video?.mediaStreamTrack.id;
+
   @override
   Future<void> openSettings() async {
     await openAppSettings();

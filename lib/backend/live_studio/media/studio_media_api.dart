@@ -42,14 +42,28 @@ class StudioMediaApi {
   /// Starts a v2 live as host. [settings] is an optional partial override of
   /// the host's saved settings. [gaming] opens a Game Live (screen share in
   /// the center, camera PiP) with an optional [gameTitle] (≤ 60 chars).
+  ///
+  /// Setup-wizard extras (all optional): [category], [coverUrl] (https),
+  /// [audienceMode] (`public` | `followers` | `private`) and
+  /// [allowGuestRequests].
   Future<StudioStartResult> start(String title,
-      {Map<String, dynamic>? settings, bool gaming = false, String? gameTitle}) async {
+      {Map<String, dynamic>? settings,
+      bool gaming = false,
+      String? gameTitle,
+      String? category,
+      String? coverUrl,
+      String? audienceMode,
+      bool? allowGuestRequests}) async {
     final game = gameTitle?.trim();
     final r = await _call.call(StudioCallables.start, {
       'title': title,
       'settings': ?settings,
       if (gaming) 'kind': 'gaming',
       if (gaming && game != null && game.isNotEmpty) 'gameTitle': game,
+      'category': ?category,
+      'coverUrl': ?coverUrl,
+      'audienceMode': ?audienceMode,
+      'allowGuestRequests': ?allowGuestRequests,
     });
     return StudioStartResult(
       streamId: r['streamId'] is String ? r['streamId'] as String : '',
@@ -61,6 +75,13 @@ class StudioMediaApi {
       StudioJoinCredentials.fromJson(await _call.call(StudioCallables.token, {'streamId': streamId}));
 
   Future<void> end(String streamId) => _call.call(StudioCallables.end, {'streamId': streamId});
+
+  /// Host keep-alive (lsHeartbeat). Returns true when the server already
+  /// closed the live (e.g. after a long network loss).
+  Future<bool> heartbeat(String streamId) async {
+    final r = await _call.call(StudioCallables.heartbeat, {'streamId': streamId});
+    return r['ended'] == true;
+  }
 
   /// Authoritative state, or null when the response has none.
   Future<StudioState?> stateFull(String streamId) async {
@@ -78,6 +99,13 @@ class StudioMediaApi {
   Future<void> setOwnMedia(String streamId, {required bool micOn, required bool camOn}) =>
       _call.call(StudioCallables.setOwnMedia, {'streamId': streamId, 'micOn': micOn, 'camOn': camOn});
 }
+
+/// Join credentials returned by lsStart, kept until the studio's room
+/// connects so the host joins without an extra lsToken round trip.
+final studioStartCredentialsProvider = Provider<Map<String, StudioJoinCredentials>>((ref) => {});
+
+/// Host's mic / camera choice from the setup wizard, by stream id.
+final studioStartMediaProvider = Provider<Map<String, ({bool mic, bool camera})>>((ref) => {});
 
 final studioMediaApiProvider =
     Provider<StudioMediaApi>((ref) => StudioMediaApi(ref.watch(studioCallPortProvider)));

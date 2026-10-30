@@ -1693,7 +1693,7 @@ class _CameraScreenState extends ConsumerState<CameraScreen> with WidgetsBinding
                 onTap: () {
                   HapticFeedback.selectionClick();
                   if (mode == 'LIVE') {
-                    context.push('/live/broadcast');
+                    context.push('/live/setup');
                     return;
                   }
                   setState(() => _activeBroadcastMode = mode);

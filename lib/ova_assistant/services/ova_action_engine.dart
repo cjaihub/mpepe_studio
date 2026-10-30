@@ -77,7 +77,7 @@ class OvaActionEngine {
       targetTool = const _StudioCommandTarget(
         title: 'Cinema Live Stage',
         description: 'Multi-scene ultra-low latency live broadcast engine.',
-        route: '/live/broadcast',
+        route: '/live/setup',
         iconName: 'live',
       );
     } else if (lower.contains('retouch') || (lower.contains('edit') && lower.contains('photo')) || lower.contains('photo studio') || lower.contains('enhance photo')) {

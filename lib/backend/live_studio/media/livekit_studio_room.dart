@@ -102,6 +102,10 @@ class LiveKitStudioRoom implements StudioRoomPort, StudioGameStreamPort {
   /// Hook called when a local camera track is unpublished or stopped.
   void Function(String trackId)? onCameraTrackUnpublished;
 
+  /// The host's first join publishes mic / camera per these (setup wizard).
+  bool hostStartsWithMic = true;
+  bool hostStartsWithCamera = true;
+
   // ─── Extra API (beyond the port) ───────────────────────────────────────────
 
   /// Server messages on topic `security` (advisories for managers, key updates).
@@ -186,8 +190,8 @@ class LiveKitStudioRoom implements StudioRoomPort, StudioGameStreamPort {
       // The host goes live on camera + mic as soon as the room is joined
       // (guests opt in through the device check / goOnStage instead).
       if (!_connectedOnce && _role == StudioRole.host) {
-        _wantMic = true;
-        _wantCam = true;
+        _wantMic = hostStartsWithMic;
+        _wantCam = hostStartsWithCamera;
       }
       _connectedOnce = true;
       _attempt = 0;

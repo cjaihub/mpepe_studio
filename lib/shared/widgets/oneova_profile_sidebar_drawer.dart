@@ -55,7 +55,7 @@ class OneovaProfileSidebarDrawer extends ConsumerStatefulWidget {
 
   static const List<_SideSection> _sections = [
     _SideSection('CREATE', [
-      _SideLink(Icons.sensors_rounded, 'Go Live', '/live/broadcast', hint: _RowHint.live),
+      _SideLink(Icons.sensors_rounded, 'Go Live', '/live/setup', hint: _RowHint.live),
       _SideLink(Icons.videocam_outlined, 'Camera', '/create/camera'),
       _SideLink(Icons.upload_rounded, 'Upload', '/upload/global'),
       _SideLink(Icons.graphic_eq_rounded, 'Audio studio', '/audio/dashboard'),

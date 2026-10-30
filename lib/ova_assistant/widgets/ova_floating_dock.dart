@@ -182,7 +182,7 @@ class OvaFloatingDock extends ConsumerStatefulWidget {
 class _OvaFloatingDockState extends ConsumerState<OvaFloatingDock> with WidgetsBindingObserver {
   static const _size = 42.0;
   static const _hiddenPrefixes = [
-    '/splash', '/auth', '/live/broadcast', '/live/studio', '/call/active', '/create/camera', '/hub/ova_assistant', '/ova',
+    '/splash', '/auth', '/live/setup', '/live/broadcast', '/live/studio', '/call/active', '/create/camera', '/hub/ova_assistant', '/ova',
     '/qr_scanner', '/tiktok-callback', '/meta-callback',
   ];
 

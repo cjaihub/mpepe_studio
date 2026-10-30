@@ -105,9 +105,9 @@ import '../hub/remote_chat_screen.dart';
 import '../hub/remote_monitor_screen.dart';
 import '../hub/desktop_remote_screen.dart';
 import '../inbox/calling/screens/active_call_screen.dart';
-import '../social_hub/live/live_broadcaster_screen.dart';
+import '../social_hub/live/setup/live_setup_config.dart';
+import '../social_hub/live/setup/live_setup_wizard_screen.dart';
 import '../social_hub/live/classic/live_classic_viewer_screen.dart';
-import '../social_hub/live/studio/live_studio_screen.dart';
 import '../social_hub/live/studio_v2/shell/live_studio_v2_screen.dart';
 import '../social_hub/live/studio_v2/gaming/gaming_lives_screen.dart';
 import '../feed/providers/oneova_focus_mode_provider.dart';
@@ -685,16 +685,22 @@ final routerProvider = Provider<GoRouter>((ref) {
         redirect: _requireAuth,
         builder: (context, state) => const DesktopAgentScreen(),
       ),
+      // Setup wizard: the one way to go live (mode → details → camera →
+      // layout → audience → review), then the Live Studio.
+      GoRoute(
+        path: '/live/setup',
+        redirect: _requireAuth,
+        builder: (context, state) => LiveSetupWizardScreen(
+          initialMode: LiveSetupMode.fromQuery(state.uri.queryParameters['mode']),
+        ),
+      ),
+      // Old "Go Live" screen → the wizard (keeps ?mode=studio|gaming links).
       GoRoute(
         path: '/live/broadcast',
-        redirect: _requireAuth,
-        builder: (context, state) => LiveBroadcasterScreen(
-          initialLayoutMode: switch (state.uri.queryParameters['mode']) {
-            'studio' => 'studio',
-            'gaming' => 'gaming',
-            _ => 'classic',
-          },
-        ),
+        redirect: (context, state) {
+          final mode = state.uri.queryParameters['mode'];
+          return mode == null ? '/live/setup' : '/live/setup?mode=$mode';
+        },
       ),
       // Game Live discovery: game lives on air right now.
       GoRoute(
@@ -711,13 +717,12 @@ final routerProvider = Provider<GoRouter>((ref) {
         builder: (context, state) =>
             LiveRoomGate(streamId: state.pathParameters['streamId']!),
       ),
+      // Old v1 studio links → the viewer gate (opens the right studio).
       GoRoute(
         path: '/live/studio/:streamId',
-        redirect: _requireAuth,
-        builder: (context, state) =>
-            LiveStudioScreen(streamId: state.pathParameters['streamId']!),
+        redirect: (context, state) => '/live/viewer/${state.pathParameters['streamId']}',
       ),
-      // Live Studio v2 (feature flag live_studio_v2).
+      // The Live Studio (hosts arrive here from /live/setup).
       GoRoute(
         path: '/live/studio2/:streamId',
         redirect: _requireAuth,
