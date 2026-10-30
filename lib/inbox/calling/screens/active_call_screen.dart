@@ -13,12 +13,14 @@ import 'package:google_fonts/google_fonts.dart';
 import '../../../backend/calling/models/call_participant.dart';
 import '../../../backend/calling/providers/active_call_controller.dart';
 import '../../../backend/calling/providers/call_media_service.dart';
+import '../../../backend/calling/providers/call_room_controller.dart';
 import '../../../backend/calling/providers/call_signaling_service.dart';
 import '../../../backend/calling/providers/webrtc_connection_manager.dart';
 import '../../../backend/calling/services/call_pip_service.dart';
 import '../../../backend/calling/services/call_share_service.dart';
 import '../../../shared/theme/app_theme.dart';
 import '../widgets/call_invite_sheet.dart';
+import '../widgets/call_panel_sheet.dart';
 import '../widgets/call_share_sheet.dart';
 import '../widgets/call_widgets.dart';
 
@@ -66,6 +68,8 @@ class _ActiveCallScreenState extends ConsumerState<ActiveCallScreen> {
   Timer? _hideControls;
   final Set<String> _seenShared = {};
   bool _sharedPrimed = false;
+  CallSoundEvent? _soundToast;
+  Timer? _soundToastTimer;
 
   @override
   void initState() {
@@ -141,6 +145,7 @@ class _ActiveCallScreenState extends ConsumerState<ActiveCallScreen> {
   void dispose() {
     ActiveCallScreen.isVisible.value = false;
     _hideControls?.cancel();
+    _soundToastTimer?.cancel();
     _localRenderer.srcObject = null;
     _localRenderer.dispose();
     super.dispose();
@@ -162,9 +167,19 @@ class _ActiveCallScreenState extends ConsumerState<ActiveCallScreen> {
     final s = ref.watch(activeCallControllerProvider);
     final media = ref.watch(callMediaServiceProvider);
     final mesh = ref.watch(webrtcConnectionManagerProvider);
+    final room = ref.watch(callRoomControllerProvider);
     final controller = ref.read(activeCallControllerProvider.notifier);
 
     ref.listen<CallMediaState>(callMediaServiceProvider, (_, m) => _bindLocal(m.localStream));
+    ref.listen<CallSoundEvent?>(callRoomControllerProvider.select((r) => r.lastSound), (prev, next) {
+      if (next == null || next.id == prev?.id) return;
+      HapticFeedback.lightImpact();
+      _soundToastTimer?.cancel();
+      setState(() => _soundToast = next);
+      _soundToastTimer = Timer(const Duration(milliseconds: 2200), () {
+        if (mounted) setState(() => _soundToast = null);
+      });
+    });
     ref.listen<ActiveCallState>(activeCallControllerProvider, (prev, next) {
       if (next.errorMessage != null && next.errorMessage != prev?.errorMessage) {
         _showError(next.errorMessage!);
@@ -231,11 +246,17 @@ class _ActiveCallScreenState extends ConsumerState<ActiveCallScreen> {
               children: [
                 Positioned.fill(
                   child: showVideoStage
-                      ? (isGroup ? _groupGrid(s, mesh, media) : _oneToOneStage(s, mesh, media, head))
+                      ? (isGroup
+                          ? (room.layout == CallLayout.spotlight
+                              ? _spotlight(s, mesh, media, room)
+                              : _groupGrid(s, mesh, media, room))
+                          : _oneToOneStage(s, mesh, media, head, room))
                       : _audioStage(s, head),
                 ),
-                if (showVideoStage && !isGroup) _localPreview(media, mesh, s),
+                if (showVideoStage && !isGroup && !(room.hideSelfView && !_swapped)) _localPreview(media, mesh, s, room),
                 _topBar(s, head, onDark: showVideoStage),
+                if (room.music != null && s.isBusy) _musicPill(room.music!, onDark: showVideoStage),
+                if (_soundToast != null) _soundToastView(_soundToast!),
                 if (s.phase == CallPhase.connected && mesh.worstQuality == CallQuality.poor)
                   _weakLinkBanner(media),
                 Align(
@@ -280,6 +301,81 @@ class _ActiveCallScreenState extends ConsumerState<ActiveCallScreen> {
           onPressed: () => openCallSharedItem(context, item),
         ),
       ));
+  }
+
+  /// "Now playing" pill for the shared music; opens the music panel.
+  Widget _musicPill(CallMusic music, {required bool onDark}) {
+    return Positioned(
+      left: 0,
+      right: 0,
+      top: MediaQuery.paddingOf(context).top + 92,
+      child: Center(
+        child: GestureDetector(
+          onTap: () => showCallPanel(context, initial: CallPanelTab.music),
+          child: Container(
+            constraints: const BoxConstraints(maxWidth: 260),
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+            decoration: BoxDecoration(
+              color: onDark ? AppColors.brandBlack.withValues(alpha: 0.55) : context.surface,
+              borderRadius: BorderRadius.circular(AppRadius.full),
+              border: Border.all(color: AppColors.brandBlue.withValues(alpha: 0.5), width: 1),
+            ),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(music.playing ? Icons.graphic_eq_rounded : Icons.pause_rounded,
+                    size: 14, color: AppColors.brandPink),
+                const SizedBox(width: 6),
+                Flexible(
+                  child: Text(
+                    music.title,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: GoogleFonts.inter(
+                      fontSize: 11.5,
+                      fontWeight: FontWeight.w600,
+                      color: onDark ? AppColors.brandWhite : context.textPrimary,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ).animate().fadeIn(duration: 200.ms),
+    );
+  }
+
+  /// Who just played which sound, floating above the controls.
+  Widget _soundToastView(CallSoundEvent e) {
+    final me = FirebaseAuth.instance.currentUser?.uid;
+    final who = e.senderId == me ? 'You' : (e.senderName.isEmpty ? 'Someone' : e.senderName.split(' ').first);
+    return Positioned(
+      left: 0,
+      right: 0,
+      bottom: MediaQuery.paddingOf(context).bottom + 150,
+      child: Center(
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+          decoration: BoxDecoration(
+            color: AppColors.brandBlue,
+            borderRadius: BorderRadius.circular(AppRadius.full),
+            boxShadow: AppShadows.md,
+          ),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(e.sound.icon, size: 18, color: AppColors.brandWhite),
+              const SizedBox(width: 8),
+              Text(
+                '$who · ${e.sound.label}',
+                style: GoogleFonts.inter(fontSize: 12.5, fontWeight: FontWeight.w700, color: AppColors.brandWhite),
+              ),
+            ],
+          ),
+        ),
+      ).animate(key: ValueKey(e.id)).fadeIn(duration: 160.ms).scale(begin: const Offset(0.8, 0.8)),
+    );
   }
 
   /// Shown while the link is poor; on video, offers to drop the camera.
@@ -477,6 +573,7 @@ class _ActiveCallScreenState extends ConsumerState<ActiveCallScreen> {
     WebRTCMeshState mesh,
     CallMediaState media,
     ({String name, String? avatar}) head,
+    CallRoomState room,
   ) {
     final remote = s.remoteParticipants.where((p) => p.status == ParticipantStatus.joined).firstOrNull;
     final peer = remote == null ? null : mesh.peers[remote.userId];
@@ -490,12 +587,12 @@ class _ActiveCallScreenState extends ConsumerState<ActiveCallScreen> {
       renderer: _localReady ? _localRenderer : null,
       videoOn: media.isVideoOn,
       name: 'You',
-      mirror: media.isFrontCamera,
+      mirror: media.isFrontCamera && room.mirrorSelfView,
     );
     return _swapped ? localView : remoteView;
   }
 
-  Widget _localPreview(CallMediaState media, WebRTCMeshState mesh, ActiveCallState s) {
+  Widget _localPreview(CallMediaState media, WebRTCMeshState mesh, ActiveCallState s, CallRoomState room) {
     final size = MediaQuery.sizeOf(context);
     const w = 104.0, h = 150.0;
     final offset = _pipOffset ?? Offset(size.width - w - 14, MediaQuery.paddingOf(context).top + 64);
@@ -512,7 +609,7 @@ class _ActiveCallScreenState extends ConsumerState<ActiveCallScreen> {
             renderer: _localReady ? _localRenderer : null,
             videoOn: media.isVideoOn,
             name: 'You',
-            mirror: media.isFrontCamera,
+            mirror: media.isFrontCamera && room.mirrorSelfView,
           );
     return Positioned(
       left: offset.dx.clamp(8.0, size.width - w - 8),
@@ -538,27 +635,71 @@ class _ActiveCallScreenState extends ConsumerState<ActiveCallScreen> {
     );
   }
 
-  Widget _groupGrid(ActiveCallState s, WebRTCMeshState mesh, CallMediaState media) {
-    final tiles = <Widget>[
-      _tile(
+  Widget _selfTile(CallMediaState media, CallRoomState room) => _tile(
         name: 'You',
         renderer: _localReady ? _localRenderer : null,
         videoOn: media.isVideoOn,
         muted: media.isAudioMuted,
-        mirror: media.isFrontCamera,
+        mirror: media.isFrontCamera && room.mirrorSelfView,
+      );
+
+  Widget _remoteTile(CallParticipant p, WebRTCMeshState mesh) => _tile(
+        name: p.name,
+        avatar: p.avatar,
+        renderer: mesh.peers[p.userId]?.renderer,
+        videoOn: p.status == ParticipantStatus.joined && !p.isVideoMuted,
+        muted: p.isAudioMuted,
+        ringing: p.status == ParticipantStatus.ringing,
+        link: mesh.peers[p.userId]?.link,
+      );
+
+  /// Group call, one big tile (the pinned person, else the first one in)
+  /// with everyone else in a strip.
+  Widget _spotlight(ActiveCallState s, WebRTCMeshState mesh, CallMediaState media, CallRoomState room) {
+    final others = s.remoteParticipants
+        .where((p) => p.status == ParticipantStatus.joined || p.status == ParticipantStatus.ringing)
+        .toList();
+    final joined = others.where((p) => p.status == ParticipantStatus.joined).toList();
+    final main = joined.where((p) => p.userId == room.pinnedUid).firstOrNull ?? joined.firstOrNull;
+    final strip = <Widget>[
+      if (!room.hideSelfView) _selfTile(media, room),
+      for (final p in others.where((p) => p.userId != main?.userId))
+        GestureDetector(
+          onTap: () => ref.read(callRoomControllerProvider.notifier).pin(p.userId),
+          child: _remoteTile(p, mesh),
+        ),
+    ];
+    return SafeArea(
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(6, 56, 6, 120),
+        child: Column(
+          children: [
+            Expanded(child: main == null ? _selfTile(media, room) : _remoteTile(main, mesh)),
+            if (strip.isNotEmpty) ...[
+              const SizedBox(height: 6),
+              SizedBox(
+                height: 128,
+                child: ListView.separated(
+                  scrollDirection: Axis.horizontal,
+                  itemCount: strip.length,
+                  separatorBuilder: (_, _) => const SizedBox(width: 6),
+                  itemBuilder: (_, i) => SizedBox(width: 96, child: strip[i]),
+                ),
+              ),
+            ],
+          ],
+        ),
       ),
+    );
+  }
+
+  Widget _groupGrid(ActiveCallState s, WebRTCMeshState mesh, CallMediaState media, CallRoomState room) {
+    final tiles = <Widget>[
+      if (!room.hideSelfView) _selfTile(media, room),
       for (final p in s.remoteParticipants.where(
         (p) => p.status == ParticipantStatus.joined || p.status == ParticipantStatus.ringing,
       ))
-        _tile(
-          name: p.name,
-          avatar: p.avatar,
-          renderer: mesh.peers[p.userId]?.renderer,
-          videoOn: p.status == ParticipantStatus.joined && !p.isVideoMuted,
-          muted: p.isAudioMuted,
-          ringing: p.status == ParticipantStatus.ringing,
-          link: mesh.peers[p.userId]?.link,
-        ),
+        _remoteTile(p, mesh),
     ];
     final cols = tiles.length <= 2 ? 1 : 2;
     final rows = (tiles.length / cols).ceil();
@@ -677,6 +818,12 @@ class _ActiveCallScreenState extends ConsumerState<ActiveCallScreen> {
                       )
                     : const SizedBox.shrink(),
               ),
+              if (s.call != null && (s.phase == CallPhase.connected || s.phase == CallPhase.reconnecting))
+                IconButton(
+                  tooltip: 'Effects, sounds, music and people',
+                  icon: Icon(Icons.tune_rounded, color: fg, size: 22),
+                  onPressed: () => showCallPanel(context),
+                ),
               if (s.call != null && (s.phase == CallPhase.connected || s.phase == CallPhase.reconnecting))
                 IconButton(
                   tooltip: 'Share photo, video or file',

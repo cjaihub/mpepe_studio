@@ -195,6 +195,7 @@ flutter:
     - assets/logos/
     - assets/images/
     - assets/sounds/
+    - assets/sounds/call/
     - assets/live_studio/
 
   shaders:

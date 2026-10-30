@@ -14,6 +14,7 @@ import '../../../backend/calling/models/call_model.dart';
 import '../../../backend/calling/models/call_participant.dart';
 import '../../../backend/calling/providers/active_call_controller.dart';
 import '../../../backend/calling/providers/call_media_service.dart';
+import '../../../backend/calling/providers/call_room_controller.dart';
 import '../../../backend/calling/providers/call_signaling_service.dart';
 import '../../../backend/calling/providers/webrtc_connection_manager.dart';
 import '../../../backend/calling/services/call_pip_service.dart';
@@ -168,6 +169,8 @@ class _CallOverlayManagerState extends ConsumerState<CallOverlayManager> {
   @override
   Widget build(BuildContext context) {
     final s = ref.watch(activeCallControllerProvider);
+    // Keeps the sound pad, shared music and filters alive for every call.
+    ref.watch(callRoomControllerProvider.select((r) => r.callId));
     return Stack(
       children: [
         widget.child,
