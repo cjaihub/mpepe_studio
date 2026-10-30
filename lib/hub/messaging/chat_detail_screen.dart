@@ -41,6 +41,7 @@ import 'package:share_plus/share_plus.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'chat_assist_service.dart';
 import 'widgets/chat_compact_cards.dart';
+import 'widgets/chat_background.dart';
 
 part 'chat_detail_upgrades.dart';
 
@@ -155,19 +156,6 @@ class _ChatDetailScreenState extends ConsumerState<ChatDetailScreen> with Single
       }
     } catch (e) {
       debugPrint('Error loading chat wallpaper preference: $e');
-    }
-  }
-
-  Future<void> _saveWallpaperPreference(String key) async {
-    setState(() {
-      _selectedWallpaperKey = key;
-    });
-    HapticFeedback.selectionClick();
-    try {
-      final prefs = await SharedPreferences.getInstance();
-      await prefs.setString('chat_wallpaper_${widget.chatId}', key);
-    } catch (e) {
-      debugPrint('Error saving wallpaper preference: $e');
     }
   }
 
@@ -1075,68 +1063,31 @@ class _ChatDetailScreenState extends ConsumerState<ChatDetailScreen> with Single
       ref.read(messagingRepositoryProvider).markMessagesAsRead(widget.chatId, currentUserId);
     });
 
-    BoxDecoration backgroundDecoration;
-    switch (_selectedWallpaperKey) {
-      case 'cobalt_blue':
-        backgroundDecoration = const BoxDecoration(
-          color: AppColors.darkBackground,
-          gradient: RadialGradient(
-            center: Alignment(0, -0.4),
-            radius: 1.2,
-            colors: [
-              Color(0xFF0C2B59),
-              AppColors.darkBackground,
-            ],
-            stops: [0.0, 0.85],
-          ),
+    // Background: this chat's own, else the all-chats default, else the
+    // older per-device wallpaper.
+    final chatPrefs = ref.watch(chatPrefsProvider((uid: currentUserId, chatId: widget.chatId))).value;
+    final allChatsPrefs =
+        ref.watch(chatPrefsProvider((uid: currentUserId, chatId: ChatAssistService.allChatsDoc))).value;
+    final background = chatPrefs?.background ??
+        allChatsPrefs?.background ??
+        ChatBackground(
+          preset: switch (_selectedWallpaperKey) {
+            'cobalt_blue' => 'blue_glow',
+            'cyber_pink' => 'pink_glow',
+            'slate_executive' => 'soft',
+            'monochrome_oled' => 'oled',
+            _ => 'default',
+          },
         );
-        break;
-      case 'cyber_pink':
-        backgroundDecoration = const BoxDecoration(
-          color: AppColors.darkBackground,
-          gradient: RadialGradient(
-            center: Alignment(0, -0.3),
-            radius: 1.1,
-            colors: [
-              Color(0xFF3B0B20),
-              AppColors.darkBackground,
-            ],
-            stops: [0.0, 0.85],
-          ),
-        );
-        break;
-      case 'slate_executive':
-        backgroundDecoration = const BoxDecoration(
-          color: AppColors.darkBackground,
-          gradient: LinearGradient(
-            begin: Alignment.topCenter,
-            end: Alignment.bottomCenter,
-            colors: [
-              Color(0xFF111722),
-              AppColors.darkBackground,
-            ],
-          ),
-        );
-        break;
-      case 'monochrome_oled':
-        backgroundDecoration = const BoxDecoration(
-          color: Color(0xFF000000),
-        );
-        break;
-      case 'default_obsidian':
-      default:
-        backgroundDecoration = BoxDecoration(
-          color: context.bg,
-        );
-        break;
-    }
 
     return Scaffold(
       backgroundColor: context.bg,
       appBar: _buildAppBar(currentUserId),
-      body: Container(
-        decoration: backgroundDecoration,
-        child: Column(
+      body: Stack(
+        fit: StackFit.expand,
+        children: [
+          ChatBackgroundView(background: background),
+          Column(
           children: [
             if (isVipHost) RoomJoinRequestsBanner(chatId: widget.chatId, roomTitle: chat?.title ?? 'your room'),
             _buildFollowStrip(chat, currentUserId),
@@ -1177,6 +1128,7 @@ class _ChatDetailScreenState extends ConsumerState<ChatDetailScreen> with Single
             ),
           ],
         ),
+        ],
       ),
     );
   }
@@ -1514,6 +1466,9 @@ class _ChatDetailScreenState extends ConsumerState<ChatDetailScreen> with Single
               case 'ai':
                 _showAiControls();
                 break;
+              case 'background':
+                showChatBackgroundSheet(context, uid: currentUserId, chatId: widget.chatId);
+                break;
               case 'info':
                 openInfo();
                 break;
@@ -1525,6 +1480,7 @@ class _ChatDetailScreenState extends ConsumerState<ChatDetailScreen> with Single
           itemBuilder: (ctx) => [
             _menuItem('search', Icons.search_rounded, 'Search in chat'),
             _menuItem('highlights', Icons.star_outline_rounded, 'Highlights'),
+            _menuItem('background', Icons.wallpaper_rounded, 'Chat background'),
             _menuItem(
               'ai',
               Icons.auto_awesome_outlined,
@@ -1838,7 +1794,16 @@ class _ChatDetailScreenState extends ConsumerState<ChatDetailScreen> with Single
                         // Section 1: Chat Themes & Wallpaper
                         _buildSectionHeader('Chat Wallpaper & Mood', Icons.palette_outlined),
                         const SizedBox(height: 10),
-                        _buildWallpaperSelector(setModalState),
+                        _buildSettingsTile(
+                          icon: Icons.wallpaper_rounded,
+                          title: 'Chat background',
+                          subtitle: 'Colors or a photo, for this chat or all chats',
+                          onTap: () => showChatBackgroundSheet(
+                            context,
+                            uid: FirebaseAuth.instance.currentUser?.uid ?? '',
+                            chatId: widget.chatId,
+                          ),
+                        ),
                         const SizedBox(height: 14),
                         Text(
                           'Text Size & Density',
@@ -2038,79 +2003,6 @@ class _ChatDetailScreenState extends ConsumerState<ChatDetailScreen> with Single
             child: Text('Block User', style: GoogleFonts.inter(fontWeight: FontWeight.bold)),
           ),
         ],
-      ),
-    );
-  }
-
-  Widget _buildWallpaperSelector(void Function(void Function()) setModalState) {
-    final themes = [
-      {'key': 'default_obsidian', 'label': 'Obsidian', 'color': const Color(0xFF0A0A0A)},
-      {'key': 'cobalt_blue', 'label': 'Cobalt', 'color': const Color(0xFF0C2B59)},
-      {'key': 'cyber_pink', 'label': 'Cyber Pink', 'color': const Color(0xFF3B0B20)},
-      {'key': 'slate_executive', 'label': 'Slate', 'color': const Color(0xFF111722)},
-      {'key': 'monochrome_oled', 'label': 'Pure OLED', 'color': const Color(0xFF000000)},
-    ];
-
-    return SizedBox(
-      height: 90,
-      child: ListView.separated(
-        scrollDirection: Axis.horizontal,
-        itemCount: themes.length,
-        separatorBuilder: (_, index) => const SizedBox(width: 10),
-        itemBuilder: (context, i) {
-          final item = themes[i];
-          final key = item['key'] as String;
-          final label = item['label'] as String;
-          final color = item['color'] as Color;
-          final isSelected = _selectedWallpaperKey == key;
-
-          return GestureDetector(
-            onTap: () {
-              _saveWallpaperPreference(key);
-              setModalState(() {});
-            },
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Container(
-                  width: 58,
-                  height: 58,
-                  decoration: BoxDecoration(
-                    color: color,
-                    borderRadius: BorderRadius.circular(12),
-                    border: Border.all(
-                      color: isSelected ? AppColors.brandPink : context.border,
-                      width: isSelected ? 2.0 : 1.0,
-                    ),
-                    boxShadow: isSelected
-                        ? [
-                            BoxShadow(
-                              color: AppColors.brandPink.withValues(alpha: 0.35),
-                              blurRadius: 8,
-                              spreadRadius: 1,
-                            )
-                          ]
-                        : null,
-                  ),
-                  child: isSelected
-                      ? const Center(
-                          child: Icon(Icons.check_circle_rounded, color: AppColors.brandPink, size: 22),
-                        )
-                      : null,
-                ),
-                const SizedBox(height: 6),
-                Text(
-                  label,
-                  style: GoogleFonts.inter(
-                    color: isSelected ? AppColors.brandPink : context.textSecondary,
-                    fontSize: 11,
-                    fontWeight: isSelected ? FontWeight.w700 : FontWeight.w500,
-                  ),
-                ),
-              ],
-            ),
-          );
-        },
       ),
     );
   }

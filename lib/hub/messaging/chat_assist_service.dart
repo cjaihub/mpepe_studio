@@ -3,6 +3,8 @@ import 'package:cloud_functions/cloud_functions.dart';
 import 'package:flutter/widgets.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import 'widgets/chat_background.dart';
+
 /// Your own settings for one chat, at users/{uid}/chat_prefs/{chatId}.
 /// Private to you: highlights, messages deleted for you, and the AI toggle.
 class ChatPrefs {
@@ -11,11 +13,15 @@ class ChatPrefs {
   final Map<String, Timestamp> highlights;
   final Set<String> hidden;
 
+  /// Background for this chat, or (in the all-chats doc) the default.
+  final ChatBackground? background;
+
   const ChatPrefs({
     this.aiEnabled = false,
     this.aiAutoTranslate = false,
     this.highlights = const {},
     this.hidden = const {},
+    this.background,
   });
 
   factory ChatPrefs.fromMap(Map<String, dynamic>? d) {
@@ -29,6 +35,7 @@ class ChatPrefs {
       aiAutoTranslate: d['aiAutoTranslate'] == true,
       highlights: h,
       hidden: {...((d['hidden'] as List?) ?? const []).map((e) => e.toString())},
+      background: ChatBackground.fromMap(d['background']),
     );
   }
 }
@@ -67,6 +74,15 @@ class ChatAssistService {
 
   final FirebaseFirestore _db;
   final FirebaseFunctions _functions;
+
+  /// chat_prefs doc holding settings for all chats (the default background).
+  static const allChatsDoc = '_all_chats';
+
+  /// Null clears it, so the chat falls back to the all-chats background.
+  Future<void> setBackground(String uid, String docId, ChatBackground? b) => _prefsDoc(uid, docId).set({
+        'background': b == null ? FieldValue.delete() : b.toMap(),
+        'updatedAt': FieldValue.serverTimestamp(),
+      }, SetOptions(merge: true));
 
   DocumentReference<Map<String, dynamic>> _prefsDoc(String uid, String chatId) =>
       _db.collection('users').doc(uid).collection('chat_prefs').doc(chatId);
