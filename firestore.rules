@@ -276,8 +276,8 @@ service cloud.firestore {
         !exists(/databases/$(database)/documents/users/$(authorId)) ||
         !get(/databases/$(database)/documents/users/$(authorId)).data.get('isPrivate', false) ||
         (
-          exists(/databases/$(database)/documents/relationships/$(request.auth.uid)_$(authorId)) &&
-          get(/databases/$(database)/documents/relationships/$(request.auth.uid)_$(authorId)).data.get('status', '') == 'accepted'
+          exists(/databases/$(database)/documents/relationships/$(request.auth.uid + "_" + authorId)) &&
+          get(/databases/$(database)/documents/relationships/$(request.auth.uid + "_" + authorId)).data.get('status', '') == 'accepted'
         )
       );
     }
