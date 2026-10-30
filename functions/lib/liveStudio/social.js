@@ -1,6 +1,6 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.lsLivekitWebhook = exports.lsShare = exports.lsReact = exports.lsMuteChat = exports.lsDeleteComment = exports.lsComment = void 0;
+exports.lsGifSearch = exports.lsLivekitWebhook = exports.lsShare = exports.lsReact = exports.lsMuteChat = exports.lsDeleteComment = exports.lsComment = void 0;
 /**
  * LIVE STUDIO v2 — realtime social callables (workstream #2).
  *
@@ -56,6 +56,8 @@ const livekit_server_sdk_1 = require("livekit-server-sdk");
 const controls_1 = require("./controls");
 const security_1 = require("./security");
 const lifecycle_1 = require("./lifecycle");
+const gif_logic_1 = require("./gif_logic");
+const optionalSecrets_1 = require("../optionalSecrets");
 const broadcast_1 = require("./broadcast");
 const contracts_1 = require("./contracts");
 const shared_1 = require("./shared");
@@ -173,7 +175,12 @@ exports.lsComment = (0, https_1.onCall)({ secrets: shared_1.LIVEKIT_SECRETS }, a
     const uid = (0, shared_1.requireUid)(req);
     const data = asData(req.data);
     const streamId = requireStreamId(data);
-    const norm = (0, social_logic_1.normalizeCommentText)(data.text);
+    const gif = (0, gif_logic_1.parseCommentGif)(data.gif);
+    if (gif === 'invalid')
+        throw new https_1.HttpsError('invalid-argument', 'That GIF cannot be posted.');
+    // A GIF may be posted on its own; it then carries the text "GIF".
+    const rawText = gif && (typeof data.text !== 'string' || !data.text.trim()) ? 'GIF' : data.text;
+    const norm = (0, social_logic_1.normalizeCommentText)(rawText);
     if (!norm.ok)
         throw new https_1.HttpsError('invalid-argument', norm.reason);
     const clientId = data.clientId === undefined ? undefined : data.clientId;
@@ -207,14 +214,7 @@ exports.lsComment = (0, https_1.onCall)({ secrets: shared_1.LIVEKIT_SECRETS }, a
     const u = userSnap.exists ? userSnap.data() : undefined;
     const coll = (0, shared_1.db)().collection(contracts_1.Paths.comments(streamId));
     const ref = clientId ? coll.doc((0, social_logic_1.commentDocId)(uid, clientId)) : coll.doc();
-    const comment = {
-        id: ref.id,
-        uid,
-        name: (member === null || member === void 0 ? void 0 : member.displayName) || (0, social_logic_1.displayNameOf)(u),
-        avatarUrl: (member === null || member === void 0 ? void 0 : member.avatarUrl) || (0, social_logic_1.avatarOf)(u),
-        text: text.text,
-        ts: now,
-    };
+    const comment = Object.assign({ id: ref.id, uid, name: (member === null || member === void 0 ? void 0 : member.displayName) || (0, social_logic_1.displayNameOf)(u), avatarUrl: (member === null || member === void 0 ? void 0 : member.avatarUrl) || (0, social_logic_1.avatarOf)(u), text: text.text, ts: now }, (gif ? { gif } : {}));
     try {
         await ref.create(comment);
     }
@@ -426,5 +426,35 @@ exports.lsLivekitWebhook = (0, https_1.onRequest)({ secrets: shared_1.LIVEKIT_SE
         console.error('[liveStudio] webhook handling failed:', e.message);
     }
     res.status(200).send('ok');
+});
+// ─── lsGifSearch ────────────────────────────────────────────────────────────
+/**
+ * GIF search for comments (GIPHY). `{q?}` → `{gifs: [{id, url, w, h}], enabled}`.
+ * Trending when q is empty. The GIPHY key is optional (GIPHY_API_KEY in
+ * Secret Manager, read at run time): without it `enabled` is false.
+ */
+exports.lsGifSearch = (0, https_1.onCall)(async (req) => {
+    var _a;
+    (0, shared_1.requireUid)(req);
+    const q = (0, gif_logic_1.sanitizeGifQuery)(asData(req.data).q);
+    const key = await (0, optionalSecrets_1.optionalSecret)('GIPHY_API_KEY');
+    if (!key)
+        return { gifs: [], enabled: false };
+    const params = new URLSearchParams({ api_key: key, limit: '24', rating: 'pg-13', bundle: 'messaging_non_clips' });
+    if (q)
+        params.set('q', q);
+    const url = `https://api.giphy.com/v1/gifs/${q ? 'search' : 'trending'}?${params.toString()}`;
+    try {
+        const res = await fetch(url);
+        if (!res.ok)
+            throw new Error(`GIPHY ${res.status}`);
+        const body = (await res.json());
+        const gifs = ((_a = body.data) !== null && _a !== void 0 ? _a : []).map(gif_logic_1.fromGiphy).filter((g) => g !== null);
+        return { gifs, enabled: true };
+    }
+    catch (e) {
+        console.warn('[liveStudio] gif search failed:', e.message);
+        throw new https_1.HttpsError('unavailable', 'GIF search is not available right now.');
+    }
 });
 //# sourceMappingURL=social.js.map

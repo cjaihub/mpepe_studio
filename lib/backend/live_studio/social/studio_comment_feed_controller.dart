@@ -154,9 +154,10 @@ class StudioCommentFeedController extends Notifier<StudioCommentFeedState> {
   static String _clientId() =>
       List.generate(16, (_) => _alphabet[_rng.nextInt(_alphabet.length)]).join();
 
-  /// Sends [raw]. Returns true when the server accepted it.
-  Future<bool> send(String raw) async {
-    final text = normalizeStudioComment(raw);
+  /// Sends [raw] (optionally with a GIPHY [gif]: id, url, w, h). Returns
+  /// true when the server accepted it.
+  Future<bool> send(String raw, {({String id, String url, int w, int h})? gif}) async {
+    final text = normalizeStudioComment(raw) ?? (gif != null ? 'GIF' : null);
     if (text == null) return false;
     final me = ref.read(studioViewerIdentityProvider);
     if (me == null) {
@@ -172,6 +173,9 @@ class StudioCommentFeedController extends Notifier<StudioCommentFeedState> {
       avatarUrl: me.avatarUrl,
       text: text,
       ts: DateTime.now().millisecondsSinceEpoch,
+      gifUrl: gif?.url,
+      gifW: gif?.w ?? 0,
+      gifH: gif?.h ?? 0,
     );
     state = state.copyWith(
         items: _dedupeAndCap(
@@ -179,7 +183,12 @@ class StudioCommentFeedController extends Notifier<StudioCommentFeedState> {
 
     try {
       final res = await ref.read(studioCallPortProvider).call(
-          StudioCallables.comment, {'streamId': streamId, 'text': text, 'clientId': clientId});
+          StudioCallables.comment, {
+        'streamId': streamId,
+        'text': text,
+        'clientId': clientId,
+        if (gif != null) 'gif': {'id': gif.id, 'url': gif.url, 'w': gif.w, 'h': gif.h},
+      });
       if (!ref.mounted) return true;
       final serverId = res['id'] is String ? res['id'] as String : id;
       final i = state.items.indexWhere((x) => x.id == id);
@@ -192,6 +201,9 @@ class StudioCommentFeedController extends Notifier<StudioCommentFeedState> {
           avatarUrl: me.avatarUrl,
           text: res['text'] is String ? res['text'] as String : text,
           ts: res['ts'] is num ? (res['ts'] as num).toInt() : pending.ts,
+          gifUrl: pending.gifUrl,
+          gifW: pending.gifW,
+          gifH: pending.gifH,
         );
         state = state.copyWith(items: [...state.items]..[i] = StudioFeedItem(confirmed));
       }

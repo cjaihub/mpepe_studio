@@ -10,7 +10,10 @@ import '../../../../backend/live_studio/contracts/studio_contracts.dart';
 import '../../../../backend/live_studio/social/studio_comment_feed_controller.dart';
 import '../../../../backend/live_studio/social/studio_counts_controller.dart';
 import '../../../../backend/live_studio/social/studio_follow_controller.dart';
+import '../../../../backend/live_studio/fun/studio_fun.dart';
 import '../../../../backend/live_studio/social/studio_reactions_controller.dart';
+import '../fun/gif_picker.dart';
+import '../fun/gifts_ui.dart';
 import '../theme/live_studio_tokens.dart';
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -399,6 +402,26 @@ class HostCard extends ConsumerWidget {
                     semanticsLabel: '${counts.viewers} watching',
                     style: LiveStudioType.s(phone ? 11 : 12, FontWeight.w600, tokens.textMedium,
                         height: phone ? 14 : 16)),
+                SizedBox(width: phone ? 6 : 8),
+                _LiveStat(
+                  icon: Icons.favorite_rounded,
+                  color: LiveStudioAccent.pink,
+                  value: ref.watch(studioReactionsProvider(streamId).select((r) => r.loves)),
+                  label: 'loves',
+                  tokens: tokens,
+                  phone: phone,
+                ),
+                if ((ref.watch(studioGiftTotalsProvider(streamId)).value?.coins ?? 0) > 0) ...[
+                  SizedBox(width: phone ? 6 : 8),
+                  _LiveStat(
+                    icon: Icons.card_giftcard_rounded,
+                    color: LiveStudioAccent.cyan,
+                    value: ref.watch(studioGiftTotalsProvider(streamId)).value!.coins,
+                    label: 'gift coins',
+                    tokens: tokens,
+                    phone: phone,
+                  ),
+                ],
               ]),
             ],
           ),
@@ -421,6 +444,47 @@ class HostCard extends ConsumerWidget {
       ]),
     );
   }
+}
+
+/// A header counter (loves, gift coins) that rolls up when it changes.
+class _LiveStat extends StatelessWidget {
+  const _LiveStat({
+    required this.icon,
+    required this.color,
+    required this.value,
+    required this.label,
+    required this.tokens,
+    required this.phone,
+  });
+  final IconData icon;
+  final Color color;
+  final int value;
+  final String label;
+  final LiveStudioTokens tokens;
+  final bool phone;
+
+  @override
+  Widget build(BuildContext context) => Semantics(
+        label: '$value $label',
+        excludeSemantics: true,
+        child: Row(mainAxisSize: MainAxisSize.min, children: [
+          Icon(icon, size: phone ? 12 : 14, color: color),
+          const SizedBox(width: 3),
+          AnimatedSwitcher(
+            duration: const Duration(milliseconds: 450),
+            switchInCurve: Curves.easeOutCubic,
+            transitionBuilder: (c, a) => ClipRect(
+              child: SlideTransition(
+                position: Tween(begin: const Offset(0, 0.8), end: Offset.zero).animate(a),
+                child: FadeTransition(opacity: a, child: c),
+              ),
+            ),
+            child: Text(formatStudioCount(value),
+                key: ValueKey(value),
+                style: LiveStudioType.s(phone ? 11 : 12, FontWeight.w700, tokens.textMedium, height: phone ? 14 : 16)),
+          ),
+        ]),
+      );
 }
 
 /// Overlapping avatar stack + participant count (landscape header).
@@ -473,7 +537,11 @@ class CommentFeed extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final items = ref.watch(studioCommentFeedProvider(streamId).select((s) => s.items));
+    final comments = ref.watch(studioCommentFeedProvider(streamId).select((s) => s.items));
+    final gifts = ref.watch(studioGiftFeedProvider(streamId)).value ?? const <StudioRecentGift>[];
+    // Gifts appear in the comment stream too, in time order.
+    final items = <Object>[...comments, ...gifts]
+      ..sort((a, b) => _tsOf(a).compareTo(_tsOf(b)));
     final shown = items.length > StudioLimits.commentRenderCap
         ? items.sublist(items.length - StudioLimits.commentRenderCap)
         : items;
@@ -499,7 +567,12 @@ class CommentFeed extends ConsumerWidget {
               padding: const EdgeInsets.only(top: 6),
               child: Align(
                 alignment: Alignment.centerLeft,
-                child: _RiseIn(key: ValueKey(item.id), child: _CommentRow(item: item, tokens: tokens)),
+                child: item is StudioRecentGift
+                    ? _RiseIn(key: ValueKey('gift_${item.id}'), child: _GiftCommentRow(gift: item, tokens: tokens))
+                    : _RiseIn(
+                        key: ValueKey((item as StudioFeedItem).id),
+                        child: _CommentRow(item: item, tokens: tokens),
+                      ),
               ),
             );
           },
@@ -507,6 +580,37 @@ class CommentFeed extends ConsumerWidget {
       ),
     );
   }
+}
+
+int _tsOf(Object o) => o is StudioRecentGift ? o.atMs : (o as StudioFeedItem).comment.ts;
+
+/// A gift shown inside the comment stream.
+class _GiftCommentRow extends StatelessWidget {
+  const _GiftCommentRow({required this.gift, required this.tokens});
+  final StudioRecentGift gift;
+  final LiveStudioTokens tokens;
+
+  @override
+  Widget build(BuildContext context) => Container(
+        padding: const EdgeInsets.fromLTRB(5, 5, 12, 5),
+        decoration: BoxDecoration(
+          gradient: LinearGradient(colors: [giftColor(gift.gift).withValues(alpha: 0.35), tokens.commentBubble]),
+          borderRadius: BorderRadius.circular(16),
+        ),
+        child: Row(mainAxisSize: MainAxisSize.min, children: [
+          StudioAvatar(name: gift.name, url: gift.avatarUrl, size: 26, fill: tokens.commentAvatar, ring: giftColor(gift.gift), ringWidth: 1.5),
+          const SizedBox(width: 8),
+          Flexible(
+            child: Text.rich(TextSpan(children: [
+              TextSpan(text: '${gift.name}  ', style: LiveStudioType.s(12, FontWeight.w600, tokens.textMedium, height: 18)),
+              TextSpan(text: 'sent ${gift.gift.label}', style: LiveStudioType.s(13, FontWeight.w700, tokens.textHigh, height: 18)),
+              if (gift.qty > 1) TextSpan(text: ' ×${gift.qty}', style: LiveStudioType.s(13, FontWeight.w900, tokens.textHigh, height: 18)),
+            ])),
+          ),
+          const SizedBox(width: 6),
+          Icon(giftIcon(gift.gift), size: 18, color: giftColor(gift.gift)),
+        ]),
+      );
 }
 
 class _CommentRow extends StatelessWidget {
@@ -539,10 +643,25 @@ class _CommentRow extends StatelessWidget {
               child: Text.rich(
                 TextSpan(children: [
                   TextSpan(text: '${c.name}  ', style: LiveStudioType.s(12, FontWeight.w600, tokens.textMedium, height: 18)),
-                  TextSpan(
-                    text: c.isSystem ? _systemText(c) : c.text,
-                    style: LiveStudioType.s(13, FontWeight.w400, c.isSystem ? tokens.systemText : tokens.textHigh, height: 18),
-                  ),
+                  if (!(c.hasGif && c.text == 'GIF'))
+                    TextSpan(
+                      text: c.isSystem ? _systemText(c) : c.text,
+                      style: LiveStudioType.s(13, FontWeight.w400, c.isSystem ? tokens.systemText : tokens.textHigh, height: 18),
+                    ),
+                  if (c.hasGif)
+                    WidgetSpan(
+                      child: Padding(
+                        padding: const EdgeInsets.only(top: 4),
+                        child: ClipRRect(
+                          borderRadius: BorderRadius.circular(10),
+                          child: SizedBox(
+                            width: 120,
+                            height: c.gifW > 0 && c.gifH > 0 ? (120 * c.gifH / c.gifW).clamp(40, 160).toDouble() : 90,
+                            child: Image.network(c.gifUrl!, fit: BoxFit.cover, gaplessPlayback: true),
+                          ),
+                        ),
+                      ),
+                    ),
                 ]),
               ),
             ),
@@ -636,6 +755,15 @@ class _CommentBarState extends ConsumerState<CommentBar> {
     if (!ok && mounted && _text.text.isEmpty) _text.text = v;
   }
 
+  Future<void> _sendGif() async {
+    final gif = await showGifPicker(context);
+    if (gif == null || !mounted) return;
+    final caption = _text.text;
+    _text.clear();
+    final ok = await ref.read(studioCommentFeedProvider(widget.streamId).notifier).send(caption, gif: gif);
+    if (!ok && mounted && _text.text.isEmpty) _text.text = caption;
+  }
+
   @override
   Widget build(BuildContext context) {
     final t = widget.tokens;
@@ -674,6 +802,17 @@ class _CommentBarState extends ConsumerState<CommentBar> {
               ),
             ),
           ),
+        ),
+        StudioRoundButton(
+          tokens: t,
+          icon: Icons.gif_box_rounded,
+          label: 'Send a GIF',
+          size: p ? 32 : 40,
+          iconSize: p ? 20 : 22,
+          fill: LiveStudioAccent.clear,
+          border: LiveStudioAccent.clear,
+          color: LiveStudioAccent.blue,
+          onTap: _sendGif,
         ),
         StudioRoundButton(
           tokens: t,

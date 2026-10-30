@@ -95,4 +95,21 @@ const gift_logic_1 = require("../gift_logic");
     assert.equal(list.length, 15);
     assert.equal(list[0].id, 'g19');
 });
+const gif_logic_1 = require("../gif_logic");
+(0, node_test_1.test)('gif comments accept only GIPHY media', () => {
+    assert.equal((0, gif_logic_1.parseCommentGif)(undefined), null);
+    assert.deepEqual((0, gif_logic_1.parseCommentGif)({ id: 'abc123', url: 'https://media2.giphy.com/media/abc123/200w.webp', w: 200, h: 150 }), {
+        id: 'abc123',
+        url: 'https://media2.giphy.com/media/abc123/200w.webp',
+        w: 200,
+        h: 150,
+    });
+    assert.equal((0, gif_logic_1.parseCommentGif)({ id: 'a', url: 'https://evil.com/x.gif', w: 1, h: 1 }), 'invalid');
+    assert.equal((0, gif_logic_1.parseCommentGif)({ id: 'a', url: 'http://media.giphy.com/x.gif', w: 1, h: 1 }), 'invalid');
+    assert.equal((0, gif_logic_1.parseCommentGif)({ id: 'a', url: 'https://media.giphy.com/x.gif', w: 0, h: 1 }), 'invalid');
+    const g = (0, gif_logic_1.fromGiphy)({ id: 'xyz', images: { fixed_width: { webp: 'https://media1.giphy.com/media/xyz/200w.webp?cid=1', width: '200', height: '100' } } });
+    assert.equal(g === null || g === void 0 ? void 0 : g.url, 'https://media1.giphy.com/media/xyz/200w.webp');
+    assert.equal(g === null || g === void 0 ? void 0 : g.h, 100);
+    assert.equal((0, gif_logic_1.sanitizeGifQuery)('  cats\n '), 'cats');
+});
 //# sourceMappingURL=fun_broadcast_logic.test.js.map

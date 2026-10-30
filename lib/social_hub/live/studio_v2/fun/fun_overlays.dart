@@ -447,3 +447,81 @@ class _BurstPainter extends CustomPainter {
   @override
   bool shouldRepaint(_BurstPainter old) => old.t != t || old.kind != kind;
 }
+
+/// Double-tap anywhere on [child] to send a love: a heart blooms where you
+/// tapped and floats up slowly. Uses a raw Listener, so single taps on the
+/// stage (pop-outs, swaps) are never delayed or swallowed.
+class DoubleTapLove extends StatefulWidget {
+  const DoubleTapLove({super.key, required this.child, required this.onLove});
+  final Widget child;
+  final VoidCallback onLove;
+
+  @override
+  State<DoubleTapLove> createState() => _DoubleTapLoveState();
+}
+
+class _DoubleTapLoveState extends State<DoubleTapLove> {
+  int _lastUpMs = 0;
+  Offset _lastUpAt = Offset.zero;
+  Offset _downAt = Offset.zero;
+  final List<(int, Offset, double)> _hearts = [];
+  int _seq = 0;
+  final _rng = math.Random();
+
+  void _onUp(PointerUpEvent e) {
+    if ((e.localPosition - _downAt).distance > 20) return; // a swipe, not a tap
+    final now = DateTime.now().millisecondsSinceEpoch;
+    if (now - _lastUpMs < 320 && (e.localPosition - _lastUpAt).distance < 60) {
+      _lastUpMs = 0;
+      HapticFeedback.lightImpact();
+      widget.onLove();
+      final id = ++_seq;
+      setState(() => _hearts.add((id, e.localPosition, (_rng.nextDouble() - 0.5) * 0.5)));
+      Timer(const Duration(milliseconds: 1300), () {
+        if (mounted) setState(() => _hearts.removeWhere((h) => h.$1 == id));
+      });
+    } else {
+      _lastUpMs = now;
+      _lastUpAt = e.localPosition;
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) => Listener(
+        behavior: HitTestBehavior.translucent,
+        onPointerDown: (e) => _downAt = e.localPosition,
+        onPointerUp: _onUp,
+        child: Stack(fit: StackFit.expand, children: [
+          widget.child,
+          for (final h in _hearts)
+            Positioned(
+              left: h.$2.dx - 48,
+              top: h.$2.dy - 48,
+              child: IgnorePointer(
+                child: TweenAnimationBuilder<double>(
+                  key: ValueKey(h.$1),
+                  tween: Tween(begin: 0, end: 1),
+                  duration: const Duration(milliseconds: 1250),
+                  builder: (_, t, _) {
+                    final pop = Curves.elasticOut.transform((t * 2.2).clamp(0, 1));
+                    final fade = t < 0.6 ? 1.0 : 1 - (t - 0.6) / 0.4;
+                    return Opacity(
+                      opacity: fade.clamp(0, 1),
+                      child: Transform.translate(
+                        offset: Offset(0, -60 * Curves.easeOutCubic.transform(t)),
+                        child: Transform.rotate(
+                          angle: h.$3,
+                          child: Transform.scale(
+                            scale: 0.4 + 0.8 * pop,
+                            child: const Icon(Icons.favorite_rounded, size: 96, color: LiveStudioAccent.pink),
+                          ),
+                        ),
+                      ),
+                    );
+                  },
+                ),
+              ),
+            ),
+        ]),
+      );
+}

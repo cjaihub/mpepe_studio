@@ -64,3 +64,22 @@ test('gifts: catalog prices, quantity limits, host share, recent list', () => {
   assert.equal(list!.length, 15);
   assert.equal(list![0].id, 'g19');
 });
+
+import { fromGiphy, parseCommentGif, sanitizeGifQuery } from '../gif_logic';
+
+test('gif comments accept only GIPHY media', () => {
+  assert.equal(parseCommentGif(undefined), null);
+  assert.deepEqual(parseCommentGif({ id: 'abc123', url: 'https://media2.giphy.com/media/abc123/200w.webp', w: 200, h: 150 }), {
+    id: 'abc123',
+    url: 'https://media2.giphy.com/media/abc123/200w.webp',
+    w: 200,
+    h: 150,
+  });
+  assert.equal(parseCommentGif({ id: 'a', url: 'https://evil.com/x.gif', w: 1, h: 1 }), 'invalid');
+  assert.equal(parseCommentGif({ id: 'a', url: 'http://media.giphy.com/x.gif', w: 1, h: 1 }), 'invalid');
+  assert.equal(parseCommentGif({ id: 'a', url: 'https://media.giphy.com/x.gif', w: 0, h: 1 }), 'invalid');
+  const g = fromGiphy({ id: 'xyz', images: { fixed_width: { webp: 'https://media1.giphy.com/media/xyz/200w.webp?cid=1', width: '200', height: '100' } } });
+  assert.equal(g?.url, 'https://media1.giphy.com/media/xyz/200w.webp');
+  assert.equal(g?.h, 100);
+  assert.equal(sanitizeGifQuery('  cats\n '), 'cats');
+});

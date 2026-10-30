@@ -285,7 +285,7 @@ export { lsRequestJoin, lsCancelRequest, lsRespondRequest, lsModerate, lsLeaveSt
 export { lsSetTable, lsPlayback } from './liveStudio/table';
 export { lsMediaKey, lsSecOnIncident, lsSecOnBlock, lsSecOnMemberWrite } from './liveStudio/security';
 export { lsSetChatMode, lsSetJoinRequests } from './liveStudio/controls';
-export { lsComment, lsDeleteComment, lsMuteChat, lsReact, lsShare, lsLivekitWebhook } from './liveStudio/social';
+export { lsComment, lsDeleteComment, lsMuteChat, lsReact, lsShare, lsLivekitWebhook, lsGifSearch } from './liveStudio/social';
 
 // Oneova Looks & Visual Intelligence (§4.5, §8, §10)
 export * from './looks';

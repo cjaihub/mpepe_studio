@@ -281,6 +281,8 @@ class OneovaPlatformDocsCatalog {
             'Gifts: viewers send Roses, Hearts, Stars, Crowns, Rockets and Diamonds with coins; big gifts get a full-screen reveal, and the host earns half as pending earnings.',
             'Voice presets for anyone on stage: Natural, Clear voice, Studio and Music.',
             'Moderators can mute every guest at once from Live controls.',
+            'Double-tap the stage to send a love; loves, viewers and gift coins update live at the top.',
+            'Gifts appear in the comments, and viewers can comment with GIFs.',
           ],
         ),
         PlatformDocSection(

@@ -53,6 +53,8 @@ import { WebhookReceiver } from 'livekit-server-sdk';
 import { enforceChatMode } from './controls';
 import { recordStudioSignal } from './security';
 import { endStudioStream, onHostPresence } from './lifecycle';
+import { parseCommentGif, fromGiphy, sanitizeGifQuery } from './gif_logic';
+import { optionalSecret } from '../optionalSecrets';
 import { onEgressEnded } from './broadcast';
 import { Paths, Limits, StudioRole, StudioState, StageMember, ReactionKind, StudioCounts, shareUrl, isManager } from './contracts';
 import {
@@ -235,7 +237,11 @@ export const lsComment = onCall({ secrets: LIVEKIT_SECRETS }, async (req) => {
   const uid = requireUid(req);
   const data = asData(req.data);
   const streamId = requireStreamId(data);
-  const norm = normalizeCommentText(data.text);
+  const gif = parseCommentGif(data.gif);
+  if (gif === 'invalid') throw new HttpsError('invalid-argument', 'That GIF cannot be posted.');
+  // A GIF may be posted on its own; it then carries the text "GIF".
+  const rawText = gif && (typeof data.text !== 'string' || !data.text.trim()) ? 'GIF' : data.text;
+  const norm = normalizeCommentText(rawText);
   if (!norm.ok) throw new HttpsError('invalid-argument', norm.reason);
   const clientId = data.clientId === undefined ? undefined : data.clientId;
   if (clientId !== undefined && !isValidClientId(clientId)) throw new HttpsError('invalid-argument', 'Invalid clientId.');
@@ -279,6 +285,7 @@ export const lsComment = onCall({ secrets: LIVEKIT_SECRETS }, async (req) => {
     avatarUrl: member?.avatarUrl || avatarOf(u),
     text: text.text,
     ts: now,
+    ...(gif ? { gif } : {}),
   };
   try {
     await ref.create(comment);
@@ -526,4 +533,31 @@ export const lsLivekitWebhook = onRequest({ secrets: LIVEKIT_SECRETS }, async (r
     console.error('[liveStudio] webhook handling failed:', (e as Error).message);
   }
   res.status(200).send('ok');
+});
+
+// ─── lsGifSearch ────────────────────────────────────────────────────────────
+
+/**
+ * GIF search for comments (GIPHY). `{q?}` → `{gifs: [{id, url, w, h}], enabled}`.
+ * Trending when q is empty. The GIPHY key is optional (GIPHY_API_KEY in
+ * Secret Manager, read at run time): without it `enabled` is false.
+ */
+export const lsGifSearch = onCall(async (req) => {
+  requireUid(req);
+  const q = sanitizeGifQuery(asData(req.data).q);
+  const key = await optionalSecret('GIPHY_API_KEY');
+  if (!key) return { gifs: [], enabled: false };
+  const params = new URLSearchParams({ api_key: key, limit: '24', rating: 'pg-13', bundle: 'messaging_non_clips' });
+  if (q) params.set('q', q);
+  const url = `https://api.giphy.com/v1/gifs/${q ? 'search' : 'trending'}?${params.toString()}`;
+  try {
+    const res = await fetch(url);
+    if (!res.ok) throw new Error(`GIPHY ${res.status}`);
+    const body = (await res.json()) as { data?: unknown[] };
+    const gifs = (body.data ?? []).map(fromGiphy).filter((g) => g !== null);
+    return { gifs, enabled: true };
+  } catch (e) {
+    console.warn('[liveStudio] gif search failed:', (e as Error).message);
+    throw new HttpsError('unavailable', 'GIF search is not available right now.');
+  }
 });

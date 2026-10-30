@@ -473,7 +473,12 @@ class _LiveStudioV2ScreenState extends ConsumerState<LiveStudioV2Screen> {
           final recOn = broadcasting is Map && broadcasting['recording'] == true;
           final platforms = broadcasting is Map ? (broadcasting['platforms'] as List? ?? const []) : const [];
           return Stack(fit: StackFit.expand, children: [
-            Positioned.fill(child: stage),
+            Positioned.fill(
+              child: DoubleTapLove(
+                onLove: () => ref.read(studioReactionsProvider(_id).notifier).tap(ReactionKind.love),
+                child: stage,
+              ),
+            ),
             // Clean view fades the chrome out slowly (and back in).
             Positioned.fill(
               child: IgnorePointer(

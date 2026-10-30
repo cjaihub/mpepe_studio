@@ -379,3 +379,33 @@ class StudioGiftApi {
 }
 
 final studioGiftApiProvider = Provider<StudioGiftApi>((ref) => StudioGiftApi(ref.watch(studioCallPortProvider)));
+
+// ─── GIF comments + live totals ──────────────────────────────────────────────
+
+typedef StudioGif = ({String id, String url, int w, int h});
+
+class StudioGifApi {
+  const StudioGifApi(this._call);
+  final StudioCallPort _call;
+
+  /// Trending when [q] is empty. `enabled` is false until GIPHY is set up.
+  Future<({bool enabled, List<StudioGif> gifs})> search(String q) async {
+    final r = await _call.call('lsGifSearch', {'q': q});
+    final gifs = <StudioGif>[
+      for (final g in (r['gifs'] as List? ?? const []))
+        if (g is Map) (id: _str(g['id']), url: _str(g['url']), w: _int(g['w']), h: _int(g['h'])),
+    ];
+    return (enabled: r['enabled'] == true, gifs: gifs);
+  }
+}
+
+final studioGifApiProvider = Provider<StudioGifApi>((ref) => StudioGifApi(ref.watch(studioCallPortProvider)));
+
+/// Gift totals of a live (stream doc `giftCoins` / `giftCount`, server-written).
+final studioGiftTotalsProvider = StreamProvider.autoDispose.family<({int coins, int count}), String>((ref, streamId) {
+  return ref
+      .watch(studioFirestoreProvider)
+      .doc('${StudioPaths.streams}/$streamId')
+      .snapshots()
+      .map((d) => (coins: _int(d.data()?['giftCoins']), count: _int(d.data()?['giftCount'])));
+});

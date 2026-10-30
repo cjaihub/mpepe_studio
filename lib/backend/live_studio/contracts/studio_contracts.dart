@@ -900,6 +900,11 @@ class LiveStudioComment {
   final SystemLineKind? system;
   final int ts;
 
+  /// Optional GIF (GIPHY media URL + size) posted with the comment.
+  final String? gifUrl;
+  final int gifW;
+  final int gifH;
+
   const LiveStudioComment({
     required this.id,
     required this.uid,
@@ -908,7 +913,12 @@ class LiveStudioComment {
     this.text = '',
     this.system,
     required this.ts,
+    this.gifUrl,
+    this.gifW = 0,
+    this.gifH = 0,
   });
+
+  bool get hasGif => gifUrl != null && gifUrl!.isNotEmpty;
 
   bool get isSystem => system != null;
 
@@ -920,6 +930,9 @@ class LiveStudioComment {
         text: _str(j['text']),
         system: j['kind'] == null ? null : SystemLineKind.fromWire(j['kind']),
         ts: _int(j['ts']),
+        gifUrl: j['gif'] is Map ? _str((j['gif'] as Map)['url']) : null,
+        gifW: j['gif'] is Map ? _int((j['gif'] as Map)['w']) : 0,
+        gifH: j['gif'] is Map ? _int((j['gif'] as Map)['h']) : 0,
       );
 
   Map<String, dynamic> toJson() => {
@@ -930,6 +943,7 @@ class LiveStudioComment {
         'text': text,
         if (system != null) 'kind': system!.wire,
         'ts': ts,
+        if (hasGif) 'gif': {'url': gifUrl, 'w': gifW, 'h': gifH},
       };
 }
 
