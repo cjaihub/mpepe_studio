@@ -20,7 +20,6 @@
  * Pure rules: broadcast_logic.ts.
  */
 import { onCall, HttpsError } from 'firebase-functions/v2/https';
-import { defineString } from 'firebase-functions/params';
 import { FieldValue } from 'firebase-admin/firestore';
 import { getStorage } from 'firebase-admin/storage';
 import {
@@ -59,7 +58,8 @@ import {
   recordingPath,
 } from './broadcast_logic';
 
-export const LIVE_RECORDING_BUCKET = defineString('LIVE_RECORDING_BUCKET', { default: 'mpepe-2b4bd.firebasestorage.app' });
+/** Bucket recordings upload to (the app's default Storage bucket). */
+const recordingBucket = () => process.env.LIVE_RECORDING_BUCKET || 'mpepe-2b4bd.firebasestorage.app';
 const RECORDING_KEY_SECRET = 'LIVE_RECORDING_GCS_KEY';
 
 /** Service-account JSON for recording uploads, or null when not configured. */
@@ -167,7 +167,7 @@ export const lsBroadcast = onCall({ secrets: LIVEKIT_SECRETS }, async (req) => {
     outputs.file = new EncodedFileOutput({
       fileType: EncodedFileType.MP4,
       filepath: path,
-      output: { case: 'gcp', value: new GCPUpload({ credentials: key, bucket: LIVE_RECORDING_BUCKET.value() }) },
+      output: { case: 'gcp', value: new GCPUpload({ credentials: key, bucket: recordingBucket() }) },
     });
   }
   if (targets.length) {
@@ -269,7 +269,7 @@ export const lsRecordingDecision = onCall(async (req) => {
     return { ok: true, kept: true, storagePath: path };
   }
   try {
-    await getStorage().bucket(LIVE_RECORDING_BUCKET.value()).file(path).delete({ ignoreNotFound: true });
+    await getStorage().bucket(recordingBucket()).file(path).delete({ ignoreNotFound: true });
   } catch (e) {
     console.warn(`[liveStudio] delete recording ${streamId}:`, (e as Error).message);
   }

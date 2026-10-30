@@ -1,6 +1,6 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.lsRecordingDecision = exports.lsBroadcast = exports.lsDestinations = exports.LIVE_RECORDING_BUCKET = void 0;
+exports.lsRecordingDecision = exports.lsBroadcast = exports.lsDestinations = void 0;
 exports.stopStreamEgress = stopStreamEgress;
 exports.onEgressEnded = onEgressEnded;
 /**
@@ -25,7 +25,6 @@ exports.onEgressEnded = onEgressEnded;
  * Pure rules: broadcast_logic.ts.
  */
 const https_1 = require("firebase-functions/v2/https");
-const params_1 = require("firebase-functions/params");
 const firestore_1 = require("firebase-admin/firestore");
 const storage_1 = require("firebase-admin/storage");
 const livekit_server_sdk_1 = require("livekit-server-sdk");
@@ -33,7 +32,8 @@ const contracts_1 = require("./contracts");
 const optionalSecrets_1 = require("../optionalSecrets");
 const shared_1 = require("./shared");
 const broadcast_logic_1 = require("./broadcast_logic");
-exports.LIVE_RECORDING_BUCKET = (0, params_1.defineString)('LIVE_RECORDING_BUCKET', { default: 'mpepe-2b4bd.firebasestorage.app' });
+/** Bucket recordings upload to (the app's default Storage bucket). */
+const recordingBucket = () => process.env.LIVE_RECORDING_BUCKET || 'mpepe-2b4bd.firebasestorage.app';
 const RECORDING_KEY_SECRET = 'LIVE_RECORDING_GCS_KEY';
 /** Service-account JSON for recording uploads, or null when not configured. */
 async function recordingKey() {
@@ -142,7 +142,7 @@ exports.lsBroadcast = (0, https_1.onCall)({ secrets: shared_1.LIVEKIT_SECRETS },
         outputs.file = new livekit_server_sdk_1.EncodedFileOutput({
             fileType: livekit_server_sdk_1.EncodedFileType.MP4,
             filepath: path,
-            output: { case: 'gcp', value: new livekit_server_sdk_1.GCPUpload({ credentials: key, bucket: exports.LIVE_RECORDING_BUCKET.value() }) },
+            output: { case: 'gcp', value: new livekit_server_sdk_1.GCPUpload({ credentials: key, bucket: recordingBucket() }) },
         });
     }
     if (targets.length) {
@@ -237,7 +237,7 @@ exports.lsRecordingDecision = (0, https_1.onCall)(async (req) => {
         return { ok: true, kept: true, storagePath: path };
     }
     try {
-        await (0, storage_1.getStorage)().bucket(exports.LIVE_RECORDING_BUCKET.value()).file(path).delete({ ignoreNotFound: true });
+        await (0, storage_1.getStorage)().bucket(recordingBucket()).file(path).delete({ ignoreNotFound: true });
     }
     catch (e) {
         console.warn(`[liveStudio] delete recording ${streamId}:`, e.message);
