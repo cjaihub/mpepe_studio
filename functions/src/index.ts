@@ -268,6 +268,7 @@ export * from './metaOAuth';
 export * from './gmailUser';
 export * from './inbox';
 export { aiGateway, generateLiveApiToken } from './aiGateway';
+export { chatAssist } from './chatAssist';
 export { aiProxy } from './aiProxy';
 export { tiktokExchangeCode } from './tiktokOAuth';
 export { globalSemanticSearch } from './search/searchQuery';

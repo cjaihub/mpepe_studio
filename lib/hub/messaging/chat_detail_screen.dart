@@ -8,7 +8,6 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'dart:io';
 import 'package:file_picker/file_picker.dart';
 import 'package:image_picker/image_picker.dart';
-import 'package:any_link_preview/any_link_preview.dart';
 import 'package:record/record.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:go_router/go_router.dart';
@@ -38,6 +37,12 @@ import '../../ova_assistant/media/ova_media_studio.dart';
 import 'widgets/video_note_recorder.dart';
 import '../../shared/services/draft_store.dart';
 import 'dart:async';
+import 'package:share_plus/share_plus.dart';
+import 'package:url_launcher/url_launcher.dart';
+import 'chat_assist_service.dart';
+import 'widgets/chat_compact_cards.dart';
+
+part 'chat_detail_upgrades.dart';
 
 class ChatDetailScreen extends ConsumerStatefulWidget {
   final String chatId;
@@ -102,6 +107,24 @@ class _ChatDetailScreenState extends ConsumerState<ChatDetailScreen> with Single
   
   late AnimationController _attachmentAnimController;
   late Animation<double> _attachmentAnimation;
+
+  // Scrolling, translations and per-chat AI assist (chat_detail_upgrades.dart)
+  final ScrollController _listController = ScrollController();
+  bool _bannerCollapsed = false;
+  bool _awayFromBottom = false;
+  String? _latestSeenId;
+  List<MessageModel> _lastMessages = const [];
+  final Map<String, ChatTranslation> _translations = {};
+  final Set<String> _translating = {};
+  final Set<String> _hiddenTranslations = {};
+  List<String> _aiReplies = const [];
+  bool _aiRepliesLoading = false;
+  String? _aiRepliesFor;
+  bool _aiSummarizing = false;
+
+  void _refresh(VoidCallback fn) {
+    if (mounted) setState(fn);
+  }
 
   final Map<String, Future<AppUser?>> _userFutures = {};
 
@@ -180,6 +203,7 @@ class _ChatDetailScreenState extends ConsumerState<ChatDetailScreen> with Single
     super.initState();
     _initE2EE();
     _loadChatPreferences();
+    _listController.addListener(_onListScroll);
     _attachmentAnimController = AnimationController(
       vsync: this,
       duration: const Duration(milliseconds: 300),
@@ -471,6 +495,7 @@ class _ChatDetailScreenState extends ConsumerState<ChatDetailScreen> with Single
     setState(() {
       _replyingTo = null;
     });
+    if (_awayFromBottom) _jumpToLatest();
   }
 
   void _openOvaAssistantOverlay() async {
@@ -561,11 +586,13 @@ class _ChatDetailScreenState extends ConsumerState<ChatDetailScreen> with Single
       return GestureDetector(
         onTap: () => _openMediaStudio(message),
         child: Container(
-          margin: EdgeInsets.only(bottom: message.text.isNotEmpty ? 8 : 0),
-          constraints: const BoxConstraints(maxHeight: 250, maxWidth: 250),
+          margin: EdgeInsets.only(bottom: message.text.isNotEmpty ? 6 : 0),
+          width: 220,
+          height: 220,
           decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(14),
-            border: Border.all(color: Colors.white12),
+            color: context.surfaceMid,
+            borderRadius: BorderRadius.circular(AppRadius.md),
+            border: Border.all(color: isMe ? AppColors.brandWhite.withValues(alpha: 0.2) : context.border),
             image: DecorationImage(
               image: chatMediaImage(message.mediaUrl!),
               fit: BoxFit.cover,
@@ -605,154 +632,21 @@ class _ChatDetailScreenState extends ConsumerState<ChatDetailScreen> with Single
           child: ChatVideoBubble(url: message.mediaUrl!, title: message.fileName),
         ),
       );
-    } else if (message.mediaType == 'video') {
-      return Container(
-        margin: EdgeInsets.only(bottom: message.text.isNotEmpty ? 8 : 0),
-        constraints: const BoxConstraints(maxHeight: 200, maxWidth: 250),
-        decoration: BoxDecoration(
-          color: Colors.black45,
-          borderRadius: BorderRadius.circular(14),
-          border: Border.all(color: AppColors.brandBlue.withValues(alpha: 0.3)),
-        ),
-        child: Stack(
-          alignment: Alignment.center,
-          children: [
-            Column(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                Container(
-                  padding: const EdgeInsets.all(12),
-                  decoration: const BoxDecoration(
-                    color: AppColors.brandPink,
-                    shape: BoxShape.circle,
-                  ),
-                  child: const Icon(Icons.play_arrow_rounded, color: Colors.white, size: 28),
-                ),
-                const SizedBox(height: 8),
-                Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 12),
-                  child: Text(
-                    message.fileName ?? 'Video',
-                    style: const TextStyle(color: Colors.white, fontSize: 12, fontWeight: FontWeight.bold),
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                  ),
-                ),
-              ],
-            ),
-          ],
-        ),
-      );
-    } else if (message.mediaType == 'document' || message.mediaType == 'file' || message.mediaType == 'archive' || message.mediaType == 'code') {
-      final fileName = message.fileName ?? 'Document';
-      final ext = fileName.contains('.') ? fileName.split('.').last.toLowerCase() : 'file';
-      final sizeStr = _formatFileSize(message.fileSize);
-
-      Color extColor;
-      IconData extIcon;
-      String typeLabel;
-
-      if (ext == 'pdf') {
-        extColor = const Color(0xFFE63946);
-        extIcon = Icons.picture_as_pdf_rounded;
-        typeLabel = 'PDF Document';
-      } else if (['xls', 'xlsx', 'csv', 'numbers', 'tsv'].contains(ext)) {
-        extColor = const Color(0xFF2A9D8F);
-        extIcon = Icons.table_chart_rounded;
-        typeLabel = 'Spreadsheet';
-      } else if (['ppt', 'pptx', 'key'].contains(ext)) {
-        extColor = const Color(0xFFF4A261);
-        extIcon = Icons.slideshow_rounded;
-        typeLabel = 'Presentation Slide Deck';
-      } else if (['zip', 'rar', '7z', 'tar', 'gz', 'bz2'].contains(ext)) {
-        extColor = const Color(0xFF8338EC);
-        extIcon = Icons.folder_zip_rounded;
-        typeLabel = 'Compressed Archive';
-      } else if (['dart', 'js', 'ts', 'py', 'json', 'html', 'css', 'swift', 'kt', 'cpp', 'c', 'sql', 'sh', 'yaml', 'yml'].contains(ext)) {
-        extColor = const Color(0xFF00B4D8);
-        extIcon = Icons.code_rounded;
-        typeLabel = 'Source Code';
-      } else if (['doc', 'docx', 'txt', 'rtf', 'pages'].contains(ext)) {
-        extColor = AppColors.brandBlue;
-        extIcon = Icons.description_rounded;
-        typeLabel = 'Word Document';
-      } else {
-        extColor = AppColors.brandPink;
-        extIcon = Icons.insert_drive_file_rounded;
-        typeLabel = 'File';
-      }
-
-      return GestureDetector(
-        onTap: message.mediaUrl == null ? null : () => _openMediaStudio(message),
-        child: Container(
-          margin: EdgeInsets.only(bottom: message.text.isNotEmpty ? 8 : 0),
-          padding: const EdgeInsets.all(12),
-          decoration: BoxDecoration(
-            color: Colors.black.withValues(alpha: 0.35),
-            borderRadius: BorderRadius.circular(14),
-            border: Border.all(color: extColor.withValues(alpha: 0.4), width: 1.0),
-          ),
-          child: Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
-                decoration: BoxDecoration(
-                  color: extColor.withValues(alpha: 0.18),
-                  borderRadius: BorderRadius.circular(8),
-                  border: Border.all(color: extColor.withValues(alpha: 0.5)),
-                ),
-                child: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Icon(extIcon, color: extColor, size: 14),
-                    const SizedBox(width: 4),
-                    Text(
-                      ext.toUpperCase(),
-                      style: TextStyle(
-                        color: extColor,
-                        fontWeight: FontWeight.w900,
-                        fontSize: 10.5,
-                        letterSpacing: 0.5,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-              const SizedBox(width: 10),
-              Flexible(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      fileName,
-                      style: GoogleFonts.inter(
-                        color: Colors.white,
-                        fontWeight: FontWeight.bold,
-                        fontSize: 13,
-                      ),
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                    ),
-                    const SizedBox(height: 2),
-                    Text(
-                      sizeStr.isNotEmpty ? '$sizeStr • $typeLabel' : typeLabel,
-                      style: GoogleFonts.inter(color: Colors.white54, fontSize: 10.5),
-                    ),
-                  ],
-                ),
-              ),
-              const SizedBox(width: 8),
-              Container(
-                padding: const EdgeInsets.all(4),
-                decoration: BoxDecoration(
-                  color: Colors.white.withValues(alpha: 0.08),
-                  shape: BoxShape.circle,
-                ),
-                child: const Icon(Icons.download_rounded, color: Colors.white70, size: 17),
-              ),
-            ],
-          ),
+    } else if (message.mediaType == 'document' ||
+        message.mediaType == 'file' ||
+        message.mediaType == 'archive' ||
+        message.mediaType == 'code' ||
+        message.mediaType == 'video') {
+      return Padding(
+        padding: EdgeInsets.only(bottom: message.text.isNotEmpty ? 6 : 0),
+        child: ChatFileCard(
+          fileName: message.fileName ?? (message.mediaType == 'video' ? 'Video' : 'Document'),
+          fileSize: message.fileSize,
+          mediaType: message.mediaType,
+          onBlue: isMe,
+          encrypted: message.mediaEncrypted,
+          onOpen: message.mediaUrl == null ? null : () => _openMediaStudio(message),
+          onSave: message.mediaUrl == null ? null : () => _saveFile(message),
         ),
       );
     } else if (message.mediaType == 'audio' && message.mediaUrl != null) {
@@ -769,129 +663,12 @@ class _ChatDetailScreenState extends ConsumerState<ChatDetailScreen> with Single
     return const SizedBox.shrink();
   }
 
-  String _formatFileSize(int? bytes) {
-    if (bytes == null || bytes <= 0) return '';
-    if (bytes < 1024) return '$bytes B';
-    if (bytes < 1024 * 1024) return '${(bytes / 1024).toStringAsFixed(1)} KB';
-    return '${(bytes / (1024 * 1024)).toStringAsFixed(1)} MB';
-  }
-
-  Widget _buildLinkPreview(String text) {
-    final RegExp urlRegExp = RegExp(
-      r"(?:(?:https?|ftp):\/\/)?[\w/\-?=%.]+\.[\w/\-?=%.]+",
-      caseSensitive: false,
-    );
-    final match = urlRegExp.firstMatch(text);
-    if (match != null) {
-      String url = text.substring(match.start, match.end);
-      if (!url.startsWith('http')) {
-        url = 'https://$url';
-      }
-      return Container(
-        margin: const EdgeInsets.only(top: 8),
-        constraints: const BoxConstraints(maxWidth: 250),
-        child: AnyLinkPreview(
-          link: url,
-          displayDirection: UIDirection.uiDirectionVertical,
-          titleStyle: const TextStyle(
-            color: Colors.white,
-            fontWeight: FontWeight.bold,
-            fontSize: 14,
-          ),
-          bodyStyle: const TextStyle(color: Colors.white70, fontSize: 12),
-          backgroundColor: Colors.black.withValues(alpha: 0.2),
-          borderRadius: 8,
-          removeElevation: true,
-        ),
-      );
-    }
-    return const SizedBox.shrink();
-  }
-
-  void _showActionMenu(MessageModel message, bool isMe) {
-    FocusScope.of(context).unfocus();
-    
-    showModalBottomSheet(
-      context: context,
-      backgroundColor: Colors.transparent,
-      builder: (context) {
-        return Container(
-          decoration: BoxDecoration(
-            color: context.surface,
-            borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
-          ),
-          padding: const EdgeInsets.symmetric(vertical: 24, horizontal: 16),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              // Reactions Row
-              Row(
-                mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-                children: ['👍', '❤️', '😂', '😮', '😢', '🔥'].map((emoji) {
-                  return GestureDetector(
-                    onTap: () {
-                      final currentUserId = FirebaseAuth.instance.currentUser?.uid;
-                      if (currentUserId != null) {
-                        ref.read(messagingRepositoryProvider).addReaction(widget.chatId, message.id, currentUserId, emoji);
-                      }
-                      Navigator.pop(context);
-                    },
-                    child: Text(emoji, style: const TextStyle(fontSize: 28)),
-                  ).animate().scale(duration: 180.ms);
-                }).toList(),
-              ),
-              const SizedBox(height: 18),
-              ListTile(
-                leading: Icon(Icons.reply_rounded, color: context.textPrimary, size: 22),
-                title: Text('Reply', style: GoogleFonts.inter(color: context.textPrimary, fontSize: 13.5, fontWeight: FontWeight.w600)),
-                onTap: () {
-                  Navigator.pop(context);
-                  setState(() {
-                    _replyingTo = message.copyWith(text: _getDisplayText(message));
-                  });
-                  FocusScope.of(context).requestFocus();
-                },
-              ),
-              ListTile(
-                leading: Icon(Icons.copy_rounded, color: context.textPrimary, size: 21),
-                title: Text('Copy Text', style: GoogleFonts.inter(color: context.textPrimary, fontSize: 13.5, fontWeight: FontWeight.w600)),
-                onTap: () {
-                  final textToCopy = _getDisplayText(message);
-                  Clipboard.setData(ClipboardData(text: textToCopy));
-                  Navigator.pop(context);
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(content: Text('Message copied to clipboard')),
-                  );
-                },
-              ),
-              ListTile(
-                leading: Icon(
-                  message.isStarred ? Icons.star_rounded : Icons.star_outline_rounded,
-                  color: message.isStarred ? AppColors.brandPink : context.textPrimary,
-                  size: 22,
-                ),
-                title: Text(
-                  message.isStarred ? 'Unstar Message' : 'Star Message',
-                  style: GoogleFonts.inter(color: context.textPrimary, fontSize: 13.5, fontWeight: FontWeight.w600),
-                ),
-                onTap: () {
-                  Navigator.pop(context);
-                  ref.read(messagingRepositoryProvider).toggleMessageStarred(widget.chatId, message.id, !message.isStarred);
-                },
-              ),
-              if (isMe)
-                ListTile(
-                  leading: const Icon(Icons.delete_outline_rounded, color: AppColors.brandPink, size: 22),
-                  title: Text('Delete Message', style: GoogleFonts.inter(color: AppColors.brandPink, fontSize: 13.5, fontWeight: FontWeight.w600)),
-                  onTap: () {
-                    Navigator.pop(context);
-                    _confirmDeleteMessage(message);
-                  },
-                ),
-            ],
-          ),
-        );
-      },
+  Widget _buildLinkPreview(String text, {bool isMe = false}) {
+    final url = firstLinkIn(text);
+    if (url == null) return const SizedBox.shrink();
+    return Padding(
+      padding: const EdgeInsets.only(top: 6),
+      child: ChatLinkCard(url: url, onBlue: isMe),
     );
   }
 
@@ -905,11 +682,11 @@ class _ChatDetailScreenState extends ConsumerState<ChatDetailScreen> with Single
           side: BorderSide(color: context.border, width: 1),
         ),
         title: Text(
-          'Delete Message?',
+          'Unsend message?',
           style: GoogleFonts.inter(color: context.textPrimary, fontWeight: FontWeight.bold, fontSize: 16),
         ),
         content: Text(
-          'Are you sure you want to delete this message? This action cannot be undone.',
+          'This removes the message for everyone in the chat. This can\'t be undone.',
           style: GoogleFonts.inter(color: context.textSecondary, fontSize: 13, height: 1.35),
         ),
         actions: [
@@ -930,14 +707,14 @@ class _ChatDetailScreenState extends ConsumerState<ChatDetailScreen> with Single
               if (mounted) {
                 ScaffoldMessenger.of(context).showSnackBar(
                   SnackBar(
-                    content: Text('Message deleted'),
+                    content: Text('Message unsent'),
                     backgroundColor: context.surfaceMid,
                     duration: Duration(seconds: 2),
                   ),
                 );
               }
             },
-            child: Text('Delete', style: GoogleFonts.inter(fontWeight: FontWeight.bold)),
+            child: Text('Unsend', style: GoogleFonts.inter(fontWeight: FontWeight.bold)),
           ),
         ],
       ),
@@ -1281,6 +1058,7 @@ class _ChatDetailScreenState extends ConsumerState<ChatDetailScreen> with Single
     _messageController.dispose();
     _audioRecorder.dispose();
     _attachmentAnimController.dispose();
+    _listController.dispose();
     super.dispose();
   }
 
@@ -1730,6 +1508,12 @@ class _ChatDetailScreenState extends ConsumerState<ChatDetailScreen> with Single
               case 'search':
                 setState(() => _isSearchingInChat = true);
                 break;
+              case 'highlights':
+                _showHighlights();
+                break;
+              case 'ai':
+                _showAiControls();
+                break;
               case 'info':
                 openInfo();
                 break;
@@ -1740,6 +1524,14 @@ class _ChatDetailScreenState extends ConsumerState<ChatDetailScreen> with Single
           },
           itemBuilder: (ctx) => [
             _menuItem('search', Icons.search_rounded, 'Search in chat'),
+            _menuItem('highlights', Icons.star_outline_rounded, 'Highlights'),
+            _menuItem(
+              'ai',
+              Icons.auto_awesome_outlined,
+              (ref.read(chatPrefsProvider((uid: currentUserId, chatId: widget.chatId))).value?.aiEnabled ?? false)
+                  ? 'AI in this chat · On'
+                  : 'AI in this chat · Off',
+            ),
             if (!isGroup && otherUserId.isNotEmpty) _menuItem('profile', Icons.person_outline_rounded, 'View profile'),
             _menuItem('info', Icons.info_outline_rounded, isGroup ? 'Group info & settings' : 'Chat info & settings'),
           ],
@@ -3055,10 +2847,18 @@ class _ChatDetailScreenState extends ConsumerState<ChatDetailScreen> with Single
 
   Widget _buildMessagesList(AsyncValue<List<MessageModel>> messagesAsync, String currentUserId) {
     return messagesAsync.when(
-      data: (messages) {
+      data: (allMessages) {
+        final prefs = ref.watch(chatPrefsProvider((uid: currentUserId, chatId: widget.chatId))).value ?? const ChatPrefs();
+        _lastMessages = allMessages;
         WidgetsBinding.instance.addPostFrameCallback((_) {
-          _decryptPendingMessages(messages);
+          _decryptPendingMessages(allMessages);
+          if (mounted) _runAiAssist(allMessages, prefs);
         });
+        // "Delete for me" hides a message on this account only.
+        final messages = prefs.hidden.isEmpty
+            ? allMessages
+            : allMessages.where((m) => !prefs.hidden.contains(m.id)).toList();
+        if (!_awayFromBottom && messages.isNotEmpty) _latestSeenId = messages.first.id;
 
         // Filter messages if search query is active
         final isSearching = _inChatSearchQuery.isNotEmpty;
@@ -3151,16 +2951,24 @@ class _ChatDetailScreenState extends ConsumerState<ChatDetailScreen> with Single
                 ),
               ),
             Expanded(
-              child: ListView.builder(
+              child: Stack(
+                children: [
+              ListView.builder(
+                controller: _listController,
                 reverse: true,
-                padding: const EdgeInsets.only(bottom: 16),
-                itemCount: displayMessages.length + 1,
+                padding: const EdgeInsets.only(top: 48, bottom: 16),
+                itemCount: displayMessages.length,
                 itemBuilder: (context, index) {
-                  if (index == displayMessages.length) {
-                    return _buildSecurityBanner();
-                  }
-
                   final message = displayMessages[index];
+                  final day = message.timestamp.toDate();
+                  final olderDay = index + 1 < displayMessages.length
+                      ? displayMessages[index + 1].timestamp.toDate()
+                      : null;
+                  final startsDay = olderDay == null ||
+                      olderDay.year != day.year ||
+                      olderDay.month != day.month ||
+                      olderDay.day != day.day;
+                  final highlighted = _isHighlighted(message, prefs);
                   final isMe = message.senderId == currentUserId;
                   final timeStr = "${message.timestamp.toDate().hour.toString().padLeft(2, '0')}:${message.timestamp.toDate().minute.toString().padLeft(2, '0')}";
                   final MessageModel? repliedMsg = message.replyToMessageId != null
@@ -3168,7 +2976,7 @@ class _ChatDetailScreenState extends ConsumerState<ChatDetailScreen> with Single
                       : null;
                   final displayText = _getDisplayText(message);
 
-                  return Dismissible(
+                  final bubble = Dismissible(
                     key: ValueKey('swipe_msg_${message.id}'),
                     direction: DismissDirection.startToEnd,
                     confirmDismiss: (direction) async {
@@ -3201,7 +3009,7 @@ class _ChatDetailScreenState extends ConsumerState<ChatDetailScreen> with Single
                           ref.read(messagingRepositoryProvider).addReaction(widget.chatId, message.id, currentUserId, '❤️');
                         }
                       },
-                      onLongPress: () => _showActionMenu(message, isMe),
+                      onLongPress: () => _showMessageActions(message, isMe),
                       child: Row(
                         mainAxisAlignment: isMe ? MainAxisAlignment.end : MainAxisAlignment.start,
                         crossAxisAlignment: CrossAxisAlignment.end,
@@ -3286,6 +3094,20 @@ class _ChatDetailScreenState extends ConsumerState<ChatDetailScreen> with Single
                                           ],
                                         ),
                                       ),
+                                    if (message.forwarded)
+                                      Padding(
+                                        padding: const EdgeInsets.only(bottom: 3),
+                                        child: Row(mainAxisSize: MainAxisSize.min, children: [
+                                          Icon(Icons.shortcut_rounded, size: 11, color: isMe ? Colors.white70 : context.textMuted),
+                                          const SizedBox(width: 3),
+                                          Text('Forwarded',
+                                              style: GoogleFonts.inter(
+                                                color: isMe ? Colors.white70 : context.textMuted,
+                                                fontSize: 10.5,
+                                                fontStyle: FontStyle.italic,
+                                              )),
+                                        ]),
+                                      ),
                                     if (message.mediaUrl != null && message.mediaType != null)
                                       _buildMediaAttachment(message, isMe: isMe),
                                     if (displayText.isNotEmpty)
@@ -3299,12 +3121,13 @@ class _ChatDetailScreenState extends ConsumerState<ChatDetailScreen> with Single
                                           letterSpacing: -0.15,
                                         ),
                                       ),
-                                    _buildLinkPreview(displayText),
+                                    if (!isMe) _buildTranslation(message, isMe),
+                                    _buildLinkPreview(displayText, isMe: isMe),
                                     const SizedBox(height: 3),
                                     Row(
                                       mainAxisSize: MainAxisSize.min,
                                       children: [
-                                        if (message.isStarred) ...[
+                                        if (highlighted) ...[
                                           const Icon(
                                             Icons.star_rounded,
                                             size: 11,
@@ -3351,7 +3174,7 @@ class _ChatDetailScreenState extends ConsumerState<ChatDetailScreen> with Single
                                             return Container(
                                               padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
                                               decoration: BoxDecoration(
-                                                color: AppColors.darkSurfaceHighlight.withValues(alpha: 0.95),
+                                                color: context.surfaceMid,
                                                 borderRadius: BorderRadius.circular(12),
                                                 border: Border.all(
                                                   color: AppColors.brandPink.withValues(alpha: 0.3),
@@ -3374,8 +3197,40 @@ class _ChatDetailScreenState extends ConsumerState<ChatDetailScreen> with Single
                     ),
                   ).animate().fade().slideY(begin: 0.08, end: 0),
                 );
+                  if (!startsDay) return bubble;
+                  return Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [ChatDateSeparator(day: day), bubble],
+                  );
                 },
-      ),
+              ),
+                  // Sticky encryption banner; shrinks to a lock chip on scroll.
+                  Positioned(
+                    top: 0,
+                    left: 0,
+                    right: 0,
+                    child: Center(
+                      child: ChatEncryptionBanner(
+                        collapsed: _bannerCollapsed,
+                        endToEnd: _e2eeActive,
+                        text: _bannerText,
+                        chipText: _bannerChip,
+                        onTap: () => _showOneovaShieldSheet(context),
+                      ),
+                    ),
+                  ),
+                  Positioned(
+                    right: 14,
+                    bottom: 12,
+                    child: AnimatedScale(
+                      scale: _awayFromBottom ? 1 : 0,
+                      duration: const Duration(milliseconds: 200),
+                      curve: Curves.easeOutBack,
+                      child: ChatJumpToLatest(unread: _newSinceAway(messages), onTap: _jumpToLatest),
+                    ),
+                  ),
+                ],
+              ),
     ),
   ],
 );
@@ -3412,6 +3267,9 @@ class _ChatDetailScreenState extends ConsumerState<ChatDetailScreen> with Single
               onReply: _insertIntoComposer,
               onAskOva: (prompt) => OneOvaAssistantOverlay.show<void>(context, initialPrompt: prompt),
               onOpenMedia: _openMediaStudio,
+            ),
+            _buildAiStrip(
+              ref.watch(chatPrefsProvider((uid: _myUid, chatId: widget.chatId))).value ?? const ChatPrefs(),
             ),
             if (_replyingTo != null)
               Container(

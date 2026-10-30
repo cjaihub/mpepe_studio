@@ -645,6 +645,7 @@ class MessagingRepository {
     String? messagePrefix,
     Map<String, dynamic>? location,
     bool mediaEncrypted = false,
+    bool forwarded = false,
   }) async {
     final messageId = const Uuid().v4();
     final timestamp = Timestamp.now();
@@ -719,6 +720,7 @@ class MessagingRepository {
       isEncrypted: isEncrypted,
       mediaEncrypted: mediaEncrypted,
       location: location,
+      forwarded: forwarded,
     );
 
     final chatRef = _firestore.collection('chats').doc(chatId);
@@ -1139,6 +1141,9 @@ class MessageModel {
   /// active, expiresAt, updatedAt.
   final Map<String, dynamic>? location;
 
+  /// Sent with "Forward" from another chat.
+  final bool forwarded;
+
   MessageModel({
     required this.id,
     required this.senderId,
@@ -1158,6 +1163,7 @@ class MessageModel {
     this.isEncrypted = false,
     this.mediaEncrypted = false,
     this.location,
+    this.forwarded = false,
   });
 
   factory MessageModel.fromFirestore(DocumentSnapshot doc) {
@@ -1188,6 +1194,7 @@ class MessageModel {
       isEncrypted: (data['isEncrypted'] as bool?) ?? false,
       mediaEncrypted: (data['mediaEncrypted'] as bool?) ?? false,
       location: data['location'] is Map ? Map<String, dynamic>.from(data['location'] as Map) : null,
+      forwarded: (data['forwarded'] as bool?) ?? false,
     );
   }
 
@@ -1211,6 +1218,7 @@ class MessageModel {
       'isEncrypted': isEncrypted,
       if (mediaEncrypted) 'mediaEncrypted': true,
       if (location != null) 'location': location,
+      if (forwarded) 'forwarded': true,
     };
   }
 
@@ -1251,6 +1259,7 @@ class MessageModel {
       isEncrypted: isEncrypted ?? this.isEncrypted,
       mediaEncrypted: mediaEncrypted,
       location: location,
+      forwarded: forwarded,
     );
   }
 }
