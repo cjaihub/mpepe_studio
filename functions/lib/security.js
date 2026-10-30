@@ -76,12 +76,10 @@ const axios_1 = __importDefault(require("axios"));
 const https_1 = require("firebase-functions/v2/https");
 const firestore_1 = require("firebase-functions/v2/firestore");
 const scheduler_1 = require("firebase-functions/v2/scheduler");
-const params_1 = require("firebase-functions/params");
 const logger = __importStar(require("firebase-functions/logger"));
 const auth_1 = require("firebase-admin/auth");
 const firestore_2 = require("firebase-admin/firestore");
-const genai_1 = require("@google/genai");
-const geminiSecret = (0, params_1.defineSecret)('GEMINI_API_KEY');
+const vertexAi_1 = require("./vertexAi");
 const db = () => (0, firestore_2.getFirestore)();
 const HIGH = 70;
 const MEDIUM = 40;
@@ -667,7 +665,7 @@ exports.guardRevokeDevice = (0, https_1.onCall)(async (request) => {
  * event's type, rule reasons, device and country (never messages), and its
  * text is advisory: risk and alerts come from the rules above.
  */
-exports.guardExplainEvent = (0, https_1.onCall)({ secrets: [geminiSecret] }, async (request) => {
+exports.guardExplainEvent = (0, https_1.onCall)(async (request) => {
     var _a, _b, _c;
     var _d, _e, _f, _g;
     const auth = requireUser(request);
@@ -681,9 +679,6 @@ exports.guardExplainEvent = (0, https_1.onCall)({ secrets: [geminiSecret] }, asy
     const cached = snap.get('aiSummary');
     if (cached)
         return { summary: cached };
-    const apiKey = geminiSecret.value();
-    if (!apiKey)
-        throw new https_1.HttpsError('failed-precondition', 'AI is not configured.');
     const e = (_d = snap.data()) !== null && _d !== void 0 ? _d : {};
     const facts = {
         event: e.title,
@@ -696,7 +691,7 @@ exports.guardExplainEvent = (0, https_1.onCall)({ secrets: [geminiSecret] }, asy
         city: (_f = (_c = e.geo) === null || _c === void 0 ? void 0 : _c.city) !== null && _f !== void 0 ? _f : null,
         status: e.status,
     };
-    const ai = new genai_1.GoogleGenAI({ apiKey });
+    const ai = (0, vertexAi_1.vertexAi)();
     const res = await ai.models.generateContent({
         model: 'gemini-2.5-flash',
         contents: [{ role: 'user', parts: [{ text: JSON.stringify(facts) }] }],

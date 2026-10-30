@@ -34,13 +34,11 @@ import axios from 'axios';
 import { onCall, HttpsError, CallableRequest } from 'firebase-functions/v2/https';
 import { onDocumentCreated, onDocumentWritten } from 'firebase-functions/v2/firestore';
 import { onSchedule } from 'firebase-functions/v2/scheduler';
-import { defineSecret } from 'firebase-functions/params';
 import * as logger from 'firebase-functions/logger';
 import { getAuth } from 'firebase-admin/auth';
 import { getFirestore, FieldValue, Timestamp, DocumentReference } from 'firebase-admin/firestore';
-import { GoogleGenAI } from '@google/genai';
+import { vertexAi } from './vertexAi';
 
-const geminiSecret = defineSecret('GEMINI_API_KEY');
 const db = () => getFirestore();
 
 export type Risk = 'low' | 'medium' | 'high';
@@ -704,7 +702,7 @@ export const guardRevokeDevice = onCall(async (request) => {
  * event's type, rule reasons, device and country (never messages), and its
  * text is advisory: risk and alerts come from the rules above.
  */
-export const guardExplainEvent = onCall({ secrets: [geminiSecret] }, async (request) => {
+export const guardExplainEvent = onCall(async (request) => {
   const auth = requireUser(request);
   const eventId = str((request.data as Record<string, unknown>)?.eventId, 40);
   if (!eventId) throw new HttpsError('invalid-argument', 'Missing event.');
@@ -714,8 +712,6 @@ export const guardExplainEvent = onCall({ secrets: [geminiSecret] }, async (requ
   const cached = snap.get('aiSummary');
   if (cached) return { summary: cached };
 
-  const apiKey = geminiSecret.value();
-  if (!apiKey) throw new HttpsError('failed-precondition', 'AI is not configured.');
   const e = snap.data() ?? {};
   const facts = {
     event: e.title,
@@ -728,7 +724,7 @@ export const guardExplainEvent = onCall({ secrets: [geminiSecret] }, async (requ
     city: e.geo?.city ?? null,
     status: e.status,
   };
-  const ai = new GoogleGenAI({ apiKey });
+  const ai = vertexAi();
   const res = await ai.models.generateContent({
     model: 'gemini-2.5-flash',
     contents: [{ role: 'user', parts: [{ text: JSON.stringify(facts) }] }],

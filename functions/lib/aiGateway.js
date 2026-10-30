@@ -7,6 +7,7 @@ const genai_1 = require("@google/genai");
 const ToolExecutionLayer_1 = require("./services/ToolExecutionLayer");
 const firestore_1 = require("firebase-admin/firestore");
 const accountSettings_1 = require("./accountSettings");
+const vertexAi_1 = require("./vertexAi");
 const geminiSecret = (0, params_1.defineSecret)('GEMINI_API_KEY');
 /**
  * Short-lived Gemini Live token for the app's voice mode. It can only open
@@ -164,28 +165,24 @@ const applicationTools = [{
             }
         ]
     }];
-exports.aiGateway = (0, https_1.onCall)({ secrets: [geminiSecret] }, async (request) => {
+exports.aiGateway = (0, https_1.onCall)(async (request) => {
     if (!request.auth) {
         throw new https_1.HttpsError('unauthenticated', 'User must be logged in.');
     }
     const userId = request.auth.uid;
     const { operation = 'chat', data, prompt, history = [] } = request.data;
-    const apiKey = geminiSecret.value();
-    if (!apiKey) {
-        throw new https_1.HttpsError('internal', 'AI is not configured.');
-    }
     // Check global AI agent kill switch
     const agentConfig = await (0, accountSettings_1.readAccountSettings)(userId, 'aiAgent', 'ai_settings/agent_config');
     if (agentConfig.isGloballyPaused === true) {
         throw new https_1.HttpsError('permission-denied', 'AI Agent is globally paused by the user.');
     }
     if (operation === 'composeMessage') {
-        return await handleComposeMessage(userId, data, apiKey);
+        return await handleComposeMessage(userId, data);
     }
     if (!prompt) {
         throw new https_1.HttpsError('invalid-argument', 'Missing prompt.');
     }
-    const ai = new genai_1.GoogleGenAI({ apiKey });
+    const ai = (0, vertexAi_1.vertexAi)();
     // Add system instruction
     let chatHistory = [
         { role: 'user', parts: [{ text: "System Instructions: You are a helpful AI assistant. Use tools to satisfy the user's request. Only answer based on what the tools provide." }] },
@@ -293,7 +290,7 @@ exports.aiGateway = (0, https_1.onCall)({ secrets: [geminiSecret] }, async (requ
         throw new https_1.HttpsError('internal', 'Failed to process AI Gateway request.');
     }
 });
-async function handleComposeMessage(userId, data, apiKey) {
+async function handleComposeMessage(userId, data) {
     const { conversationId, messageId, action, currentText } = data;
     if (!conversationId || !action) {
         throw new https_1.HttpsError('invalid-argument', 'Missing conversationId or action.');
@@ -339,7 +336,7 @@ async function handleComposeMessage(userId, data, apiKey) {
             break;
         default: prompt = `Improve this text: "${currentText}"`;
     }
-    const ai = new genai_1.GoogleGenAI({ apiKey });
+    const ai = (0, vertexAi_1.vertexAi)();
     const systemInstruction = "You are an AI messaging assistant. Provide ONLY the suggested text. Do NOT include explanations, markdown blocks, or conversational filler like 'Here is the improved text:'. Just the text itself. Ensure you refuse to process requests that clearly fall under sensitive topics (e.g. financial, medical, legal, security).";
     try {
         const response = await ai.models.generateContent({

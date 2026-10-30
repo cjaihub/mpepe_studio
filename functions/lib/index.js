@@ -39,7 +39,7 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.lsLivekitWebhook = exports.lsShare = exports.lsReact = exports.lsMuteChat = exports.lsDeleteComment = exports.lsComment = exports.lsSetJoinRequests = exports.lsSetChatMode = exports.lsSecOnMemberWrite = exports.lsSecOnBlock = exports.lsSecOnIncident = exports.lsMediaKey = exports.lsPlayback = exports.lsSetTable = exports.lsLeaveStage = exports.lsModerate = exports.lsRespondRequest = exports.lsCancelRequest = exports.lsRequestJoin = exports.lsSetLayout = exports.lsSetSettings = exports.lsSetOwnMedia = exports.lsStateFull = exports.lsTime = exports.lsEnd = exports.lsToken = exports.lsStart = exports.globalSemanticSearch = exports.generateLiveApiToken = exports.aiGateway = exports.generateAbTests = exports.publishToSocials = exports.processAiCommand = void 0;
+exports.lsLivekitWebhook = exports.lsShare = exports.lsReact = exports.lsMuteChat = exports.lsDeleteComment = exports.lsComment = exports.lsSetJoinRequests = exports.lsSetChatMode = exports.lsSecOnMemberWrite = exports.lsSecOnBlock = exports.lsSecOnIncident = exports.lsMediaKey = exports.lsPlayback = exports.lsSetTable = exports.lsLeaveStage = exports.lsModerate = exports.lsRespondRequest = exports.lsCancelRequest = exports.lsRequestJoin = exports.lsSetLayout = exports.lsSetSettings = exports.lsSetOwnMedia = exports.lsStateFull = exports.lsTime = exports.lsEnd = exports.lsToken = exports.lsStart = exports.globalSemanticSearch = exports.tiktokExchangeCode = exports.aiProxy = exports.generateLiveApiToken = exports.aiGateway = exports.generateAbTests = exports.publishToSocials = exports.processAiCommand = void 0;
 const https_1 = require("firebase-functions/v2/https");
 const params_1 = require("firebase-functions/params");
 const admin = __importStar(require("firebase-admin"));
@@ -286,6 +286,10 @@ __exportStar(require("./inbox"), exports);
 var aiGateway_1 = require("./aiGateway");
 Object.defineProperty(exports, "aiGateway", { enumerable: true, get: function () { return aiGateway_1.aiGateway; } });
 Object.defineProperty(exports, "generateLiveApiToken", { enumerable: true, get: function () { return aiGateway_1.generateLiveApiToken; } });
+var aiProxy_1 = require("./aiProxy");
+Object.defineProperty(exports, "aiProxy", { enumerable: true, get: function () { return aiProxy_1.aiProxy; } });
+var tiktokOAuth_1 = require("./tiktokOAuth");
+Object.defineProperty(exports, "tiktokExchangeCode", { enumerable: true, get: function () { return tiktokOAuth_1.tiktokExchangeCode; } });
 var searchQuery_1 = require("./search/searchQuery");
 Object.defineProperty(exports, "globalSemanticSearch", { enumerable: true, get: function () { return searchQuery_1.globalSemanticSearch; } });
 // Live Studio v2 (docs/live-studio/ARCHITECTURE.md §5)

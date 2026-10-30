@@ -8,7 +8,7 @@
  *    the existing Ova Guard (`recordSecurityEvent` in ../security.ts).
  *  - `lsSecOnIncident`: AI live-health monitor. On a new warn/critical
  *    incident, at most once per 60 s per stream, it asks Gemini (same
- *    GEMINI_API_KEY secret and client as the AI gateway / guardExplainEvent)
+ *    Vertex AI client as the AI gateway / guardExplainEvent)
  *    for a short assessment and 1–3 actions from a FIXED allow-list, validates
  *    the answer strictly and falls back to rules. The advisory goes to the
  *    host and co-hosts only (topic `security`) and is persisted.
@@ -19,10 +19,10 @@
 import * as crypto from 'crypto';
 import { onCall, HttpsError, CallableRequest } from 'firebase-functions/v2/https';
 import { onDocumentCreated, onDocumentWritten } from 'firebase-functions/v2/firestore';
-import { defineSecret, defineString } from 'firebase-functions/params';
+import { defineString } from 'firebase-functions/params';
 import { getAuth } from 'firebase-admin/auth';
 import { FieldValue } from 'firebase-admin/firestore';
-import { GoogleGenAI } from '@google/genai';
+import { vertexAi } from '../vertexAi';
 import { Paths, StageMember, StudioEvent, StudioState } from './contracts';
 import * as shared from './shared';
 import { LIVEKIT_SECRETS, broadcast, db, isBlocked, loadState, rateLimit, requireString, requireUid } from './shared';
@@ -70,15 +70,13 @@ export const LIVE_STUDIO_E2EE = defineString('LIVE_STUDIO_E2EE', { default: 'tru
 
 /**
  * The AI part of the live-health monitor is opt-in per deployment: set
- * LIVE_STUDIO_AI_MONITOR=true in functions/.env.<project> once the
- * GEMINI_API_KEY secret exists (a declared secret must exist to deploy).
+ * LIVE_STUDIO_AI_MONITOR=true in functions/.env.<project> (Gemini runs on
+ * Vertex AI as the function's service account, so no key is needed).
  * Without it the monitor still runs with the rule-based advice
  * (fallbackAdvice), using the same action allow-list.
  */
 const AI_MONITOR = process.env.LIVE_STUDIO_AI_MONITOR === 'true';
-// Defined only when enabled: the deploy CLI requires every *defined* secret.
-const GEMINI_API_KEY = AI_MONITOR ? defineSecret('GEMINI_API_KEY') : null;
-const MONITOR_SECRETS = GEMINI_API_KEY ? [GEMINI_API_KEY, ...LIVEKIT_SECRETS] : [...LIVEKIT_SECRETS];
+const MONITOR_SECRETS = [...LIVEKIT_SECRETS];
 
 /**
  * The Ova Guard module (../security.ts) defines its own secrets at load time,
@@ -261,15 +259,8 @@ async function claimMonitorRun(streamId: string, now: number): Promise<boolean> 
 }
 
 async function askModel(summary: unknown): Promise<string | null> {
-  if (!GEMINI_API_KEY) return null;
-  let apiKey = '';
-  try {
-    apiKey = GEMINI_API_KEY.value();
-  } catch {
-    return null;
-  }
-  if (!apiKey) return null;
-  const ai = new GoogleGenAI({ apiKey });
+  if (!AI_MONITOR) return null;
+  const ai = vertexAi();
   const call = ai.models.generateContent({
     model: 'gemini-2.5-flash',
     contents: [{ role: 'user', parts: [{ text: JSON.stringify(summary) }] }],

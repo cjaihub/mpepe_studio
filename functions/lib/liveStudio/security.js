@@ -52,7 +52,7 @@ exports.rotateStudioMediaKey = rotateStudioMediaKey;
  *    the existing Ova Guard (`recordSecurityEvent` in ../security.ts).
  *  - `lsSecOnIncident`: AI live-health monitor. On a new warn/critical
  *    incident, at most once per 60 s per stream, it asks Gemini (same
- *    GEMINI_API_KEY secret and client as the AI gateway / guardExplainEvent)
+ *    Vertex AI client as the AI gateway / guardExplainEvent)
  *    for a short assessment and 1–3 actions from a FIXED allow-list, validates
  *    the answer strictly and falls back to rules. The advisory goes to the
  *    host and co-hosts only (topic `security`) and is persisted.
@@ -66,7 +66,7 @@ const firestore_1 = require("firebase-functions/v2/firestore");
 const params_1 = require("firebase-functions/params");
 const auth_1 = require("firebase-admin/auth");
 const firestore_2 = require("firebase-admin/firestore");
-const genai_1 = require("@google/genai");
+const vertexAi_1 = require("../vertexAi");
 const contracts_1 = require("./contracts");
 const shared = __importStar(require("./shared"));
 const shared_1 = require("./shared");
@@ -75,15 +75,13 @@ const security_logic_1 = require("./security_logic");
 exports.LIVE_STUDIO_E2EE = (0, params_1.defineString)('LIVE_STUDIO_E2EE', { default: 'true' });
 /**
  * The AI part of the live-health monitor is opt-in per deployment: set
- * LIVE_STUDIO_AI_MONITOR=true in functions/.env.<project> once the
- * GEMINI_API_KEY secret exists (a declared secret must exist to deploy).
+ * LIVE_STUDIO_AI_MONITOR=true in functions/.env.<project> (Gemini runs on
+ * Vertex AI as the function's service account, so no key is needed).
  * Without it the monitor still runs with the rule-based advice
  * (fallbackAdvice), using the same action allow-list.
  */
 const AI_MONITOR = process.env.LIVE_STUDIO_AI_MONITOR === 'true';
-// Defined only when enabled: the deploy CLI requires every *defined* secret.
-const GEMINI_API_KEY = AI_MONITOR ? (0, params_1.defineSecret)('GEMINI_API_KEY') : null;
-const MONITOR_SECRETS = GEMINI_API_KEY ? [GEMINI_API_KEY, ...shared_1.LIVEKIT_SECRETS] : [...shared_1.LIVEKIT_SECRETS];
+const MONITOR_SECRETS = [...shared_1.LIVEKIT_SECRETS];
 /**
  * The Ova Guard module (../security.ts) defines its own secrets at load time,
  * so it is loaded lazily, only when a critical incident is forwarded.
@@ -252,18 +250,9 @@ async function claimMonitorRun(streamId, now) {
 }
 async function askModel(summary) {
     var _a;
-    if (!GEMINI_API_KEY)
+    if (!AI_MONITOR)
         return null;
-    let apiKey = '';
-    try {
-        apiKey = GEMINI_API_KEY.value();
-    }
-    catch (_b) {
-        return null;
-    }
-    if (!apiKey)
-        return null;
-    const ai = new genai_1.GoogleGenAI({ apiKey });
+    const ai = (0, vertexAi_1.vertexAi)();
     const call = ai.models.generateContent({
         model: 'gemini-2.5-flash',
         contents: [{ role: 'user', parts: [{ text: JSON.stringify(summary) }] }],

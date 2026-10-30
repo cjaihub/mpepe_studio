@@ -2,13 +2,11 @@
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.getComputeJobStatusCallable = exports.enqueueComputeJobCallable = exports.createLookOptimized = void 0;
 const https_1 = require("firebase-functions/v2/https");
-const params_1 = require("firebase-functions/params");
 const firestore_1 = require("firebase-admin/firestore");
-const genai_1 = require("@google/genai");
+const vertexAi_1 = require("../vertexAi");
 const rateLimiter_1 = require("./rateLimiter");
 const aiCostOptimizer_1 = require("./aiCostOptimizer");
 const computeJobSystem_1 = require("./computeJobSystem");
-const geminiSecret = (0, params_1.defineSecret)('GEMINI_API_KEY');
 /**
  * Cost-optimized AI Look creation and conversational grading callable.
  * Integrates:
@@ -18,7 +16,7 @@ const geminiSecret = (0, params_1.defineSecret)('GEMINI_API_KEY');
  * 4. Result caching (key = skillVersion + normalized prompt + image stats bucket) -> 0 LLM cost on cache hit
  * 5. Model tiering (Flash-Lite by default or during Amber/Red spend, Flash for Pro creative)
  */
-exports.createLookOptimized = (0, https_1.onCall)({ secrets: [geminiSecret] }, async (request) => {
+exports.createLookOptimized = (0, https_1.onCall)(async (request) => {
     var _a;
     // 1. Authentication Check
     if (!request.auth) {
@@ -63,11 +61,7 @@ exports.createLookOptimized = (0, https_1.onCall)({ secrets: [geminiSecret] }, a
     }
     // 7. Model Tier Selection (Flash-Lite vs Flash)
     const selectedModel = (0, aiCostOptimizer_1.selectAiModel)(userTier, taskType, undefined, spendLevel);
-    const apiKey = geminiSecret.value();
-    if (!apiKey) {
-        throw new https_1.HttpsError('internal', 'AI service credentials not configured.');
-    }
-    const ai = new genai_1.GoogleGenAI({ apiKey });
+    const ai = (0, vertexAi_1.vertexAi)();
     const systemInstruction = `You are the Oneova Look AI Colorist. Output valid JSON representing look adjustment parameters (exposure, contrast, saturation, temperature, tint, vibrance).`;
     try {
         const response = await ai.models.generateContent({

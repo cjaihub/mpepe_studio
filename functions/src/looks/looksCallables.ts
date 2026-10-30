@@ -1,7 +1,6 @@
 import { onCall, HttpsError } from 'firebase-functions/v2/https';
-import { defineSecret } from 'firebase-functions/params';
 import { getFirestore } from 'firebase-admin/firestore';
-import { GoogleGenAI } from '@google/genai';
+import { vertexAi } from '../vertexAi';
 import { enforceAppCheck, checkTokenBucketRateLimit, checkAndIncrementDailyQuota } from './rateLimiter';
 import {
   generateAiResultCacheKey,
@@ -12,7 +11,6 @@ import {
 } from './aiCostOptimizer';
 import { enqueueComputeJob, ComputeTaskType } from './computeJobSystem';
 
-const geminiSecret = defineSecret('GEMINI_API_KEY');
 
 /**
  * Cost-optimized AI Look creation and conversational grading callable.
@@ -24,7 +22,6 @@ const geminiSecret = defineSecret('GEMINI_API_KEY');
  * 5. Model tiering (Flash-Lite by default or during Amber/Red spend, Flash for Pro creative)
  */
 export const createLookOptimized = onCall(
-  { secrets: [geminiSecret] },
   async (request) => {
     // 1. Authentication Check
     if (!request.auth) {
@@ -100,13 +97,7 @@ export const createLookOptimized = onCall(
 
     // 7. Model Tier Selection (Flash-Lite vs Flash)
     const selectedModel = selectAiModel(userTier, taskType, undefined, spendLevel);
-    const apiKey = geminiSecret.value();
-
-    if (!apiKey) {
-      throw new HttpsError('internal', 'AI service credentials not configured.');
-    }
-
-    const ai = new GoogleGenAI({ apiKey });
+    const ai = vertexAi();
     const systemInstruction = `You are the Oneova Look AI Colorist. Output valid JSON representing look adjustment parameters (exposure, contrast, saturation, temperature, tint, vibrance).`;
 
     try {

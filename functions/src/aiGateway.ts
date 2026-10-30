@@ -4,6 +4,7 @@ import { GoogleGenAI, Type } from '@google/genai';
 import { ToolExecutionLayer } from './services/ToolExecutionLayer';
 import { getFirestore } from 'firebase-admin/firestore';
 import { readAccountSettings } from './accountSettings';
+import { vertexAi } from './vertexAi';
 
 const geminiSecret = defineSecret('GEMINI_API_KEY');
 
@@ -164,18 +165,13 @@ const applicationTools: any = [{
   ]
 }];
 
-export const aiGateway = onCall({ secrets: [geminiSecret] }, async (request) => {
+export const aiGateway = onCall(async (request) => {
   if (!request.auth) {
     throw new HttpsError('unauthenticated', 'User must be logged in.');
   }
 
   const userId = request.auth.uid;
   const { operation = 'chat', data, prompt, history = [] } = request.data;
-  
-  const apiKey = geminiSecret.value();
-  if (!apiKey) {
-    throw new HttpsError('internal', 'AI is not configured.');
-  }
   
   // Check global AI agent kill switch
   const agentConfig = await readAccountSettings(userId, 'aiAgent', 'ai_settings/agent_config');
@@ -184,14 +180,14 @@ export const aiGateway = onCall({ secrets: [geminiSecret] }, async (request) => 
   }
 
   if (operation === 'composeMessage') {
-    return await handleComposeMessage(userId, data, apiKey);
+    return await handleComposeMessage(userId, data);
   }
 
   if (!prompt) {
     throw new HttpsError('invalid-argument', 'Missing prompt.');
   }
 
-  const ai = new GoogleGenAI({ apiKey });
+  const ai = vertexAi();
 
   // Add system instruction
   let chatHistory: any[] = [
@@ -290,7 +286,7 @@ export const aiGateway = onCall({ secrets: [geminiSecret] }, async (request) => 
   }
 });
 
-async function handleComposeMessage(userId: string, data: any, apiKey: string) {
+async function handleComposeMessage(userId: string, data: any) {
   const { conversationId, messageId, action, currentText } = data;
   if (!conversationId || !action) {
     throw new HttpsError('invalid-argument', 'Missing conversationId or action.');
@@ -319,7 +315,7 @@ async function handleComposeMessage(userId: string, data: any, apiKey: string) {
     default: prompt = `Improve this text: "${currentText}"`;
   }
 
-  const ai = new GoogleGenAI({ apiKey });
+  const ai = vertexAi();
   
   const systemInstruction = "You are an AI messaging assistant. Provide ONLY the suggested text. Do NOT include explanations, markdown blocks, or conversational filler like 'Here is the improved text:'. Just the text itself. Ensure you refuse to process requests that clearly fall under sensitive topics (e.g. financial, medical, legal, security).";
 
