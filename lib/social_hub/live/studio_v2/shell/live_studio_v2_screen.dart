@@ -32,6 +32,7 @@ import '../table/table.dart';
 import '../theme/live_studio_tokens.dart';
 import '../../../../backend/live_studio/fun/studio_fun.dart';
 import '../fun/fun_overlays.dart';
+import '../fun/gifts_ui.dart';
 import '../fun/live_control_hub.dart';
 import '../fun/recording_decision_card.dart';
 import 'live_session_status.dart';
@@ -488,6 +489,7 @@ class _LiveStudioV2ScreenState extends ConsumerState<LiveStudioV2Screen> {
             Positioned.fill(
               child: SafeArea(child: StudioFunOverlay(streamId: _id, canManage: role.isManager, phone: phone)),
             ),
+            Positioned.fill(child: SafeArea(child: StudioGiftOverlay(streamId: _id, phone: phone))),
             Positioned.fill(
               child: SafeArea(
                 child: Align(
@@ -502,11 +504,18 @@ class _LiveStudioV2ScreenState extends ConsumerState<LiveStudioV2Screen> {
                           streamId: _id,
                           isHost: role == StudioRole.host,
                           isManager: role.isManager,
+                          room: room,
+                          onStage: role.canPublish,
                         ),
                         onLongPress: () => ref
                             .read(studioViewPrefsProvider.notifier)
                             .set(prefs.copyWith(cleanView: !prefs.cleanView)),
                       ),
+                      if (role != StudioRole.host)
+                        Padding(
+                          padding: const EdgeInsets.only(top: 10),
+                          child: _GiftButton(onTap: () => showGiftSheet(context, _id)),
+                        ),
                       AnimatedSwitcher(
                         duration: const Duration(milliseconds: 500),
                         child: recOn || platforms.isNotEmpty
@@ -586,6 +595,31 @@ class _ControlsButton extends StatelessWidget {
               border: Border.all(color: clean ? LiveStudioAccent.pink : LiveStudioWorld.nameplateBorder),
             ),
             child: Icon(clean ? Icons.visibility_rounded : Icons.tune_rounded, size: 20, color: LiveStudioWorld.textHigh),
+          ),
+        ),
+      );
+}
+
+/// Opens the gift sheet (viewers, guests, co-hosts).
+class _GiftButton extends StatelessWidget {
+  const _GiftButton({required this.onTap});
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) => Semantics(
+        button: true,
+        label: 'Send a gift',
+        child: GestureDetector(
+          onTap: onTap,
+          child: Container(
+            width: 40,
+            height: 40,
+            decoration: BoxDecoration(
+              shape: BoxShape.circle,
+              gradient: const LinearGradient(colors: [LiveStudioAccent.pink, LiveStudioAccent.pinkLight]),
+              boxShadow: [BoxShadow(color: LiveStudioAccent.pinkA(0.4), blurRadius: 14)],
+            ),
+            child: const Icon(Icons.card_giftcard_rounded, size: 20, color: LiveStudioAccent.white),
           ),
         ),
       );

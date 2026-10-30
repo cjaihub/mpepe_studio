@@ -1,7 +1,9 @@
 // LIVE STUDIO v2 — Live controls hub: one sheet, everything in reach.
-//   Fun        (host · co-host): poll, countdown, spotlight, celebrate, raffle
+//   Fun        (host · co-host): poll, countdown, spotlight, celebrate, raffle,
+//                                gifts leaderboard, mute all guests
+//   Voice      (anyone on stage): microphone sound presets
 //   Broadcast  (host):           1080p recording + restream to platforms
-//   View       (everyone):       clean view, effects on/off
+//   View       (everyone):       clean view, effects on/off, top gifters
 // Tabs sit side by side so related settings are always next to each other.
 
 import 'dart:async';
@@ -12,7 +14,13 @@ import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
+import '../../../../backend/live_studio/contracts/studio_contracts.dart';
+import '../../../../backend/live_studio/contracts/studio_ports.dart';
 import '../../../../backend/live_studio/fun/studio_fun.dart';
+import '../../../../backend/live_studio/media/livekit_studio_room.dart';
+import '../../../../backend/live_studio/roles/roles.dart';
+import '../../../../backend/live_studio/session/studio_session_controller.dart';
+import 'gifts_ui.dart';
 import '../shell/shell_widgets.dart';
 import '../theme/live_studio_tokens.dart';
 
@@ -21,6 +29,8 @@ Future<void> showLiveControlHub(
   required String streamId,
   required bool isHost,
   required bool isManager,
+  StudioRoomPort? room,
+  bool onStage = false,
 }) {
   HapticFeedback.lightImpact();
   return showModalBottomSheet<void>(
@@ -29,15 +39,24 @@ Future<void> showLiveControlHub(
     backgroundColor: LiveStudioAccent.clear,
     barrierColor: LiveStudioTokens.dimTint(0.35),
     sheetAnimationStyle: const AnimationStyle(duration: Duration(milliseconds: 520), reverseDuration: Duration(milliseconds: 360)),
-    builder: (_) => LiveControlHub(streamId: streamId, isHost: isHost, isManager: isManager),
+    builder: (_) => LiveControlHub(streamId: streamId, isHost: isHost, isManager: isManager, room: room, onStage: onStage),
   );
 }
 
 class LiveControlHub extends ConsumerStatefulWidget {
-  const LiveControlHub({super.key, required this.streamId, required this.isHost, required this.isManager});
+  const LiveControlHub({
+    super.key,
+    required this.streamId,
+    required this.isHost,
+    required this.isManager,
+    this.room,
+    this.onStage = false,
+  });
   final String streamId;
   final bool isHost;
   final bool isManager;
+  final StudioRoomPort? room;
+  final bool onStage;
 
   @override
   ConsumerState<LiveControlHub> createState() => _LiveControlHubState();
@@ -46,6 +65,7 @@ class LiveControlHub extends ConsumerStatefulWidget {
 class _LiveControlHubState extends ConsumerState<LiveControlHub> {
   late final List<(String, IconData)> _tabs = [
     if (widget.isManager) ('Fun', Icons.celebration_rounded),
+    if (widget.onStage && widget.room is LiveKitStudioRoom) ('Voice', Icons.graphic_eq_rounded),
     if (widget.isHost) ('Broadcast', Icons.cell_tower_rounded),
     ('View', Icons.visibility_rounded),
   ];
@@ -92,8 +112,9 @@ class _LiveControlHubState extends ConsumerState<LiveControlHub> {
                 key: ValueKey(name),
                 child: switch (name) {
                   'Fun' => _FunTab(streamId: widget.streamId),
+                  'Voice' => _VoiceTab(room: widget.room! as LiveKitStudioRoom),
                   'Broadcast' => _BroadcastTab(streamId: widget.streamId),
-                  _ => const _ViewTab(),
+                  _ => _ViewTab(streamId: widget.streamId),
                 },
               ),
             ),
@@ -229,6 +250,28 @@ class _FunTabState extends ConsumerState<_FunTab> {
     }
   }
 
+  Future<void> _muteAll() async {
+    final members = ref.read(studioMembersProvider(widget.streamId)).value ?? const <StageMember>[];
+    final guests = [for (final m in members) if (m.role == StudioRole.guest && m.micOn) m.uid];
+    if (guests.isEmpty) {
+      _toast(context, '', ok: 'No guest has their mic on.');
+      return;
+    }
+    setState(() => _busy = true);
+    final roles = ref.read(studioRolesApiProvider);
+    var done = 0;
+    for (final uid in guests) {
+      try {
+        await roles.moderate(widget.streamId, uid, StudioModerationOp.mute);
+        done++;
+      } catch (_) {}
+    }
+    if (mounted) {
+      setState(() => _busy = false);
+      _toast(context, '', ok: 'Muted $done guest${done == 1 ? '' : 's'}.');
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final fun = ref.watch(studioFunProvider(widget.streamId)).value ?? const StudioFunState();
@@ -324,6 +367,23 @@ class _FunTabState extends ConsumerState<_FunTab> {
           const SizedBox(width: 8),
           _button('Draw', Icons.casino_rounded, _busy ? null : () => _run((a) => a.raffle(id))),
         ]),
+      ),
+      _Card(
+        icon: Icons.mic_off_rounded,
+        title: 'Quiet the stage',
+        child: Row(children: [
+          Expanded(
+            child: Text('Mute every guest at once. They can unmute when you are ready.',
+                style: LiveStudioType.s(12, FontWeight.w500, LiveStudioWorld.textMedium)),
+          ),
+          const SizedBox(width: 8),
+          _button('Mute all', Icons.volume_off_rounded, _busy ? null : _muteAll),
+        ]),
+      ),
+      _Card(
+        icon: Icons.card_giftcard_rounded,
+        title: 'Top gifters',
+        child: StudioTopGifters(streamId: id),
       ),
     ]);
   }
@@ -510,7 +570,8 @@ class _SwitchLine extends StatelessWidget {
 // ─── View ────────────────────────────────────────────────────────────────────
 
 class _ViewTab extends ConsumerWidget {
-  const _ViewTab();
+  const _ViewTab({required this.streamId});
+  final String streamId;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -531,8 +592,83 @@ class _ViewTab extends ConsumerWidget {
             value: p.showEffects,
             onChanged: (v) => c.set(p.copyWith(showEffects: v)),
           ),
-          Text('Only changes what you see. Tap the screen edge button to bring controls back.',
+          Text('Only changes what you see. Long-press the controls button to switch clean view.',
               style: LiveStudioType.s(12, FontWeight.w500, LiveStudioWorld.textMedium)),
+        ]),
+      ),
+      _Card(icon: Icons.card_giftcard_rounded, title: 'Top gifters', child: StudioTopGifters(streamId: streamId)),
+    ]);
+  }
+}
+
+// ─── Voice ───────────────────────────────────────────────────────────────────
+
+class _VoiceTab extends StatefulWidget {
+  const _VoiceTab({required this.room});
+  final LiveKitStudioRoom room;
+
+  @override
+  State<_VoiceTab> createState() => _VoiceTabState();
+}
+
+class _VoiceTabState extends State<_VoiceTab> {
+  bool _busy = false;
+
+  Future<void> _pick(StudioVoicePreset p) async {
+    if (_busy || p == widget.room.voicePreset) return;
+    HapticFeedback.selectionClick();
+    setState(() => _busy = true);
+    try {
+      await widget.room.setVoicePreset(p);
+    } catch (e) {
+      if (mounted) _toast(context, e, ok: 'Could not switch the microphone.');
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final current = widget.room.voicePreset;
+    return ListView(padding: const EdgeInsets.only(bottom: 16), shrinkWrap: true, children: [
+      _Card(
+        icon: Icons.graphic_eq_rounded,
+        title: 'Your microphone sound',
+        child: Column(children: [
+          for (final p in StudioVoicePreset.values)
+            GestureDetector(
+              onTap: () => _pick(p),
+              child: AnimatedContainer(
+                duration: const Duration(milliseconds: 300),
+                margin: const EdgeInsets.only(bottom: 8),
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: p == current ? LiveStudioAccent.blueA(0.18) : LiveStudioWorld.surface3,
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(color: p == current ? LiveStudioAccent.blue : LiveStudioWorld.nameplateBorder),
+                ),
+                child: Row(children: [
+                  Icon(
+                    switch (p) {
+                      StudioVoicePreset.natural => Icons.record_voice_over_rounded,
+                      StudioVoicePreset.clear => Icons.noise_aware_rounded,
+                      StudioVoicePreset.studio => Icons.mic_external_on_rounded,
+                      StudioVoicePreset.music => Icons.music_note_rounded,
+                    },
+                    color: p == current ? LiveStudioAccent.blue : LiveStudioWorld.textMedium,
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                      Text(p.label, style: LiveStudioType.s(14, FontWeight.w800, LiveStudioWorld.textHigh)),
+                      Text(p.description, style: LiveStudioType.s(12, FontWeight.w500, LiveStudioWorld.textMedium)),
+                    ]),
+                  ),
+                  if (p == current) const Icon(Icons.check_circle_rounded, color: LiveStudioAccent.blue, size: 20),
+                ]),
+              ),
+            ),
+          if (_busy) const LinearProgressIndicator(color: LiveStudioAccent.blue, backgroundColor: LiveStudioWorld.surface3),
         ]),
       ),
     ]);

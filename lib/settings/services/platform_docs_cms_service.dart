@@ -278,6 +278,9 @@ class OneovaPlatformDocsCatalog {
             'Countdown timer on stage; spotlight pins a message or a viewer comment.',
             'Confetti, hearts or fireworks for everyone; raffle draws a random recent commenter.',
             'Viewers get clean view (hide comments and buttons) and can switch effects off.',
+            'Gifts: viewers send Roses, Hearts, Stars, Crowns, Rockets and Diamonds with coins; big gifts get a full-screen reveal, and the host earns half as pending earnings.',
+            'Voice presets for anyone on stage: Natural, Clear voice, Studio and Music.',
+            'Moderators can mute every guest at once from Live controls.',
           ],
         ),
         PlatformDocSection(

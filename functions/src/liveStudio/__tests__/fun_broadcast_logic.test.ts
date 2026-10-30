@@ -48,3 +48,19 @@ test('destinations validate, default ingest and mask the key', () => {
   assert.throws(() => parseDestination({ platform: 'youtube', key: 'a b' }, 'x'), BroadcastError);
   assert.equal(recordingPath('h', 's'), 'users/h/files/live_recordings/s.mp4');
 });
+
+import { GiftError, giftPrice, parseGift, pushRecent } from '../gift_logic';
+
+test('gifts: catalog prices, quantity limits, host share, recent list', () => {
+  assert.deepEqual(parseGift({ giftId: 'rose' }), { giftId: 'rose', qty: 1 });
+  assert.throws(() => parseGift({ giftId: 'car' }), GiftError);
+  assert.throws(() => parseGift({ giftId: 'rose', qty: 0 }), GiftError);
+  assert.throws(() => parseGift({ giftId: 'rose', qty: 1.5 }), GiftError);
+  assert.deepEqual(giftPrice('crown', 3), { total: 150, hostCoins: 75 });
+  assert.deepEqual(giftPrice('rose', 1), { total: 1, hostCoins: 0 });
+  const g = { id: 'x', uid: 'u', name: 'n', avatarUrl: '', giftId: 'rose' as const, qty: 1, coins: 1, atMs: 0 };
+  let list = undefined as ReturnType<typeof pushRecent> | undefined;
+  for (let i = 0; i < 20; i++) list = pushRecent(list, { ...g, id: `g${i}` });
+  assert.equal(list!.length, 15);
+  assert.equal(list![0].id, 'g19');
+});

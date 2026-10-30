@@ -39,7 +39,7 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.lsLivekitWebhook = exports.lsShare = exports.lsReact = exports.lsMuteChat = exports.lsDeleteComment = exports.lsComment = exports.lsSetJoinRequests = exports.lsSetChatMode = exports.lsSecOnMemberWrite = exports.lsSecOnBlock = exports.lsSecOnIncident = exports.lsMediaKey = exports.lsPlayback = exports.lsSetTable = exports.lsLeaveStage = exports.lsModerate = exports.lsRespondRequest = exports.lsCancelRequest = exports.lsRequestJoin = exports.lsSetLayout = exports.lsRecordingDecision = exports.lsBroadcast = exports.lsDestinations = exports.lsFun = exports.lsSweepOrphanLives = exports.lsHeartbeat = exports.lsSetSettings = exports.lsSetOwnMedia = exports.lsStateFull = exports.lsTime = exports.lsEnd = exports.lsToken = exports.lsStart = exports.globalSemanticSearch = exports.tiktokExchangeCode = exports.aiProxy = exports.generateLiveApiToken = exports.aiGateway = exports.generateAbTests = exports.publishToSocials = exports.processAiCommand = void 0;
+exports.lsLivekitWebhook = exports.lsShare = exports.lsReact = exports.lsMuteChat = exports.lsDeleteComment = exports.lsComment = exports.lsSetJoinRequests = exports.lsSetChatMode = exports.lsSecOnMemberWrite = exports.lsSecOnBlock = exports.lsSecOnIncident = exports.lsMediaKey = exports.lsPlayback = exports.lsSetTable = exports.lsLeaveStage = exports.lsModerate = exports.lsRespondRequest = exports.lsCancelRequest = exports.lsRequestJoin = exports.lsSetLayout = exports.lsRecordingDecision = exports.lsBroadcast = exports.lsDestinations = exports.lsGift = exports.lsFun = exports.lsSweepOrphanLives = exports.lsHeartbeat = exports.lsSetSettings = exports.lsSetOwnMedia = exports.lsStateFull = exports.lsTime = exports.lsEnd = exports.lsToken = exports.lsStart = exports.globalSemanticSearch = exports.tiktokExchangeCode = exports.aiProxy = exports.generateLiveApiToken = exports.aiGateway = exports.generateAbTests = exports.publishToSocials = exports.processAiCommand = void 0;
 const https_1 = require("firebase-functions/v2/https");
 const params_1 = require("firebase-functions/params");
 const admin = __importStar(require("firebase-admin"));
@@ -307,6 +307,8 @@ Object.defineProperty(exports, "lsHeartbeat", { enumerable: true, get: function 
 Object.defineProperty(exports, "lsSweepOrphanLives", { enumerable: true, get: function () { return lifecycle_1.lsSweepOrphanLives; } });
 var fun_1 = require("./liveStudio/fun");
 Object.defineProperty(exports, "lsFun", { enumerable: true, get: function () { return fun_1.lsFun; } });
+var gifts_1 = require("./liveStudio/gifts");
+Object.defineProperty(exports, "lsGift", { enumerable: true, get: function () { return gifts_1.lsGift; } });
 var broadcast_1 = require("./liveStudio/broadcast");
 Object.defineProperty(exports, "lsDestinations", { enumerable: true, get: function () { return broadcast_1.lsDestinations; } });
 Object.defineProperty(exports, "lsBroadcast", { enumerable: true, get: function () { return broadcast_1.lsBroadcast; } });

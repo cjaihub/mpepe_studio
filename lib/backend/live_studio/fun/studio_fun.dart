@@ -277,3 +277,105 @@ class StudioViewPrefsController extends Notifier<StudioViewPrefs> {
 
 final studioViewPrefsProvider =
     NotifierProvider<StudioViewPrefsController, StudioViewPrefs>(StudioViewPrefsController.new);
+
+// ─── Gifts (server: functions/src/liveStudio/gifts.ts) ───────────────────────
+
+/// Mirror of GIFT_CATALOG (prices are enforced server-side).
+enum StudioGift {
+  rose('rose', 'Rose', 1),
+  heart('heart', 'Heart', 5),
+  star('star', 'Star', 10),
+  crown('crown', 'Crown', 50),
+  rocket('rocket', 'Rocket', 100),
+  diamond('diamond', 'Diamond', 500);
+
+  const StudioGift(this.wire, this.label, this.coins);
+  final String wire;
+  final String label;
+  final int coins;
+
+  static StudioGift? fromWire(Object? v) {
+    for (final g in values) {
+      if (g.wire == v) return g;
+    }
+    return null;
+  }
+}
+
+@immutable
+class StudioRecentGift {
+  const StudioRecentGift({
+    required this.id,
+    required this.uid,
+    required this.name,
+    required this.avatarUrl,
+    required this.gift,
+    required this.qty,
+    required this.atMs,
+  });
+  final String id;
+  final String uid;
+  final String name;
+  final String avatarUrl;
+  final StudioGift gift;
+  final int qty;
+  final int atMs;
+}
+
+/// Recent gifts, newest first (`studio/gifts.recent`).
+final studioGiftFeedProvider = StreamProvider.autoDispose.family<List<StudioRecentGift>, String>((ref, streamId) {
+  final db = ref.watch(studioFirestoreProvider);
+  return db.doc('${StudioPaths.streams}/$streamId/studio/gifts').snapshots().map((d) {
+    final out = <StudioRecentGift>[];
+    for (final r in (d.data()?['recent'] as List? ?? const [])) {
+      if (r is! Map) continue;
+      final g = StudioGift.fromWire(r['giftId']);
+      if (g == null) continue;
+      out.add(StudioRecentGift(
+        id: _str(r['id']),
+        uid: _str(r['uid']),
+        name: _str(r['name']),
+        avatarUrl: _str(r['avatarUrl']),
+        gift: g,
+        qty: _int(r['qty']),
+        atMs: _int(r['atMs']),
+      ));
+    }
+    return out;
+  });
+});
+
+/// Top gifters of a live: (name, avatarUrl, coins), most coins first.
+final studioTopGiftersProvider =
+    StreamProvider.autoDispose.family<List<({String name, String avatarUrl, int coins})>, String>((ref, streamId) {
+  final db = ref.watch(studioFirestoreProvider);
+  return db
+      .collection('${StudioPaths.streams}/$streamId/studio_gift_totals')
+      .orderBy('coins', descending: true)
+      .limit(5)
+      .snapshots()
+      .map((q) => [
+            for (final d in q.docs)
+              (name: _str(d.data()['name']), avatarUrl: _str(d.data()['avatarUrl']), coins: _int(d.data()['coins'])),
+          ]);
+});
+
+/// My coin balance (`wallets/{uid}.balanceCoins`, server-written).
+final studioMyCoinsProvider = StreamProvider.autoDispose<int>((ref) {
+  final uid = ref.watch(studioMyUidProvider);
+  if (uid == null) return Stream.value(0);
+  return ref.watch(studioFirestoreProvider).doc('wallets/$uid').snapshots().map((d) => _int(d.data()?['balanceCoins']));
+});
+
+class StudioGiftApi {
+  const StudioGiftApi(this._call);
+  final StudioCallPort _call;
+
+  /// Returns the new balance.
+  Future<int> send(String streamId, StudioGift gift, {int qty = 1}) async {
+    final r = await _call.call('lsGift', {'streamId': streamId, 'giftId': gift.wire, 'qty': qty});
+    return _int(r['balanceCoins']);
+  }
+}
+
+final studioGiftApiProvider = Provider<StudioGiftApi>((ref) => StudioGiftApi(ref.watch(studioCallPortProvider)));

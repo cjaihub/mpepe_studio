@@ -37,6 +37,33 @@ StudioLinkQuality studioLinkQualityOf(ConnectionQuality q) => switch (q) {
       ConnectionQuality.unknown => StudioLinkQuality.good,
     };
 
+/// Microphone sound presets. They use the platform's real-time voice
+/// processing (WebRTC): noise suppression, voice isolation, gain and filters.
+enum StudioVoicePreset {
+  natural('Natural', 'Balanced cleanup for talking'),
+  clear('Clear voice', 'Extra noise and rumble removal for busy places'),
+  studio('Studio', 'Steady level and isolated voice, like a podcast mic'),
+  music('Music', 'No processing: best for singing and instruments (use headphones)');
+
+  const StudioVoicePreset(this.label, this.description);
+  final String label;
+  final String description;
+
+  AudioCaptureOptions get captureOptions => switch (this) {
+        StudioVoicePreset.natural => const AudioCaptureOptions(),
+        StudioVoicePreset.clear => const AudioCaptureOptions(highPassFilter: true, typingNoiseDetection: true),
+        StudioVoicePreset.studio =>
+          const AudioCaptureOptions(highPassFilter: true, autoGainControl: false, voiceIsolation: true),
+        StudioVoicePreset.music => const AudioCaptureOptions(
+            noiseSuppression: false,
+            autoGainControl: false,
+            highPassFilter: false,
+            voiceIsolation: false,
+            typingNoiseDetection: false,
+          ),
+      };
+}
+
 class LiveKitStudioRoom implements StudioRoomPort, StudioGameStreamPort {
   LiveKitStudioRoom({
     required this.streamId,
@@ -101,6 +128,20 @@ class LiveKitStudioRoom implements StudioRoomPort, StudioGameStreamPort {
 
   /// Hook called when a local camera track is unpublished or stopped.
   void Function(String trackId)? onCameraTrackUnpublished;
+
+  /// Current microphone preset (see [setVoicePreset]).
+  StudioVoicePreset voicePreset = StudioVoicePreset.natural;
+
+  /// Switches the mic's sound processing; republishes the mic if it is live.
+  Future<void> setVoicePreset(StudioVoicePreset preset) async {
+    voicePreset = preset;
+    final lp = _room?.localParticipant;
+    if (lp == null || !canPublish || !_wantMic) return;
+    final pub = lp.getTrackPublicationBySource(TrackSource.microphone);
+    if (pub != null) await lp.removePublishedTrack(pub.sid);
+    await lp.setMicrophoneEnabled(true, audioCaptureOptions: preset.captureOptions);
+    _changed();
+  }
 
   /// The host's first join publishes mic / camera per these (setup wizard).
   bool hostStartsWithMic = true;
@@ -583,7 +624,9 @@ class LiveKitStudioRoom implements StudioRoomPort, StudioGameStreamPort {
   Future<void> setMicEnabled(bool on) async {
     _wantMic = on;
     final lp = _room?.localParticipant;
-    if (lp != null && canPublish) await lp.setMicrophoneEnabled(on);
+    if (lp != null && canPublish) {
+      await lp.setMicrophoneEnabled(on, audioCaptureOptions: voicePreset.captureOptions);
+    }
     _syncOwnMedia();
   }
 
@@ -637,7 +680,7 @@ class LiveKitStudioRoom implements StudioRoomPort, StudioGameStreamPort {
     // Independent steps: a refused mic must not stop the camera (and vice versa).
     if (_wantMic) {
       try {
-        await lp.setMicrophoneEnabled(true);
+        await lp.setMicrophoneEnabled(true, audioCaptureOptions: voicePreset.captureOptions);
       } catch (e) {
         _wantMic = false;
         debugPrint('[LiveKitStudioRoom] mic publish failed: $e');

@@ -80,4 +80,19 @@ const broadcast_logic_1 = require("../broadcast_logic");
     assert.throws(() => (0, broadcast_logic_1.parseDestination)({ platform: 'youtube', key: 'a b' }, 'x'), broadcast_logic_1.BroadcastError);
     assert.equal((0, broadcast_logic_1.recordingPath)('h', 's'), 'users/h/files/live_recordings/s.mp4');
 });
+const gift_logic_1 = require("../gift_logic");
+(0, node_test_1.test)('gifts: catalog prices, quantity limits, host share, recent list', () => {
+    assert.deepEqual((0, gift_logic_1.parseGift)({ giftId: 'rose' }), { giftId: 'rose', qty: 1 });
+    assert.throws(() => (0, gift_logic_1.parseGift)({ giftId: 'car' }), gift_logic_1.GiftError);
+    assert.throws(() => (0, gift_logic_1.parseGift)({ giftId: 'rose', qty: 0 }), gift_logic_1.GiftError);
+    assert.throws(() => (0, gift_logic_1.parseGift)({ giftId: 'rose', qty: 1.5 }), gift_logic_1.GiftError);
+    assert.deepEqual((0, gift_logic_1.giftPrice)('crown', 3), { total: 150, hostCoins: 75 });
+    assert.deepEqual((0, gift_logic_1.giftPrice)('rose', 1), { total: 1, hostCoins: 0 });
+    const g = { id: 'x', uid: 'u', name: 'n', avatarUrl: '', giftId: 'rose', qty: 1, coins: 1, atMs: 0 };
+    let list = undefined;
+    for (let i = 0; i < 20; i++)
+        list = (0, gift_logic_1.pushRecent)(list, Object.assign(Object.assign({}, g), { id: `g${i}` }));
+    assert.equal(list.length, 15);
+    assert.equal(list[0].id, 'g19');
+});
 //# sourceMappingURL=fun_broadcast_logic.test.js.map
