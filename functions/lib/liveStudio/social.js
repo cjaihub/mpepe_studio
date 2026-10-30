@@ -55,6 +55,8 @@ const firestore_1 = require("firebase-admin/firestore");
 const livekit_server_sdk_1 = require("livekit-server-sdk");
 const controls_1 = require("./controls");
 const security_1 = require("./security");
+const lifecycle_1 = require("./lifecycle");
+const broadcast_1 = require("./broadcast");
 const contracts_1 = require("./contracts");
 const shared_1 = require("./shared");
 const social_logic_1 = require("./social_logic");
@@ -407,7 +409,15 @@ exports.lsLivekitWebhook = (0, https_1.onRequest)({ secrets: shared_1.LIVEKIT_SE
         const streamId = (0, social_logic_1.streamIdFromRoom)((_a = event.room) === null || _a === void 0 ? void 0 : _a.name);
         const p = event.participant;
         // Only standard clients count as viewers (kind 0); skip egress/ingress/agents.
+        if (event.event === 'egress_ended' && event.egressInfo) {
+            await (0, broadcast_1.onEgressEnded)(event.egressInfo);
+        }
+        if (streamId && event.event === 'room_finished') {
+            // The room closed (empty timeout / deleted): the live is over.
+            await (0, lifecycle_1.endStudioStream)(streamId, 'room_closed');
+        }
         if (streamId && p && ((_e = p.kind) !== null && _e !== void 0 ? _e : 0) === 0 && (event.event === 'participant_joined' || event.event === 'participant_left')) {
+            await (0, lifecycle_1.onHostPresence)(streamId, p.identity, event.event === 'participant_joined');
             await handlePresence(streamId, event.event === 'participant_joined', { identity: p.identity, name: p.name }, (_b = event.room) === null || _b === void 0 ? void 0 : _b.numParticipants);
         }
     }

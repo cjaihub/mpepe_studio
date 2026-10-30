@@ -2,26 +2,49 @@ export const docArticles = {
   'live-studio': {
     id: 'live-studio',
     category: 'Live & Broadcasting',
-    title: 'Live Broadcast Studio',
+    title: 'Live Studio',
     badge: 'Real-Time Live',
     updated: 'October 2026',
-    readTime: '4 min read',
+    readTime: '6 min read',
     content: `
-      <h2>Cinema-Grade Mobile Live Streaming</h2>
-      <p>Transform your smartphone into a full-scale live broadcasting station. <strong>Oneova Live Studio</strong> empowers creators to stream with ultra-low latency, dynamic stage lighting filters, and interactive audience features designed to maximize fan engagement and monetization.</p>
-      
+      <h2>One studio for every live</h2>
+      <p>Every "Go live" button in Oneova (the STUDIO + button, your profile, the camera, Ova) opens the same <strong>setup wizard</strong> and then the same <strong>Live Studio</strong>. Six short steps, each with a live preview of what you are choosing:</p>
+      <ol>
+        <li><strong>Mode</strong>: Solo (just you), Studio (guests on video panels; viewers can request to join), or Game (your game in the center, camera in a bubble).</li>
+        <li><strong>Details</strong>: title, cover photo and category, previewed as the card your followers see.</li>
+        <li><strong>Camera &amp; mic</strong>: real camera preview, mic level meter and natural beauty.</li>
+        <li><strong>Layout</strong>: dark or light studio, guest panel size, who holds the center screen, name tags.</li>
+        <li><strong>Audience</strong>: everyone or followers only, comment rules (open, slow mode, followers only), join requests, recording and restream.</li>
+        <li><strong>Review</strong>: everything on one page; tap any line to change it, then <em>Go live</em>.</li>
+      </ol>
+
       <div class="callout pink">
-        <div class="callout-title">✦ Real-Time Fan Engagement</div>
-        <p>Host live interactive sessions with floating animated reactions, zero-delay chat streams, and instant virtual gifting with automated creator revenue payouts.</p>
+        <div class="callout-title">✦ Entertainment tools for hosts and moderators</div>
+        <p>Open <strong>Live controls</strong> (the tune button on the stage) to run <strong>polls</strong> with live animated results, a <strong>countdown</strong>, a <strong>spotlight</strong> that pins a message on stage, <strong>celebrations</strong> (confetti, hearts, fireworks) and a <strong>raffle</strong> that picks a random winner from recent commenters. Everyone sees the same thing at the same moment.</p>
       </div>
 
-      <h2>Live Studio Capabilities</h2>
+      <h2>Record in 1080p and restream everywhere</h2>
       <ul>
-        <li><strong>Interactive Co-Host Battles (PK Mode):</strong> Invite fellow creators into split-screen live duels with real-time viewer voting meters and collaborative audience cross-pollination.</li>
-        <li><strong>Pinned Q&A & Top Fan Spotlights:</strong> Pin featured viewer comments, sponsor highlights, or viewer questions directly onto your live camera canvas.</li>
-        <li><strong>Automated Moderation & Safe Chat:</strong> Real-time blocked-word filtration, moderator delegation, and subscriber-only slow mode to safeguard your stream community.</li>
-        <li><strong>4K Lossless Live Recording:</strong> Automatically capture pristine local master recordings while broadcasting live for immediate post-stream reel repurposing.</li>
+        <li><strong>Clean 1080p recording:</strong> the stage video and audio are rendered in the cloud at 1080p (9:16 or 16:9). Comments, likes and reactions are never in the video.</li>
+        <li><strong>Restream in real time</strong> to Facebook Live, YouTube Live, TikTok LIVE, Twitch, Instagram Live, Kick or any RTMP server. Add each platform once under <em>Settings → Camera &amp; Live → Live destinations</em> with the stream key from that platform. Keys are stored on the server only and are never shown again.</li>
+        <li><strong>You decide what to keep:</strong> when the live ends you choose <em>Keep</em> (saved to <em>Live recordings</em>, ready to share or download) or <em>Delete</em>.</li>
       </ul>
+
+      <h2>Control for everyone</h2>
+      <ul>
+        <li><strong>Hosts and co-hosts:</strong> approve join requests, move guests to the center, mute or remove, set slow mode or followers-only chat, run the entertainment tools.</li>
+        <li><strong>Viewers:</strong> vote in polls, request to join, and switch to <strong>clean view</strong> (hides comments and buttons; long-press the tune button) or turn effects off.</li>
+      </ul>
+
+      <h2>Reliable from start to end</h2>
+      <ul>
+        <li><strong>Fast join:</strong> the studio opens already connected.</li>
+        <li><strong>Reconnecting:</strong> if the network drops, a "Reconnecting…" banner shows while the app rejoins automatically.</li>
+        <li><strong>No hanging lives:</strong> a live closes for everyone when the host ends it, closes the app, or stays offline for about 90 seconds. Viewers see a clear "Live ended" screen.</li>
+      </ul>
+
+      <h2>Where to find the settings</h2>
+      <p><em>Settings → Camera &amp; Live</em> groups everything together: <strong>Go live</strong>, <strong>Live destinations</strong> and <strong>Live recordings</strong>, next to the camera quality and thermal options.</p>
     `
   },
   'creator-rooms': {

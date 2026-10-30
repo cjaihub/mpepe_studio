@@ -79,6 +79,7 @@ class StudioLiveEndedView extends StatelessWidget {
     this.loves,
     this.viewers,
     this.duration,
+    this.extra,
   });
 
   final bool isHost;
@@ -92,6 +93,9 @@ class StudioLiveEndedView extends StatelessWidget {
   final int? loves;
   final int? viewers;
   final Duration? duration;
+
+  /// Extra content under the stats (e.g. the host's recording decision).
+  final Widget? extra;
 
   String get _subtitle {
     if (isHost) {
@@ -174,6 +178,7 @@ class StudioLiveEndedView extends StatelessWidget {
                       ),
                   ]),
                 ],
+                ?extra,
                 const SizedBox(height: 28),
                 SizedBox(
                   width: double.infinity,

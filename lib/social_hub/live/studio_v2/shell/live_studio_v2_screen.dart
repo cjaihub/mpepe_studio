@@ -30,6 +30,10 @@ import '../settings/host_settings_sheet.dart';
 import '../stage/stage.dart';
 import '../table/table.dart';
 import '../theme/live_studio_tokens.dart';
+import '../../../../backend/live_studio/fun/studio_fun.dart';
+import '../fun/fun_overlays.dart';
+import '../fun/live_control_hub.dart';
+import '../fun/recording_decision_card.dart';
 import 'live_session_status.dart';
 import 'shell_widgets.dart';
 
@@ -241,6 +245,7 @@ class _LiveStudioV2ScreenState extends ConsumerState<LiveStudioV2Screen> {
         duration: isHost ? duration : null,
         viewers: isHost ? _peakViewers : null,
         loves: isHost ? counts.loves : null,
+        extra: isHost ? RecordingDecisionCard(streamId: _id) : null,
       ),
     );
   }
@@ -462,9 +467,61 @@ class _LiveStudioV2ScreenState extends ConsumerState<LiveStudioV2Screen> {
                   onSwitchToGame: switchToGame,
                 );
 
+          final prefs = ref.watch(studioViewPrefsProvider);
+          final broadcasting = doc?['broadcasting'];
+          final recOn = broadcasting is Map && broadcasting['recording'] == true;
+          final platforms = broadcasting is Map ? (broadcasting['platforms'] as List? ?? const []) : const [];
           return Stack(fit: StackFit.expand, children: [
             Positioned.fill(child: stage),
-            Positioned.fill(child: SafeArea(child: chrome)),
+            // Clean view fades the chrome out slowly (and back in).
+            Positioned.fill(
+              child: IgnorePointer(
+                ignoring: prefs.cleanView,
+                child: AnimatedOpacity(
+                  opacity: prefs.cleanView ? 0 : 1,
+                  duration: const Duration(milliseconds: 700),
+                  curve: Curves.easeInOutCubic,
+                  child: SafeArea(child: chrome),
+                ),
+              ),
+            ),
+            Positioned.fill(
+              child: SafeArea(child: StudioFunOverlay(streamId: _id, canManage: role.isManager, phone: phone)),
+            ),
+            Positioned.fill(
+              child: SafeArea(
+                child: Align(
+                  alignment: Alignment.topRight,
+                  child: Padding(
+                    padding: EdgeInsets.only(top: phone ? 60 : 72, right: 10),
+                    child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.end, children: [
+                      _ControlsButton(
+                        clean: prefs.cleanView,
+                        onTap: () => showLiveControlHub(
+                          context,
+                          streamId: _id,
+                          isHost: role == StudioRole.host,
+                          isManager: role.isManager,
+                        ),
+                        onLongPress: () => ref
+                            .read(studioViewPrefsProvider.notifier)
+                            .set(prefs.copyWith(cleanView: !prefs.cleanView)),
+                      ),
+                      AnimatedSwitcher(
+                        duration: const Duration(milliseconds: 500),
+                        child: recOn || platforms.isNotEmpty
+                            ? Padding(
+                                key: const ValueKey('rec'),
+                                padding: const EdgeInsets.only(top: 8),
+                                child: _OnAirBadge(recording: recOn, platforms: platforms.length),
+                              )
+                            : const SizedBox.shrink(),
+                      ),
+                    ]),
+                  ),
+                ),
+              ),
+            ),
             Positioned.fill(child: StudioConnectionBanner(phase: _phase)),
             if (gaming) ...[
               if (state.gameTitle case final game?)
@@ -500,6 +557,64 @@ class _LiveStudioV2ScreenState extends ConsumerState<LiveStudioV2Screen> {
       ),
     );
   }
+}
+
+/// Opens the Live controls hub; long-press toggles clean view.
+class _ControlsButton extends StatelessWidget {
+  const _ControlsButton({required this.clean, required this.onTap, required this.onLongPress});
+  final bool clean;
+  final VoidCallback onTap;
+  final VoidCallback onLongPress;
+
+  @override
+  Widget build(BuildContext context) => Semantics(
+        button: true,
+        label: 'Live controls',
+        child: GestureDetector(
+          onTap: onTap,
+          onLongPress: () {
+            HapticFeedback.mediumImpact();
+            onLongPress();
+          },
+          child: AnimatedContainer(
+            duration: const Duration(milliseconds: 400),
+            width: 40,
+            height: 40,
+            decoration: BoxDecoration(
+              color: LiveStudioWorld.inWindow,
+              shape: BoxShape.circle,
+              border: Border.all(color: clean ? LiveStudioAccent.pink : LiveStudioWorld.nameplateBorder),
+            ),
+            child: Icon(clean ? Icons.visibility_rounded : Icons.tune_rounded, size: 20, color: LiveStudioWorld.textHigh),
+          ),
+        ),
+      );
+}
+
+/// "REC" / restream indicator while the egress runs.
+class _OnAirBadge extends StatelessWidget {
+  const _OnAirBadge({required this.recording, required this.platforms});
+  final bool recording;
+  final int platforms;
+
+  @override
+  Widget build(BuildContext context) => Container(
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+        decoration: BoxDecoration(color: LiveStudioWorld.inWindow, borderRadius: BorderRadius.circular(999)),
+        child: Row(mainAxisSize: MainAxisSize.min, children: [
+          if (recording) ...[
+            const Icon(Icons.fiber_manual_record_rounded, size: 10, color: LiveStudioAccent.liveRed),
+            const SizedBox(width: 4),
+            Text('REC', style: LiveStudioType.s(10, FontWeight.w900, LiveStudioWorld.textHigh)),
+          ],
+          if (recording && platforms > 0) const SizedBox(width: 6),
+          if (platforms > 0) ...[
+            const Icon(Icons.cell_tower_rounded, size: 11, color: LiveStudioAccent.pink),
+            const SizedBox(width: 3),
+            Text('$platforms', style: LiveStudioType.s(10, FontWeight.w900, LiveStudioWorld.textHigh)),
+          ],
+        ]),
+      );
 }
 
 // ─── Landscape chrome ────────────────────────────────────────────────────────

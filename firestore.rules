@@ -1067,12 +1067,12 @@ service cloud.firestore {
         allow read: if isSignedIn() &&
                        !(subcollection in ['studio_rate', 'studio_security', 'studio_security_advisories',
                                            'studio_security_counters', 'studio_secrets', 'studio_requests',
-                                           'studio_blocks']);
+                                           'studio_blocks', 'studio_fun_votes']);
         allow write: if isSignedIn() && !isSuspended() && isStreamManager(streamId) &&
                         !(subcollection in ['studio', 'members', 'studio_comments', 'studio_requests',
                                             'studio_counters', 'studio_rate', 'studio_blocks',
                                             'studio_security', 'studio_security_advisories',
-                                            'studio_security_counters', 'studio_secrets']);
+                                            'studio_security_counters', 'studio_secrets', 'studio_fun_votes']);
       }
     }
 

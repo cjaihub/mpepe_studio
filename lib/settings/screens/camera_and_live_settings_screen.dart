@@ -189,6 +189,30 @@ class _CameraAndLiveSettingsScreenState
       body: ListView(
         padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
         children: [
+          // Live Studio: everything for going live, side by side.
+          Container(
+            margin: const EdgeInsets.only(bottom: 14),
+            decoration: BoxDecoration(
+              color: context.surface,
+              borderRadius: BorderRadius.circular(AppRadius.lg),
+              border: Border.all(color: context.border),
+            ),
+            child: Column(children: [
+              for (final (icon, title, subtitle, route) in const [
+                (Icons.sensors_rounded, 'Go live', 'Setup wizard: mode, layout, audience', '/live/setup'),
+                (Icons.cell_tower_rounded, 'Live destinations', 'Restream to Facebook, YouTube, TikTok…', '/settings/live_destinations'),
+                (Icons.video_library_rounded, 'Live recordings', 'Your saved 1080p lives', '/settings/live_recordings'),
+              ])
+                ListTile(
+                  leading: Icon(icon, color: AppColors.brandBlue),
+                  title: Text(title,
+                      style: GoogleFonts.inter(fontSize: 14, fontWeight: FontWeight.w700, color: context.textPrimary)),
+                  subtitle: Text(subtitle, style: GoogleFonts.inter(fontSize: 12, color: context.textMuted)),
+                  trailing: Icon(Icons.chevron_right_rounded, color: context.textMuted),
+                  onTap: () => context.push(route),
+                ),
+            ]),
+          ),
           // Pro Override Active Warning Banner
           if (isProOverride) ...[
             Container(

@@ -11,6 +11,7 @@ import { FieldValue } from 'firebase-admin/firestore';
 import { Paths } from './contracts';
 import { LIVEKIT_SECRETS, db, patchState, requireString, requireUid, roomName, roomService } from './shared';
 import { EndReason, orphanReason, toMs } from './lifecycle_logic';
+import { stopStreamEgress } from './broadcast';
 
 /**
  * Closes [streamId] everywhere: studio/state status (broadcast to viewers as a
@@ -35,6 +36,8 @@ export async function endStudioStream(streamId: string, reason: EndReason): Prom
     // v1 lives have no studio/state doc.
     console.warn(`[liveStudio] end state ${streamId}:`, (e as Error).message);
   }
+  // Finish the recording / restream first so the MP4 closes cleanly.
+  await stopStreamEgress(streamId);
   try {
     await roomService().deleteRoom(roomName(streamId));
   } catch (e) {

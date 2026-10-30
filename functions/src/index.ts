@@ -276,6 +276,8 @@ export { globalSemanticSearch } from './search/searchQuery';
 export { lsStart, lsToken, lsEnd, lsTime, lsStateFull, lsSetOwnMedia } from './liveStudio/media';
 export { lsSetSettings } from './liveStudio/settings';
 export { lsHeartbeat, lsSweepOrphanLives } from './liveStudio/lifecycle';
+export { lsFun } from './liveStudio/fun';
+export { lsDestinations, lsBroadcast, lsRecordingDecision } from './liveStudio/broadcast';
 export { lsSetLayout } from './liveStudio/layout';
 export { lsRequestJoin, lsCancelRequest, lsRespondRequest, lsModerate, lsLeaveStage } from './liveStudio/roles';
 export { lsSetTable, lsPlayback } from './liveStudio/table';

@@ -53,6 +53,7 @@ import { WebhookReceiver } from 'livekit-server-sdk';
 import { enforceChatMode } from './controls';
 import { recordStudioSignal } from './security';
 import { endStudioStream, onHostPresence } from './lifecycle';
+import { onEgressEnded } from './broadcast';
 import { Paths, Limits, StudioRole, StudioState, StageMember, ReactionKind, StudioCounts, shareUrl, isManager } from './contracts';
 import {
   LIVEKIT_SECRETS,
@@ -504,6 +505,9 @@ export const lsLivekitWebhook = onRequest({ secrets: LIVEKIT_SECRETS }, async (r
     const streamId = streamIdFromRoom(event.room?.name);
     const p = event.participant;
     // Only standard clients count as viewers (kind 0); skip egress/ingress/agents.
+    if (event.event === 'egress_ended' && event.egressInfo) {
+      await onEgressEnded(event.egressInfo);
+    }
     if (streamId && event.event === 'room_finished') {
       // The room closed (empty timeout / deleted): the live is over.
       await endStudioStream(streamId, 'room_closed');

@@ -19,17 +19,15 @@ import 'package:go_router/go_router.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:image_picker/image_picker.dart';
 
-import '../../../backend/connections/linked_accounts.dart' show usableLinkedAccountsProvider;
-import '../../../backend/live/live_restream_service.dart';
 import '../../../backend/live_studio/contracts/studio_contracts.dart';
 import '../../../backend/live_studio/contracts/studio_ports.dart';
+import '../../../backend/live_studio/fun/studio_fun.dart';
 import '../../../backend/live_studio/media/studio_media_api.dart';
 import '../../../backend/live_studio/security/studio_security_models.dart';
 import '../../../backend/live_studio/settings/studio_settings_controller.dart';
 import '../../../looks/live/live_looks_controller.dart';
 import '../../../looks/models/oneova_look.dart';
 import '../../../shared/theme/app_theme.dart';
-import '../../../shared/widgets/linked_destinations_picker.dart';
 import '../go_live/go_live_sheets.dart';
 import '../studio_v2/join/device_preview.dart';
 import 'live_setup_config.dart';
@@ -77,10 +75,22 @@ class _LiveSetupWizardScreenState extends ConsumerState<LiveSetupWizardScreen> {
       ? FirebaseAuth.instance.currentUser!.displayName!.trim()
       : 'You';
 
+  List<LiveDestination>? _destinations;
+
   @override
   void initState() {
     super.initState();
     unawaited(_loadDefaults());
+    unawaited(_loadDestinations());
+  }
+
+  Future<void> _loadDestinations() async {
+    try {
+      final d = await ref.read(studioBroadcastApiProvider).destinations();
+      if (mounted) setState(() => _destinations = d);
+    } catch (_) {
+      if (mounted) setState(() => _destinations = const []);
+    }
   }
 
   /// Pre-fills layout from the host's saved studio settings.
@@ -284,13 +294,17 @@ class _LiveSetupWizardScreenState extends ConsumerState<LiveSetupWizardScreen> {
             if (cfg.chatMode == LiveChatMode.slow) 'slowSeconds': cfg.slowSeconds,
           })));
     }
-    unawaited(_quiet(() async {
-      final picked = ref.read(activeDestinationsProvider(DestinationPurpose.live));
-      if (picked.isEmpty) return null;
-      final targets = ref.read(usableLinkedAccountsProvider).where((a) => picked.contains(a.platform.id));
-      await ref.read(liveRestreamServiceProvider).request(id, targets);
-      return null;
-    }));
+    // 1080p recording and/or real-time restream (lsBroadcast egress).
+    final dests = _destinations ?? const <LiveDestination>[];
+    final restream = cfg.restream && dests.any((d) => d.enabled);
+    if (cfg.record || restream) {
+      unawaited(_quiet(() => ref.read(studioBroadcastApiProvider).start(
+            id,
+            record: cfg.record,
+            restream: restream,
+            frame: cfg.landscape ? 'landscape' : 'portrait',
+          )));
+    }
     return id;
   }
 
@@ -632,9 +646,49 @@ class _LiveSetupWizardScreenState extends ConsumerState<LiveSetupWizardScreen> {
           onChanged: _cfg.multiPanel ? (v) => _set(_cfg.copyWith(joinRequests: v)) : null,
         ),
         const SizedBox(height: 14),
-        _Section('Also go live on'),
-        const LinkedDestinationsPicker(purpose: DestinationPurpose.live),
+        _Section('Record & restream'),
+        _SwitchRow(
+          icon: Icons.fiber_manual_record_rounded,
+          title: 'Record in 1080p',
+          subtitle: 'Just the stage, no comments or likes. Keep or delete it after.',
+          value: _cfg.record,
+          accent: AppColors.brandPink,
+          onChanged: (v) => _set(_cfg.copyWith(record: v)),
+        ),
+        _SwitchRow(
+          icon: Icons.cell_tower_rounded,
+          title: 'Restream live',
+          subtitle: _destinationsLine(),
+          value: _cfg.restream && (_destinations ?? const []).any((d) => d.enabled),
+          onChanged: (_destinations ?? const []).any((d) => d.enabled) ? (v) => _set(_cfg.copyWith(restream: v)) : null,
+        ),
+        if (_cfg.record || _cfg.restream)
+          _SwitchRow(
+            icon: _cfg.landscape ? Icons.stay_current_landscape_rounded : Icons.stay_current_portrait_rounded,
+            title: _cfg.landscape ? 'Landscape 16:9' : 'Portrait 9:16',
+            subtitle: 'Frame for the recording and restream',
+            value: _cfg.landscape,
+            onChanged: (v) => _set(_cfg.copyWith(landscape: v)),
+          ),
+        Align(
+          alignment: Alignment.centerLeft,
+          child: TextButton.icon(
+            onPressed: () async {
+              await context.push('/settings/live_destinations');
+              unawaited(_loadDestinations());
+            },
+            icon: const Icon(Icons.add_link_rounded, color: AppColors.brandBlue),
+            label: Text('Manage live destinations',
+                style: GoogleFonts.inter(fontWeight: FontWeight.w700, color: AppColors.brandBlue)),
+          ),
+        ),
       ];
+
+  String _destinationsLine() {
+    final on = (_destinations ?? const <LiveDestination>[]).where((d) => d.enabled).map((d) => d.label).toList();
+    if (_destinations == null) return 'Loading your destinations…';
+    return on.isEmpty ? 'Add Facebook, YouTube or TikTok first' : 'To ${on.join(', ')}';
+  }
 
   // Step 6 — Review
   List<Widget> _reviewStep() {
@@ -664,6 +718,15 @@ class _LiveSetupWizardScreenState extends ConsumerState<LiveSetupWizardScreen> {
         _cfg.chatMode == LiveChatMode.slow ? 'Slow mode · ${_cfg.slowSeconds}s' : _cfg.chatMode.label
       ),
       (_Step.audience, Icons.front_hand_rounded, 'Join requests', _cfg.acceptsRequests ? 'On' : 'Off'),
+      (
+        _Step.audience,
+        Icons.fiber_manual_record_rounded,
+        'Record & restream',
+        [
+          if (_cfg.record) 'Recording 1080p',
+          if (_cfg.restream && (_destinations ?? const []).any((d) => d.enabled)) 'Restream on',
+        ].join(' · ').ifEmpty('Off'),
+      ),
     ];
     return [
       SetupPhoneFrame(
@@ -1120,4 +1183,8 @@ class _Notice extends StatelessWidget {
             ),
         ]),
       );
+}
+
+extension on String {
+  String ifEmpty(String fallback) => isEmpty ? fallback : this;
 }

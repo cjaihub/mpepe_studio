@@ -105,6 +105,8 @@ import '../hub/remote_chat_screen.dart';
 import '../hub/remote_monitor_screen.dart';
 import '../hub/desktop_remote_screen.dart';
 import '../inbox/calling/screens/active_call_screen.dart';
+import '../social_hub/live/settings/live_destinations_screen.dart';
+import '../social_hub/live/settings/live_recordings_screen.dart';
 import '../social_hub/live/setup/live_setup_config.dart';
 import '../social_hub/live/setup/live_setup_wizard_screen.dart';
 import '../social_hub/live/classic/live_classic_viewer_screen.dart';
@@ -826,6 +828,16 @@ final routerProvider = Provider<GoRouter>((ref) {
         path: '/settings/storage',
         redirect: _requireAuth,
         builder: (context, state) => const StorageSettingsScreen(),
+      ),
+      GoRoute(
+        path: '/settings/live_recordings',
+        redirect: _requireAuth,
+        builder: (context, state) => const LiveRecordingsScreen(),
+      ),
+      GoRoute(
+        path: '/settings/live_destinations',
+        redirect: _requireAuth,
+        builder: (context, state) => const LiveDestinationsScreen(),
       ),
       GoRoute(
         path: '/settings/camera_and_live',

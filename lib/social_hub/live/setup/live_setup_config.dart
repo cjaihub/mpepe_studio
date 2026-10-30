@@ -78,6 +78,9 @@ class LiveSetupConfig {
     this.chatMode = LiveChatMode.open,
     this.slowSeconds = 15,
     this.joinRequests = true,
+    this.record = false,
+    this.restream = true,
+    this.landscape = false,
   });
 
   final LiveSetupMode mode;
@@ -101,6 +104,15 @@ class LiveSetupConfig {
 
   /// Viewers may request to join (studio mode only).
   final bool joinRequests;
+
+  /// Record the 1080p stage (no comments / likes) to the host's library.
+  final bool record;
+
+  /// Push the live to the host's enabled Live destinations (RTMP).
+  final bool restream;
+
+  /// 16:9 recording / restream frame instead of 9:16.
+  final bool landscape;
 
   bool get multiPanel => mode == LiveSetupMode.studio;
   bool get acceptsRequests => multiPanel && joinRequests;
@@ -139,6 +151,9 @@ class LiveSetupConfig {
     LiveChatMode? chatMode,
     int? slowSeconds,
     bool? joinRequests,
+    bool? record,
+    bool? restream,
+    bool? landscape,
   }) =>
       LiveSetupConfig(
         mode: mode ?? this.mode,
@@ -156,5 +171,8 @@ class LiveSetupConfig {
         chatMode: chatMode ?? this.chatMode,
         slowSeconds: slowSeconds ?? this.slowSeconds,
         joinRequests: joinRequests ?? this.joinRequests,
+        record: record ?? this.record,
+        restream: restream ?? this.restream,
+        landscape: landscape ?? this.landscape,
       );
 }

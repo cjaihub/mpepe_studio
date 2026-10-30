@@ -12,6 +12,9 @@ const livekit_server_sdk_1 = require("livekit-server-sdk");
 const contracts_1 = require("./contracts");
 const shared_1 = require("./shared");
 const settings_logic_1 = require("./settings_logic");
+const lifecycle_1 = require("./lifecycle");
+const lifecycle_logic_1 = require("./lifecycle_logic");
+const controls_logic_1 = require("./controls_logic");
 const security_1 = require("./security");
 const media_logic_1 = require("./media_logic");
 const SOURCE = {
@@ -55,6 +58,7 @@ exports.lsStart = (0, https_1.onCall)({ secrets: shared_1.LIVEKIT_SECRETS }, asy
         throw e;
     }
     const { kind, gameTitle } = start;
+    const extras = (0, lifecycle_logic_1.parseStartExtras)(data);
     const [profile, savedSnap] = await Promise.all([
         profileOf(uid, (_a = req.auth) === null || _a === void 0 ? void 0 : _a.token),
         (0, shared_1.db)().doc(contracts_1.Paths.hostSettings(uid)).get(),
@@ -72,7 +76,7 @@ exports.lsStart = (0, https_1.onCall)({ secrets: shared_1.LIVEKIT_SECRETS }, asy
         throw new https_1.HttpsError('unavailable', 'Could not open the live room. Try again.');
     }
     const batch = (0, shared_1.db)().batch();
-    batch.set(streamRef, Object.assign(Object.assign({}, (0, media_logic_1.buildStreamDoc)({ streamId, hostId: uid, title, profile, kind, gameTitle })), { createdAt: firestore_1.FieldValue.serverTimestamp() }));
+    batch.set(streamRef, Object.assign(Object.assign(Object.assign(Object.assign(Object.assign({}, (0, media_logic_1.buildStreamDoc)({ streamId, hostId: uid, title, profile, kind, gameTitle })), { audienceMode: extras.audienceMode, allowGuestRequests: extras.allowGuestRequests }), (extras.category && kind !== 'gaming' ? { category: extras.category } : {})), (extras.coverUrl ? { coverUrl: extras.coverUrl, thumbnailUrl: extras.coverUrl } : {})), { createdAt: firestore_1.FieldValue.serverTimestamp(), hostHeartbeatAt: firestore_1.FieldValue.serverTimestamp() }));
     batch.set((0, shared_1.db)().doc(contracts_1.Paths.state(streamId)), Object.assign(Object.assign({}, (0, media_logic_1.buildInitialState)({ streamId, hostId: uid, title, settings, nowMs: now, gameTitle })), { updatedAt: firestore_1.FieldValue.serverTimestamp() }));
     batch.set((0, shared_1.db)().doc(`${contracts_1.Paths.members(streamId)}/${uid}`), (0, media_logic_1.buildHostMember)(uid, profile, now));
     await batch.commit();
@@ -100,6 +104,16 @@ exports.lsToken = (0, https_1.onCall)({ secrets: shared_1.LIVEKIT_SECRETS }, asy
         throw new https_1.HttpsError(decision.code, decision.message);
     }
     const role = await (0, shared_1.roleOf)(streamId, uid, state);
+    if (role === 'viewer' && uid !== state.hostId) {
+        // Followers-only lives (setup wizard → audienceMode): viewers must follow the host.
+        const stream = await (0, shared_1.db)().doc(`${contracts_1.Paths.streams}/${streamId}`).get();
+        if (stream.get('audienceMode') === 'followers') {
+            const rel = await (0, shared_1.db)().doc(`relationships/${(0, controls_logic_1.followDocId)(uid, state.hostId)}`).get();
+            if (!rel.exists || !(0, controls_logic_1.isAcceptedFollow)(rel.get('status'))) {
+                throw new https_1.HttpsError('permission-denied', 'This live is for followers only. Follow the host to watch.');
+            }
+        }
+    }
     const member = await (0, shared_1.db)().doc(`${contracts_1.Paths.members(streamId)}/${uid}`).get();
     const name = member.exists
         ? member.data().displayName
@@ -116,14 +130,7 @@ exports.lsEnd = (0, https_1.onCall)({ secrets: shared_1.LIVEKIT_SECRETS }, async
     const uid = (0, shared_1.requireUid)(req);
     const streamId = streamIdArg(req.data);
     await (0, shared_1.requireRole)(streamId, uid, ['host']);
-    await (0, shared_1.patchState)(streamId, 'status', (s) => (s.status === 'ended' ? undefined : 'ended'));
-    await (0, shared_1.db)().doc(`${contracts_1.Paths.streams}/${streamId}`).set({ status: 'ended', endedAt: firestore_1.FieldValue.serverTimestamp() }, { merge: true });
-    try {
-        await (0, shared_1.roomService)().deleteRoom((0, shared_1.roomName)(streamId));
-    }
-    catch (e) {
-        console.warn(`[liveStudio] deleteRoom ${streamId}:`, e.message);
-    }
+    await (0, lifecycle_1.endStudioStream)(streamId, 'host');
     return { ok: true };
 });
 /** Server clock, for the client's offset estimate. Returns `{serverMs}`. */
