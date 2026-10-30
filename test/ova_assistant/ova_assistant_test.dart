@@ -135,73 +135,34 @@ void main() {
   });
 
   group('OvaGestureDetector Activation Gestures', () {
-    testWidgets('Double-tap anywhere triggers Ova Assistant', (tester) async {
-      bool triggered = false;
-
-      await tester.pumpWidget(
-        MaterialApp(
+    Widget host({required VoidCallback onTrigger}) => MaterialApp(
           home: Scaffold(
             body: OvaGestureDetector(
-              showFloatingTrigger: false,
-              doubleTapEnabled: true,
-              drawOGestureEnabled: true,
-              onTriggerOva: () {
-                triggered = true;
-              },
-              child: const Center(child: Text('Main Content')),
+              onTriggerOva: onTrigger,
+              child: const SizedBox.expand(child: Center(child: Text('Main Content'))),
             ),
           ),
-        ),
-      );
+        );
 
-      // Perform double tap at center
-      final center = tester.getCenter(find.text('Main Content'));
-      await tester.tapAt(center);
-      await tester.pump(const Duration(milliseconds: 50));
-      await tester.tapAt(center);
-      await tester.pump(const Duration(milliseconds: 250));
-      await tester.pumpAndSettle();
-
-      expect(triggered, isTrue);
-    });
-
-    testWidgets('Drawing "O" circle gesture triggers Ova Assistant', (tester) async {
-      bool triggered = false;
-
-      await tester.pumpWidget(
-        MaterialApp(
-          home: Scaffold(
-            body: OvaGestureDetector(
-              showFloatingTrigger: false,
-              doubleTapEnabled: true,
-              drawOGestureEnabled: true,
-              onTriggerOva: () {
-                triggered = true;
-              },
-              child: const SizedBox.expand(),
-            ),
-          ),
-        ),
-      );
-
-      // Draw a circle of radius 60 centered at (200, 300)
+    Future<void> drawO(WidgetTester tester) async {
       const center = Offset(200, 300);
       const radius = 60.0;
       final gesture = await tester.startGesture(center + const Offset(radius, 0));
-
       const steps = 32;
       for (int i = 1; i <= steps; i++) {
         final angle = (i / steps) * 2 * math.pi;
-        final x = center.dx + radius * math.cos(angle);
-        final y = center.dy + radius * math.sin(angle);
-        await gesture.moveTo(Offset(x, y));
+        await gesture.moveTo(Offset(center.dx + radius * math.cos(angle), center.dy + radius * math.sin(angle)));
         await tester.pump(const Duration(milliseconds: 5));
       }
-
       await gesture.up();
       await tester.pump(const Duration(milliseconds: 1600));
       await tester.pumpAndSettle();
+    }
 
+    testWidgets('Drawing "O" circle gesture triggers Ova Assistant', (tester) async {
+      bool triggered = false;
+      await tester.pumpWidget(host(onTrigger: () => triggered = true));
+      await drawO(tester);
       expect(triggered, isTrue);
     });
 
@@ -213,7 +174,6 @@ void main() {
         MaterialApp(
           home: Scaffold(
             body: OvaGestureDetector(
-              drawOGestureEnabled: true,
               onTriggerOvaWithContext: (screenBytes, rect) {
                 callbackCount++;
                 capturedRect = rect;
@@ -226,190 +186,56 @@ void main() {
           ),
         ),
       );
-
-      const center = Offset(200, 300);
-      const radius = 60.0;
-      final gesture = await tester.startGesture(center + const Offset(radius, 0));
-
-      const steps = 32;
-      for (int i = 1; i <= steps; i++) {
-        final angle = (i / steps) * 2 * math.pi;
-        final x = center.dx + radius * math.cos(angle);
-        final y = center.dy + radius * math.sin(angle);
-        await gesture.moveTo(Offset(x, y));
-        await tester.pump(const Duration(milliseconds: 5));
-      }
-
-      await gesture.up();
-      await tester.pump(const Duration(milliseconds: 1600));
-      await tester.pumpAndSettle();
+      await drawO(tester);
 
       // Fix 3x popup: must be called EXACTLY once!
       expect(callbackCount, 1);
       expect(capturedRect, isNotNull);
     });
 
-    testWidgets('Drawing "1" vertical stroke triggers Ova Assistant', (tester) async {
+    testWidgets('Double tap, double-tap hold and triple-tap hold never open Ova', (tester) async {
       bool triggered = false;
+      await tester.pumpWidget(host(onTrigger: () => triggered = true));
+      final center = tester.getCenter(find.text('Main Content'));
 
-      await tester.pumpWidget(
-        MaterialApp(
-          home: Scaffold(
-            body: OvaGestureDetector(
-              showFloatingTrigger: false,
-              drawOneGestureEnabled: true,
-              onTriggerOva: () {
-                triggered = true;
-              },
-              child: const SizedBox.expand(),
-            ),
-          ),
-        ),
-      );
+      await tester.tapAt(center);
+      await tester.pump(const Duration(milliseconds: 50));
+      await tester.tapAt(center);
+      await tester.pump(const Duration(milliseconds: 400));
+      expect(triggered, isFalse);
 
-      // Draw a vertical downward stroke from (200, 150) to (200, 320)
-      final gesture = await tester.startGesture(const Offset(200, 150));
+      await tester.tapAt(center);
+      await tester.pump(const Duration(milliseconds: 50));
+      await tester.tapAt(center);
+      await tester.pump(const Duration(milliseconds: 50));
+      final hold = await tester.startGesture(center);
+      await tester.pump(const Duration(seconds: 4));
+      await hold.up();
+      await tester.pumpAndSettle();
+      expect(triggered, isFalse);
+    });
+
+    testWidgets('Drawing a "1" or a straight line never opens Ova', (tester) async {
+      bool triggered = false;
+      await tester.pumpWidget(host(onTrigger: () => triggered = true));
+
+      final down = await tester.startGesture(const Offset(200, 150));
       for (int y = 160; y <= 320; y += 15) {
-        await gesture.moveTo(Offset(200, y.toDouble()));
+        await down.moveTo(Offset(200, y.toDouble()));
         await tester.pump(const Duration(milliseconds: 10));
       }
-
-      await gesture.up();
+      await down.up();
       await tester.pump(const Duration(milliseconds: 1600));
-      await tester.pumpAndSettle();
 
-      expect(triggered, isTrue);
-    });
-
-    testWidgets('Double-tap and hold 3 seconds triggers Ova Assistant', (tester) async {
-      bool triggered = false;
-
-      await tester.pumpWidget(
-        MaterialApp(
-          home: Scaffold(
-            body: OvaGestureDetector(
-              showFloatingTrigger: false,
-              doubleTapEnabled: true,
-              doubleTapHoldEnabled: true,
-              holdDurationSeconds: 1, // 1 second for fast test execution
-              onTriggerOva: () {
-                triggered = true;
-              },
-              child: const SizedBox.expand(),
-            ),
-          ),
-        ),
-      );
-
-      // First tap
-      await tester.tapAt(const Offset(200, 200));
-      await tester.pump(const Duration(milliseconds: 50));
-
-      // Second tap: press down and hold for > 1 second
-      final gesture = await tester.startGesture(const Offset(200, 200));
-      await tester.pump(const Duration(milliseconds: 100));
-
-      // Advance time past the 1-second hold threshold
-      await tester.pump(const Duration(milliseconds: 1200));
-
-      expect(triggered, isTrue);
-      await gesture.up();
-      await tester.pumpAndSettle();
-    });
-
-    testWidgets('Triple-tap and hold 3 seconds triggers Ova Assistant', (tester) async {
-      bool triggered = false;
-
-      await tester.pumpWidget(
-        MaterialApp(
-          home: Scaffold(
-            body: OvaGestureDetector(
-              tripleTapHoldEnabled: true,
-              holdDurationSeconds: 1, // 1 second for fast test execution
-              onTriggerOva: () {
-                triggered = true;
-              },
-              child: const SizedBox.expand(),
-            ),
-          ),
-        ),
-      );
-
-      // Tap 1
-      await tester.tapAt(const Offset(200, 200));
-      await tester.pump(const Duration(milliseconds: 50));
-
-      // Tap 2
-      await tester.tapAt(const Offset(200, 200));
-      await tester.pump(const Duration(milliseconds: 50));
-
-      // Tap 3: press down and hold for > 1 second
-      final gesture = await tester.startGesture(const Offset(200, 200));
-      await tester.pump(const Duration(milliseconds: 100));
-
-      // Advance time past the hold threshold
-      await tester.pump(const Duration(milliseconds: 1200));
-
-      expect(triggered, isTrue);
-      await gesture.up();
-      await tester.pumpAndSettle();
-    });
-
-    testWidgets('Safe Mode onlyTripleTapHold ignores double-tap and drawing gestures', (tester) async {
-      bool triggered = false;
-
-      await tester.pumpWidget(
-        MaterialApp(
-          home: Scaffold(
-            body: OvaGestureDetector(
-              onlyTripleTapHold: true,
-              tripleTapHoldEnabled: true,
-              doubleTapEnabled: true,
-              drawOGestureEnabled: true,
-              holdDurationSeconds: 1,
-              onTriggerOva: () {
-                triggered = true;
-              },
-              child: const SizedBox.expand(),
-            ),
-          ),
-        ),
-      );
-
-      // Perform a double tap - should NOT trigger in Safe Mode
-      await tester.tapAt(const Offset(200, 200));
-      await tester.pump(const Duration(milliseconds: 50));
-      await tester.tapAt(const Offset(200, 200));
-      await tester.pump(const Duration(milliseconds: 400));
-      expect(triggered, isFalse);
-
-      // Draw an "O" - should NOT trigger in Safe Mode
-      const center = Offset(200, 300);
-      const radius = 60.0;
-      final circleGesture = await tester.startGesture(center + const Offset(radius, 0));
-      for (int i = 1; i <= 32; i++) {
-        final angle = (i / 32) * 2 * math.pi;
-        final x = center.dx + radius * math.cos(angle);
-        final y = center.dy + radius * math.sin(angle);
-        await circleGesture.moveTo(Offset(x, y));
-        await tester.pump(const Duration(milliseconds: 5));
+      final across = await tester.startGesture(const Offset(40, 300));
+      for (int x = 60; x <= 340; x += 20) {
+        await across.moveTo(Offset(x.toDouble(), 300));
+        await tester.pump(const Duration(milliseconds: 10));
       }
-      await circleGesture.up();
-      await tester.pump(const Duration(milliseconds: 400));
-      expect(triggered, isFalse);
-
-      // Now perform Triple-Tap & Hold: should trigger cleanly!
-      await tester.tapAt(const Offset(200, 200));
-      await tester.pump(const Duration(milliseconds: 50));
-      await tester.tapAt(const Offset(200, 200));
-      await tester.pump(const Duration(milliseconds: 50));
-
-      final holdGesture = await tester.startGesture(const Offset(200, 200));
-      await tester.pump(const Duration(milliseconds: 1200));
-
-      expect(triggered, isTrue);
-      await holdGesture.up();
+      await across.up();
       await tester.pumpAndSettle();
+
+      expect(triggered, isFalse);
     });
 
     test('OvaNativeService exposes overlay permission, system overlay controls, and settings methods', () async {

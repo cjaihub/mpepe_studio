@@ -257,9 +257,8 @@ class _OvaPhoneLauncherScreenState extends State<OvaPhoneLauncherScreen> {
                         ),
                         const SizedBox(height: 8),
                         Text(
-                          '1. Double tap anywhere on the screen.\n'
-                          '2. On the second tap, HOLD DOWN for 3 seconds.\n'
-                          '3. Watch the futuristic charging HUD fill up, then Ova Assistant appears!',
+                          'Draw an "O" anywhere on the screen.\n'
+                          'Ova opens with what you circled as context. Taps, double taps and swipes never open it.',
                           style: TextStyle(
                             color: context.textSecondary,
                             fontSize: 12.5,
@@ -335,10 +334,8 @@ class _OvaPhoneLauncherScreenState extends State<OvaPhoneLauncherScreen> {
         backgroundColor: ctx.surface,
         title: Text('Ova Assistant Gesture', style: TextStyle(color: ctx.textPrimary, fontWeight: FontWeight.bold)),
         content: Text(
-          'On Android, Ova Assistant can be summoned anytime:\n\n'
-          '• Double tap & hold 3 seconds anywhere on screen\n'
-          '• Progressive haptic vibration will charge up the HUD\n'
-          '• Once released after 3s, the full assistant overlay activates with phone awareness & automation tools.',
+          'Draw an "O" anywhere on the screen to open Ova.\n\n'
+          'It is the only gesture that opens Ova, so tapping, double tapping and scrolling never bring it up by accident.',
           style: TextStyle(color: ctx.textSecondary, height: 1.4),
         ),
         actions: [

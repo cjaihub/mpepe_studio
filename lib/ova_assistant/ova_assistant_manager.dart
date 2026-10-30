@@ -107,13 +107,7 @@ class _OvaAssistantGlobalWrapperState
     final service = ref.watch(oneOvaAssistantServiceProvider);
 
     return OvaGestureDetector(
-      // Draw "O" is the only touch trigger; tap, hold and fling triggers were removed.
-      doubleTapEnabled: false,
-      drawOGestureEnabled: true,
-      drawOneGestureEnabled: false,
-      doubleTapHoldEnabled: false,
-      tripleTapHoldEnabled: false,
-      onlyTripleTapHold: false,
+      // Drawing "O" is the only touch trigger (the detector knows no other).
       autoVoiceCallMode: voiceCallMode,
       onTriggerOvaWithContext: (screenBytes, circledRect) {
         final targetContext = rootNavigatorKey.currentContext ?? context;

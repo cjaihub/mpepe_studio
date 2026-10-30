@@ -7,21 +7,14 @@ import 'package:flutter/services.dart';
 import '../../shared/theme/app_theme.dart';
 import '../services/ova_native_service.dart';
 
-/// Wraps any widget and provides system-wide gesture activation for OneOva Assistant:
-/// 1. "Draw 'O'" (Circle/Cycle Gesture) over current screen captures screen context like Gemini Overlay.
-/// 2. "Double-Tap Anywhere" to activate.
-/// 3. Luminous neon particle trail and completion ripple.
+/// Wraps any widget and opens Ova on ONE gesture only: drawing an "O" on the
+/// screen (it also captures the circled area as context). No other touch
+/// opens Ova: taps, double taps, holds, lines and "1" strokes are ignored,
+/// so scrolling and tapping around the app never summons it by accident.
 class OvaGestureDetector extends StatefulWidget {
   final Widget child;
   final VoidCallback onTriggerOva;
   final void Function(Uint8List? screenBytes, Rect? circledRect)? onTriggerOvaWithContext;
-  final bool doubleTapEnabled;
-  final bool drawOGestureEnabled;
-  final bool drawOneGestureEnabled;
-  final bool doubleTapHoldEnabled;
-  final bool tripleTapHoldEnabled;
-  final bool onlyTripleTapHold;
-  final int holdDurationSeconds;
   final bool autoVoiceCallMode;
 
   const OvaGestureDetector({
@@ -29,16 +22,7 @@ class OvaGestureDetector extends StatefulWidget {
     required this.child,
     required this.onTriggerOva,
     this.onTriggerOvaWithContext,
-    this.doubleTapEnabled = true,
-    this.drawOGestureEnabled = true,
-    this.drawOneGestureEnabled = true,
-    this.doubleTapHoldEnabled = false,
-    this.tripleTapHoldEnabled = true,
-    this.onlyTripleTapHold = false,
-    this.holdDurationSeconds = 3,
     this.autoVoiceCallMode = false,
-    // Kept for backward compatibility if passed, but draggable is removed per user request
-    bool showFloatingTrigger = false,
   });
 
   @override
@@ -50,25 +34,16 @@ class _OvaGestureDetectorState extends State<OvaGestureDetector>
   final OvaNativeService _nativeService = OvaNativeService();
   final GlobalKey _repaintBoundaryKey = GlobalKey();
 
-  // ─────────────────────────────────────────────────────────────────────────────
-  // Multi-Tap & Gesture Guard Tracking
-  // ─────────────────────────────────────────────────────────────────────────────
-  DateTime? _lastTapUpTime;
-  Offset? _lastTapUpPosition;
-  int _tapCount = 0;
   bool _isTriggering = false;
-  static const int _doubleTapThresholdMs = 380;
-  static const double _doubleTapMaxDistance = 35.0;
 
   // ─────────────────────────────────────────────────────────────────────────────
-  // Draw 'O' (Circle) & '1' (Vertical Stroke) Gesture Tracking
+  // Draw 'O' (Circle) Gesture Tracking
   // ─────────────────────────────────────────────────────────────────────────────
   final List<Offset> _strokePoints = [];
   bool _isDrawing = false;
   Offset? _detectedCircleCenter;
   double _detectedCircleRadius = 0.0;
   Rect? _detectedCircleRect;
-  Rect? _detectedStrokeRect;
 
   // "O" trail: shown only once a stroke curves like an O (never for taps,
   // scrolls or swipes), repainted without rebuilding the tree.
@@ -82,37 +57,14 @@ class _OvaGestureDetectorState extends State<OvaGestureDetector>
   List<Offset> _summonStroke = const [];
   bool _summonReduceMotion = false;
 
-  // ─────────────────────────────────────────────────────────────────────────────
-  // Hold / Double-Tap & Hold / Triple-Tap & Hold Tracking
-  // ─────────────────────────────────────────────────────────────────────────────
-  bool _isHolding = false;
-  bool _isDoubleTapHolding = false;
-  bool _isTripleTapHolding = false;
-  double _holdProgress = 0.0;
-  Timer? _holdTimer;
-  Timer? _tickTimer;
   Timer? _clearStrokeTimer;
   Timer? _debounceTimer;
-  Offset _currentFingerPosition = Offset.zero;
-  Offset _pointerDownPosition = Offset.zero;
 
-  late AnimationController _hudAnimController;
-  late Animation<double> _hudScale;
-  late Animation<double> _hudOpacity;
 
-  static const double _maxSlopForHold = 18.0;
 
   @override
   void initState() {
     super.initState();
-
-    // Charging HUD Animations
-    _hudAnimController = AnimationController(
-      vsync: this,
-      duration: const Duration(milliseconds: 250),
-    );
-    _hudScale = CurvedAnimation(parent: _hudAnimController, curve: Curves.easeOutBack);
-    _hudOpacity = CurvedAnimation(parent: _hudAnimController, curve: Curves.easeIn);
 
     _circleSuccessAnimController = AnimationController(
       vsync: this,
@@ -129,11 +81,8 @@ class _OvaGestureDetectorState extends State<OvaGestureDetector>
 
   @override
   void dispose() {
-    _holdTimer?.cancel();
-    _tickTimer?.cancel();
     _clearStrokeTimer?.cancel();
     _debounceTimer?.cancel();
-    _hudAnimController.dispose();
     _circleSuccessAnimController.dispose();
     _trailFadeController.dispose();
     _trailTick.dispose();
@@ -144,150 +93,29 @@ class _OvaGestureDetectorState extends State<OvaGestureDetector>
   // Pointer Events Pipeline
   // ─────────────────────────────────────────────────────────────────────────────
   void _onPointerDown(PointerDownEvent event) {
-    final now = DateTime.now();
-    _pointerDownPosition = event.position;
-    _currentFingerPosition = event.position;
-
-    // Check if this tap constitutes a consecutive tap in a multi-tap sequence
-    final isConsecutiveTap = _lastTapUpTime != null &&
-        now.difference(_lastTapUpTime!).inMilliseconds <= _doubleTapThresholdMs &&
-        _lastTapUpPosition != null &&
-        (event.position - _lastTapUpPosition!).distance <= _doubleTapMaxDistance;
-
-    if (isConsecutiveTap) {
-      _tapCount++;
-    } else {
-      _tapCount = 1;
-    }
-
-    // 1. Triple-Tap & Hold: User tapped 3 times and is holding finger on 3rd tap
-    if (_tapCount >= 3 && widget.tripleTapHoldEnabled) {
-      _lastTapUpTime = null;
-      _lastTapUpPosition = null;
-      _isDrawing = false;
-      _strokePoints.clear();
-      _startHoldSequence(event.position, isTripleTap: true);
-      return;
-    }
-
-    // If "Only Triple-Tap & Hold" is enabled (e.g. for Home Page reels feed),
-    // ignore double-taps and draw gestures to completely prevent accidental popups!
-    if (widget.onlyTripleTapHold) {
-      return;
-    }
-
-    // 2. Double-Tap Candidate (2nd tap)
-    if (_tapCount == 2 && widget.doubleTapEnabled) {
-      if (widget.doubleTapHoldEnabled) {
-        _lastTapUpTime = null;
-        _lastTapUpPosition = null;
-        _isDrawing = false;
-        _startHoldSequence(event.position, isDoubleTap: true);
-        return;
-      } else if (!widget.tripleTapHoldEnabled) {
-        // Instantaneous Double-Tap if triple-tap hold is disabled
-        _lastTapUpTime = null;
-        _lastTapUpPosition = null;
-        _triggerAssistant(triggerType: 'Double-Tap');
-        return;
-      }
-      // If triple-tap hold is enabled, wait to see if 3rd tap occurs
-    }
-
-    // 3. Start drawing path for 'O' or '1' gesture if enabled
-    if ((widget.drawOGestureEnabled || widget.drawOneGestureEnabled) && !_isTriggering) {
-      _trailFadeController.stop();
-      _trailFadeController.value = 0;
-      _strokePoints.clear();
-      _strokePoints.add(event.position);
-      _isDrawing = true;
-      if (_trailVisible) setState(() => _trailVisible = false);
-    }
-
+    if (_isTriggering) return;
+    _trailFadeController.stop();
+    _trailFadeController.value = 0;
+    _strokePoints.clear();
+    _strokePoints.add(event.position);
+    _isDrawing = true;
+    if (_trailVisible) setState(() => _trailVisible = false);
   }
 
   void _onPointerMove(PointerMoveEvent event) {
-    _currentFingerPosition = event.position;
-
-    // If finger moves substantially, cancel stationary hold
-    if (_isHolding && (event.position - _pointerDownPosition).distance > _maxSlopForHold) {
-      _cancelHoldSequence();
-      _tapCount = 0;
+    if (!_isDrawing) return;
+    _strokePoints.add(event.position);
+    if (!_trailVisible && _looksLikeO(_strokePoints)) {
+      setState(() => _trailVisible = true);
     }
-
-    // Accumulate points for gesture recognition ('O' or '1') if not in onlyTripleTapHold mode
-    if (_isDrawing && !widget.onlyTripleTapHold && (widget.drawOGestureEnabled || widget.drawOneGestureEnabled)) {
-      _strokePoints.add(event.position);
-      if (!_trailVisible && widget.drawOGestureEnabled && _looksLikeO(_strokePoints)) {
-        setState(() => _trailVisible = true);
-      }
-      if (_trailVisible) _trailTick.value++;
-    }
+    if (_trailVisible) _trailTick.value++;
   }
 
   void _onPointerUp(PointerUpEvent event) {
-    final now = DateTime.now();
-    final moveDistance = (event.position - _pointerDownPosition).distance;
-
-    // Cancel in-progress hold sequence if finger was lifted early
-    _holdTimer?.cancel();
-    _tickTimer?.cancel();
-    if (_isHolding) {
-      _cancelHoldSequence();
-      _tapCount = 0;
-    }
-
-    // If finger moved beyond slop (e.g. scrolling/swiping video feeds on home page),
-    // reset multi-tap state so reels scrolling never triggers Ova
-    if (moveDistance > _doubleTapMaxDistance) {
-      _tapCount = 0;
-      _lastTapUpTime = null;
-      _lastTapUpPosition = null;
-    } else {
-      _lastTapUpTime = now;
-      _lastTapUpPosition = event.position;
-    }
-
-    // If "Only Triple-Tap & Hold" is active, bypass double-tap and gesture shapes completely
-    if (widget.onlyTripleTapHold) {
-      if (_isDrawing) {
-        setState(() {
-          _isDrawing = false;
-          _strokePoints.clear();
-        });
-      }
+    if (_isDrawing && _strokePoints.length >= 12 && _recognizeCircleGesture(_strokePoints)) {
+      _onCircleGestureRecognized();
       return;
     }
-
-    // Handle standard double-tap if triple-tap hold is enabled
-    if (_tapCount == 2 && widget.doubleTapEnabled && !widget.doubleTapHoldEnabled) {
-      if (!widget.tripleTapHoldEnabled) {
-        _triggerAssistant(triggerType: 'Double-Tap');
-        _tapCount = 0;
-      } else {
-        // Brief window for 3rd tap to arrive; if none arrives, fire double-tap
-        Timer(const Duration(milliseconds: 220), () {
-          if (!mounted) return;
-          if (_tapCount == 2 && !_isHolding && !_isTriggering) {
-            _triggerAssistant(triggerType: 'Double-Tap');
-            _tapCount = 0;
-          }
-        });
-      }
-    }
-
-    // Check if user drew 'O' (circle) or '1' (vertical downward stroke)
-    if (_isDrawing && _strokePoints.length >= 8) {
-      if (widget.drawOGestureEnabled && _strokePoints.length >= 12 && _recognizeCircleGesture(_strokePoints)) {
-        _onCircleGestureRecognized();
-        return;
-      }
-      if (widget.drawOneGestureEnabled && _recognizeOneGesture(_strokePoints)) {
-        _onOneGestureRecognized();
-        return;
-      }
-    }
-
     // Not an "O": fade the trail out quietly, trigger nothing.
     if (_isDrawing) {
       _isDrawing = false;
@@ -338,9 +166,6 @@ class _OvaGestureDetectorState extends State<OvaGestureDetector>
   }
 
   void _onPointerCancel(PointerCancelEvent event) {
-    _holdTimer?.cancel();
-    _tickTimer?.cancel();
-    _cancelHoldSequence();
     if (_isDrawing) {
       _isDrawing = false;
       _fadeOutTrail();
@@ -444,64 +269,6 @@ class _OvaGestureDetectorState extends State<OvaGestureDetector>
   // ─────────────────────────────────────────────────────────────────────────────
   // '1' (Vertical Stroke) Gesture Detection Algorithm
   // ─────────────────────────────────────────────────────────────────────────────
-  bool _recognizeOneGesture(List<Offset> points) {
-    if (points.length < 8) return false;
-
-    double minX = points.first.dx, maxX = points.first.dx;
-    double minY = points.first.dy, maxY = points.first.dy;
-
-    for (final p in points) {
-      if (p.dx < minX) minX = p.dx;
-      if (p.dx > maxX) maxX = p.dx;
-      if (p.dy < minY) minY = p.dy;
-      if (p.dy > maxY) maxY = p.dy;
-    }
-
-    final width = maxX - minX;
-    final height = maxY - minY;
-
-    // 1. Minimum vertical length (at least 45px)
-    if (height < 45) return false;
-
-    // 2. Aspect ratio: vertical orientation (height / width >= 1.8)
-    if (width > 0 && (height / width) < 1.8) return false;
-
-    // 3. Direction: downward stroke (end point is significantly lower than start)
-    if ((points.last.dy - points.first.dy) < (height * 0.55)) return false;
-
-    // 4. Line straightness: compute perpendicular deviation from start-to-end vector
-    final start = points.first;
-    final end = points.last;
-    final lineVec = end - start;
-    final lineLen = lineVec.distance;
-    if (lineLen < 40) return false;
-
-    double maxDeviation = 0;
-    double sumDeviation = 0;
-    for (final p in points) {
-      final t = (((p.dx - start.dx) * lineVec.dx + (p.dy - start.dy) * lineVec.dy) /
-              (lineLen * lineLen))
-          .clamp(0.0, 1.0);
-      final proj = Offset(start.dx + t * lineVec.dx, start.dy + t * lineVec.dy);
-      final dev = (p - proj).distance;
-      if (dev > maxDeviation) maxDeviation = dev;
-      sumDeviation += dev;
-    }
-
-    final avgDeviation = sumDeviation / points.length;
-
-    // Straight vertical stroke constraint
-    if (maxDeviation <= 35 && avgDeviation <= 16) {
-      final center = Offset((minX + maxX) / 2.0, (minY + maxY) / 2.0);
-      _detectedCircleCenter = center;
-      _detectedCircleRadius = math.max(width, height) / 2.0;
-      _detectedStrokeRect = Rect.fromLTRB(minX, minY, maxX, maxY);
-      return true;
-    }
-
-    return false;
-  }
-
   void _onCircleGestureRecognized() async {
     if (_isTriggering) return;
     _isTriggering = true;
@@ -550,43 +317,6 @@ class _OvaGestureDetectorState extends State<OvaGestureDetector>
     });
   }
 
-  void _onOneGestureRecognized() async {
-    if (_isTriggering) return;
-    _isTriggering = true;
-    _isDrawing = false;
-    _circleSuccessAnimController.forward(from: 0.0);
-
-    HapticFeedback.heavyImpact();
-    _nativeService.triggerHapticPulse(90);
-
-    final strokeRect = _detectedStrokeRect;
-
-    Uint8List? screenBytes;
-    try {
-      screenBytes = await _captureCurrentScreen();
-    } catch (e) {
-      debugPrint('[OvaGestureDetector] Screen capture error: $e');
-    }
-
-    _triggerAssistantWithContext(screenBytes, strokeRect);
-
-    _clearStrokeTimer?.cancel();
-    _clearStrokeTimer = Timer(const Duration(milliseconds: 400), () {
-      if (mounted) {
-        setState(() {
-          _strokePoints.clear();
-          _detectedCircleCenter = null;
-          _detectedStrokeRect = null;
-        });
-      }
-    });
-
-    _debounceTimer?.cancel();
-    _debounceTimer = Timer(const Duration(milliseconds: 1500), () {
-      _isTriggering = false;
-    });
-  }
-
   void _triggerAssistantWithContext(Uint8List? screenBytes, Rect? circledRect) {
     try {
       HapticFeedback.heavyImpact();
@@ -599,100 +329,6 @@ class _OvaGestureDetectorState extends State<OvaGestureDetector>
       }
     } catch (e, st) {
       debugPrint('[OvaGestureDetector] Error triggering assistant with context: $e\n$st');
-    }
-  }
-
-  // ─────────────────────────────────────────────────────────────────────────────
-  // Hold / Double-Tap & Hold / Triple-Tap & Hold HUD Sequence
-  // ─────────────────────────────────────────────────────────────────────────────
-  void _startHoldSequence(
-    Offset position, {
-    bool isDoubleTap = false,
-    bool isTripleTap = false,
-  }) {
-    _isHolding = true;
-    _isDoubleTapHolding = isDoubleTap;
-    _isTripleTapHolding = isTripleTap;
-    _holdProgress = 0.0;
-    _currentFingerPosition = position;
-    _hudAnimController.forward();
-
-    HapticFeedback.mediumImpact();
-
-    final startTime = DateTime.now();
-    final effectiveHoldDurationMs = (widget.holdDurationSeconds > 0 ? widget.holdDurationSeconds : 3) * 1000;
-    int accumulatedElapsedMs = 0;
-
-    _tickTimer?.cancel();
-    _tickTimer = Timer.periodic(const Duration(milliseconds: 350), (timer) {
-      if (_isHolding) {
-        HapticFeedback.selectionClick();
-      }
-    });
-
-    _holdTimer?.cancel();
-    const updateIntervalMs = 30;
-    _holdTimer = Timer.periodic(const Duration(milliseconds: updateIntervalMs), (timer) {
-      if (!_isHolding) {
-        timer.cancel();
-        return;
-      }
-
-      accumulatedElapsedMs += updateIntervalMs;
-      final realElapsedMs = DateTime.now().difference(startTime).inMilliseconds;
-      final elapsedMs = math.max(accumulatedElapsedMs, realElapsedMs);
-      final progress = (elapsedMs / effectiveHoldDurationMs).clamp(0.0, 1.0);
-
-      setState(() {
-        _holdProgress = progress;
-      });
-
-      if (progress >= 1.0) {
-        timer.cancel();
-        _tickTimer?.cancel();
-        _onHoldSuccess();
-      }
-    });
-  }
-
-  void _cancelHoldSequence() {
-    _isHolding = false;
-    _isDoubleTapHolding = false;
-    _isTripleTapHolding = false;
-    _holdTimer?.cancel();
-    _tickTimer?.cancel();
-    _hudAnimController.reverse();
-    setState(() {
-      _holdProgress = 0.0;
-    });
-  }
-
-  void _onHoldSuccess() {
-    final wasTripleTap = _isTripleTapHolding;
-    final wasDoubleTap = _isDoubleTapHolding;
-    _isHolding = false;
-    _isDoubleTapHolding = false;
-    _isTripleTapHolding = false;
-    _tapCount = 0;
-    HapticFeedback.heavyImpact();
-    _hudAnimController.reverse();
-    setState(() {
-      _holdProgress = 0.0;
-    });
-    _triggerAssistant(
-      triggerType: wasTripleTap
-          ? 'Triple-Tap & Hold'
-          : (wasDoubleTap ? 'Double-Tap & Hold' : 'Hold'),
-    );
-  }
-
-  void _triggerAssistant({required String triggerType}) {
-    try {
-      HapticFeedback.heavyImpact();
-      _nativeService.wakeScreen();
-      widget.onTriggerOva();
-    } catch (e, st) {
-      debugPrint('[OvaGestureDetector] Error triggering assistant: $e\n$st');
     }
   }
 
@@ -749,130 +385,11 @@ class _OvaGestureDetectorState extends State<OvaGestureDetector>
               ),
             ),
 
-          // Futuristic Charging Ring HUD overlay when holding
-          if (_isHolding || _hudAnimController.value > 0)
-            Positioned.fill(
-              child: IgnorePointer(
-                child: FadeTransition(
-                  opacity: _hudOpacity,
-                  child: ScaleTransition(
-                    scale: _hudScale,
-                    child: _buildChargingHUD(),
-                  ),
-                ),
-              ),
-            ),
         ],
       ),
     );
   }
 
-  Widget _buildChargingHUD() {
-    final screenSize = MediaQuery.of(context).size;
-    final hudX = _currentFingerPosition.dx.clamp(90.0, screenSize.width - 90.0);
-    final hudY = (_currentFingerPosition.dy - 110.0).clamp(100.0, screenSize.height - 150.0);
-
-    final effectiveHoldSec = widget.holdDurationSeconds > 0 ? widget.holdDurationSeconds : 3;
-    final secondsRemaining = (effectiveHoldSec * (1.0 - _holdProgress)).toStringAsFixed(1);
-
-    return Stack(
-      children: [
-        Container(color: Colors.black.withValues(alpha: 0.35)),
-        Positioned(
-          left: hudX - 85,
-          top: hudY - 85,
-          child: Container(
-            width: 170,
-            height: 170,
-            decoration: BoxDecoration(
-              shape: BoxShape.circle,
-              color: context.surface.withValues(alpha: 0.95),
-              border: Border.all(
-                color: AppColors.brandBlue.withValues(alpha: 0.6),
-                width: 2,
-              ),
-              boxShadow: [
-                BoxShadow(
-                  color: AppColors.brandBlue.withValues(alpha: 0.4),
-                  blurRadius: 30,
-                  spreadRadius: 8,
-                ),
-                BoxShadow(
-                  color: AppColors.brandPink.withValues(alpha: 0.25),
-                  blurRadius: 40,
-                  spreadRadius: 2,
-                ),
-              ],
-            ),
-            child: Stack(
-              alignment: Alignment.center,
-              children: [
-                SizedBox(
-                  width: 140,
-                  height: 140,
-                  child: CircularProgressIndicator(
-                    value: _holdProgress,
-                    strokeWidth: 6,
-                    strokeCap: StrokeCap.round,
-                    valueColor: const AlwaysStoppedAnimation<Color>(AppColors.brandPink),
-                    backgroundColor: AppColors.brandBlue.withValues(alpha: 0.25),
-                  ),
-                ),
-                Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Container(
-                      width: 44,
-                      height: 44,
-                      decoration: BoxDecoration(
-                        shape: BoxShape.circle,
-                        boxShadow: [
-                          BoxShadow(
-                            color: AppColors.brandBlue.withValues(alpha: 0.5),
-                            blurRadius: 10,
-                            spreadRadius: 1,
-                          ),
-                        ],
-                      ),
-                      child: ClipOval(
-                        child: Image.asset(
-                          'assets/images/oneova_logo.png',
-                          fit: BoxFit.cover,
-                        ),
-                      ),
-                    ),
-                    const SizedBox(height: 6),
-                    Text(
-                      'ONEOVA',
-                      style: TextStyle(
-                        color: context.textPrimary,
-                        fontWeight: FontWeight.w900,
-                        fontSize: 14,
-                        letterSpacing: 1.5,
-                      ),
-                    ),
-                    const SizedBox(height: 2),
-                    Text(
-                      _isTripleTapHolding
-                          ? 'Triple-Tap & Hold ${secondsRemaining}s'
-                          : (_isDoubleTapHolding
-                              ? 'Tap & Hold ${secondsRemaining}s'
-                              : 'Hold ${secondsRemaining}s'),
-                      style: TextStyle(
-                        color: context.textSecondary,
-                        fontSize: 10.5,
-                        fontWeight: FontWeight.w600,
-                      ),
-                    ),
-                  ],
-                ),
-              ],
-            ),
-          ),
-        ),
-      ],
-    );
-  }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
