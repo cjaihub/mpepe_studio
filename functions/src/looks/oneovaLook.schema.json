@@ -1,0 +1,121 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "OneovaLook",
+  "type": "object",
+  "required": ["id", "name", "schemaVersion"],
+  "properties": {
+    "schemaVersion": { "type": "integer", "default": 2 },
+    "id": { "type": "string" },
+    "name": { "type": "string" },
+    "ownerUid": { "type": "string" },
+    "categories": {
+      "type": "array",
+      "items": { "type": "string" }
+    },
+    "tags": {
+      "type": "array",
+      "items": { "type": "string" }
+    },
+    "thumbnailUrl": { "type": "string" },
+    "source": { "type": "string", "enum": ["catalog", "user", "ai", "remix", "market"] },
+    "parentLookId": { "type": ["string", "null"] },
+    "priceRef": { "type": ["string", "null"] },
+    "minDeviceTier": { "type": "integer", "minimum": 1, "maximum": 4, "default": 1 },
+    "intensity": { "type": "number", "minimum": 0.0, "maximum": 1.0, "default": 1.0 },
+    "primary": {
+      "type": "object",
+      "properties": {
+        "exposure": { "type": "number", "minimum": -2.0, "maximum": 2.0, "default": 0.0 },
+        "contrast": { "type": "number", "minimum": 0.5, "maximum": 2.0, "default": 1.0 },
+        "pivot": { "type": "number", "minimum": 0.0, "maximum": 1.0, "default": 0.435 },
+        "highlights": { "type": "number", "minimum": -1.0, "maximum": 1.0, "default": 0.0 },
+        "shadows": { "type": "number", "minimum": -1.0, "maximum": 1.0, "default": 0.0 },
+        "whites": { "type": "number", "minimum": -1.0, "maximum": 1.0, "default": 0.0 },
+        "blacks": { "type": "number", "minimum": -1.0, "maximum": 1.0, "default": 0.0 },
+        "brightness": { "type": "number", "minimum": -1.0, "maximum": 1.0, "default": 0.0 }
+      }
+    },
+    "color": {
+      "type": "object",
+      "properties": {
+        "temperature": { "type": "number", "minimum": -100.0, "maximum": 100.0, "default": 0.0 },
+        "tint": { "type": "number", "minimum": -100.0, "maximum": 100.0, "default": 0.0 },
+        "vibrance": { "type": "number", "minimum": -1.0, "maximum": 1.0, "default": 0.0 },
+        "saturation": { "type": "number", "minimum": 0.0, "maximum": 2.0, "default": 1.0 },
+        "colorBoost": { "type": "number", "minimum": 0.0, "maximum": 2.0, "default": 1.0 }
+      }
+    },
+    "wheels": {
+      "type": "object",
+      "properties": {
+        "lift": { "$ref": "#/definitions/colorWheel" },
+        "gamma": { "$ref": "#/definitions/colorWheel" },
+        "gain": { "$ref": "#/definitions/colorWheel" },
+        "offset": { "$ref": "#/definitions/colorWheel" }
+      }
+    },
+    "film": {
+      "type": "object",
+      "properties": {
+        "emulationProfile": { "type": "string" },
+        "halation": { "type": "number", "minimum": 0.0, "maximum": 1.0, "default": 0.0 },
+        "bloom": { "type": "number", "minimum": 0.0, "maximum": 1.0, "default": 0.0 },
+        "grain": { "type": "number", "minimum": 0.0, "maximum": 1.0, "default": 0.0 },
+        "grainRoughness": { "type": "number", "minimum": 0.0, "maximum": 1.0, "default": 0.5 },
+        "fade": { "type": "number", "minimum": 0.0, "maximum": 1.0, "default": 0.0 }
+      }
+    },
+    "detail": {
+      "type": "object",
+      "properties": {
+        "sharpen": { "type": "number", "minimum": 0.0, "maximum": 1.0, "default": 0.0 },
+        "clarity": { "type": "number", "minimum": -1.0, "maximum": 1.0, "default": 0.0 },
+        "texture": { "type": "number", "minimum": -1.0, "maximum": 1.0, "default": 0.0 },
+        "dehaze": { "type": "number", "minimum": -1.0, "maximum": 1.0, "default": 0.0 }
+      }
+    },
+    "optics": {
+      "type": "object",
+      "properties": {
+        "vignette": { "type": "number", "minimum": 0.0, "maximum": 1.0, "default": 0.0 },
+        "chromaticAberration": { "type": "number", "minimum": 0.0, "maximum": 1.0, "default": 0.0 },
+        "lensDistortion": { "type": "number", "minimum": -1.0, "maximum": 1.0, "default": 0.0 }
+      }
+    },
+    "boostBeauty": {
+      "type": "object",
+      "properties": {
+        "isEnabled": { "type": "boolean", "default": false },
+        "smoothSkin": { "type": "number", "minimum": 0.0, "maximum": 1.0, "default": 0.0 },
+        "evenTone": { "type": "number", "minimum": 0.0, "maximum": 1.0, "default": 0.0 },
+        "eyeBrighten": { "type": "number", "minimum": 0.0, "maximum": 1.0, "default": 0.0 },
+        "eyeEnlarge": { "type": "number", "minimum": 0.0, "maximum": 1.0, "default": 0.0 },
+        "teethWhitening": { "type": "number", "minimum": 0.0, "maximum": 1.0, "default": 0.0 },
+        "faceSlim": { "type": "number", "minimum": 0.0, "maximum": 1.0, "default": 0.0 },
+        "jawSlim": { "type": "number", "minimum": 0.0, "maximum": 1.0, "default": 0.0 },
+        "noseSlim": { "type": "number", "minimum": 0.0, "maximum": 1.0, "default": 0.0 },
+        "autoBoostLevel": { "type": "number", "minimum": 0.0, "maximum": 1.0, "default": 0.0 }
+      }
+    },
+    "background": {
+      "type": "object",
+      "properties": {
+        "mode": { "type": "string", "enum": ["none", "blur", "replace", "color", "greenScreen"] },
+        "blurLevel": { "type": "number", "minimum": 0.0, "maximum": 1.0, "default": 0.5 },
+        "replaceUrl": { "type": "string" },
+        "colorHex": { "type": "string" }
+      }
+    }
+  },
+  "definitions": {
+    "colorWheel": {
+      "type": "object",
+      "properties": {
+        "r": { "type": "number", "default": 0.0 },
+        "g": { "type": "number", "default": 0.0 },
+        "b": { "type": "number", "default": 0.0 },
+        "lum": { "type": "number", "default": 0.0 }
+      }
+    }
+  }
+}

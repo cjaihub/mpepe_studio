@@ -16,6 +16,6 @@ abstract class Env {
   @EnviedField(varName: 'TIKTOK_CLIENT_KEY')
   static final String tiktokClientKey = _Env.tiktokClientKey;
 
-  @EnviedField(varName: 'TIKTOK_CLIENT_SECRET')
-  static final String tiktokClientSecret = _Env.tiktokClientSecret;
+  // TIKTOK_CLIENT_SECRET is deliberately not here: the code exchange runs in
+  // Cloud Functions (tiktokExchangeCode) with the secret in Secret Manager.
 }

@@ -1,0 +1,441 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ONEOVA COMMUNITY GUIDELINES — Oneova</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
+    <style>
+:root {
+    --brand-blue: #0C4FA8;
+    --brand-blue-soft: rgba(12, 79, 168, 0.10);
+    --brand-pink: #FF2D87;
+    --brand-pink-soft: rgba(255, 45, 135, 0.12);
+    --bg: #FFFFFF;
+    --surface: #F8FAFC;
+    --surface-mid: #F1F5F9;
+    --border: #E2E8F0;
+    --text-primary: #0F172A;
+    --text-secondary: #334155;
+    --text-muted: #64748B;
+}
+html[data-theme="dark"] {
+    --bg: #0A0A0A;
+    --surface: #141414;
+    --surface-mid: #1F1F1F;
+    --border: #262626;
+    --text-primary: #F3F4F6;
+    --text-secondary: #CBD5E1;
+    --text-muted: #9CA3AF;
+    --brand-blue-soft: rgba(12, 79, 168, 0.24);
+}
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body {
+    font-family: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    background: var(--bg);
+    color: var(--text-primary);
+    line-height: 1.62;
+    font-size: 14.5px;
+    -webkit-font-smoothing: antialiased;
+}
+.top-bar {
+    position: sticky;
+    top: 0;
+    z-index: 40;
+    background: var(--bg);
+    border-bottom: 1px solid var(--border);
+    padding: 12px 24px;
+}
+.top-bar-inner {
+    max-width: 960px;
+    margin: 0 auto;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    flex-wrap: wrap;
+}
+.brand-mark {
+    display: inline-flex;
+    align-items: center;
+    gap: 10px;
+    text-decoration: none;
+    color: var(--text-primary);
+    font-weight: 900;
+    font-size: 16px;
+    letter-spacing: -0.3px;
+}
+.brand-dot {
+    width: 26px;
+    height: 26px;
+    border-radius: 7px;
+    background: var(--brand-blue);
+    color: #FFFFFF;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 13px;
+    font-weight: 900;
+}
+.actions-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+.btn-chip {
+    appearance: none;
+    border: 1px solid var(--border);
+    background: var(--surface);
+    color: var(--text-primary);
+    font-family: inherit;
+    font-size: 12px;
+    font-weight: 700;
+    padding: 7px 12px;
+    border-radius: 8px;
+    cursor: pointer;
+    text-decoration: none;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+}
+.btn-chip.primary {
+    background: var(--brand-blue);
+    border-color: var(--brand-blue);
+    color: #FFFFFF;
+}
+.sub-nav {
+    max-width: 960px;
+    margin: 14px auto 0;
+    padding: 0 24px;
+    display: flex;
+    gap: 6px;
+    overflow-x: auto;
+    padding-bottom: 6px;
+}
+.nav-pill {
+    text-decoration: none;
+    font-size: 12px;
+    font-weight: 600;
+    padding: 6px 11px;
+    border-radius: 8px;
+    border: 1px solid var(--border);
+    background: var(--surface);
+    color: var(--text-secondary);
+    white-space: nowrap;
+}
+.nav-pill.active {
+    background: var(--brand-blue);
+    border-color: var(--brand-blue);
+    color: #FFFFFF;
+    font-weight: 700;
+}
+.doc-shell {
+    max-width: 960px;
+    margin: 0 auto;
+    padding: 26px 24px 72px;
+}
+.doc-badge {
+    display: inline-block;
+    font-size: 10px;
+    font-weight: 800;
+    letter-spacing: 0.7px;
+    text-transform: uppercase;
+    padding: 4px 10px;
+    border-radius: 6px;
+    background: var(--brand-pink-soft);
+    color: var(--brand-pink);
+    border: 1px solid rgba(255, 45, 135, 0.32);
+    margin-bottom: 10px;
+}
+h1 {
+    font-size: 26px;
+    font-weight: 850;
+    letter-spacing: -0.5px;
+    line-height: 1.2;
+    color: var(--text-primary);
+    margin-bottom: 14px;
+}
+h2 {
+    font-size: 17.5px;
+    font-weight: 800;
+    letter-spacing: -0.25px;
+    color: var(--text-primary);
+    margin-top: 28px;
+    margin-bottom: 10px;
+    padding-bottom: 6px;
+    border-bottom: 1px solid var(--border);
+}
+h3 {
+    font-size: 14.5px;
+    font-weight: 700;
+    color: var(--text-primary);
+    margin-top: 18px;
+    margin-bottom: 8px;
+}
+p {
+    color: var(--text-secondary);
+    margin-bottom: 11px;
+}
+p strong, li strong {
+    color: var(--text-primary);
+}
+ul, ol {
+    margin: 8px 0 14px 22px;
+    color: var(--text-secondary);
+}
+li {
+    margin-bottom: 6px;
+}
+a {
+    color: var(--brand-blue);
+    font-weight: 600;
+    text-decoration: none;
+}
+html[data-theme="dark"] a {
+    color: #60A5FA;
+}
+a:hover { text-decoration: underline; }
+code {
+    font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+    font-size: 12.5px;
+    background: var(--surface-mid);
+    border: 1px solid var(--border);
+    padding: 1px 6px;
+    border-radius: 5px;
+    color: var(--text-primary);
+}
+.sig-blank {
+    font-family: inherit;
+    font-weight: 500;
+    color: var(--text-primary);
+    background: transparent;
+    border: none;
+    padding: 0 2px;
+}
+h2, h3 {
+    break-after: avoid;
+    page-break-after: avoid;
+}
+.exec-callout {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-left: 4px solid var(--brand-blue);
+    border-radius: 10px;
+    padding: 14px 16px;
+    margin: 14px 0 18px;
+    color: var(--text-secondary);
+    font-size: 13.5px;
+}
+.rule-divider {
+    border: none;
+    border-top: 1px solid var(--border);
+    margin: 20px 0;
+}
+.table-wrap {
+    width: 100%;
+    overflow-x: auto;
+    margin: 14px 0 18px;
+    border: 1px solid var(--border);
+    border-radius: 10px;
+}
+table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 12.8px;
+}
+th {
+    background: var(--surface-mid);
+    color: var(--text-primary);
+    font-weight: 700;
+    text-align: left;
+    padding: 10px 12px;
+    border-bottom: 1px solid var(--border);
+}
+td {
+    padding: 9px 12px;
+    border-bottom: 1px solid var(--border);
+    color: var(--text-secondary);
+    vertical-align: top;
+}
+tr:last-child td { border-bottom: none; }
+.doc-footer {
+    margin-top: 44px;
+    padding-top: 18px;
+    border-top: 1px solid var(--border);
+    display: flex;
+    justify-content: space-between;
+    flex-wrap: wrap;
+    gap: 10px;
+    font-size: 12px;
+    color: var(--text-muted);
+}
+.hub-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+    gap: 14px;
+    margin-top: 18px;
+}
+.hub-card {
+    display: block;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 16px;
+    text-decoration: none;
+    transition: border-color 0.15s ease, transform 0.15s ease;
+}
+.hub-card:hover {
+    border-color: var(--brand-blue);
+    transform: translateY(-1px);
+    text-decoration: none;
+}
+.hub-card h3 {
+    margin-top: 6px;
+    margin-bottom: 6px;
+    color: var(--text-primary);
+}
+.hub-card p {
+    font-size: 12.8px;
+    color: var(--text-secondary);
+    margin: 0;
+}
+
+@page {
+    size: A4;
+    margin: 16mm 15mm 16mm 15mm;
+}
+@media print {
+    html, body {
+        background: #FFFFFF !important;
+        color: #0F172A !important;
+        font-size: 10.5pt;
+        line-height: 1.48;
+    }
+    .no-print { display: none !important; }
+    .doc-shell { max-width: 100%; padding: 0; margin: 0; }
+    .print-letterhead {
+        display: flex !important;
+        justify-content: space-between;
+        align-items: center;
+        padding-bottom: 10px;
+        margin-bottom: 14px;
+        border-bottom: 2px solid #0C4FA8;
+    }
+    h1 { font-size: 18pt; margin-bottom: 8px; }
+    h2 { font-size: 12.5pt; margin-top: 16px; page-break-after: avoid; }
+    h3 { font-size: 10.8pt; page-break-after: avoid; }
+    .exec-callout, tr { page-break-inside: avoid; }
+    .table-wrap { overflow: visible; }
+    table { font-size: 9pt; }
+    th, td { padding: 6px 8px; }
+    a { color: #0C4FA8 !important; text-decoration: none !important; }
+}
+.print-letterhead { display: none; }
+</style>
+    
+<script>
+(function() {
+    const saved = localStorage.getItem('oneova_legal_theme');
+    if (saved === 'dark' || saved === 'light') {
+        document.documentElement.setAttribute('data-theme', saved);
+    } else if (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches) {
+        document.documentElement.setAttribute('data-theme', 'dark');
+    }
+})();
+function toggleTheme() {
+    const cur = document.documentElement.getAttribute('data-theme') === 'dark' ? 'light' : 'dark';
+    document.documentElement.setAttribute('data-theme', cur);
+    localStorage.setItem('oneova_legal_theme', cur);
+}
+</script>
+
+</head>
+<body>
+    
+    <header class="top-bar no-print">
+        <div class="top-bar-inner">
+            <a href="/legal.html" class="brand-mark">
+                <span class="brand-dot">O</span>
+                <span>Oneova Trust &amp; Legal Center</span>
+            </a>
+            <div class="actions-row">
+                <a class="btn-chip" href="/">← Oneova Portal</a>
+                <a class="btn-chip" href="/docs/pdf/03_Oneova_Community_Guidelines.pdf" download>⬇ Official PDF</a>
+                <button class="btn-chip" onclick="toggleTheme()" type="button">Light / Dark</button>
+                <button class="btn-chip primary" onclick="window.print()" type="button">Print / Save PDF</button>
+            </div>
+        </div>
+    </header>
+    
+    <nav class="sub-nav no-print"><a class="nav-pill" href="/legal.html">All Policies</a><a class="nav-pill" href="/terms.html">Terms of Service</a><a class="nav-pill" href="/privacy.html">Privacy Policy</a><a class="nav-pill active" href="/guidelines.html">Community Guidelines</a><a class="nav-pill" href="/child-safety.html">Child &amp; Teen Safety</a><a class="nav-pill" href="/biz-policy.html">Biz &amp; Monetization</a><a class="nav-pill" href="/deletion.html">Data Deletion</a><a class="nav-pill" href="/law-enforcement.html">Law Enforcement</a></nav>
+    <main class="doc-shell">
+        <div class="print-letterhead">
+            <div>
+                <strong style="font-size:13pt;color:#0C4FA8;font-weight:900;">ONEOVA TECHNOLOGIES INC.</strong><br>
+                <span style="font-size:8.5pt;color:#64748B;">OFFICIAL PUBLIC POLICY — ONEOVA.APP</span>
+            </div>
+            <div style="text-align:right;font-size:8.5pt;color:#64748B;">
+                <strong>Document #03</strong><br>
+                Effective: October 25, 2026
+            </div>
+        </div>
+        <span class="doc-badge">TRUST &amp; SAFETY</span>
+        <h1>ONEOVA COMMUNITY GUIDELINES</h1>
+<p><strong>Document ID:</strong> <code>ONV-TRUST-CG-2026-V1</code><br><strong>Effective Date:</strong> October 25, 2026<br><strong>Trust &amp; Safety Contacts:</strong> <code>safety@oneova.app</code> · <code>appeals@oneova.app</code> · <code>copyright@oneova.app</code><br><strong>Web Portal:</strong> <code>https://oneova.app/guidelines</code></p>
+<hr class="rule-divider">
+<div class="exec-callout"><strong>In Short:</strong> Oneova is built so creators, communities, and entrepreneurs across Africa and around the world can express themselves, connect, and grow safely.<br><strong>Three golden rules guide everything here:</strong><br>1. <strong>Be Real</strong> — Never scam, impersonate, or deceive people.<br>2. <strong>Be Respectful</strong> — Debate ideas passionately, never attack human dignity.<br>3. <strong>Be Safe</strong> — Never endanger children, human life, or public safety.</div>
+<p>These Guidelines apply equally to <strong>every user and every surface</strong> on Oneova: Reels, Stories, 4K Live Broadcasts, PK Battles, Creator Rooms, Chat, Calls, Comments, Profiles, Studio Looks, AI Lab creations, and Biz listings.</p>
+<hr class="rule-divider">
+<h2 id="1-financial-integrity-anti-scam-rules-zero-deception">1. Financial Integrity &amp; Anti-Scam Rules (Zero Deception)</h2>
+<div class="exec-callout"><strong>In Short:</strong> Never trick anyone out of mobile money, cash, PINs, data, or opportunities.</div>
+<p>The following result in immediate removal and account restriction or permanent ban:</p>
+<ul><li><strong>Mobile-Money &amp; Banking Scams:</strong> Fake M-Pesa, MTN MoMo, Airtel Money, Orange Money, Telecel Cash, or Wave "reversal" requests; doctored payment SMS/receipt screenshots; SIM-swap social engineering; or asking anyone for an OTP, password, or mobile-money PIN.</li><li><strong>Advance-Fee &amp; Investment Fraud:</strong> "419" advance-fee schemes, "double your money" rings, pyramid/Ponzi clubs, unlicensed forex/crypto guaranteed-return pools, and fake grant/inheritance disbursements.</li><li><strong>Predatory Opportunity Scams:</strong> Fake overseas visas, fake domestic/hospitality jobs abroad, fake university scholarships, fake loan apps demanding upfront "registration fees", and leaked national exam-paper scams (e.g., KCSE, WAEC, NECO, Matric, UNEB, NECTA).</li><li><strong>Romance &amp; Sextortion Fraud:</strong> Manipulating victims through fake romantic identities for money, or threatening to expose private photos/messages unless paid.</li><li><strong>Impersonation &amp; Fake Engagement:</strong> Pretending to be another creator, business, bank, telecom operator, government ministry, or Oneova staff; operating bot farms; or buying/selling fake views, followers, likes, or wash-gifting rings.</li></ul>
+<div class="exec-callout"><strong>Official Safety Notice:</strong> Oneova employees and verified support will <strong>NEVER</strong> message you to ask for your password, 2FA code, or mobile-money PIN.</div>
+<hr class="rule-divider">
+<h2 id="2-human-dignity-anti-hate-harassment-protections">2. Human Dignity, Anti-Hate &amp; Harassment Protections</h2>
+<div class="exec-callout"><strong>In Short:</strong> Celebrate culture and debate ideas, but never dehumanize groups or target individuals for abuse.</div>
+<p><strong>Not Allowed:</strong></p>
+<ul><li><strong>Hate Speech &amp; Ethnic/Religious Incitement:</strong> Content attacking, dehumanizing, calling for exclusion, or inciting discrimination or violence against people based on ethnicity, tribe, clan, race, national origin, religion, caste, gender, sexual orientation, disability, albinism, serious disease, or refugee/migrant status.</li><li><strong>Harassment, Bullying &amp; Raids:</strong> Coordinated mass-harassment, repeated unwanted contact after being blocked, malicious humiliation edits, or encouraging anyone to harm themselves.</li><li><strong>Doxxing (Privacy Violations):</strong> Publishing another person's private phone number, home address, national ID/passport, financial details, or real-time private location without consent.</li><li><strong>Non-Consensual Intimate Imagery (NCII):</strong> Sharing, threatening to share, or requesting private intimate images, hidden-camera footage, or sexualized AI deepfakes of any person without explicit consent (<strong>instant permanent ban</strong>).</li></ul>
+<p><strong>Context Exception:</strong> Educational reporting, historical documentaries, artistic expression, and good-faith counter-speech condemning hate are permitted when clearly framed and non-inciting.</p>
+<hr class="rule-divider">
+<h2 id="3-child-teen-safety-absolute-zero-tolerance">3. Child &amp; Teen Safety (Absolute Zero Tolerance)</h2>
+<div class="exec-callout"><strong>In Short:</strong> Protecting minors comes before everything else on Oneova.</div>
+<ul><li><strong>Instant Permanent Ban &amp; Law Enforcement Referral:</strong> Any Child Sexual Abuse Material (CSAM)—whether real, edited, illustrated, or AI-generated—along with grooming, sexual solicitation of minors, youth sextortion, child marriage promotion, FGM promotion, or child labor/trafficking lures.</li><li>Teen accounts (13–17) are protected by strict built-in safety settings under our <a href="/child-safety.html">Child &amp; Teen Safety Policy</a>.</li></ul>
+<hr class="rule-divider">
+<h2 id="4-violence-human-trafficking-regulated-goods">4. Violence, Human Trafficking &amp; Regulated Goods</h2>
+<p><strong>Not Allowed:</strong></p>
+<ul><li><strong>Violent Extremism &amp; Organized Crime:</strong> Praising, recruiting for, funding, or displaying propaganda of terrorist organizations, violent extremist militias, or criminal gangs.</li><li><strong>Human Trafficking &amp; Smuggling:</strong> Recruitment lures disguising forced labor or sexual exploitation as modelling, sports trials, or overseas agency work.</li><li><strong>Graphic Violence &amp; Dangerous Stunts:</strong> Gore posted for shock or sadism, animal cruelty, or viral challenges likely to cause severe physical injury.</li><li><strong>Self-Harm &amp; Suicide:</strong> Content instructing, glorifying, or encouraging suicide, self-injury, or eating disorders. <em>(Searches and reports involving self-harm surface free local crisis helplines.)</em></li><li><strong>Illegal &amp; Restricted Trade:</strong> Firearms, ammunition, explosives, narcotics, prescription-only drugs sold without license, hazardous skin-bleaching mercury/hydroquinone compounds, stolen credentials, or protected wildlife products (ivory, rhino horn, pangolin scales, illegal bushmeat).</li></ul>
+<hr class="rule-divider">
+<h2 id="5-adult-content-cultural-sensitivity">5. Adult Content &amp; Cultural Sensitivity</h2>
+<ul><li><strong>No Pornography or Sexual Solicitation:</strong> Explicit sexual acts, commercial escorting/prostitution solicitation, and sexually explicit Live broadcasts are banned.</li><li><strong>Cultural, Educational &amp; Health Context Respected:</strong> Traditional African and global cultural attire, breastfeeding, childbirth education, post-mastectomy awareness, and legitimate fine art are <strong>welcomed</strong> and are never treated as pornography (age-gating or sensitivity screens may apply where appropriate).</li></ul>
+<hr class="rule-divider">
+<h2 id="6-civic-election-public-health-integrity">6. Civic, Election &amp; Public-Health Integrity</h2>
+<ul><li><strong>Voter Suppression &amp; Procedural Falsehoods:</strong> Do not spread false instructions on <strong>when, where, or how to vote</strong>, who is eligible to vote, or fabricated official election tallies aimed at sparking violence.</li><li><strong>Civic Intimidation:</strong> Threats against voters, election observers, journalists, or polling officials are removed immediately.</li><li><strong>Political Advertising:</strong> Paid political or issue ads must be clearly labeled with verified payer disclosure and pause during statutory national election-silence windows.</li><li><strong>Harmful Medical Misinformation:</strong> False claims about active disease outbreaks or fake miracle cures that discourage life-saving medical care are prohibited.</li></ul>
+<hr class="rule-divider">
+<h2 id="7-creator-copyright-attribution-ai-media-rules">7. Creator Copyright, Attribution &amp; AI Media Rules</h2>
+<ul><li><strong>Respect Original Creators:</strong> Upload only video, music, beats, DJ mixes, comedy skits, and sports footage you created or hold rights to use. Preserve Oneova's audio attribution disc and Remix credits.</li><li><strong>AI Transparency:</strong> Realistic AI-generated or face/voice-cloned media of real-looking people or real-world events must display Oneova's <strong>AI-Generated</strong> label. Never use AI to impersonate someone for money, defame private citizens, or fabricate news crises.</li></ul>
+<hr class="rule-divider">
+<h2 id="8-live-broadcasts-pk-battles-gifts-biz-conduct">8. Live Broadcasts, PK Battles, Gifts &amp; Biz Conduct</h2>
+<ul><li><strong>18+ Live Hosting:</strong> Only users aged <strong>18+</strong> may host Live broadcasts or receive virtual Gifts. Minors may not host Live solo.</li><li><strong>Honest Gifting &amp; PK Battles:</strong> Never coerce viewers into gifting through fake emergencies, illegal gambling/roulette wheels, or promises of explicit content.</li><li><strong>Honest Biz Commerce:</strong> Describe items accurately, display real prices in local currency, never ship counterfeits, and keep transactions transparent under our <a href="/biz-policy.html">Biz &amp; Creator Monetization Policy</a>.</li></ul>
+<hr class="rule-divider">
+<h2 id="9-transparent-enforcement-ladder-reporting-appeals">9. Transparent Enforcement Ladder, Reporting &amp; Appeals</h2>
+<div class="exec-callout"><strong>In Short:</strong> Honest mistakes get clear warnings. Severe harm gets an instant ban. Every enforcement notice explains the rule and gives you a human appeal button.</div>
+<h3 id="9-1-graduated-strike-system">9.1 Graduated Strike System</h3>
+<div class="table-wrap"><table><thead><tr><th>Tier</th><th>Trigger</th><th>Action Taken</th></tr></thead><tbody><tr><td><strong>Educational Warning</strong></td><td>First low-severity or unintentional rule breach</td><td>Content removed (or age-gated) + plain-language explanation; <strong>0 strikes</strong></td></tr><tr><td><strong>Strike 1</strong></td><td>Repeat minor breach or first moderate breach</td><td>Content removed + <strong>7-day temporary restriction</strong> on the relevant feature (e.g., Live or comments)</td></tr><tr><td><strong>Strike 2</strong></td><td>Second strike within 90 days</td><td>Content removed + <strong>30-day feature &amp; monetization restriction</strong></td></tr><tr><td><strong>Strike 3</strong></td><td>Third strike within 90 days</td><td><strong>Account suspension / termination</strong></td></tr><tr><td><strong>Severe Zero-Tolerance Ban</strong></td><td>CSAM/CSAE, terrorism, human trafficking, NCII/sextortion, major financial fraud, credible threats to life</td><td><strong>Immediate permanent account &amp; device ban</strong>, freeze of fraudulent proceeds, and referral to authorities where required by law</td></tr></tbody></table></div>
+<p><em>Strikes expire automatically after <strong>90 consecutive violation-free days</strong>.</em></p>
+<h3 id="9-2-2-tap-anonymous-reporting">9.2 2-Tap Anonymous Reporting</h3>
+<p>Tap <strong>⋯ → Report</strong> on any Reel, Story, Live stream, Comment, Chat thread, Profile, or Biz product. Your identity is <strong>never</strong> revealed to the reported user.</p>
+<h3 id="9-3-independent-human-appeals">9.3 Independent Human Appeals</h3>
+<p>Every moderation notice includes a 1-tap <strong>Appeal</strong> button. Appeals are reviewed free of charge by a trained human specialist who was not involved in the original decision—typically within <strong>24 hours</strong> for Live/Wallet restrictions and <strong>7 days</strong> for standard content appeals, or via <code>appeals@oneova.app</code>.</p>
+<h3 id="9-4-semi-annual-transparency-reports">9.4 Semi-Annual Transparency Reports</h3>
+<p>Every six months, Oneova publishes aggregate statistics covering takedowns by category and region, automated vs. human actions, appeal reversal rates, and government requests received and rejected.</p>
+        <footer class="doc-footer">
+            <span>© 2026 Oneova Technologies Inc. All rights reserved.</span>
+            <span>Official Trust &amp; Legal Office: legal@oneova.app · dpo@oneova.app</span>
+        </footer>
+    </main>
+    <script src="/js/live-legal-sync.js" data-cms-doc="policy-community-guidelines" defer></script>
+</body>
+</html>

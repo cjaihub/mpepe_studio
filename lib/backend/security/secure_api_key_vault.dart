@@ -3,6 +3,7 @@ import 'package:crypto/crypto.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
+import 'oneova_ai_gateway.dart';
 
 final secureKeyVaultProvider = Provider<SecureKeyVault>((ref) {
   return SecureKeyVault();
@@ -119,18 +120,8 @@ class SecureKeyVault {
       // Secure storage read fallback
     }
 
-    // 2. Check dotenv
-    final envVal = dotenv.env['OPENROUTER_API_KEY'];
-    if (envVal != null && envVal.trim().isNotEmpty) {
-      return envVal.trim();
-    }
-
-    // 3. Check compile-time environment variable
-    const compileVal = String.fromEnvironment('OPENROUTER_API_KEY', defaultValue: '');
-    if (compileVal.trim().isNotEmpty) {
-      return compileVal.trim();
-    }
-
+    // No bundled fallback: without a user key, calls go through the aiProxy
+    // Cloud Function (OneovaAiGateway), which holds Oneova's key server-side.
     return '';
   }
 
@@ -171,7 +162,7 @@ class SecureKeyVault {
   Future<Map<String, String>> getOpenRouterHeaders({String? overrideKey}) async {
     final key = overrideKey ?? await getOpenRouterApiKey();
     return {
-      'Authorization': 'Bearer $key',
+      'Authorization': 'Bearer ${await OneovaAiGateway.bearer(key)}',
       'Content-Type': 'application/json',
       'HTTP-Referer': 'https://oneova.app',
       'X-Title': 'Oneova',

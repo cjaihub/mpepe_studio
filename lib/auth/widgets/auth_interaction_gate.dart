@@ -162,14 +162,15 @@ class OneovaAuthInteractionSheet extends StatelessWidget {
           ),
           const SizedBox(height: 22),
 
-          // CTA 1: Create Account
+          // CTA: one entry for sign-in and sign-up
           SizedBox(
             width: double.infinity,
             height: 42,
             child: ElevatedButton(
               onPressed: () {
                 Navigator.of(context).pop();
-                context.push('/auth/signup_wizard');
+                // One entry: the login screen tells new and existing numbers apart.
+                context.push('/auth/main_login');
               },
               style: ElevatedButton.styleFrom(
                 backgroundColor: AppColors.brandBlue,
@@ -180,38 +181,10 @@ class OneovaAuthInteractionSheet extends StatelessWidget {
                 ),
               ),
               child: Text(
-                'Create Account in 60s',
+                'Sign In or Create Account',
                 style: GoogleFonts.inter(
                   fontSize: 14,
                   fontWeight: FontWeight.w700,
-                ),
-              ),
-            ),
-          ),
-          const SizedBox(height: 10),
-
-          // CTA 2: Log In
-          SizedBox(
-            width: double.infinity,
-            height: 42,
-            child: OutlinedButton(
-              onPressed: () {
-                Navigator.of(context).pop();
-                context.push('/auth/main_login');
-              },
-              style: OutlinedButton.styleFrom(
-                backgroundColor: surfaceMid,
-                foregroundColor: textPrimary,
-                side: BorderSide(color: borderColor, width: 1.0),
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(AppRadius.sm),
-                ),
-              ),
-              child: Text(
-                'Log In to Existing Account',
-                style: GoogleFonts.inter(
-                  fontSize: 13.5,
-                  fontWeight: FontWeight.w600,
                 ),
               ),
             ),

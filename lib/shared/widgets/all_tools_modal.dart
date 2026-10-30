@@ -195,6 +195,8 @@ class _AllToolsModalState extends State<AllToolsModal> {
       _AllToolItem('PiP Studio', Icons.picture_in_picture_alt_rounded, '/create/camera?mode=pip', 'Dual-camera simultaneous reaction and streaming.'),
       _AllToolItem('Go Live', Icons.sensors_rounded, '/live/broadcast', 'Full-screen LIVE to your followers.'),
       _AllToolItem('Live Studio', Icons.view_quilt_rounded, '/live/broadcast?mode=studio', 'Guests as video windows on studio walls.'),
+      _AllToolItem('Game Live', Icons.sports_esports, '/live/broadcast?mode=gaming', 'Stream your phone game with your camera in a bubble.'),
+      _AllToolItem('Gaming lives', Icons.videogame_asset_rounded, '/live/gaming', 'Watch game lives that are on air right now.'),
       _AllToolItem('Camera', Icons.camera_alt_rounded, '/create/camera', 'Blackmagic color science production camera.'),
       _AllToolItem('Retouch', Icons.auto_awesome_rounded, '/photo/studio', 'Portrait AI skin smoothing and facial sculpting.'),
       _AllToolItem('Auto captions', Icons.subtitles_rounded, '/video/dashboard', 'Neural synchronized kinetic subtitles.'),

@@ -122,23 +122,29 @@ class _AISuggestionCardState extends State<AISuggestionCard> {
                   ),
                 ),
                 const SizedBox(width: 8),
-                Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
-                  decoration: BoxDecoration(
-                    color: AppColors.brandPink.withValues(alpha: 0.12),
-                    borderRadius: BorderRadius.circular(AppRadius.xs),
-                    border: Border.all(color: AppColors.brandPink.withValues(alpha: 0.3)),
-                  ),
-                  child: Text(
-                    '${opt.viralScore}% Viral Score',
-                    style: GoogleFonts.inter(
-                      fontSize: 10,
-                      fontWeight: FontWeight.w700,
-                      color: AppColors.brandPink,
+                Flexible(
+                  child: Align(
+                    alignment: Alignment.centerLeft,
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
+                      decoration: BoxDecoration(
+                        color: AppColors.brandPink.withValues(alpha: 0.12),
+                        borderRadius: BorderRadius.circular(AppRadius.xs),
+                        border: Border.all(color: AppColors.brandPink.withValues(alpha: 0.3)),
+                      ),
+                      child: Text(
+                        '${opt.viralScore}% Viral Score',
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: GoogleFonts.inter(
+                          fontSize: 10,
+                          fontWeight: FontWeight.w700,
+                          color: AppColors.brandPink,
+                        ),
+                      ),
                     ),
                   ),
                 ),
-                const Spacer(),
                 IconButton(
                   icon: const Icon(Icons.refresh, size: 18),
                   tooltip: 'Re-analyze',
@@ -237,6 +243,8 @@ class _AISuggestionCardState extends State<AISuggestionCard> {
                     icon: const Icon(Icons.paste_rounded, size: 14),
                     label: Text(
                       'Apply AI Caption',
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
                       style: GoogleFonts.inter(fontSize: 11.5, fontWeight: FontWeight.w600),
                     ),
                     onPressed: () {
@@ -259,6 +267,8 @@ class _AISuggestionCardState extends State<AISuggestionCard> {
                     icon: const Icon(Icons.tag_rounded, size: 14),
                     label: Text(
                       'Insert All Tags (${opt.suggestedHashtags.length})',
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
                       style: GoogleFonts.inter(fontSize: 11.5, fontWeight: FontWeight.w600),
                     ),
                     onPressed: () {

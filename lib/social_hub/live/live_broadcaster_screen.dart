@@ -9,12 +9,17 @@ import 'package:go_router/go_router.dart';
 import 'package:google_fonts/google_fonts.dart';
 import '../../backend/live/models/live_models.dart';
 import '../../backend/live/services/live_service.dart';
+import '../../backend/live/live_restream_service.dart';
+import '../../backend/connections/linked_accounts.dart' show usableLinkedAccountsProvider;
+import '../../shared/widgets/linked_destinations_picker.dart';
 import '../../shared/theme/app_theme.dart';
 import '../../backend/live/services/live_stage_media_controller.dart';
 import '../../backend/live_studio/live_studio_flag.dart';
 import '../../backend/live_studio/media/studio_media_api.dart';
+import 'studio_v2/gaming/game_title_sheet.dart';
 import 'classic/live_classic_host_view.dart';
 import 'go_live/oneova_go_live_screen.dart';
+import 'settings/live_advanced_settings_sheet.dart';
 import 'widgets/oneova_live_creation_wizard.dart';
 import 'widgets/oneova_live_media_desk_sheet.dart';
 
@@ -202,6 +207,19 @@ class _LiveBroadcasterScreenState extends ConsumerState<LiveBroadcasterScreen>
   // LIVE ACTIONS & AI STAGE
   // ─────────────────────────────────────────────────────────────────────────
 
+  /// Records the linked platforms this account picked to also go live on
+  /// (Go LIVE → Platforms). Never blocks or fails the Oneova live itself.
+  Future<void> _requestRestream(String streamId) async {
+    try {
+      final picked = ref.read(activeDestinationsProvider(DestinationPurpose.live));
+      if (picked.isEmpty) return;
+      final targets = ref.read(usableLinkedAccountsProvider).where((a) => picked.contains(a.platform.id));
+      await ref.read(liveRestreamServiceProvider).request(streamId, targets);
+    } catch (e) {
+      debugPrint('[LiveBroadcaster] restream request failed: $e');
+    }
+  }
+
   Future<void> _startBroadcastFromConfig(OneovaLiveCreationConfig config) async {
     final title = config.title.trim().isNotEmpty
         ? config.title.trim()
@@ -270,9 +288,27 @@ class _LiveBroadcasterScreenState extends ConsumerState<LiveBroadcasterScreen>
         _ => 'public',
       };
 
+      // Game Live runs on Live Studio v2 only.
+      final gaming = config.layoutMode == 'gaming';
+      final v2 = (config.layoutMode == 'studio' || gaming) &&
+          await ref.read(liveStudioV2EnabledProvider.future);
+      if (gaming && !v2) {
+        _showSnack('Game Live is not available yet.');
+        return;
+      }
+
       // Live Studio v2 (flag live_studio_v2): server-authoritative start.
-      if (config.layoutMode == 'studio' && await ref.read(liveStudioV2EnabledProvider.future)) {
-        final started = await ref.read(studioMediaApiProvider).start(title);
+      if (v2) {
+        String? gameTitle;
+        if (gaming) {
+          if (!mounted) return;
+          gameTitle = await showGameTitleSheet(context);
+          if (gameTitle == null) return; // dismissed: stay on the setup screen
+        }
+        final started = await ref
+            .read(studioMediaApiProvider)
+            .start(title, gaming: gaming, gameTitle: gameTitle);
+        unawaited(_requestRestream(started.streamId));
         final preview = _cameraCtrl;
         _cameraCtrl = null;
         _cameraReady = false;
@@ -302,6 +338,8 @@ class _LiveBroadcasterScreenState extends ConsumerState<LiveBroadcasterScreen>
             frameRate: fps,
             layoutMode: config.layoutMode,
           );
+
+      unawaited(_requestRestream(stream.id));
 
       // Release the preview camera so WebRTC can open it for broadcasting.
       final preview = _cameraCtrl;
@@ -674,7 +712,7 @@ class _LiveBroadcasterScreenState extends ConsumerState<LiveBroadcasterScreen>
                         setState(() => _micEnabled = !_micEnabled);
                       }
                       if (btn.label == 'Beauty') {
-                        setState(() => _beautyEnabled = !_beautyEnabled);
+                        showLiveAdvancedSettingsSheet(context);
                       }
                       if (btn.label == 'Media Desk' && _liveStream != null) {
                         OneovaLiveMediaDeskSheet.show(

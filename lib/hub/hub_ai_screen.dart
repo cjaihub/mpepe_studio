@@ -18,6 +18,9 @@ import 'dart:convert';
 import '../backend/repair/oneova_self_repair_engine.dart';
 import '../backend/repair/oneova_auto_updater.dart';
 import '../ova_assistant/widgets/ova_live_calling_overlay.dart';
+import '../ova_assistant/widgets/ova_mood_journey_card.dart';
+import '../ova_assistant/services/ova_adaptive_suggestions_service.dart';
+import '../ova_assistant/memory/ova_memory_engine.dart';
 
 class HubAiScreen extends ConsumerStatefulWidget {
   const HubAiScreen({super.key});
@@ -58,7 +61,7 @@ class _HubAiScreenState extends ConsumerState<HubAiScreen> {
             _messages.add({"role": "user", "content": item.query});
             if (item.response != null &&
                 item.response!.isNotEmpty &&
-                !item.response!.contains('OPENROUTER_API_KEY is missing')) {
+                !item.response!.contains('Sign in to use Oneova AI')) {
               _messages.add({"role": "assistant", "content": item.response, "type": "text"});
             }
           }
@@ -74,11 +77,21 @@ class _HubAiScreenState extends ConsumerState<HubAiScreen> {
     if (text.isEmpty) return;
 
     HapticFeedback.lightImpact();
+    final memoryEngine = ref.read(ovaMemoryEngineProvider);
+    memoryEngine.detectEmotion(text, sessionId: 'hub_ai');
+    final uid = FirebaseAuth.instance.currentUser?.uid ?? 'guest';
+
     setState(() {
       _messages.add({"role": "user", "content": text});
       _isChatLoading = true;
       _chatController.clear();
     });
+
+    memoryEngine.updateRollingSummary(
+      sessionId: 'hub_ai',
+      userId: uid,
+      recentTurns: _messages,
+    );
 
     // ─────────────────────────────────────────────────────────────────
     // Autonomous Self-Repair & Diagnostics Routing
@@ -786,11 +799,15 @@ class _HubAiScreenState extends ConsumerState<HubAiScreen> {
               ],
             ),
           ),
-          const SizedBox(height: 16),
+          const SizedBox(height: 12),
+          OvaMoodJourneyCard(
+            snapshots: ref.watch(ovaMemoryEngineProvider).getSessionMoodHistory('hub_ai'),
+          ),
+          const SizedBox(height: 12),
           Padding(
             padding: const EdgeInsets.symmetric(horizontal: 4.0),
             child: Text(
-              'Autonomous Procedures & Workflows',
+              'Personalized AI Agent Actions',
               style: TextStyle(
                   fontSize: 12,
                   fontWeight: FontWeight.w700,
@@ -798,59 +815,14 @@ class _HubAiScreenState extends ConsumerState<HubAiScreen> {
             ),
           ),
           const SizedBox(height: 8),
-          _buildPillAction(
-            'Autonomous Self-Repair & Diagnostics',
-            'Run autonomous system diagnostics, heal backend user records, inspect feed pipelines, and check for background updates',
-            Icons.healing_rounded,
-            badge: 'REPAIR',
-          ),
-          _buildPillAction(
-            'How to Reach Customer? (Vector + Graph)',
-            'How to reach them? Check customer preferences and orders',
-            Icons.hub_rounded,
-            badge: 'SEMANTIC',
-          ),
-          _buildPillAction(
-            'Safe Ticket & Refund (Avoid Mistakes)',
-            'Close ticket and process customer refund',
-            Icons.shield_rounded,
-            badge: 'SAFEGUARD',
-          ),
-          _buildPillAction(
-            'Boost to Oneova Reels',
-            'Export and boost this reel to Oneova public reels with LinUCB accelerator',
-            Icons.bolt_rounded,
-            badge: 'AGENT',
-          ),
-          _buildPillAction(
-            'Safety & Burn Notice Audit',
-            'Run community safety, adult moderation, and burn notice audit',
-            Icons.shield_outlined,
-            badge: 'AGENT',
-          ),
-          _buildPillAction(
-            'Live Stage Digital Twin',
-            'Activate my live stage digital twin persona for streaming',
-            Icons.face_retouching_natural_rounded,
-            badge: 'AGENT',
-          ),
-          _buildPillAction(
-            'Viral Hashtag Radar',
-            'Generate high-velocity viral hashtags and optimal timing for trending',
-            Icons.tag_rounded,
-            badge: 'AGENT',
-          ),
-          _buildPillAction(
-            'Plan a Budget-Friendly Safari',
-            'Plan a budget-friendly safari',
-            Icons.landscape_rounded,
-          ),
-          _buildPillAction(
-            'Draft Viral Reel Script (15s)',
-            'Draft a viral Reel script for creative studio',
-            Icons.auto_awesome_rounded,
-            badge: 'PRO',
-          ),
+          ...ref.watch(ovaAdaptiveSuggestionsServiceProvider).getPersonalizedPrompts().map(
+                (p) => _buildPillAction(
+                  p.title,
+                  p.prompt,
+                  p.icon,
+                  badge: p.badge,
+                ),
+              ),
         ],
       ),
     );

@@ -98,7 +98,7 @@ async function resolveTarget(data, authUid) {
         throw new https_1.HttpsError('failed-precondition', 'Add an email address to your account first.');
     return { email, user };
 }
-exports.sendEmailCode = (0, https_1.onCall)({ secrets: mailer_1.MAIL_SECRETS }, async (request) => {
+exports.sendEmailCode = (0, https_1.onCall)(async (request) => {
     var _a, _b;
     var _c, _d;
     const data = ((_c = request.data) !== null && _c !== void 0 ? _c : {});

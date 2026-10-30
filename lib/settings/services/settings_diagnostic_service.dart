@@ -67,7 +67,7 @@ final accountHealthProvider = Provider<AccountHealthReport>((ref) {
   final issues = <DiagnosticIssue>[];
 
   // 1. Notification alerts check
-  final bool inAppBanner = notifSettings['inAppBannerEnabled'] ?? true;
+  final bool inAppBanner = notifSettings['inAppEnabled'] ?? true;
   final bool uploadAlerts = notifSettings['uploadAlerts'] ?? true;
   if (!inAppBanner || !uploadAlerts) {
     issues.add(
@@ -77,7 +77,7 @@ final accountHealthProvider = Provider<AccountHealthReport>((ref) {
         title: 'Critical Alerts Subdued',
         description: 'In-app notification banners or upload alerts are disabled. You may miss live drops.',
         severity: DiagnosticSeverity.warning,
-        settingKey: 'inAppBannerEnabled',
+        settingKey: 'inAppEnabled',
         route: '/settings/notifications',
         canAutoFix: true,
         fixLabel: 'Enable Alerts',
@@ -170,7 +170,7 @@ class SettingsDiagnosticService {
     switch (issueId) {
       case 'notif_muted':
         await ref.read(settingsProvider.notifier).updateCategory('notifications', {
-          'inAppBannerEnabled': true,
+          'inAppEnabled': true,
           'uploadAlerts': true,
           'commentsMentions': true,
         });

@@ -17,10 +17,18 @@ import 'services/cinema_preset_service.dart';
 import 'models/host_shorts_session.dart';
 import 'services/host_shorts_multicam_service.dart';
 import 'package:flutter_webrtc/flutter_webrtc.dart';
+import 'studio/models/studio_project.dart';
+import 'studio/screens/studio_editor_screen.dart';
+import 'studio/services/studio_media.dart';
+import 'studio/services/studio_project_store.dart';
 import '../shared/theme/app_theme.dart';
 import '../shared/widgets/oneova_file_picker.dart';
-import 'pro_workstation_editor_screen.dart';
-import '../backend/projects/services/oneova_draft_engine.dart';
+import '../looks/camera/camera_looks_controller.dart';
+import '../looks/camera/models/camera_smart_lock_state.dart';
+import '../looks/camera/widgets/camera_smart_lock_hud.dart';
+import '../looks/camera/widgets/camera_pro_controls_deck.dart';
+import '../looks/camera/widgets/camera_looks_dock.dart';
+import '../looks/camera/services/camera_quick_access_service.dart';
 
 /// OneOva Pro — Camera & Story Creator Studio
 /// Obsidian Telemetry Theme (#08080A, #FF2D75, #00F2FE)
@@ -57,9 +65,10 @@ class _CameraScreenState extends ConsumerState<CameraScreen> with WidgetsBinding
   bool _isAiAutoGradeActive = true;
   bool _showFalseColor = false;
   bool _showProTelemetryDeck = false;
+  bool _showLooksDock = false;
+  StreamSubscription? _quickAccessSub;
   bool _isFocusPeakingOn = false;
   int _selectedIso = 200; // Auto, 100, 200, 400, 800, 1600, 3200
-  String _selectedShutterAngle = '180°'; // 180°, 90°, 360°
 
   // Host Shorts Multi-Cam State
   bool _isHostShortsSwapped = false;
@@ -75,8 +84,6 @@ class _CameraScreenState extends ConsumerState<CameraScreen> with WidgetsBinding
   static const Color brandGold = Color(0xFFFFB300);
 
   final List<String> _durationModes = const ['PHOTO', '15s', '60s', '10m', 'DUAL CAM'];
-  final List<int> _isoList = const [100, 200, 400, 800, 1600, 3200];
-  final List<String> _shutterAngles = const ['90°', '180°', '360°'];
 
   @override
   void initState() {
@@ -92,6 +99,25 @@ class _CameraScreenState extends ConsumerState<CameraScreen> with WidgetsBinding
       _activeDurationMode = 'DUAL CAM';
       _activeBroadcastMode = 'HOST SHORTS';
     }
+    _quickAccessSub = ref.read(cameraQuickAccessServiceProvider).onQuickLaunch.listen((launch) {
+      if (!mounted) return;
+      setState(() {
+        switch (launch.initialMode) {
+          case CaptureMode.photo:
+            _activeDurationMode = 'PHOTO';
+            break;
+          case CaptureMode.dualCamera:
+            _activeDurationMode = 'DUAL CAM';
+            break;
+          default:
+            _activeDurationMode = '60s';
+            break;
+        }
+      });
+      if (launch.autoRecord) {
+        _startVideoRecording();
+      }
+    });
     _initCamera();
   }
 
@@ -126,6 +152,7 @@ class _CameraScreenState extends ConsumerState<CameraScreen> with WidgetsBinding
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
+    _quickAccessSub?.cancel();
     _recordingTimer?.cancel();
     _cameraController?.dispose();
     _pairCodeController.dispose();
@@ -165,12 +192,19 @@ class _CameraScreenState extends ConsumerState<CameraScreen> with WidgetsBinding
       }
     }
 
-    _navigateToPreview('demo_photo_${DateTime.now().millisecondsSinceEpoch}.jpg', isVideo: false);
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('The camera is not ready yet.'), backgroundColor: AppColors.brandPink),
+      );
+    }
   }
 
   Future<void> _startVideoRecording() async {
     HapticFeedback.heavyImpact();
     if (_isRecording) return;
+
+    // Auto-engage Smart Lock (AE / AF / AWB) for shake/flicker-free capture
+    ref.read(cameraLooksControllerProvider.notifier).engageSmartLock();
 
     // Trigger Host Shorts multi-cam synchronized recording across paired devices
     final hostSession = ref.read(hostShortsServiceProvider);
@@ -202,6 +236,7 @@ class _CameraScreenState extends ConsumerState<CameraScreen> with WidgetsBinding
   Future<void> _stopVideoRecording() async {
     HapticFeedback.lightImpact();
     _recordingTimer?.cancel();
+    ref.read(cameraLooksControllerProvider.notifier).releaseSmartLock();
 
     // Stop synchronized recording on secondary paired camera
     final hostSession = ref.read(hostShortsServiceProvider);
@@ -223,7 +258,11 @@ class _CameraScreenState extends ConsumerState<CameraScreen> with WidgetsBinding
     }
 
     setState(() => _isRecording = false);
-    _navigateToPreview('demo_video_${DateTime.now().millisecondsSinceEpoch}.mp4', isVideo: true);
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Recording failed. Try again.'), backgroundColor: AppColors.brandPink),
+      );
+    }
   }
 
   Future<void> _runCountdownTimer() async {
@@ -333,28 +372,33 @@ class _CameraScreenState extends ConsumerState<CameraScreen> with WidgetsBinding
     double aspectRatio = 9 / 16,
     double durationSeconds = 0.0,
   }) async {
+    final messenger = ScaffoldMessenger.of(context);
+    if (!await File(path).exists()) {
+      messenger.showSnackBar(SnackBar(
+        content: Text(isVideo ? 'Nothing was recorded. Try again.' : 'The photo was not captured. Try again.'),
+        backgroundColor: AppColors.brandPink,
+      ));
+      return;
+    }
     try {
-      final draft = await ref.read(oneovaDraftEngineProvider.notifier).createDraftFromMedia(
-        sourcePath: path,
-        isVideo: isVideo,
-        title: 'Oneova Cine (${_activePreset.name})',
-        durationSeconds: durationSeconds > 0 ? durationSeconds : _recordingSecondsElapsed.toDouble(),
-        trimStartSeconds: trimStartSeconds,
-        trimEndSeconds: trimEndSeconds,
-        speedMultiplier: speedMultiplier,
-        aspectRatio: aspectRatio,
-      );
-
-      if (mounted) {
-        Navigator.push(
-          context,
-          MaterialPageRoute(
-            builder: (context) => ProWorkstationEditorScreen(draft: draft),
-          ),
+      // Camera files live in cache; keep a copy so the project survives.
+      final kept = await StudioProjectStore.keepFile(path);
+      var clip = await StudioMedia.clipFromFile(kept, isImage: !isVideo);
+      if (isVideo && trimEndSeconds > trimStartSeconds) {
+        clip = clip.copyWith(
+          startMs: (trimStartSeconds * 1000).round().clamp(0, clip.sourceDurationMs),
+          endMs: (trimEndSeconds * 1000).round().clamp(0, clip.sourceDurationMs),
         );
       }
+      if (isVideo && speedMultiplier > 0 && speedMultiplier != 1.0) clip = clip.copyWith(speed: speedMultiplier);
+      final project = StudioProject.create(isPhoto: !isVideo, clips: [clip]);
+      // STORY mode posts to stories; every other mode publishes a post.
+      final target = _activeBroadcastMode == 'STORY' ? StudioTarget.story : StudioTarget.post;
+      if (!mounted) return;
+      await context.push('/create/studio/editor', extra: StudioEditorArgs(project: project, target: target));
     } catch (e) {
-      debugPrint('[CameraScreen] Navigation to ProWorkstationEditor error: $e');
+      debugPrint('[CameraScreen] opening editor failed: $e');
+      messenger.showSnackBar(SnackBar(content: Text('Could not open the editor: $e'), backgroundColor: AppColors.brandPink));
     }
   }
 
@@ -598,6 +642,7 @@ class _CameraScreenState extends ConsumerState<CameraScreen> with WidgetsBinding
   Widget build(BuildContext context) {
     final hostSession = ref.watch(hostShortsServiceProvider);
     final isHostShortsActive = _activeBroadcastMode == 'HOST SHORTS' || (hostSession != null && hostSession.isConnected);
+    final cameraLooksState = ref.watch(cameraLooksControllerProvider);
 
     return Scaffold(
       backgroundColor: Colors.black,
@@ -629,10 +674,43 @@ class _CameraScreenState extends ConsumerState<CameraScreen> with WidgetsBinding
                 // Top Navigation & Studio Telemetry Header
                 _buildTopStudioHeader(),
 
+                // Smart Lock Status HUD
+                Padding(
+                  padding: const EdgeInsets.only(top: 4.0),
+                  child: CameraSmartLockHud(
+                    smartLock: cameraLooksState.smartLockState,
+                    onUnlockTap: () => ref.read(cameraLooksControllerProvider.notifier).releaseSmartLock(_cameraController),
+                  ),
+                ),
+
                 // Center Pro Telemetry Deck (when toggled)
-                if (_showProTelemetryDeck) _buildProExposureControlOverlay(),
+                if (_showProTelemetryDeck)
+                  Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 8.0),
+                    child: CameraProControlsDeck(
+                      state: cameraLooksState.smartLockState,
+                      cameraController: _cameraController,
+                      onEvChanged: (ev) => ref.read(cameraLooksControllerProvider.notifier).setExposureBias(ev),
+                      onIsoChanged: (iso) => ref.read(cameraLooksControllerProvider.notifier).setIso(iso),
+                      onShutterChanged: (shutter) => ref.read(cameraLooksControllerProvider.notifier).setShutterSpeed(shutter),
+                      onWbChanged: (mode, {kelvin}) => ref.read(cameraLooksControllerProvider.notifier).setWhiteBalance(mode, kelvin: kelvin),
+                      onFocusChanged: (dist) => ref.read(cameraLooksControllerProvider.notifier).setManualFocus(dist),
+                      onTogglePeaking: () => ref.read(cameraLooksControllerProvider.notifier).toggleFocusPeaking(),
+                      onClose: () => setState(() => _showProTelemetryDeck = false),
+                    ),
+                  ),
 
                 const Spacer(),
+
+                // Snap-Style Looks Carousel Dock (when toggled)
+                if (_showLooksDock)
+                  CameraLooksDock(
+                    activeLook: cameraLooksState.activeLook,
+                    onLookSelected: (look) => ref.read(cameraLooksControllerProvider.notifier).applyLook(look),
+                    onIntensityChanged: (val) => ref.read(cameraLooksControllerProvider.notifier).setLookIntensity(val),
+                    onOpenCatalog: _showPresetDrawer,
+                    onClose: () => setState(() => _showLooksDock = false),
+                  ),
 
                 // Bottom Creator Console & Capture Deck
                 _buildBottomCreatorConsole(),
@@ -1314,125 +1392,7 @@ class _CameraScreenState extends ConsumerState<CameraScreen> with WidgetsBinding
     );
   }
 
-  // ────────────────────────────────────────────────────────────────────────
-  // Pro Exposure & Assist HUD Overlay (ISO / Kelvin / Shutter / False Color)
-  // ────────────────────────────────────────────────────────────────────────
-  Widget _buildProExposureControlOverlay() {
-    return Container(
-      margin: const EdgeInsets.symmetric(horizontal: 16),
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-      decoration: BoxDecoration(
-        color: const Color(0xE6101014),
-        borderRadius: BorderRadius.circular(22),
-        border: Border.all(color: Colors.white12),
-        boxShadow: const [BoxShadow(color: Colors.black87, blurRadius: 20)],
-      ),
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              Text('Cinema Exposure HUD', style: GoogleFonts.inter(color: Colors.white, fontSize: 13, fontWeight: FontWeight.w800)),
-              Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  // False Color Toggle
-                  GestureDetector(
-                    onTap: () {
-                      HapticFeedback.selectionClick();
-                      setState(() => _showFalseColor = !_showFalseColor);
-                    },
-                    child: Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-                      decoration: BoxDecoration(
-                        color: _showFalseColor ? brandPink : Colors.white10,
-                        borderRadius: BorderRadius.circular(12),
-                      ),
-                      child: Text('FALSE COLOR', style: GoogleFonts.firaCode(fontSize: 9, fontWeight: FontWeight.w800, color: Colors.white)),
-                    ),
-                  ),
-                  const SizedBox(width: 8),
-                  // Focus Peaking Toggle
-                  GestureDetector(
-                    onTap: () {
-                      HapticFeedback.selectionClick();
-                      setState(() => _isFocusPeakingOn = !_isFocusPeakingOn);
-                    },
-                    child: Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-                      decoration: BoxDecoration(
-                        color: _isFocusPeakingOn ? brandCyan : Colors.white10,
-                        borderRadius: BorderRadius.circular(12),
-                      ),
-                      child: Text('PEAKING', style: GoogleFonts.firaCode(fontSize: 9, fontWeight: FontWeight.w800, color: Colors.white)),
-                    ),
-                  ),
-                ],
-              ),
-            ],
-          ),
-          const SizedBox(height: 10),
 
-          // ISO Selector
-          Row(
-            children: [
-              Text('ISO', style: GoogleFonts.firaCode(color: Colors.white60, fontSize: 11, fontWeight: FontWeight.w700)),
-              const SizedBox(width: 12),
-              Expanded(
-                child: SingleChildScrollView(
-                  scrollDirection: Axis.horizontal,
-                  child: Row(
-                    children: _isoList.map((iso) {
-                      final isSelected = _selectedIso == iso;
-                      return GestureDetector(
-                        onTap: () => setState(() => _selectedIso = iso),
-                        child: Container(
-                          margin: const EdgeInsets.only(right: 8),
-                          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-                          decoration: BoxDecoration(
-                            color: isSelected ? brandPink : Colors.white.withValues(alpha: 0.06),
-                            borderRadius: BorderRadius.circular(8),
-                          ),
-                          child: Text('$iso', style: GoogleFonts.firaCode(color: Colors.white, fontSize: 11, fontWeight: FontWeight.w700)),
-                        ),
-                      );
-                    }).toList(),
-                  ),
-                ),
-              ),
-            ],
-          ),
-
-          const SizedBox(height: 10),
-
-          // Shutter Angle Selector
-          Row(
-            children: [
-              Text('SHUTTER', style: GoogleFonts.firaCode(color: Colors.white60, fontSize: 11, fontWeight: FontWeight.w700)),
-              const SizedBox(width: 12),
-              ..._shutterAngles.map((shutter) {
-                final isSelected = _selectedShutterAngle == shutter;
-                return GestureDetector(
-                  onTap: () => setState(() => _selectedShutterAngle = shutter),
-                  child: Container(
-                    margin: const EdgeInsets.only(right: 8),
-                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-                    decoration: BoxDecoration(
-                      color: isSelected ? brandCyan : Colors.white.withValues(alpha: 0.06),
-                      borderRadius: BorderRadius.circular(8),
-                    ),
-                    child: Text(shutter, style: GoogleFonts.firaCode(color: isSelected ? Colors.black : Colors.white, fontSize: 11, fontWeight: FontWeight.w800)),
-                  ),
-                );
-              }),
-            ],
-          ),
-        ],
-      ),
-    );
-  }
 
   // ────────────────────────────────────────────────────────────────────────
   // 5. Bottom Creator Console & Capture Deck
@@ -1645,9 +1605,13 @@ class _CameraScreenState extends ConsumerState<CameraScreen> with WidgetsBinding
           Row(
             mainAxisSize: MainAxisSize.min,
             children: [
-              // Presets Studio Drawer
+              // Presets Studio Drawer / Snap Looks Dock
               GestureDetector(
-                onTap: _showPresetDrawer,
+                onTap: () {
+                  HapticFeedback.lightImpact();
+                  setState(() => _showLooksDock = !_showLooksDock);
+                },
+                onLongPress: _showPresetDrawer,
                 child: Container(
                   width: 44,
                   height: 44,

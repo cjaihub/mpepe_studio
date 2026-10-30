@@ -6,6 +6,7 @@ import 'package:http/http.dart' as http;
 
 import '../../backend/ai_brain_service.dart';
 import '../../backend/security/secure_api_key_vault.dart';
+import '../../backend/security/oneova_ai_gateway.dart';
 import 'ova_tool_registry.dart';
 
 /// One tool call requested by the model.
@@ -44,7 +45,7 @@ class OvaLlmClient {
   static const _openRouterModel = 'google/gemini-2.5-flash';
 
   Future<bool> hasKey() async {
-    if (brain.openRouterKey.isNotEmpty) return true;
+    if (OneovaAiGateway.canCall(brain.openRouterKey)) return true;
     if ((await vault.getOpenRouterApiKey()).isNotEmpty) return true;
     return (await vault.getGeminiApiKey()).isNotEmpty;
   }
@@ -57,7 +58,7 @@ class OvaLlmClient {
   }) async* {
     var orKey = brain.openRouterKey;
     if (orKey.isEmpty) orKey = await vault.getOpenRouterApiKey();
-    if (orKey.isNotEmpty) {
+    if (OneovaAiGateway.canCall(orKey)) {
       yield* _openRouter(orKey, system, history, tools, imageBase64);
       return;
     }
@@ -94,10 +95,11 @@ class OvaLlmClient {
         };
       }
     }
-    final req = http.Request('POST', Uri.parse('https://openrouter.ai/api/v1/chat/completions'))
+    final bearer = await OneovaAiGateway.bearer(key);
+    final req = http.Request('POST', OneovaAiGateway.chatUri(key))
       ..headers.addAll({
         'Content-Type': 'application/json',
-        'Authorization': 'Bearer $key',
+        'Authorization': 'Bearer $bearer',
         'HTTP-Referer': 'https://oneova.studio',
         'X-Title': 'Oneova',
       })

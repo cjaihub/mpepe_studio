@@ -60,6 +60,7 @@ const firestore_2 = require("firebase-admin/firestore");
 const security_1 = require("./security");
 const mailTemplates_1 = require("./mailTemplates");
 const mailer_1 = require("./mailer");
+const accountSettings_1 = require("./accountSettings");
 const db = () => (0, firestore_2.getFirestore)();
 exports.LINK_MINUTES = 60;
 const REGION = 'us-central1';
@@ -114,7 +115,7 @@ function place(geo) {
         return '';
     return [geo.city, geo.region, geo.country].filter((x) => typeof x === 'string' && x).join(', ');
 }
-exports.guardEmailOnEvent = (0, firestore_1.onDocumentCreated)({ document: 'security_events/{uid}/events/{eventId}', secrets: mailer_1.MAIL_SECRETS }, async (event) => {
+exports.guardEmailOnEvent = (0, firestore_1.onDocumentCreated)('security_events/{uid}/events/{eventId}', async (event) => {
     var _a, _b;
     var _c, _d, _e, _f, _g, _h, _j;
     const e = (_a = event.data) === null || _a === void 0 ? void 0 : _a.data();
@@ -129,8 +130,8 @@ exports.guardEmailOnEvent = (0, firestore_1.onDocumentCreated)({ document: 'secu
     // An ordinary sign-in on a known device does not need an email.
     if (type === 'sign_in' && risk === 'low')
         return;
-    const prefs = await db().collection('users').doc(uid).collection('settings').doc('notifications').get();
-    if (prefs.get('emailSecurityAlerts') === false && risk !== 'high')
+    const prefs = await (0, accountSettings_1.readAccountSettings)(uid, 'notifications', 'settings/notifications');
+    if (prefs.emailSecurityAlerts === false && risk !== 'high')
         return;
     let email;
     try {

@@ -45,11 +45,21 @@ exports.lsStart = (0, https_1.onCall)({ secrets: shared_1.LIVEKIT_SECRETS }, asy
     const uid = (0, shared_1.requireUid)(req);
     const data = ((_b = req.data) !== null && _b !== void 0 ? _b : {});
     const title = (0, shared_1.requireString)(data.title, 'title', 200);
+    let start;
+    try {
+        start = (0, media_logic_1.parseStartKind)(data);
+    }
+    catch (e) {
+        if (e instanceof media_logic_1.StartValidationError)
+            throw new https_1.HttpsError('invalid-argument', e.message);
+        throw e;
+    }
+    const { kind, gameTitle } = start;
     const [profile, savedSnap] = await Promise.all([
         profileOf(uid, (_a = req.auth) === null || _a === void 0 ? void 0 : _a.token),
         (0, shared_1.db)().doc(contracts_1.Paths.hostSettings(uid)).get(),
     ]);
-    const settings = (0, settings_logic_1.normalizeSettings)((0, media_logic_1.mergeStartSettings)(savedSnap.exists ? savedSnap.data() : undefined, data.settings));
+    const settings = (0, media_logic_1.applyStartKind)((0, settings_logic_1.normalizeSettings)((0, media_logic_1.mergeStartSettings)(savedSnap.exists ? savedSnap.data() : undefined, data.settings)), kind);
     const streamRef = (0, shared_1.db)().collection(contracts_1.Paths.streams).doc();
     const streamId = streamRef.id;
     const now = Date.now();
@@ -62,8 +72,8 @@ exports.lsStart = (0, https_1.onCall)({ secrets: shared_1.LIVEKIT_SECRETS }, asy
         throw new https_1.HttpsError('unavailable', 'Could not open the live room. Try again.');
     }
     const batch = (0, shared_1.db)().batch();
-    batch.set(streamRef, Object.assign(Object.assign({}, (0, media_logic_1.buildStreamDoc)({ streamId, hostId: uid, title, profile })), { createdAt: firestore_1.FieldValue.serverTimestamp() }));
-    batch.set((0, shared_1.db)().doc(contracts_1.Paths.state(streamId)), Object.assign(Object.assign({}, (0, media_logic_1.buildInitialState)({ streamId, hostId: uid, title, settings, nowMs: now })), { updatedAt: firestore_1.FieldValue.serverTimestamp() }));
+    batch.set(streamRef, Object.assign(Object.assign({}, (0, media_logic_1.buildStreamDoc)({ streamId, hostId: uid, title, profile, kind, gameTitle })), { createdAt: firestore_1.FieldValue.serverTimestamp() }));
+    batch.set((0, shared_1.db)().doc(contracts_1.Paths.state(streamId)), Object.assign(Object.assign({}, (0, media_logic_1.buildInitialState)({ streamId, hostId: uid, title, settings, nowMs: now, gameTitle })), { updatedAt: firestore_1.FieldValue.serverTimestamp() }));
     batch.set((0, shared_1.db)().doc(`${contracts_1.Paths.members(streamId)}/${uid}`), (0, media_logic_1.buildHostMember)(uid, profile, now));
     await batch.commit();
     const [token, e2ee] = await Promise.all([

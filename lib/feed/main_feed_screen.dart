@@ -27,6 +27,7 @@ import '../social_hub/feed/widgets/author_side_panel.dart';
 import 'widgets/comment_bottom_sheet.dart';
 import 'package:oneova/backend/social/models/comment.dart';
 import 'package:oneova/backend/social/services/comment_service.dart';
+import 'package:oneova/backend/social/services/content_deletion_service.dart';
 import 'widgets/story_viewer_screen.dart';
 import 'providers/oneova_focus_mode_provider.dart';
 import 'providers/live_activity_provider.dart';
@@ -199,62 +200,133 @@ class _ShortVideoFeedScreenState extends ConsumerState<ShortVideoFeedScreen> {
     );
   }
 
-  Future<void> _loadFeed() async {
-    debugPrint('[ShortVideoFeedScreen] _loadFeed started');
-    final perfMonitor = ref.read(performanceMonitorProvider);
-    
+  /// Live `content` subscription behind the current tab. The first snapshot
+  /// is ranked; later ones slot newly published reels/photos in right after
+  /// the page being watched, so other users' posts arrive without a refresh.
+  StreamSubscription<List<Content>>? _feedSub;
+  int _feedGeneration = 0;
+  bool _feedPrimed = false;
+  bool _feedRanking = false;
+  List<Content>? _pendingFeedSnapshot;
+
+  void _loadFeed() {
+    debugPrint('[ShortVideoFeedScreen] subscribing to live feed ($_currentMode)');
+    final generation = ++_feedGeneration;
+    _feedPrimed = false;
+    _feedRanking = false;
+    _pendingFeedSnapshot = null;
+    _feedSub?.cancel();
+
+    final uid = FirebaseAuth.instance.currentUser?.uid ?? 'unknown';
+    if (uid != 'unknown') {
+      ref.read(onlineFeatureStoreProvider).hydrateProfile(uid);
+    }
+    _feedSub = ref.read(recommendationServiceProvider).watchFeedCandidates(uid, _currentMode).listen(
+      (items) => _onFeedSnapshot(generation, uid, items),
+      onError: (Object e) {
+        debugPrint('Error loading feed: $e');
+        if (mounted && generation == _feedGeneration && !_feedPrimed) {
+          setState(() => _isLoading = false);
+        }
+      },
+    );
+  }
+
+  Future<void> _onFeedSnapshot(int generation, String uid, List<Content> items) async {
+    if (generation != _feedGeneration) return;
+    if (_feedRanking) {
+      _pendingFeedSnapshot = items;
+      return;
+    }
+    _feedRanking = true;
     try {
-      final uid = FirebaseAuth.instance.currentUser?.uid ?? 'unknown';
-      if (uid != 'unknown') {
-        ref.read(onlineFeatureStoreProvider).hydrateProfile(uid);
-      }
-      List<Content> recommendations = [];
-      
-      final rawFeed = await perfMonitor.measureApiLatency(
-        'feed.fetchRecommendations',
-        () => ref.read(recommendationServiceProvider).getFeed(uid, _currentMode)
-      );
-
-      recommendations = rawFeed;
-
-      if (widget.initialVideoId != null && widget.initialVideoId!.isNotEmpty) {
-        try {
-          final targetDoc = await FirebaseFirestore.instance.collection('content').doc(widget.initialVideoId).get();
-          if (targetDoc.exists) {
-            final targetContent = Content.fromFirestore(targetDoc);
-            recommendations.removeWhere((c) => c.id == targetContent.id);
-            recommendations.insert(0, targetContent);
-          }
-        } catch (e) {
-          debugPrint('Error fetching initial shared video: $e');
-        }
-      }
-      
-      if (mounted) {
-        setState(() {
-          _feed = recommendations;
-          _pages = List<Object>.of(recommendations);
-          _currentPage = 0;
-          _isLoading = false;
-        });
-        _mergeLiveStreams(ref.read(activeLiveStreamsProvider).value ?? const []);
-        
-        if (_feed.isNotEmpty) {
-          ref.read(videoPlaybackManagerProvider).initializeAndPreload(_feed, 0);
-          _attachAutoScrollListener();
-          _scheduleAutoFocus();
-        }
+      if (!_feedPrimed) {
+        await _primeFeed(generation, uid, items);
+      } else {
+        await _mergeNewContent(generation, uid, items);
       }
     } catch (e) {
       debugPrint('Error loading feed: $e');
-      if (mounted) {
+      if (mounted && generation == _feedGeneration && !_feedPrimed) {
         setState(() => _isLoading = false);
       }
+    } finally {
+      _feedRanking = false;
+    }
+    final pending = _pendingFeedSnapshot;
+    _pendingFeedSnapshot = null;
+    if (pending != null && generation == _feedGeneration) {
+      await _onFeedSnapshot(generation, uid, pending);
+    }
+  }
+
+  Future<void> _primeFeed(int generation, String uid, List<Content> items) async {
+    final perfMonitor = ref.read(performanceMonitorProvider);
+    final recommendations = await perfMonitor.measureApiLatency(
+      'feed.fetchRecommendations',
+      () => ref.read(recommendationServiceProvider).rankCandidates(uid, _currentMode, items),
+    );
+
+    if (widget.initialVideoId != null && widget.initialVideoId!.isNotEmpty) {
+      try {
+        final targetDoc = await FirebaseFirestore.instance.collection('content').doc(widget.initialVideoId).get();
+        if (targetDoc.exists) {
+          final targetContent = Content.fromFirestore(targetDoc);
+          recommendations.removeWhere((c) => c.id == targetContent.id);
+          recommendations.insert(0, targetContent);
+        }
+      } catch (e) {
+        debugPrint('Error fetching initial shared video: $e');
+      }
+    }
+
+    if (!mounted || generation != _feedGeneration) return;
+    _feedPrimed = true;
+    setState(() {
+      _feed = List<Content>.of(recommendations);
+      _pages = List<Object>.of(recommendations);
+      _currentPage = 0;
+      _isLoading = false;
+    });
+    _mergeLiveStreams(ref.read(activeLiveStreamsProvider).value ?? const []);
+
+    if (_feed.isNotEmpty) {
+      ref.read(videoPlaybackManagerProvider).initializeAndPreload(_feed, 0);
+      _attachAutoScrollListener();
+      _scheduleAutoFocus();
+    }
+  }
+
+  /// Slots items that weren't in the feed yet (fresh uploads) in right after
+  /// the current page, newest first. Items already on screen keep their place;
+  /// their likes/comments/visibility update through their own doc stream.
+  Future<void> _mergeNewContent(int generation, String uid, List<Content> items) async {
+    final present = _feed.map((c) => c.id).toSet();
+    final unseen = items.where((c) => !present.contains(c.id)).toList();
+    if (unseen.isEmpty) return;
+    final fresh = await ref.read(recommendationServiceProvider).filterCandidates(uid, unseen);
+    if (fresh.isEmpty || !mounted || generation != _feedGeneration) return;
+    fresh.sort((a, b) => b.createdAt.compareTo(a.createdAt));
+
+    final wasEmpty = _feed.isEmpty;
+    setState(() {
+      final pageAt = wasEmpty ? 0 : math.min(_currentPage + 1, _pages.length);
+      // Keep _feed in the same order as the reels in _pages.
+      final feedAt = _pages.take(pageAt).whereType<Content>().length;
+      _pages.insertAll(pageAt, fresh);
+      _feed.insertAll(feedAt, fresh);
+    });
+
+    if (wasEmpty) {
+      ref.read(videoPlaybackManagerProvider).initializeAndPreload(_feed, 0);
+      _attachAutoScrollListener();
+      _scheduleAutoFocus();
     }
   }
 
   @override
   void dispose() {
+    _feedSub?.cancel();
     _autoFocusTimer?.cancel();
     SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
     _playerCompletionSub?.cancel();
@@ -1501,6 +1573,13 @@ class _ShortVideoItemState extends ConsumerState<_ShortVideoItem> with TickerPro
   }
 
   Widget _buildThumbnail() {
+    if (widget.content.type == ContentType.photo) {
+      return Image.network(
+        widget.content.mediaUrl,
+        fit: _landscape ? BoxFit.contain : BoxFit.cover,
+        errorBuilder: (_, _, _) => Container(color: _p.placeholder),
+      );
+    }
     if (widget.content.mediaMetadata.thumbnailUrl != null) {
       return Image.network(
         widget.content.mediaMetadata.thumbnailUrl!,
@@ -2360,6 +2439,30 @@ class _ShortVideoItemState extends ConsumerState<_ShortVideoItem> with TickerPro
               tile(Icons.play_circle_outline_rounded, 'Play / Pause', _togglePlay),
               tile(Icons.shield_outlined, 'Live presence & privacy', () => OneovaQuickPrivacySheet.show(context),
                   iconColor: AppColors.brandBlue),
+              if (widget.content.authorId == uid)
+                tile(Icons.delete_outline_rounded, 'Delete post', () async {
+                  final confirmed = await showDialog<bool>(
+                    context: context,
+                    builder: (c) => AlertDialog(
+                      backgroundColor: c.surface,
+                      title: Text('Delete this post?', style: TextStyle(color: c.textPrimary)),
+                      content: Text('It will be removed for everyone, with its likes and comments. This can\'t be undone.',
+                          style: TextStyle(color: c.textSecondary)),
+                      actions: [
+                        TextButton(onPressed: () => Navigator.pop(c, false), child: Text('Cancel', style: TextStyle(color: c.textSecondary))),
+                        TextButton(onPressed: () => Navigator.pop(c, true), child: const Text('Delete', style: TextStyle(color: AppColors.brandPink))),
+                      ],
+                    ),
+                  );
+                  if (confirmed != true) return;
+                  try {
+                    player?.pause();
+                    await ContentDeletionService().deleteOwnPost(widget.content.id);
+                    messenger.showSnackBar(const SnackBar(content: Text('Post deleted.')));
+                  } catch (e) {
+                    messenger.showSnackBar(SnackBar(content: Text('Could not delete: $e')));
+                  }
+                }, iconColor: AppColors.brandPink),
               tile(Icons.flag_outlined, 'Report', () async {
                 final confirmed = await showDialog<bool>(
                   context: context,

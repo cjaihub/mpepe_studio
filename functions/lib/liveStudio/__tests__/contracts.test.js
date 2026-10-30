@@ -42,4 +42,25 @@ const contracts_1 = require("../contracts");
     assert.equal((0, contracts_1.defaultSettings)().guestSize, 'm');
     assert.equal((0, contracts_1.emptyStage)('h').wall.length, contracts_1.Limits.wallSlots);
 });
+(0, node_test_1.test)('layout preset defaults to studio; gameTitle is optional', () => {
+    assert.equal((0, contracts_1.defaultSettings)().layoutPreset, 'studio');
+    assert.equal((0, contracts_1.defaultSettings)('light').layoutPreset, 'studio');
+    const s = {
+        schemaVersion: 1,
+        streamId: 's',
+        hostId: 'h',
+        title: 'T',
+        status: 'live',
+        seq: 0,
+        settings: Object.assign(Object.assign({}, (0, contracts_1.defaultSettings)()), { layoutPreset: 'gaming' }),
+        stage: (0, contracts_1.emptyStage)('h'),
+        table: { mode: 'goods', goods: null, screen: null, watch: null },
+        counts: { viewers: 0, participants: 1, loves: 0, sparkles: 0, shares: 0 },
+        gameTitle: 'Ludo',
+    };
+    const back = JSON.parse(JSON.stringify(s));
+    assert.deepEqual(back, s);
+    assert.ok(contracts_1.GAME_TITLE_MAX_LENGTH === 60);
+    assert.deepEqual([...contracts_1.LAYOUT_PRESETS], ['studio', 'gaming']);
+});
 //# sourceMappingURL=contracts.test.js.map

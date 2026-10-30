@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../models/agent_config.dart';
 import '../models/agent_audit_event.dart';
 import '../../auth/auth_repository.dart';
+import '../../backend/settings_service.dart';
 
 final backgroundAgentServiceProvider = Provider<BackgroundAgentService>((ref) {
   return BackgroundAgentService(ref: ref);
@@ -24,58 +25,33 @@ class BackgroundAgentService {
 
   BackgroundAgentService({required this.ref});
 
+  // The agent config is the `aiAgent` category of the one settings store,
+  // user_settings/{uid}. SettingsService mirrors it to
+  // users/{uid}/ai_settings/agent_config, which aiGateway reads.
+  SettingsService get _settings => SettingsService(firestore: _firestore);
+
   Stream<AgentConfig> streamConfig() {
     final user = ref.read(authStateProvider).value;
     if (user == null) return Stream.value(AgentConfig());
-
-    return _firestore
-        .collection('users')
-        .doc(user.uid)
-        .collection('ai_settings')
-        .doc('agent_config')
-        .snapshots()
-        .map((doc) {
-      if (!doc.exists || doc.data() == null) {
-        return AgentConfig();
-      }
-      return AgentConfig.fromMap(doc.data()!);
-    });
+    return _settings.watchCategory(user.uid, 'aiAgent').map(AgentConfig.fromMap);
   }
 
   Future<void> updateConfig(AgentConfig config) async {
     final user = ref.read(authStateProvider).value;
     if (user == null) return;
-
-    await _firestore
-        .collection('users')
-        .doc(user.uid)
-        .collection('ai_settings')
-        .doc('agent_config')
-        .set(config.toMap(), SetOptions(merge: true));
+    await _settings.updateSettingsCategory(user.uid, 'aiAgent', config.toMap());
   }
 
   Future<void> pauseAllAi() async {
     final user = ref.read(authStateProvider).value;
     if (user == null) return;
-
-    await _firestore
-        .collection('users')
-        .doc(user.uid)
-        .collection('ai_settings')
-        .doc('agent_config')
-        .set({'isGloballyPaused': true}, SetOptions(merge: true));
+    await _settings.updateSettingsCategory(user.uid, 'aiAgent', {'isGloballyPaused': true});
   }
 
   Future<void> resumeAllAi() async {
     final user = ref.read(authStateProvider).value;
     if (user == null) return;
-
-    await _firestore
-        .collection('users')
-        .doc(user.uid)
-        .collection('ai_settings')
-        .doc('agent_config')
-        .set({'isGloballyPaused': false}, SetOptions(merge: true));
+    await _settings.updateSettingsCategory(user.uid, 'aiAgent', {'isGloballyPaused': false});
   }
 
   Stream<List<AgentAuditEvent>> streamAudits() {

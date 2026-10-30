@@ -302,6 +302,49 @@ class OvaNativeService {
     return false;
   }
 
+  /// Mirrors the Ova trigger settings to Android, where the system-wide
+  /// triggers (Ova handle, button shortcut, lock screen) read them.
+  Future<void> syncTriggerConfig(Map<String, dynamic> config) async {
+    if (kIsWeb || !Platform.isAndroid) return;
+    try {
+      await _channel.invokeMethod('setTriggerConfig', config);
+    } catch (e) {
+      debugPrint('[OvaNativeService] Error syncing trigger config: $e');
+    }
+  }
+
+  /// Whether the Oneova Ova accessibility service is on (needed for the Ova
+  /// handle and the button shortcut).
+  Future<bool> isAccessibilityEnabled() async {
+    if (kIsWeb || !Platform.isAndroid) return false;
+    try {
+      return await _channel.invokeMethod<bool>('isAccessibilityEnabled') ?? false;
+    } catch (e) {
+      debugPrint('[OvaNativeService] Error checking accessibility: $e');
+      return false;
+    }
+  }
+
+  /// Opens Settings > Accessibility so the user can turn on Oneova Ova.
+  Future<void> openAccessibilitySettings() async {
+    if (kIsWeb || !Platform.isAndroid) return;
+    try {
+      await _channel.invokeMethod('openAccessibilitySettings');
+    } catch (e) {
+      debugPrint('[OvaNativeService] Error opening accessibility settings: $e');
+    }
+  }
+
+  /// Opens the compact system overlay (as it appears over other apps).
+  Future<void> openSystemOverlayPreview() async {
+    if (kIsWeb || !Platform.isAndroid) return;
+    try {
+      await _channel.invokeMethod('openOvaOverlay');
+    } catch (e) {
+      debugPrint('[OvaNativeService] Error opening Ova overlay: $e');
+    }
+  }
+
   /// Registers callback when background wake intent is received
   void initBackgroundWakeReceiver(Function onWake) {
     _channel.setMethodCallHandler((call) async {

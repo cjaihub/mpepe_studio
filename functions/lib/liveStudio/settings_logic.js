@@ -29,6 +29,7 @@ exports.SETTINGS_KEYS = [
     'showNames',
     'studioDim',
     'speakerMode',
+    'layoutPreset',
 ];
 const THEMES = ['dark', 'light'];
 const GUEST_SIZES = ['s', 'm', 'l'];
@@ -86,6 +87,9 @@ function normalizeSettings(raw) {
         speakerMode: SPEAKER_MODES.includes(j.speakerMode)
             ? j.speakerMode
             : d.speakerMode,
+        layoutPreset: contracts_1.LAYOUT_PRESETS.includes(j.layoutPreset)
+            ? j.layoutPreset
+            : d.layoutPreset,
     };
 }
 /**
@@ -152,6 +156,11 @@ function applySettingsPatch(current, partial) {
             fail('speakerMode must be hostPinned, autoActiveSpeaker or manual.');
         }
         next.speakerMode = p.speakerMode;
+    }
+    if ('layoutPreset' in p) {
+        if (!contracts_1.LAYOUT_PRESETS.includes(p.layoutPreset))
+            fail('layoutPreset must be studio or gaming.');
+        next.layoutPreset = p.layoutPreset;
     }
     const changed = exports.SETTINGS_KEYS.filter((k) => next[k] !== current[k]);
     return { next, changed };

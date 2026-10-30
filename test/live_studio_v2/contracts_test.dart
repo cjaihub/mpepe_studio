@@ -93,4 +93,32 @@ void main() {
     expect((sys as SystemLineEvent).line.system, SystemLineKind.joined);
     expect(StudioEvent.decode('x', {'type': 'future.thing'}), isA<UnknownEvent>());
   });
+
+  test('gaming preset and gameTitle round-trip; unknown preset → studio', () {
+    final g = sample().copyWith(
+      settings: const StudioSettings(layoutPreset: LayoutPreset.gaming),
+      gameTitle: 'Ludo',
+    );
+    final back = StudioState.fromJson(g.toJson());
+    expect(back.toJson(), g.toJson());
+    expect(back.isGaming, isTrue);
+    expect(back.gameTitle, 'Ludo');
+    expect(g.toJson()['settings']['layoutPreset'], 'gaming');
+
+    // Old docs (no layoutPreset / gameTitle) still parse.
+    final old = StudioState.fromJson({'streamId': 's', 'hostId': 'h', 'stage': {'centerUid': 'h'}});
+    expect(old.settings.layoutPreset, LayoutPreset.studio);
+    expect(old.gameTitle, isNull);
+    expect(old.toJson().containsKey('gameTitle'), isFalse);
+    expect(StudioSettings.fromJson({'layoutPreset': 'arena'}).layoutPreset, LayoutPreset.studio);
+
+    final long = StudioState.fromJson({
+      'streamId': 's',
+      'hostId': 'h',
+      'gameTitle': '  ${'x' * 80}  ',
+      'stage': {'centerUid': 'h'},
+    });
+    expect(long.gameTitle!.length, kGameTitleMaxLength);
+    expect(sample().applyPatch(9, 'gameTitle', 'Free Fire').gameTitle, 'Free Fire');
+  });
 }

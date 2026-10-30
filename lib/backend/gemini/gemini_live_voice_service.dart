@@ -7,6 +7,7 @@ import 'package:http/http.dart' as http;
 import 'package:firebase_auth/firebase_auth.dart';
 
 import '../security/secure_api_key_vault.dart';
+import '../security/oneova_ai_gateway.dart';
 import '../repair/oneova_self_repair_engine.dart';
 import '../repair/oneova_auto_updater.dart';
 
@@ -198,14 +199,14 @@ Rules:
       // Fallback to OpenRouter if Gemini Key is not configured
       if (responseText.isEmpty) {
         final openRouterKey = await _vault.getOpenRouterApiKey();
-        if (openRouterKey.isNotEmpty) {
-          final uri = Uri.parse('https://openrouter.ai/api/v1/chat/completions');
+        if (OneovaAiGateway.canCall(openRouterKey)) {
+          final uri = OneovaAiGateway.chatUri(openRouterKey);
           final res = await http
               .post(
                 uri,
                 headers: {
                   'Content-Type': 'application/json',
-                  'Authorization': 'Bearer $openRouterKey',
+                  'Authorization': 'Bearer ${await OneovaAiGateway.bearer(openRouterKey)}',
                   'HTTP-Referer': 'https://oneova.app',
                   'X-Title': 'Oneova',
                 },

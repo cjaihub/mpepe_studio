@@ -47,11 +47,12 @@ void main() {
 
     test('Suggested chips match the Android home screenshot layout', () {
       final chips = engine.getSuggestedChips();
-      expect(chips.length, 3);
+      expect(chips.length, 4);
       expect(chips[0].label, contains('Send my recent photo to mom'));
       expect(chips[1].label, contains('Plan a budget-friendly safari'));
       expect(chips[1].prefixBadge, 'NEW');
       expect(chips[2].label, contains('Check status updates on WhatsApp'));
+      expect(chips[3].prefixBadge, 'PRO');
     });
 
     test('Processes "Send my recent photo to mom on WhatsApp" action', () async {

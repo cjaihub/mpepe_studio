@@ -140,7 +140,6 @@ class _ActiveCallScreenState extends ConsumerState<ActiveCallScreen> {
   @override
   void dispose() {
     ActiveCallScreen.isVisible.value = false;
-    CallPipService.setAutoEnter(false);
     _hideControls?.cancel();
     _localRenderer.srcObject = null;
     _localRenderer.dispose();
@@ -171,9 +170,8 @@ class _ActiveCallScreenState extends ConsumerState<ActiveCallScreen> {
         _showError(next.errorMessage!);
         controller.clearError();
       }
-      if (next.phase == CallPhase.ended && prev?.phase != CallPhase.ended) {
-        Future.delayed(const Duration(milliseconds: 1400), _close);
-      }
+      // The controller holds the end state (summary, "Call again") and then
+      // goes idle, which closes this screen.
       if (next.phase == CallPhase.idle && prev?.phase != CallPhase.idle) _close();
       if (next.phase == CallPhase.connected && prev?.phase != CallPhase.connected) _scheduleHide();
     });
@@ -196,9 +194,6 @@ class _ActiveCallScreenState extends ConsumerState<ActiveCallScreen> {
       });
     }
 
-    // Android system PiP when the user leaves the app mid video call.
-    CallPipService.setAutoEnter(s.phase == CallPhase.connected && (media.isVideoOn || _anyRemoteVideo(s)));
-
     final head = callHeadline(
       s,
       fallbackName: widget.isCaller ? widget.otherUserName : null,
@@ -208,7 +203,8 @@ class _ActiveCallScreenState extends ConsumerState<ActiveCallScreen> {
     final showVideoStage = (s.phase == CallPhase.connected || s.phase == CallPhase.reconnecting) &&
         (media.isVideoOn || joinedRemotes.any((p) => !p.isVideoMuted));
     final isGroup = s.call?.isGroup ?? false;
-    final tiny = MediaQuery.sizeOf(context).width < 320; // Android PiP window
+    // Android system PiP (auto-entered by the controller for video calls).
+    final tiny = CallPipService.inPip.value || MediaQuery.sizeOf(context).width < 320;
 
     if (tiny) return _pipView(s, mesh, head);
 
@@ -240,6 +236,8 @@ class _ActiveCallScreenState extends ConsumerState<ActiveCallScreen> {
                 ),
                 if (showVideoStage && !isGroup) _localPreview(media, mesh, s),
                 _topBar(s, head, onDark: showVideoStage),
+                if (s.phase == CallPhase.connected && mesh.worstQuality == CallQuality.poor)
+                  _weakLinkBanner(media),
                 Align(
                   alignment: Alignment.bottomCenter,
                   child: AnimatedSlide(
@@ -248,7 +246,9 @@ class _ActiveCallScreenState extends ConsumerState<ActiveCallScreen> {
                     curve: Curves.easeOutCubic,
                     child: s.phase == CallPhase.incoming
                         ? _incomingControls(s)
-                        : _inCallControls(s, media, onDark: showVideoStage),
+                        : s.canRedial
+                            ? _redialControls(s)
+                            : _inCallControls(s, media, onDark: showVideoStage),
                   ),
                 ),
               ],
@@ -282,8 +282,74 @@ class _ActiveCallScreenState extends ConsumerState<ActiveCallScreen> {
       ));
   }
 
-  bool _anyRemoteVideo(ActiveCallState s) =>
-      s.remoteParticipants.any((p) => p.status == ParticipantStatus.joined && !p.isVideoMuted);
+  /// Shown while the link is poor; on video, offers to drop the camera.
+  Widget _weakLinkBanner(CallMediaState media) {
+    final controller = ref.read(activeCallControllerProvider.notifier);
+    return Positioned(
+      left: 0,
+      right: 0,
+      top: MediaQuery.paddingOf(context).top + 58,
+      child: Center(
+        child: GestureDetector(
+          onTap: media.isVideoOn ? controller.toggleCamera : null,
+          child: Container(
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+            decoration: BoxDecoration(
+              color: AppColors.brandBlack.withValues(alpha: 0.6),
+              borderRadius: BorderRadius.circular(AppRadius.full),
+              border: Border.all(color: AppColors.brandPink.withValues(alpha: 0.6), width: 1),
+            ),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const Icon(Icons.network_check_rounded, size: 14, color: AppColors.brandPink),
+                const SizedBox(width: 6),
+                Text(
+                  media.isVideoOn ? 'Weak connection · tap to turn off video' : 'Weak connection',
+                  style: GoogleFonts.inter(fontSize: 11.5, fontWeight: FontWeight.w600, color: AppColors.brandWhite),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ).animate().fadeIn(duration: 200.ms),
+    );
+  }
+
+  /// End of an unanswered outgoing call: close, or ring them again.
+  Widget _redialControls(ActiveCallState s) {
+    final controller = ref.read(activeCallControllerProvider.notifier);
+    final isVideo = s.call?.isVideo ?? false;
+    return SafeArea(
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(56, 0, 56, 36),
+        child: Row(
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          children: [
+            CallControlButton(
+              icon: Icons.close_rounded,
+              label: 'Close',
+              size: 60,
+              onTap: _close,
+            ),
+            CallControlButton(
+              icon: isVideo ? Icons.videocam_rounded : Icons.call_rounded,
+              label: 'Call again',
+              size: 60,
+              fill: AppColors.brandBlue,
+              onTap: () async {
+                try {
+                  await controller.redial();
+                } catch (e) {
+                  if (mounted) _showError(e is StateError ? e.message : 'Could not start the call.');
+                }
+              },
+            ),
+          ],
+        ),
+      ).animate().fadeIn(duration: 250.ms).slideY(begin: 0.2, end: 0),
+    );
+  }
 
   // ───────────────────────── Stages ─────────────────────────
 

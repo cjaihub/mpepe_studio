@@ -29,6 +29,11 @@ import 'backend/calling/services/callkit_service.dart';
 import 'social_hub/live/studio_v2/shell/studio_scope.dart';
 import 'backend/dev/firebase_emulators.dart';
 import 'security/widgets/ova_guard_watcher.dart';
+import 'shared/navigation/android_back_handler.dart';
+import 'looks/providers/looks_providers.dart';
+import 'ova_assistant/overlay/ova_overlay_app.dart';
+import 'shared/services/draft_store.dart';
+import 'shared/services/play_update_service.dart';
 
 /// Top-level FCM background message handler (must be a top-level function).
 @pragma('vm:entry-point')
@@ -40,6 +45,11 @@ Future<void> _firebaseMessagingBackgroundHandler(RemoteMessage message) async {
   // Incoming/cancelled calls ring natively (full-screen on the lock screen).
   await handleCallPushInBackground(message);
 }
+
+/// Entrypoint of the compact Ova overlay shown over other apps and the lock
+/// screen (Android `OvaAssistActivity`). Runs only the Ova panel.
+@pragma('vm:entry-point')
+Future<void> ovaOverlayMain() => runOvaOverlayApp();
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -98,7 +108,11 @@ void main() async {
 }
 
 void _initBackgroundServices() {
-  GoogleSignIn.instance.initialize().catchError((e) {
+  // serverClientId: the Web OAuth client, so per-user Gmail can get a
+  // one-time server code (gmailConnect) and Google sign-in ID tokens match it.
+  GoogleSignIn.instance
+      .initialize(serverClientId: '90836164478-j7us06gelc2204aq103qvc1tcoa6nc5b.apps.googleusercontent.com')
+      .catchError((e) {
     debugPrint('GoogleSignIn init notice: $e');
   });
 
@@ -119,6 +133,10 @@ void _initBackgroundServices() {
   FirebaseAnalytics.instance.setAnalyticsCollectionEnabled(true).catchError((e) {
     debugPrint('Analytics notice: $e');
   });
+
+  DraftStore.instance.init().catchError((e) {
+    debugPrint('DraftStore init notice: $e');
+  });
 }
 
 class OneOvaApp extends ConsumerStatefulWidget {
@@ -135,6 +153,7 @@ class _OneOvaAppState extends ConsumerState<OneOvaApp> with WidgetsBindingObserv
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
+    PlayUpdateService.instance.check();
   }
 
   @override
@@ -148,6 +167,13 @@ class _OneOvaAppState extends ConsumerState<OneOvaApp> with WidgetsBindingObserv
     if (state == AppLifecycleState.paused ||
         state == AppLifecycleState.inactive ||
         state == AppLifecycleState.detached) {
+      // Flush draft debounce timers immediately on backgrounding
+      DraftStore.instance.flush();
+      // Install a downloaded Play update in the background, never mid-call.
+      if (state == AppLifecycleState.paused &&
+          !ref.read(activeCallControllerProvider).isLive) {
+        PlayUpdateService.instance.installIfDownloaded();
+      }
       // Mark presence offline when app goes to background or closes
       try {
         ref.read(presenceServiceProvider).setOffline();
@@ -157,6 +183,7 @@ class _OneOvaAppState extends ConsumerState<OneOvaApp> with WidgetsBindingObserv
         prefs.setInt('last_active_time', DateTime.now().millisecondsSinceEpoch);
       });
     } else if (state == AppLifecycleState.resumed) {
+      PlayUpdateService.instance.check();
       // Mark presence online when app resumes
       try {
         ref.read(presenceServiceProvider).setOnline();
@@ -182,6 +209,7 @@ class _OneOvaAppState extends ConsumerState<OneOvaApp> with WidgetsBindingObserv
   Widget build(BuildContext context) {
     final router = ref.watch(routerProvider);
     final themeMode = ref.watch(themeProvider);
+    ref.watch(looksUserBootstrapProvider);
     final settings = ref.watch(settingsProvider).value ?? const <String, dynamic>{};
     final appearance = settings['appearance'] as Map? ?? const {};
     final accessibility = settings['accessibility'] as Map? ?? const {};
@@ -209,7 +237,8 @@ class _OneOvaAppState extends ConsumerState<OneOvaApp> with WidgetsBindingObserv
             highContrast: mq.highContrast || accessibility['highContrast'] == true,
             disableAnimations: mq.disableAnimations || accessibility['reduceMotion'] == true,
           ),
-          child: _buildOverlays(child),
+          // Android Back → previous screen (not app exit); see the class doc.
+          child: AndroidBackHandler(router: router, child: _buildOverlays(child)),
         );
       },
     );

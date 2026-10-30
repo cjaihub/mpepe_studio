@@ -1,3 +1,4 @@
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:uuid/uuid.dart';
 
 enum StoryMediaType {
@@ -113,6 +114,15 @@ class Story {
     };
   }
 
+  /// Story times are written as epoch millis; tolerate Timestamps too.
+  static DateTime _storyTime(dynamic v) {
+    if (v is int) return DateTime.fromMillisecondsSinceEpoch(v);
+    if (v is num) return DateTime.fromMillisecondsSinceEpoch(v.toInt());
+    if (v is Timestamp) return v.toDate();
+    if (v is DateTime) return v;
+    return DateTime.fromMillisecondsSinceEpoch(0);
+  }
+
   factory Story.fromMap(Map<String, dynamic> map) {
     return Story(
       id: map['id'] ?? '',
@@ -121,8 +131,8 @@ class Story {
       authorAvatarUrl: map['authorAvatarUrl'] ?? '',
       mediaType: StoryMediaType.values.firstWhere((e) => e.name == map['mediaType'], orElse: () => StoryMediaType.text),
       mediaUrl: map['mediaUrl'] ?? '',
-      createdAt: DateTime.fromMillisecondsSinceEpoch(map['createdAt'] ?? 0),
-      expiresAt: DateTime.fromMillisecondsSinceEpoch(map['expiresAt'] ?? 0),
+      createdAt: _storyTime(map['createdAt']),
+      expiresAt: _storyTime(map['expiresAt']),
       privacy: StoryPrivacy.values.firstWhere((e) => e.name == map['privacy'], orElse: () => StoryPrivacy.public),
       customAudience: List<String>.from(map['customAudience'] ?? []),
       interactiveElements: (map['interactiveElements'] as List<dynamic>? ?? []).map((e) {

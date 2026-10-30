@@ -167,6 +167,16 @@ class _SecurityCenterScreenState extends ConsumerState<SecurityCenterScreen> {
                 trailing: Icon(Icons.chevron_right_rounded, color: context.textMuted),
                 onTap: () => context.push('/settings/login-activity'),
               ),
+              ListTile(
+                dense: true,
+                leading: const Icon(Icons.link_rounded, color: AppColors.brandBlue),
+                title: Text('Sign-in methods',
+                    style: GoogleFonts.inter(fontSize: 13, fontWeight: FontWeight.w700, color: context.textPrimary)),
+                subtitle: Text('Link your phone number and Google to this account',
+                    style: GoogleFonts.inter(fontSize: 11, color: context.textMuted)),
+                trailing: Icon(Icons.chevron_right_rounded, color: context.textMuted),
+                onTap: () => context.push('/settings/sign-in-methods'),
+              ),
             ]),
             _section('Where you are signed in'),
             devices.when(

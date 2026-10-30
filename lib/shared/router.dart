@@ -46,18 +46,26 @@ import '../settings/screens/chat_settings_screen.dart';
 import '../settings/screens/notification_settings_screen.dart';
 import '../settings/screens/ai_settings_screen.dart';
 import '../settings/screens/privacy_security_screen.dart';
+import '../settings/screens/follow_requests_screen.dart';
+import '../settings/screens/blocked_users_screen.dart';
+import '../settings/screens/data_export_screen.dart';
 import '../settings/screens/appearance_settings_screen.dart';
 import '../settings/screens/accessibility_settings_screen.dart';
 import '../settings/screens/reels_playback_settings_screen.dart';
 import '../settings/screens/calls_settings_screen.dart';
 import '../settings/screens/storage_settings_screen.dart';
+import '../settings/screens/camera_and_live_settings_screen.dart';
+import '../settings/screens/legal_policies_screen.dart';
+import '../settings/screens/admin_docs_cms_screen.dart';
+import '../settings/screens/about_screen.dart';
 import '../auth/screens/email_code_screen.dart';
+import '../social_hub/gmail/gmail_screens.dart';
 import '../ova_assistant/screens/ova_abilities_screen.dart';
 import '../ova_assistant/screens/ova_setup_screen.dart';
 import '../ova_assistant/screens/ova_trigger_settings_screen.dart';
 import '../social_hub/social_integration_dashboard.dart';
 import '../social_hub/tiktok_connect_wizard.dart';
-import '../social_hub/meta_connect_wizard.dart';
+import '../backend/connections/linked_accounts.dart';
 import '../backend/tiktok_oauth_service.dart';
 import '../backend/meta_oauth_service.dart';
 import '../social_hub/meta_platform_picker_screen.dart';
@@ -66,13 +74,16 @@ import '../upload/screens/premium_post_screen.dart';
 import '../upload/ai_voice_manager_screen.dart';
 import '../create/camera_screen.dart';
 import '../create/custom_media_picker_screen.dart';
+import '../create/studio/screens/studio_editor_screen.dart';
+import '../create/studio/screens/studio_home_screen.dart';
+import '../create/studio/screens/studio_media_picker_screen.dart';
+import '../feed/post_viewer_screen.dart';
 import '../hub/screens/photo_studio/photo_studio_screen.dart';
 import '../create/pro_workstation_editor_screen.dart';
 import '../social_hub/feed/sound_page_screen.dart';
 import '../social_hub/discovery/screens/hashtag_page_screen.dart';
 import '../backend/projects/models/oneova_draft_model.dart';
 import 'package:uuid/uuid.dart';
-import '../social_hub/unified_inbox_screen.dart';
 import '../social_hub/analytics_command_center.dart';
 import '../social_hub/tiktok_ai_assistant_screen.dart';
 import '../social_hub/notifications/notification_center_screen.dart';
@@ -88,6 +99,7 @@ import '../hub/qr_scanner_screen.dart';
 import '../social_hub/profile/earnings_screen.dart';
 import '../security/screens/security_center_screen.dart';
 import '../auth/security/login_activity_screen.dart';
+import '../auth/security/sign_in_methods_screen.dart';
 import '../social_hub/creator_studio/monetization/monetization_dashboard.dart';
 import '../hub/remote_chat_screen.dart';
 import '../hub/remote_monitor_screen.dart';
@@ -97,6 +109,7 @@ import '../social_hub/live/live_broadcaster_screen.dart';
 import '../social_hub/live/classic/live_classic_viewer_screen.dart';
 import '../social_hub/live/studio/live_studio_screen.dart';
 import '../social_hub/live/studio_v2/shell/live_studio_v2_screen.dart';
+import '../social_hub/live/studio_v2/gaming/gaming_lives_screen.dart';
 import '../feed/providers/oneova_focus_mode_provider.dart';
 
 // StatefulShellRoute shells
@@ -353,6 +366,7 @@ final routerProvider = Provider<GoRouter>((ref) {
       final user = FirebaseAuth.instance.currentUser;
       final isAuthRoute = state.uri.path.startsWith('/auth') ||
           state.uri.path == '/splash' ||
+          state.uri.path == '/legal' ||
           state.uri.path == '/tiktok-callback' ||
           state.uri.path == '/meta-callback';
       
@@ -407,6 +421,8 @@ final routerProvider = Provider<GoRouter>((ref) {
       GoRoute(path: '/hub/discover', redirect: _requireAuth, builder: (context, state) => const GlobalSearchScreen()),
       GoRoute(path: '/profile/earnings', redirect: _requireAuth, builder: (context, state) => const EarningsScreen()),
       GoRoute(path: '/profile/security', redirect: _requireAuth, builder: (context, state) => const SecurityCenterScreen()),
+      GoRoute(path: '/social_hub/gmail', redirect: _requireAuth, builder: (context, state) => const GmailInboxScreen()),
+      GoRoute(path: '/social_hub/gmail/:id', redirect: _requireAuth, builder: (context, state) => GmailMessageScreen(id: state.pathParameters['id']!)),
       GoRoute(path: '/auth/email_code', redirect: _requireAuth, builder: (context, state) => EmailCodeScreen(purpose: state.uri.queryParameters['purpose'] ?? 'verify_email')),
       GoRoute(path: '/profile/monetization', redirect: _requireAuth, builder: (context, state) => const MonetizationDashboard()),
       GoRoute(path: '/profile/me', redirect: _requireAuth, builder: (context, state) => const PublicProfileScreen(targetUserId: 'current')),
@@ -467,10 +483,16 @@ final routerProvider = Provider<GoRouter>((ref) {
         redirect: _requireAuth,
         builder: (context, state) => const SocialIntegrationDashboard(),
       ),
+      // Old simulated connect wizard: forward to the platform's real OAuth
+      // wizard (or the connected-accounts page).
       GoRoute(
         path: '/social_hub/connect_wizard',
-        redirect: _requireAuth,
-        builder: (context, state) => MetaConnectWizard(platform: state.extra as String? ?? 'Platform'),
+        redirect: (context, state) {
+          final auth = _requireAuth(context, state);
+          if (auth != null) return auth;
+          final p = LinkedPlatform.fromId(state.uri.queryParameters['platform'] ?? (state.extra is String ? state.extra as String : null));
+          return (p == null ? null : LinkedAccountsController.wizardRoute(p)) ?? '/social_hub';
+        },
       ),
       GoRoute(
         path: '/social_hub/meta_picker',
@@ -518,11 +540,18 @@ final routerProvider = Provider<GoRouter>((ref) {
           );
         },
       ),
+      // There is one inbox: /hub/messages. Old links land there, optionally
+      // on one linked platform (?platform=gmail|youtube|instagram|...).
       GoRoute(
         path: '/social_hub/unified_inbox',
-        redirect: _requireAuth,
-        builder: (context, state) => const UnifiedInboxScreen(),
+        redirect: (context, state) {
+          final auth = _requireAuth(context, state);
+          if (auth != null) return auth;
+          final p = LinkedPlatform.fromId(state.uri.queryParameters['platform']);
+          return p == null ? '/hub/messages' : '/hub/messages?platform=${p.id}';
+        },
       ),
+      GoRoute(path: '/inbox', redirect: (context, state) => '/social_hub/unified_inbox'),
       GoRoute(
         path: '/social_hub/analytics',
         redirect: _requireAuth,
@@ -559,6 +588,33 @@ final routerProvider = Provider<GoRouter>((ref) {
         path: '/create/picker',
         redirect: _requireAuth,
         builder: (context, state) => const CustomMediaPickerScreen(),
+      ),
+      // Studio: create -> edit -> export -> post / story.
+      GoRoute(
+        path: '/create/studio',
+        redirect: _requireAuth,
+        builder: (context, state) => const StudioHomeScreen(),
+      ),
+      GoRoute(
+        path: '/create/studio/picker',
+        redirect: _requireAuth,
+        builder: (context, state) {
+          final q = state.uri.queryParameters;
+          return StudioMediaPickerScreen(
+            mode: StudioPickMode.values.firstWhere((m) => m.name == q['mode'], orElse: () => StudioPickMode.any),
+            multiple: q['multi'] != '0',
+          );
+        },
+      ),
+      GoRoute(
+        path: '/create/studio/editor',
+        redirect: (context, state) => state.extra is StudioEditorArgs ? _requireAuth(context, state) : '/create/studio',
+        builder: (context, state) => StudioEditorScreen(args: state.extra! as StudioEditorArgs),
+      ),
+      GoRoute(
+        path: '/post/:id',
+        redirect: _requireAuth,
+        builder: (context, state) => PostViewerScreen(contentId: state.pathParameters['id']!),
       ),
       GoRoute(
         path: '/ai_studio',
@@ -633,10 +689,18 @@ final routerProvider = Provider<GoRouter>((ref) {
         path: '/live/broadcast',
         redirect: _requireAuth,
         builder: (context, state) => LiveBroadcasterScreen(
-          initialLayoutMode: state.uri.queryParameters['mode'] == 'studio'
-              ? 'studio'
-              : 'classic',
+          initialLayoutMode: switch (state.uri.queryParameters['mode']) {
+            'studio' => 'studio',
+            'gaming' => 'gaming',
+            _ => 'classic',
+          },
         ),
+      ),
+      // Game Live discovery: game lives on air right now.
+      GoRoute(
+        path: '/live/gaming',
+        redirect: _requireAuth,
+        builder: (context, state) => const GamingLivesScreen(),
       ),
       // Followers' entry point (feed live ring, "is LIVE" alerts, deep links).
       // Opens the full-screen vertical viewer, or the Live Studio when the
@@ -709,9 +773,29 @@ final routerProvider = Provider<GoRouter>((ref) {
         builder: (context, state) => const PrivacySecurityScreen(),
       ),
       GoRoute(
+        path: '/settings/follow-requests',
+        redirect: _requireAuth,
+        builder: (context, state) => const FollowRequestsScreen(),
+      ),
+      GoRoute(
+        path: '/settings/blocked-users',
+        redirect: _requireAuth,
+        builder: (context, state) => const BlockedUsersScreen(),
+      ),
+      GoRoute(
+        path: '/settings/data-export',
+        redirect: _requireAuth,
+        builder: (context, state) => const DataExportScreen(),
+      ),
+      GoRoute(
         path: '/settings/login-activity',
         redirect: _requireAuth,
         builder: (context, state) => const LoginActivityScreen(),
+      ),
+      GoRoute(
+        path: '/settings/sign-in-methods',
+        redirect: _requireAuth,
+        builder: (context, state) => const SignInMethodsScreen(),
       ),
       GoRoute(
         path: '/settings/appearance',
@@ -737,6 +821,36 @@ final routerProvider = Provider<GoRouter>((ref) {
         path: '/settings/storage',
         redirect: _requireAuth,
         builder: (context, state) => const StorageSettingsScreen(),
+      ),
+      GoRoute(
+        path: '/settings/camera_and_live',
+        redirect: _requireAuth,
+        builder: (context, state) => const CameraAndLiveSettingsScreen(),
+      ),
+      GoRoute(
+        path: '/legal',
+        builder: (context, state) => LegalPoliciesScreen(
+          initialTab: state.uri.queryParameters['tab'],
+        ),
+      ),
+      GoRoute(
+        path: '/settings/legal',
+        redirect: _requireAuth,
+        builder: (context, state) => LegalPoliciesScreen(
+          initialTab: state.uri.queryParameters['tab'],
+        ),
+      ),
+      GoRoute(
+        path: '/settings/admin-cms',
+        redirect: _requireAuth,
+        builder: (context, state) => AdminDocsCmsScreen(
+          initialDocId: state.uri.queryParameters['doc'],
+        ),
+      ),
+      GoRoute(
+        path: '/settings/about',
+        redirect: _requireAuth,
+        builder: (context, state) => const AboutScreen(),
       ),
 
       // ──────────────────────────────────────────────────────────────────
@@ -792,7 +906,7 @@ final routerProvider = Provider<GoRouter>((ref) {
             GoRoute(
               path: '/hub/messages', 
               redirect: _requireAuth,
-              builder: (context, state) => const InAppMessagingScreen(),
+              builder: (context, state) => InAppMessagingScreen(initialPlatform: state.uri.queryParameters['platform']),
               routes: [
                 GoRoute(
                   path: ':id',

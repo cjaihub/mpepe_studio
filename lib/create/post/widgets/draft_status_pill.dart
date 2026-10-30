@@ -44,7 +44,6 @@ class DraftStatusPill extends StatelessWidget {
         label = 'Offline draft';
         break;
       case PostDraftStatus.idle:
-      default:
         pillColor = context.surfaceMid;
         textColor = context.textMuted;
         icon = Icons.save_as_outlined;

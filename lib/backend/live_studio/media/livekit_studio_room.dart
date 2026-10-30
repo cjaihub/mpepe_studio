@@ -20,6 +20,7 @@ import '../contracts/studio_ports.dart';
 import '../security/studio_e2ee_session.dart';
 import '../security/studio_security_models.dart';
 import 'audio_only_fallback.dart';
+import 'game_stream.dart';
 import 'livekit_video_handle.dart';
 import 'publish_profile.dart';
 import 'qos_sampler.dart';
@@ -36,7 +37,7 @@ StudioLinkQuality studioLinkQualityOf(ConnectionQuality q) => switch (q) {
       ConnectionQuality.unknown => StudioLinkQuality.good,
     };
 
-class LiveKitStudioRoom implements StudioRoomPort {
+class LiveKitStudioRoom implements StudioRoomPort, StudioGameStreamPort {
   LiveKitStudioRoom({
     required this.streamId,
     required StudioMediaApi api,
@@ -94,6 +95,12 @@ class LiveKitStudioRoom implements StudioRoomPort {
 
   final Map<String, LiveKitVideoHandle> _cams = {};
   LiveKitVideoHandle? _screen;
+
+  /// Hook called when a local camera track is published (e.g. for TrackLookProcessor).
+  void Function(String trackId)? onCameraTrackPublished;
+
+  /// Hook called when a local camera track is unpublished or stopped.
+  void Function(String trackId)? onCameraTrackUnpublished;
 
   // ─── Extra API (beyond the port) ───────────────────────────────────────────
 
@@ -587,6 +594,13 @@ class LiveKitStudioRoom implements StudioRoomPort {
       } else if (on && lp.getTrackPublicationBySource(TrackSource.camera) == null) {
         await _publishCamera(lp);
       } else {
+        if (!on) {
+          final pub = lp.getTrackPublicationBySource(TrackSource.camera);
+          if (pub?.track != null) {
+            final tid = pub!.track!.mediaStreamTrack.id;
+            if (tid != null) onCameraTrackUnpublished?.call(tid);
+          }
+        }
         await lp.setCameraEnabled(on);
       }
     }
@@ -608,6 +622,8 @@ class LiveKitStudioRoom implements StudioRoomPort {
       }
     }
     await lp.publishVideoTrack(track, publishOptions: profile.publishOptions);
+    final tid = track.mediaStreamTrack.id;
+    if (tid != null) onCameraTrackPublished?.call(tid);
   }
 
   Future<void> _restoreLocalMedia() async {
@@ -641,7 +657,28 @@ class LiveKitStudioRoom implements StudioRoomPort {
   }
 
   @override
-  Future<void> startTableScreenShare() async {
+  Future<void> startTableScreenShare() =>
+      _startScreenShare(kTableScreenCaptureOptions, kTableScreenPublishOptions);
+
+  /// Game Live: whole-screen capture at up to 1080p/30 with a high bitrate
+  /// ([kGameScreenCaptureOptions]). The capture service keeps mic (and camera)
+  /// alive while the host is in the game app; the mic is (re)published here so
+  /// viewers keep hearing the host.
+  @override
+  Future<void> startGameStream() async {
+    final lp = _room?.localParticipant;
+    if (lp == null || !canPublish) return;
+    await _startScreenShare(kGameScreenCaptureOptions, kGameScreenPublishOptions);
+    if (!lp.isMicrophoneEnabled()) {
+      try {
+        await setMicEnabled(true);
+      } catch (e) {
+        debugPrint('[LiveKitStudioRoom] game stream mic: $e');
+      }
+    }
+  }
+
+  Future<void> _startScreenShare(ScreenShareCaptureOptions capture, VideoPublishOptions publish) async {
     final lp = _room?.localParticipant;
     if (lp == null || !canPublish || _screenTrack != null) return;
     // Android 14+: consent first, then a mediaProjection foreground service,
@@ -654,9 +691,9 @@ class LiveKitStudioRoom implements StudioRoomPort {
       await _screenCaptureService.invokeMethod<bool>('start');
     }
     try {
-      final track = await LocalVideoTrack.createScreenShareTrack(kTableScreenCaptureOptions);
+      final track = await LocalVideoTrack.createScreenShareTrack(capture);
       _screenTrack = track;
-      await lp.publishVideoTrack(track, publishOptions: kTableScreenPublishOptions);
+      await lp.publishVideoTrack(track, publishOptions: publish);
     } catch (e) {
       _screenTrack = null;
       if (android) await _stopScreenCaptureService();
@@ -720,6 +757,11 @@ class LiveKitStudioRoom implements StudioRoomPort {
     await _screenTrack?.stop();
     _screenTrack = null;
     if (wasSharing) await _stopScreenCaptureService();
+    final camPub = _room?.localParticipant?.getTrackPublicationBySource(TrackSource.camera);
+    if (camPub?.track != null) {
+      final tid = camPub!.track!.mediaStreamTrack.id;
+      if (tid != null) onCameraTrackUnpublished?.call(tid);
+    }
     await _teardownRoom();
     for (final h in _cams.values) {
       h.dispose();

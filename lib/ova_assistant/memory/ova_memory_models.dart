@@ -210,3 +210,97 @@ class SemanticVectorItem {
     );
   }
 }
+
+/// Real-time emotional state detected from user interaction
+enum OvaEmotionValence {
+  excited,      // High energy, visionary, celebratory
+  creativeFlow, // Ideation, brainstorming, fluid
+  focused,      // Analytical, concise, task-oriented
+  frustrated,   // Stressed, experiencing roadblocks, needs calm solution
+  reflective,   // Thoughtful, warm, relaxed
+}
+
+/// Snapshot of user emotion and tone modulation instructions
+class OvaEmotionSnapshot {
+  final OvaEmotionValence valence;
+  final double intensity; // 0.0 to 1.0
+  final String primaryEmotionLabel;
+  final String toneGuidance;
+  final DateTime timestamp;
+
+  OvaEmotionSnapshot({
+    required this.valence,
+    required this.intensity,
+    required this.primaryEmotionLabel,
+    required this.toneGuidance,
+    required this.timestamp,
+  });
+
+  Map<String, dynamic> toMap() => {
+        'valence': valence.name,
+        'intensity': intensity,
+        'primaryEmotionLabel': primaryEmotionLabel,
+        'toneGuidance': toneGuidance,
+        'timestamp': timestamp.toIso8601String(),
+      };
+
+  factory OvaEmotionSnapshot.fromMap(Map<String, dynamic> map) {
+    return OvaEmotionSnapshot(
+      valence: OvaEmotionValence.values.firstWhere(
+        (e) => e.name == map['valence'],
+        orElse: () => OvaEmotionValence.creativeFlow,
+      ),
+      intensity: (map['intensity'] as num?)?.toDouble() ?? 0.8,
+      primaryEmotionLabel: map['primaryEmotionLabel'] as String? ?? 'Creative Flow',
+      toneGuidance: map['toneGuidance'] as String? ?? 'Warm, collaborative, executive',
+      timestamp: map['timestamp'] != null
+          ? DateTime.tryParse(map['timestamp'] as String) ?? DateTime.now()
+          : DateTime.now(),
+    );
+  }
+}
+
+/// Rolling session summary that condenses long context into < 120 tokens
+class OvaRollingSummary {
+  final String sessionId;
+  final String userId;
+  final String summaryText;
+  final List<String> keyDecisions;
+  final List<String> activeEntities;
+  final int turnCount;
+  final DateTime updatedAt;
+
+  OvaRollingSummary({
+    required this.sessionId,
+    required this.userId,
+    required this.summaryText,
+    required this.keyDecisions,
+    required this.activeEntities,
+    required this.turnCount,
+    required this.updatedAt,
+  });
+
+  Map<String, dynamic> toMap() => {
+        'sessionId': sessionId,
+        'userId': userId,
+        'summaryText': summaryText,
+        'keyDecisions': keyDecisions,
+        'activeEntities': activeEntities,
+        'turnCount': turnCount,
+        'updatedAt': updatedAt.toIso8601String(),
+      };
+
+  factory OvaRollingSummary.fromMap(Map<String, dynamic> map) {
+    return OvaRollingSummary(
+      sessionId: map['sessionId'] as String? ?? '',
+      userId: map['userId'] as String? ?? '',
+      summaryText: map['summaryText'] as String? ?? '',
+      keyDecisions: List<String>.from(map['keyDecisions'] as List? ?? []),
+      activeEntities: List<String>.from(map['activeEntities'] as List? ?? []),
+      turnCount: (map['turnCount'] as num?)?.toInt() ?? 0,
+      updatedAt: map['updatedAt'] != null
+          ? DateTime.tryParse(map['updatedAt'] as String) ?? DateTime.now()
+          : DateTime.now(),
+    );
+  }
+}

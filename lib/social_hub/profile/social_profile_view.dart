@@ -9,6 +9,8 @@ import '../../backend/social/profile_stats_provider.dart';
 import '../../backend/user_service.dart';
 import '../../shared/theme/app_theme.dart';
 import '../../shared/widgets/animated_loading_indicator.dart';
+import 'package:url_launcher/url_launcher.dart';
+import 'widgets/profile_highlights_row.dart';
 // Note: You can connect to a PostService or SocialFeedService to fetch posts
 // For now we will mock the grid or pass posts in.
 
@@ -177,6 +179,43 @@ class _SocialProfileViewState extends ConsumerState<SocialProfileView> with Sing
                         color: context.textSecondary,
                       ),
                     ),
+                    if ((user.category != null && user.category!.isNotEmpty) ||
+                        (user.pronouns != null && user.pronouns!.isNotEmpty)) ...[
+                      const SizedBox(height: 6),
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          if (user.category != null && user.category!.isNotEmpty) ...[
+                            Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                              decoration: BoxDecoration(
+                                color: AppColors.brandBlue.withValues(alpha: 0.12),
+                                borderRadius: BorderRadius.circular(AppRadius.xs),
+                                border: Border.all(color: AppColors.brandBlue.withValues(alpha: 0.4), width: 0.8),
+                              ),
+                              child: Text(
+                                user.category!.toUpperCase(),
+                                style: GoogleFonts.inter(
+                                  fontSize: 10,
+                                  fontWeight: FontWeight.w700,
+                                  color: AppColors.brandBlue,
+                                ),
+                              ),
+                            ),
+                            const SizedBox(width: 6),
+                          ],
+                          if (user.pronouns != null && user.pronouns!.isNotEmpty)
+                            Text(
+                              '(${user.pronouns})',
+                              style: GoogleFonts.inter(
+                                fontSize: 12,
+                                fontWeight: FontWeight.w500,
+                                color: context.textMuted,
+                              ),
+                            ),
+                        ],
+                      ),
+                    ],
                     const SizedBox(height: 16),
                     // Stats
                     Row(
@@ -232,27 +271,25 @@ class _SocialProfileViewState extends ConsumerState<SocialProfileView> with Sing
                         ),
                       ),
                     const SizedBox(height: 8),
-                    // Link
-                    if (user.location != null || user.isBusiness)
-                      Padding(
-                        padding: const EdgeInsets.symmetric(horizontal: 32),
-                        child: Row(
-                          mainAxisAlignment: MainAxisAlignment.center,
-                          children: [
-                            Icon(Icons.link, color: context.textSecondary, size: 16),
-                            const SizedBox(width: 4),
-                            Text(
-                              'oneova.studio/@${user.username}',
-                              style: GoogleFonts.inter(
-                                fontSize: 13,
-                                color: context.textSecondary,
-                                fontWeight: FontWeight.w500,
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                    const SizedBox(height: 16),
+                    // Business Action Buttons
+                    if (user.accountType == 'business' && user.businessDetails != null) ...[
+                      const SizedBox(height: 12),
+                      _buildBusinessActions(context, user.businessDetails!),
+                    ],
+
+                    // External Links
+                    if (user.links.isNotEmpty) ...[
+                      const SizedBox(height: 10),
+                      _buildLinksRow(context, user.links),
+                    ],
+
+                    // Story Highlights
+                    const SizedBox(height: 12),
+                    ProfileHighlightsRow(
+                      userId: user.id,
+                      isCurrentUser: widget.isCurrentUser,
+                    ),
+                    const SizedBox(height: 12),
                   ],
                 ),
               ),
@@ -311,6 +348,102 @@ class _SocialProfileViewState extends ConsumerState<SocialProfileView> with Sing
             color: textColor ?? context.textPrimary,
           ),
         ),
+      ),
+    );
+  }
+
+  Widget _buildBusinessActions(BuildContext context, Map<String, dynamic> biz) {
+    final email = biz['email'] as String? ?? '';
+    final phone = biz['phone'] as String? ?? '';
+    final shopUrl = biz['shopUrl'] as String? ?? '';
+
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 20),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          if (email.isNotEmpty)
+            _buildBizButton(context, icon: Icons.email_outlined, label: 'Email', onTap: () {
+              launchUrl(Uri.parse('mailto:$email'));
+            }),
+          if (email.isNotEmpty && (phone.isNotEmpty || shopUrl.isNotEmpty)) const SizedBox(width: 8),
+          if (phone.isNotEmpty)
+            _buildBizButton(context, icon: Icons.phone_outlined, label: 'Call', onTap: () {
+              launchUrl(Uri.parse('tel:$phone'));
+            }),
+          if (phone.isNotEmpty && shopUrl.isNotEmpty) const SizedBox(width: 8),
+          if (shopUrl.isNotEmpty)
+            _buildBizButton(context, icon: Icons.storefront_outlined, label: 'Shop', isPrimary: true, onTap: () {
+              launchUrl(Uri.parse(shopUrl));
+            }),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildBizButton(BuildContext context, {required IconData icon, required String label, bool isPrimary = false, required VoidCallback onTap}) {
+    return Expanded(
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(AppRadius.sm),
+        child: Container(
+          padding: const EdgeInsets.symmetric(vertical: 8),
+          decoration: BoxDecoration(
+            color: isPrimary ? AppColors.brandPink : context.surfaceMid,
+            borderRadius: BorderRadius.circular(AppRadius.sm),
+            border: Border.all(color: isPrimary ? AppColors.brandPink : context.border, width: 1.0),
+          ),
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Icon(icon, size: 14, color: isPrimary ? Colors.white : context.textPrimary),
+              const SizedBox(width: 4),
+              Text(
+                label,
+                style: GoogleFonts.inter(
+                  fontSize: 12,
+                  fontWeight: FontWeight.w700,
+                  color: isPrimary ? Colors.white : context.textPrimary,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildLinksRow(BuildContext context, List<Map<String, String>> links) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 24),
+      child: Wrap(
+        alignment: WrapAlignment.center,
+        spacing: 8,
+        runSpacing: 4,
+        children: links.map((link) {
+          final title = link['title'] ?? 'Link';
+          final url = link['url'] ?? '';
+          return InkWell(
+            onTap: () {
+              if (url.isNotEmpty) launchUrl(Uri.parse(url), mode: LaunchMode.externalApplication);
+            },
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const Icon(Icons.link_rounded, size: 14, color: AppColors.brandBlue),
+                const SizedBox(width: 3),
+                Text(
+                  title,
+                  style: GoogleFonts.inter(
+                    fontSize: 12,
+                    fontWeight: FontWeight.w600,
+                    color: AppColors.brandBlue,
+                  ),
+                ),
+              ],
+            ),
+          );
+        }).toList(),
       ),
     );
   }

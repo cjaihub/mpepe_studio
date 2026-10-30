@@ -13,6 +13,9 @@ import 'call_media_service.dart';
 /// Link quality of one peer, shown as a small badge in the call UI.
 enum PeerLinkState { connecting, connected, reconnecting, failed }
 
+/// Network quality to one peer, from round-trip time and packet loss.
+enum CallQuality { unknown, good, fair, poor }
+
 class PeerState {
   final String remoteUserId;
   final RTCPeerConnection connection;
@@ -24,6 +27,7 @@ class PeerState {
   /// Audio/video frames to this peer are AES-GCM encrypted with a key derived
   /// from both users' Oneova Shield identity keys, on top of DTLS-SRTP.
   final bool frameEncrypted;
+  final CallQuality quality;
 
   const PeerState({
     required this.remoteUserId,
@@ -33,11 +37,13 @@ class PeerState {
     this.link = PeerLinkState.connecting,
     this.hasRemoteVideo = false,
     this.frameEncrypted = false,
+    this.quality = CallQuality.unknown,
   });
 
   bool get isConnected => link == PeerLinkState.connected;
 
-  PeerState copyWith({PeerLinkState? link, bool? hasRemoteVideo, bool? frameEncrypted}) => PeerState(
+  PeerState copyWith({PeerLinkState? link, bool? hasRemoteVideo, bool? frameEncrypted, CallQuality? quality}) =>
+      PeerState(
         remoteUserId: remoteUserId,
         connection: connection,
         renderer: renderer,
@@ -45,6 +51,7 @@ class PeerState {
         link: link ?? this.link,
         hasRemoteVideo: hasRemoteVideo ?? this.hasRemoteVideo,
         frameEncrypted: frameEncrypted ?? this.frameEncrypted,
+        quality: quality ?? this.quality,
       );
 }
 
@@ -58,6 +65,15 @@ class WebRTCMeshState {
   /// Every connected peer has frame encryption on.
   bool get allFrameEncrypted =>
       peers.isNotEmpty && peers.values.every((p) => p.frameEncrypted);
+
+  /// Worst link among connected peers, for the "weak connection" badge.
+  CallQuality get worstQuality {
+    var worst = CallQuality.unknown;
+    for (final p in peers.values) {
+      if (p.isConnected && p.quality.index > worst.index) worst = p.quality;
+    }
+    return worst;
+  }
 }
 
 final webrtcConnectionManagerProvider =
@@ -84,6 +100,12 @@ class WebRTCConnectionManager extends Notifier<WebRTCMeshState> {
   final Map<String, Timer> _disconnectTimers = {};
   final Set<String> _creating = {};
 
+  // Link quality sampling and ICE-restart retries.
+  Timer? _statsTimer;
+  final Map<String, ({num lost, num received})> _lastRx = {};
+  final Map<String, DateTime> _lastRestart = {};
+  CallQuality _cappedFor = CallQuality.unknown;
+
   // Frame encryption (insertable streams) per remote peer.
   final Map<String, KeyProvider> _keyProviders = {};
   final Map<String, List<FrameCryptor>> _cryptors = {};
@@ -102,6 +124,8 @@ class WebRTCConnectionManager extends Notifier<WebRTCMeshState> {
   void attach(String callId) {
     if (_callId == callId && _signalSub != null) return;
     _callId = callId;
+    _statsTimer?.cancel();
+    _statsTimer = Timer.periodic(const Duration(seconds: 3), (_) => _sampleLinks());
     _signalSub?.cancel();
     _signalSub = _signaling(callId)
         .where('targetId', isEqualTo: _me)
@@ -334,6 +358,7 @@ class WebRTCConnectionManager extends Notifier<WebRTCMeshState> {
     final callId = _callId;
     final peer = state.peers[uid];
     if (callId == null || peer == null || peer.isConnected) return;
+    _lastRestart[uid] = DateTime.now();
     if (peer.isOfferer) {
       await _sendOffer(callId, peer, iceRestart: true);
     } else {
@@ -381,7 +406,11 @@ class WebRTCConnectionManager extends Notifier<WebRTCMeshState> {
   /// their uplink.
   Future<void> _applyBitrateCaps() async {
     final n = state.peers.length;
-    final cap = n <= 1 ? 1500000 : (n <= 3 ? 600000 : 300000);
+    var cap = n <= 1 ? 1500000 : (n <= 3 ? 600000 : 300000);
+    // On a weak link send less video so audio keeps flowing.
+    _cappedFor = state.worstQuality;
+    if (_cappedFor == CallQuality.poor) cap = cap < 250000 ? cap : 250000;
+    if (_cappedFor == CallQuality.fair) cap = (cap * 0.6).round();
     for (final sender in _videoSenders.values) {
       try {
         final params = sender.parameters;
@@ -397,8 +426,61 @@ class WebRTCConnectionManager extends Notifier<WebRTCMeshState> {
     }
   }
 
+  /// Every few seconds: rates each connected link from RTT and packet loss,
+  /// and keeps retrying ICE restarts for links that are still down.
+  Future<void> _sampleLinks() async {
+    for (final peer in state.peers.values.toList()) {
+      final uid = peer.remoteUserId;
+      if (peer.link == PeerLinkState.reconnecting) {
+        final last = _lastRestart[uid];
+        if (last == null || DateTime.now().difference(last) > const Duration(seconds: 8)) {
+          unawaited(restartIce(uid));
+        }
+        continue;
+      }
+      if (!peer.isConnected) continue;
+      try {
+        final reports = await peer.connection.getStats();
+        num? rtt;
+        num lost = 0;
+        num received = 0;
+        for (final r in reports) {
+          final v = r.values;
+          if (r.type == 'candidate-pair' && ('${v['nominated']}' == 'true' || v['state'] == 'succeeded')) {
+            final x = _num(v['currentRoundTripTime']);
+            if (x != null && x > 0) rtt = x;
+          } else if (r.type == 'inbound-rtp') {
+            lost += _num(v['packetsLost']) ?? 0;
+            received += _num(v['packetsReceived']) ?? 0;
+          }
+        }
+        final prev = _lastRx[uid];
+        _lastRx[uid] = (lost: lost, received: received);
+        var loss = 0.0;
+        if (prev != null) {
+          final dl = lost - prev.lost;
+          final dr = received - prev.received;
+          if (dl >= 0 && dl + dr > 0) loss = dl / (dl + dr);
+        }
+        final q = (rtt != null && rtt > 0.6) || loss > 0.08
+            ? CallQuality.poor
+            : (rtt != null && rtt > 0.3) || loss > 0.03
+                ? CallQuality.fair
+                : CallQuality.good;
+        if (q != state.peers[uid]?.quality) _patch(uid, (p) => p.copyWith(quality: q));
+      } catch (_) {
+        // Stats are best effort.
+      }
+    }
+    if (state.worstQuality != _cappedFor) unawaited(_applyBitrateCaps());
+  }
+
+  static num? _num(Object? v) => v is num ? v : num.tryParse('$v');
+
   Future<void> removePeer(String uid) async {
     _disconnectTimers.remove(uid)?.cancel();
+    _lastRx.remove(uid);
+    _lastRestart.remove(uid);
     _videoSenders.remove(uid);
     _pendingCandidates.remove(uid);
     _offeredE2ee.remove(uid);
@@ -536,6 +618,9 @@ class WebRTCConnectionManager extends Notifier<WebRTCMeshState> {
   }
 
   void _teardown() {
+    _statsTimer?.cancel();
+    _statsTimer = null;
+    _cappedFor = CallQuality.unknown;
     _signalSub?.cancel();
     _signalSub = null;
     _callId = null;

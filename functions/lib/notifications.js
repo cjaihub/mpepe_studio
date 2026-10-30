@@ -43,13 +43,15 @@ exports.onNotificationCreated = void 0;
  * background or closed. While the app is open the in-app banner rings instead
  * (the foreground handler skips pushes that carry `notificationId`).
  *
- * Honours the recipient's `users/{uid}/settings/notifications` doc: push on/off,
+ * Honours the recipient's notification settings (`user_settings/{uid}.notifications`,
+ * falling back to `users/{uid}/settings/notifications`): push on/off,
  * per-category switches, quiet hours (urgent bypasses), sound and preview.
  */
 const firestore_1 = require("firebase-functions/v2/firestore");
 const logger = __importStar(require("firebase-functions/logger"));
 const firestore_2 = require("firebase-admin/firestore");
 const messaging_1 = require("firebase-admin/messaging");
+const accountSettings_1 = require("./accountSettings");
 const db = () => (0, firestore_2.getFirestore)();
 // Calls ring through calls.ts; chat pushes are sent by the messaging pipeline.
 const SKIP = new Set(['call', 'missedCall', 'newMessage']);
@@ -67,7 +69,6 @@ function inQuietHours(p) {
 }
 exports.onNotificationCreated = (0, firestore_1.onDocumentCreated)('notifications/{id}', async (event) => {
     var _a, _b, _c;
-    var _d;
     const n = (_a = event.data) === null || _a === void 0 ? void 0 : _a.data();
     if (!n)
         return;
@@ -75,8 +76,7 @@ exports.onNotificationCreated = (0, firestore_1.onDocumentCreated)('notification
     const category = n.category || 'system';
     if (!uid || SKIP.has(category) || n.isRead === true)
         return;
-    const prefsDoc = await db().collection('users').doc(uid).collection('settings').doc('notifications').get();
-    const prefs = ((_d = prefsDoc.data()) !== null && _d !== void 0 ? _d : {});
+    const prefs = (await (0, accountSettings_1.readAccountSettings)(uid, 'notifications', 'settings/notifications'));
     const urgent = n.priority === 'urgent';
     if (prefs.pushEnabled === false && !urgent)
         return;

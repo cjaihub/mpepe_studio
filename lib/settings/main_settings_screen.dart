@@ -12,6 +12,7 @@ import '../shared/widgets/studio_background.dart';
 import '../shared/widgets/components.dart';
 import '../providers/settings_provider.dart';
 import '../auth/services/secure_logout_service.dart';
+import 'services/platform_docs_cms_service.dart';
 import 'services/settings_diagnostic_service.dart';
 import 'services/settings_search_engine.dart';
 import 'widgets/settings_kit.dart';
@@ -397,6 +398,16 @@ class _MainSettingsScreenState extends ConsumerState<MainSettingsScreen> {
                         subtitle: 'Media auto-download & gallery saving',
                         route: '/settings/storage',
                         categoryKey: 'storage',
+                        showDivider: true,
+                        healthReport: healthReport,
+                      ),
+                      _buildSettingsTile(
+                        context,
+                        icon: Icons.videocam_rounded,
+                        title: 'Camera & Live',
+                        subtitle: 'Device Advisor, ceilings & Pro override',
+                        route: '/settings/camera_and_live',
+                        categoryKey: 'camera_and_live',
                         showDivider: false,
                         healthReport: healthReport,
                       ),
@@ -447,6 +458,37 @@ class _MainSettingsScreenState extends ConsumerState<MainSettingsScreen> {
                         subtitle: 'App PIN, biometric protection, 2FA & data',
                         route: '/settings/privacy',
                         categoryKey: 'privacy',
+                        showDivider: true,
+                        healthReport: healthReport,
+                      ),
+                      _buildSettingsTile(
+                        context,
+                        icon: Icons.gavel_rounded,
+                        title: 'Rules, Docs & Legal',
+                        subtitle: 'Features, Community rules, Terms, Privacy & African laws',
+                        route: '/legal',
+                        categoryKey: 'legal',
+                        showDivider: true,
+                        healthReport: healthReport,
+                      ),
+                      if (ref.watch(isPlatformDocsAdminProvider).value == true)
+                        _buildSettingsTile(
+                          context,
+                          icon: Icons.edit_note_rounded,
+                          title: 'Live Docs & Rules Admin CMS',
+                          subtitle: 'Real-time App + Website editor & revision rollback',
+                          route: '/settings/admin-cms',
+                          categoryKey: 'legal',
+                          showDivider: true,
+                          healthReport: healthReport,
+                        ),
+                      _buildSettingsTile(
+                        context,
+                        icon: Icons.info_outline_rounded,
+                        title: 'About Oneova',
+                        subtitle: 'Version, promises & policy shortcuts',
+                        route: '/settings/about',
+                        categoryKey: 'about',
                         showDivider: false,
                         healthReport: healthReport,
                       ),
@@ -1059,7 +1101,7 @@ class _MainSettingsScreenState extends ConsumerState<MainSettingsScreen> {
         active: isDark,
         onTap: () => ref.read(themeProvider.notifier).toggleTheme(),
       ),
-      toggle(Icons.notifications_active_rounded, 'Banners', 'notifications', notifications, 'inAppBannerEnabled', true),
+      toggle(Icons.notifications_active_rounded, 'Banners', 'notifications', notifications, 'inAppEnabled', true),
       toggle(Icons.volume_up_rounded, 'Sounds', 'chat', chat, 'chatSoundEffects', true),
       toggle(Icons.public_rounded, 'Public', 'privacy', privacy, 'publicProfile', true),
       toggle(Icons.keyboard_double_arrow_down_rounded, 'Auto-scroll', 'playback', playback, 'autoScroll', false),

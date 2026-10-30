@@ -47,12 +47,15 @@ object OvaDeviceHub {
         main.post { sink?.success(mapOf("type" to type) + data) }
     }
 
-    fun register(context: Context, engine: FlutterEngine) {
+    /** [events] = false for secondary engines (the Ova overlay), so they don't take over the single event sink. */
+    fun register(context: Context, engine: FlutterEngine, events: Boolean = true) {
         val app = context.applicationContext
-        EventChannel(engine.dartExecutor.binaryMessenger, EVENTS).setStreamHandler(object : EventChannel.StreamHandler {
-            override fun onListen(arguments: Any?, events: EventChannel.EventSink?) { sink = events }
-            override fun onCancel(arguments: Any?) { sink = null }
-        })
+        if (events) {
+            EventChannel(engine.dartExecutor.binaryMessenger, EVENTS).setStreamHandler(object : EventChannel.StreamHandler {
+                override fun onListen(arguments: Any?, events: EventChannel.EventSink?) { sink = events }
+                override fun onCancel(arguments: Any?) { sink = null }
+            })
+        }
         MethodChannel(engine.dartExecutor.binaryMessenger, METHODS).setMethodCallHandler { call, result ->
             try {
                 when (call.method) {

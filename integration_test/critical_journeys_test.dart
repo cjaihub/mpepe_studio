@@ -1,17 +1,17 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:integration_test/integration_test.dart';
-import 'package:mpepe_studio/main.dart' as app;
+import 'package:oneova/main.dart' as app;
 
 // Backend Imports to verify real staging services
-import 'package:mpepe_studio/backend/counters/models/counter_models.dart';
-import 'package:mpepe_studio/backend/counters/services/counter_service.dart';
-import 'package:mpepe_studio/backend/sync/models/sync_models.dart';
-import 'package:mpepe_studio/backend/sync/services/sync_engine.dart';
-import 'package:mpepe_studio/backend/connectors/models/connector_health_models.dart';
-import 'package:mpepe_studio/backend/connectors/services/connector_health_service.dart';
-import 'package:mpepe_studio/backend/ai_agents/openrouter_agent_service.dart';
-import 'package:mpepe_studio/backend/performance/services/performance_engine.dart';
-import 'package:mpepe_studio/backend/performance/models/performance_metrics.dart';
+import 'package:oneova/backend/counters/models/counter_models.dart';
+import 'package:oneova/backend/counters/services/counter_service.dart';
+import 'package:oneova/backend/sync/models/sync_models.dart';
+import 'package:oneova/backend/sync/services/sync_engine.dart';
+import 'package:oneova/backend/connectors/models/connector_health_models.dart';
+import 'package:oneova/backend/connectors/services/connector_health_service.dart';
+import 'package:oneova/backend/ai_agents/openrouter_agent_service.dart';
+import 'package:oneova/backend/performance/services/performance_engine.dart';
+import 'package:oneova/backend/performance/models/performance_metrics.dart';
 
 void main() {
   IntegrationTestWidgetsFlutterBinding.ensureInitialized();

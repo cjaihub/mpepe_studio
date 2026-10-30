@@ -6,6 +6,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_animate/flutter_animate.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:google_fonts/google_fonts.dart';
 
 import '../../../shared/theme/app_theme.dart';
@@ -13,6 +14,8 @@ import '../classic/live_classic_widgets.dart';
 import '../widgets/oneova_live_creation_wizard.dart'
     show OneovaLiveCreationConfig;
 import 'go_live_sheets.dart';
+import 'go_live_platforms_sheet.dart';
+import '../../../shared/widgets/linked_destinations_picker.dart';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // GO LIVE — one screen, no steps.
@@ -58,6 +61,7 @@ class _OneovaGoLiveScreenState extends State<OneovaGoLiveScreen> {
   bool _starting = false;
 
   bool get _isStudio => _cfg.layoutMode == 'studio';
+  bool get _isGaming => _cfg.layoutMode == 'gaming';
 
   @override
   void dispose() {
@@ -228,6 +232,25 @@ class _OneovaGoLiveScreenState extends State<OneovaGoLiveScreen> {
                                     curve: Curves.easeOutBack),
                           ),
                           _RailButton(
+                            label: 'Platforms',
+                            onTap: () => GoLivePlatformsSheet.show(context),
+                            child: Consumer(
+                              builder: (context, ref, _) {
+                                final n = ref
+                                    .watch(activeDestinationsProvider(
+                                        DestinationPurpose.live))
+                                    .length;
+                                return Badge(
+                                  isLabelVisible: n > 0,
+                                  label: Text('$n'),
+                                  backgroundColor: AppColors.brandPink,
+                                  child: const Icon(Icons.cell_tower_rounded,
+                                      color: AppColors.brandWhite, size: 22),
+                                );
+                              },
+                            ),
+                          ),
+                          _RailButton(
                             label: 'Settings',
                             onTap: () => GoLiveSheets.settings(context,
                                 config: _cfg, onChanged: _update),
@@ -275,7 +298,9 @@ class _OneovaGoLiveScreenState extends State<OneovaGoLiveScreen> {
                           const SizedBox(height: 12),
                           _GoLiveButton(
                             busy: _starting,
-                            label: _isStudio ? 'Go LIVE in Studio' : 'Go LIVE',
+                            label: _isStudio
+                                ? 'Go LIVE in Studio'
+                                : (_isGaming ? 'Go LIVE with a game' : 'Go LIVE'),
                             onTap: _goLive,
                           ),
                           const SizedBox(height: 8),
@@ -868,7 +893,7 @@ class _ModeSwitch extends StatelessWidget {
 
     return Row(
       mainAxisAlignment: MainAxisAlignment.center,
-      children: [tab('classic', 'LIVE'), tab('studio', 'STUDIO')],
+      children: [tab('classic', 'LIVE'), tab('studio', 'STUDIO'), tab('gaming', 'GAME')],
     );
   }
 }

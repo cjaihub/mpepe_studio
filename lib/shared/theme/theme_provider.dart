@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import '../../providers/settings_provider.dart';
 
 class ThemeNotifier extends Notifier<ThemeMode> {
   static const _themePrefKeyStr = 'theme_mode_pref_str';
@@ -8,7 +9,35 @@ class ThemeNotifier extends Notifier<ThemeMode> {
   @override
   ThemeMode build() {
     _loadTheme();
+    // The account's choice (user_settings/{uid}.appearance.themeMode) wins
+    // over this device's cached one, so the theme follows the account.
+    ref.listen<String?>(
+      settingsProvider.select((s) => (s.value?['appearance'] as Map?)?['themeMode'] as String?),
+      (_, mode) {
+        if (mode == null) return;
+        final next = _parse(mode);
+        if (next == state) return;
+        state = next;
+        _cache(next);
+      },
+    );
     return ThemeMode.system; // Default until loaded
+  }
+
+  static ThemeMode _parse(String mode) => switch (mode) {
+        'light' => ThemeMode.light,
+        'dark' => ThemeMode.dark,
+        _ => ThemeMode.system,
+      };
+
+  Future<void> _cache(ThemeMode mode) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString(_themePrefKeyStr, mode.name);
+  }
+
+  Future<void> _save(ThemeMode mode) async {
+    await _cache(mode);
+    await ref.read(settingsProvider.notifier).updateSetting('appearance', 'themeMode', mode.name);
   }
 
   Future<void> _loadTheme() async {
@@ -43,15 +72,12 @@ class ThemeNotifier extends Notifier<ThemeMode> {
     // or just toggle between light and dark
     final newMode = state == ThemeMode.light ? ThemeMode.dark : ThemeMode.light;
     state = newMode;
-    
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setString(_themePrefKeyStr, newMode.name);
+    await _save(newMode);
   }
 
   Future<void> setThemeMode(ThemeMode mode) async {
     state = mode;
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setString(_themePrefKeyStr, mode.name);
+    await _save(mode);
   }
 }
 

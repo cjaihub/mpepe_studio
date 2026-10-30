@@ -4,7 +4,6 @@ import 'dart:io';
 import 'tiktok_automation_service.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'package:http/http.dart' as http;
 import 'remote_connect_service.dart';
 import '../youtube_manager/models/youtube_channel_profile.dart';
@@ -13,6 +12,7 @@ import '../youtube_manager/services/youtube_account_store.dart';
 import 'project_repository.dart';
 import '../ova_assistant/memory/ova_memory_engine.dart';
 import 'security/secure_api_key_vault.dart';
+import 'security/oneova_ai_gateway.dart';
 
 sealed class AiResponse {}
 
@@ -59,15 +59,13 @@ class AIBrainService {
   void setApiKey(String key) => _customApiKey = key.trim();
 
   String get openRouterKey {
+    // Only a key the user saved themselves. Without one, calls go through
+    // the aiProxy Cloud Function (OneovaAiGateway); the app ships no key.
     if (_customApiKey != null && _customApiKey!.isNotEmpty) return _customApiKey!;
-    final envVal = dotenv.env['OPENROUTER_API_KEY'];
-    if (envVal != null && envVal.trim().isNotEmpty) return envVal.trim();
-    const compileVal = String.fromEnvironment('OPENROUTER_API_KEY', defaultValue: '');
-    if (compileVal.trim().isNotEmpty) return compileVal.trim();
     return '';
   }
 
-  bool get hasApiKey => openRouterKey.isNotEmpty;
+  bool get hasApiKey => OneovaAiGateway.canCall(openRouterKey);
 
   AIBrainService(this.remoteConnect, this.tiktokAutomation, this.projectRepository, [this.vault]);
 
@@ -432,9 +430,9 @@ Analyze the provided script and return a JSON object with this exact structure (
 }
 ''';
     
-    if (openRouterKey.isEmpty) throw Exception('OPENROUTER_API_KEY is missing.');
+    if (!OneovaAiGateway.canCall(openRouterKey)) throw Exception('Sign in to use Oneova AI.');
     
-    final uri = Uri.parse('https://openrouter.ai/api/v1/chat/completions');
+    final uri = OneovaAiGateway.chatUri(openRouterKey);
     final body = {
       "model": "anthropic/claude-sonnet-5", // Using Claude 5 Sonnet for superior text parsing and reasoning
       "response_format": {"type": "json_object"},
@@ -449,7 +447,7 @@ Analyze the provided script and return a JSON object with this exact structure (
         uri,
         headers: {
           'Content-Type': 'application/json',
-          'Authorization': 'Bearer $openRouterKey',
+          'Authorization': 'Bearer ${await OneovaAiGateway.bearer(openRouterKey)}',
           'HTTP-Referer': 'https://oneova.studio',
           'X-Title': 'Oneova Studio',
         },
@@ -481,9 +479,9 @@ Return a JSON object with this exact structure (NO markdown formatting, JUST raw
 }
 ''';
 
-    if (openRouterKey.isEmpty) throw Exception('OPENROUTER_API_KEY is missing.');
+    if (!OneovaAiGateway.canCall(openRouterKey)) throw Exception('Sign in to use Oneova AI.');
 
-    final uri = Uri.parse('https://openrouter.ai/api/v1/chat/completions');
+    final uri = OneovaAiGateway.chatUri(openRouterKey);
     final body = {
       "model": "anthropic/claude-sonnet-5", // Claude 5 Sonnet is highly capable at copywriting
       "response_format": {"type": "json_object"},
@@ -498,7 +496,7 @@ Return a JSON object with this exact structure (NO markdown formatting, JUST raw
         uri,
         headers: {
           'Content-Type': 'application/json',
-          'Authorization': 'Bearer $openRouterKey',
+          'Authorization': 'Bearer ${await OneovaAiGateway.bearer(openRouterKey)}',
           'HTTP-Referer': 'https://oneova.studio',
           'X-Title': 'Oneova Studio',
         },
@@ -539,7 +537,7 @@ Return a JSON object with this exact structure (NO markdown formatting, JUST raw
 }
 ''';
 
-    if (openRouterKey.isEmpty) throw Exception('OPENROUTER_API_KEY is missing.');
+    if (!OneovaAiGateway.canCall(openRouterKey)) throw Exception('Sign in to use Oneova AI.');
 
     final userData = '''
 Channel Name: $channelName
@@ -548,7 +546,7 @@ Recent 28-day Analytics: ${jsonEncode(analytics)}
 Recent Videos: ${jsonEncode(recentVideos)}
 ''';
 
-    final uri = Uri.parse('https://openrouter.ai/api/v1/chat/completions');
+    final uri = OneovaAiGateway.chatUri(openRouterKey);
     final body = {
       "model": "anthropic/claude-sonnet-5", // Deep analytical reasoning
       "response_format": {"type": "json_object"},
@@ -563,7 +561,7 @@ Recent Videos: ${jsonEncode(recentVideos)}
         uri,
         headers: {
           'Content-Type': 'application/json',
-          'Authorization': 'Bearer $openRouterKey',
+          'Authorization': 'Bearer ${await OneovaAiGateway.bearer(openRouterKey)}',
           'HTTP-Referer': 'https://oneova.studio',
           'X-Title': 'Oneova Studio',
         },
@@ -613,7 +611,7 @@ Return a JSON object with this exact structure (NO markdown formatting, JUST raw
 }
 ''';
 
-    if (openRouterKey.isEmpty) throw Exception('OPENROUTER_API_KEY is missing.');
+    if (!OneovaAiGateway.canCall(openRouterKey)) throw Exception('Sign in to use Oneova AI.');
 
     final userData = '''
 Video ID: $videoId
@@ -623,7 +621,7 @@ Stats (Views, Likes, Comments): ${jsonEncode(stats)}
 Top Audience Countries: ${jsonEncode(geoData)}
 ''';
 
-    final uri = Uri.parse('https://openrouter.ai/api/v1/chat/completions');
+    final uri = OneovaAiGateway.chatUri(openRouterKey);
     final body = {
       "model": "anthropic/claude-sonnet-5", // Deep analytical reasoning
       "response_format": {"type": "json_object"},
@@ -638,7 +636,7 @@ Top Audience Countries: ${jsonEncode(geoData)}
         uri,
         headers: {
           'Content-Type': 'application/json',
-          'Authorization': 'Bearer $openRouterKey',
+          'Authorization': 'Bearer ${await OneovaAiGateway.bearer(openRouterKey)}',
           'HTTP-Referer': 'https://oneova.studio',
           'X-Title': 'Oneova Studio',
         },
@@ -677,7 +675,7 @@ Top Audience Countries: ${jsonEncode(geoData)}
     List<Map<String, dynamic>>? tools,
     String? userContextPrompt,
   }) async {
-    if (openRouterKey.isEmpty) {
+    if (!OneovaAiGateway.canCall(openRouterKey)) {
       final geminiKey = await vault?.getGeminiApiKey() ?? '';
       if (geminiKey.isNotEmpty) {
         final geminiRes = await _callGeminiDirect(
@@ -769,11 +767,11 @@ Top Audience Countries: ${jsonEncode(geoData)}
         "### 🧠 Oneova AI • Creative Intelligence\n\n"
         "I've processed your request: **\"${lastUserMsg is String ? lastUserMsg : ''}\"**.\n\n"
         "You can run any autonomous procedure directly (e.g. *\"Boost to Oneova Reels\"*, *\"Safety audit\"*, *\"Live stage digital twin\"*).\n\n"
-        "*(To link cloud LLMs like Claude 3.5 Sonnet or GPT-4o, configure your `OPENROUTER_API_KEY` in AI Settings.)*"
+        "*(To link cloud LLMs like Claude 3.5 Sonnet or GPT-4o, sign in to Oneova or add your own OpenRouter key in AI Settings.)*"
       );
     }
     
-    final uri = Uri.parse('https://openrouter.ai/api/v1/chat/completions');
+    final uri = OneovaAiGateway.chatUri(openRouterKey);
     
     String baseSystemPrompt = "You are Oneova AI, a highly intelligent, empathetic, and human-like studio assistant. "
                    "Be exceptionally concise, direct, and conversational in your responses. "
@@ -808,7 +806,7 @@ Top Audience Countries: ${jsonEncode(geoData)}
         uri,
         headers: {
           'Content-Type': 'application/json',
-          'Authorization': 'Bearer $openRouterKey',
+          'Authorization': 'Bearer ${await OneovaAiGateway.bearer(openRouterKey)}',
           'HTTP-Referer': 'https://oneova.studio',
           'X-Title': 'Oneova Studio',
         },
@@ -956,8 +954,8 @@ final aiUserContextProvider = Provider<String>((ref) {
 
   // Inject Universal Shared Memories Across All Screens (Vector DB + Knowledge Graph + Episodic Mistakes Avoidance)
   final unifiedMemory = memoryEngine.buildUnifiedMemoryContext(
-    query: 'How to reach them customer channel preference orders and safety',
-    scenarioKey: 'customer_preference',
+    query: 'User creative preferences, active studio tasks, editing style, and safety safeguards',
+    scenarioKey: 'general_creation',
   );
   if (unifiedMemory.isNotEmpty) {
     contextStr += "\n--- UNIVERSAL ONESHARED MEMORY (VECTOR DB + KNOWLEDGE GRAPH + EPISODIC SAFEGUARDS) ---\n";

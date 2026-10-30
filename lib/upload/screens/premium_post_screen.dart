@@ -9,10 +9,9 @@ import 'package:flutter_animate/flutter_animate.dart';
 import 'package:file_picker/file_picker.dart';
 import '../services/omnichannel_upload_engine.dart';
 import '../models/omnichannel_upload_task.dart';
-import '../models/platform_destination.dart';
 import '../models/connected_destination.dart';
-import '../../backend/social_connection_service.dart';
-import '../../hub/messaging/connected_inboxes_dropdown.dart';
+import '../../backend/connections/linked_accounts.dart' show LinkedPlatform;
+import '../../shared/widgets/linked_destinations_picker.dart';
 
 class PremiumPostScreen extends ConsumerStatefulWidget {
   const PremiumPostScreen({super.key});
@@ -457,79 +456,36 @@ class _PlatformSelectorSheet extends ConsumerStatefulWidget {
 }
 
 class _PlatformSelectorSheetState extends ConsumerState<_PlatformSelectorSheet> {
-  final Set<String> _selectedPlatformIds = {};
+  bool _starting = false;
 
-  bool _isPlatformConnected(String platformId, List<SocialConnection> connections) {
-    final p = platformId.toLowerCase();
-    return connections.any((c) {
-      final cp = c.platform.toLowerCase();
-      if (p == 'yt' && cp == 'youtube') return true;
-      if (p == 'tt' && cp == 'tiktok') return true;
-      if (p == 'ig' && cp == 'instagram') return true;
-      if (p == 'fb' && cp == 'facebook') return true;
-      if (p == 'x' && cp == 'x') return true;
-      if (p == 'whatsapp' && cp == 'whatsapp') return true;
-      return cp == p;
-    });
-  }
+  static PlatformType? _typeFor(String id) => switch (LinkedPlatform.fromId(id)) {
+        LinkedPlatform.youtube => PlatformType.youtube,
+        LinkedPlatform.tiktok => PlatformType.tiktok,
+        LinkedPlatform.instagram => PlatformType.instagram,
+        LinkedPlatform.facebook => PlatformType.facebook,
+        _ => null,
+      };
 
-  void _startUpload(List<SocialConnection> connections) {
-    Navigator.pop(context); // Close sheet
+  /// Oneova always gets the post; the linked platforms the account picked
+  /// get it too, using each account's real id.
+  Future<void> _startUpload() async {
+    setState(() => _starting = true);
     final engine = ref.read(omnichannelUploadEngineProvider.notifier);
-
-    // Map selected IDs to ConnectedDestination objects for the engine
-    final selectedDestinations = kAvailablePlatforms
-        .where((p) => _selectedPlatformIds.contains(p.id))
-        .map((p) {
-          final matchedConn = connections.where((c) {
-            final cp = c.platform.toLowerCase();
-            if (p.id == 'yt' && cp == 'youtube') return true;
-            if (p.id == 'tt' && cp == 'tiktok') return true;
-            if (p.id == 'ig' && cp == 'instagram') return true;
-            if (p.id == 'fb' && cp == 'facebook') return true;
-            if (p.id == 'x' && cp == 'x') return true;
-            return cp == p.id.toLowerCase();
-          }).firstOrNull;
-
-          final handle = matchedConn?.accountName.isNotEmpty == true
-              ? matchedConn!.accountName
-              : 'oneova_${p.id}';
-
-          if (p.id == 'yt') {
-            return ConnectedDestination.youtube(
-              channelId: 'yt_$handle',
-              channelTitle: matchedConn?.displayName ?? 'OneOva YouTube Channel',
-              googleId: handle,
-              thumbnailUrl: '',
-            );
-          }
-          if (p.id == 'tt') {
-            return ConnectedDestination.tiktok(
-              tiktokUserId: 'tt_$handle',
-              username: handle,
-            );
-          }
-          return ConnectedDestination.meta(
-            pageId: 'meta_$handle',
-            pageName: matchedConn?.displayName ?? p.name,
-            metaUserId: handle,
-            platform: p.id == 'ig' ? PlatformType.instagram : PlatformType.facebook,
-          );
-        })
-        .toList();
-
-    engine.addTasks(widget.files, selectedDestinations);
+    final picked = ref.read(activeDestinationsProvider(DestinationPurpose.post)).map(_typeFor).whereType<PlatformType>().toSet();
+    final all = await engine.fetchAllDestinations();
+    final selected = all.where((d) => picked.contains(d.platform)).toList();
+    if (!mounted) return;
+    Navigator.pop(context);
+    engine.addTasks(widget.files, selected);
     engine.startUploads();
   }
 
   @override
   Widget build(BuildContext context) {
-    final connectionsAsync = ref.watch(userSocialConnectionsStreamProvider);
-    final connections = connectionsAsync.value ?? [];
-
+    final count = ref.watch(activeDestinationsProvider(DestinationPurpose.post)).length;
     return Container(
-      height: MediaQuery.of(context).size.height * 0.88,
-      padding: const EdgeInsets.all(24.0),
+      height: MediaQuery.of(context).size.height * 0.6,
+      padding: const EdgeInsets.fromLTRB(20, 16, 20, 20),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
@@ -537,12 +493,8 @@ class _PlatformSelectorSheetState extends ConsumerState<_PlatformSelectorSheet> 
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
               Text(
-                'Omnichannel Distribution',
-                style: GoogleFonts.inter(
-                  color: context.textPrimary,
-                  fontWeight: FontWeight.w900,
-                  fontSize: 20,
-                ),
+                'Post to',
+                style: GoogleFonts.inter(color: context.textPrimary, fontWeight: FontWeight.w800, fontSize: 18),
               ),
               IconButton(
                 icon: Icon(Icons.close_rounded, color: context.textMuted),
@@ -550,224 +502,32 @@ class _PlatformSelectorSheetState extends ConsumerState<_PlatformSelectorSheet> 
               ),
             ],
           ),
-          const SizedBox(height: 6),
           Text(
-            'Distribute ${widget.files.length} file(s) across connected platforms via their direct APIs.',
-            style: GoogleFonts.inter(
-              color: context.textMuted,
-              fontSize: 13,
-            ),
+            '${widget.files.length} file(s) go to your Oneova feed and to the linked accounts you pick. Your pick is saved for next time.',
+            style: GoogleFonts.inter(color: context.textMuted, fontSize: 12.5, height: 1.35),
           ),
           const SizedBox(height: 16),
-
-          // Connected Platforms API Status Bar
-          if (connections.isEmpty)
-            Container(
-              padding: const EdgeInsets.all(12),
-              decoration: BoxDecoration(
-                color: context.surfaceMid,
-                borderRadius: BorderRadius.circular(14),
-                border: Border.all(color: context.border),
-              ),
-              child: Row(
-                children: [
-                  const Icon(Icons.info_outline_rounded, color: AppColors.brandBlue, size: 18),
-                  const SizedBox(width: 10),
-                  Expanded(
-                    child: Text(
-                      'No platforms connected yet. Connect your accounts to publish live.',
-                      style: GoogleFonts.inter(color: context.textSecondary, fontSize: 12),
-                    ),
-                  ),
-                  const SizedBox(width: 8),
-                  ElevatedButton(
-                    onPressed: () => ConnectPlatformSheet.show(context),
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: AppColors.brandBlue,
-                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-                      minimumSize: Size.zero,
-                    ),
-                    child: const Text('+ Connect', style: TextStyle(color: Colors.white, fontSize: 11, fontWeight: FontWeight.bold)),
-                  ),
-                ],
-              ),
-            )
-          else
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-              decoration: BoxDecoration(
-                color: context.surfaceMid,
-                borderRadius: BorderRadius.circular(14),
-                border: Border.all(color: AppColors.brandBlue.withValues(alpha: 0.4)),
-              ),
-              child: Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: [
-                  Row(
-                    children: [
-                      Container(
-                        width: 8,
-                        height: 8,
-                        decoration: const BoxDecoration(
-                          color: AppColors.brandPink,
-                          shape: BoxShape.circle,
-                        ),
-                      ),
-                      const SizedBox(width: 8),
-                      Text(
-                        '${connections.length} Connected Platform APIs Active',
-                        style: GoogleFonts.inter(
-                          color: context.textPrimary,
-                          fontSize: 12,
-                          fontWeight: FontWeight.w700,
-                        ),
-                      ),
-                    ],
-                  ),
-                  GestureDetector(
-                    onTap: () => ConnectPlatformSheet.show(context),
-                    child: Text(
-                      '+ Connect More',
-                      style: GoogleFonts.inter(
-                        color: AppColors.brandPink,
-                        fontSize: 11.5,
-                        fontWeight: FontWeight.bold,
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-            ),
-
-          const SizedBox(height: 18),
-
-          Expanded(
-            child: GridView.builder(
-              gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-                crossAxisCount: 3,
-                crossAxisSpacing: 14,
-                mainAxisSpacing: 14,
-                childAspectRatio: 0.82,
-              ),
-              itemCount: kAvailablePlatforms.length,
-              itemBuilder: (context, index) {
-                final platform = kAvailablePlatforms[index];
-                final isSelected = _selectedPlatformIds.contains(platform.id);
-                final isConnected = _isPlatformConnected(platform.id, connections);
-
-                return GestureDetector(
-                  onTap: () {
-                    setState(() {
-                      if (isSelected) {
-                        _selectedPlatformIds.remove(platform.id);
-                      } else {
-                        _selectedPlatformIds.add(platform.id);
-                      }
-                    });
-                  },
-                  child: Container(
-                    decoration: BoxDecoration(
-                      color: isSelected
-                          ? AppColors.brandBlue.withValues(alpha: 0.22)
-                          : context.surfaceMid,
-                      borderRadius: BorderRadius.circular(16),
-                      border: Border.all(
-                        color: isSelected
-                            ? AppColors.brandBlue
-                            : (isConnected
-                                ? AppColors.brandBlue.withValues(alpha: 0.5)
-                                : context.border),
-                        width: isSelected ? 2.0 : 1.0,
-                      ),
-                    ),
-                    child: Stack(
-                      children: [
-                        if (isConnected)
-                          Positioned(
-                            top: 8,
-                            right: 8,
-                            child: Container(
-                              padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 2),
-                              decoration: BoxDecoration(
-                                color: AppColors.brandBlue.withValues(alpha: 0.2),
-                                borderRadius: BorderRadius.circular(4),
-                                border: Border.all(color: AppColors.brandBlue.withValues(alpha: 0.5)),
-                              ),
-                              child: const Text(
-                                'SYNCED',
-                                style: TextStyle(
-                                  color: Colors.white,
-                                  fontSize: 8,
-                                  fontWeight: FontWeight.w900,
-                                ),
-                              ),
-                            ),
-                          ),
-                        Center(
-                          child: Column(
-                            mainAxisAlignment: MainAxisAlignment.center,
-                            children: [
-                              Icon(
-                                platform.icon,
-                                size: 28,
-                                color: isSelected
-                                    ? AppColors.brandBlue
-                                    : (isConnected ? context.textPrimary : context.textMuted),
-                              ),
-                              const SizedBox(height: 8),
-                              Padding(
-                                padding: const EdgeInsets.symmetric(horizontal: 4.0),
-                                child: Text(
-                                  platform.name,
-                                  textAlign: TextAlign.center,
-                                  style: GoogleFonts.inter(
-                                    color: isSelected ? Colors.white : context.textSecondary,
-                                    fontSize: 11,
-                                    fontWeight: isSelected ? FontWeight.w800 : FontWeight.w600,
-                                  ),
-                                  maxLines: 1,
-                                  overflow: TextOverflow.ellipsis,
-                                ),
-                              ),
-                              if (isConnected) ...[
-                                const SizedBox(height: 3),
-                                Text(
-                                  'API Active',
-                                  style: TextStyle(
-                                    color: context.textMuted,
-                                    fontSize: 9,
-                                  ),
-                                ),
-                              ],
-                            ],
-                          ),
-                        ),
-                      ],
-                    ),
-                  ).animate(target: isSelected ? 1 : 0).scaleXY(end: 1.04, duration: 200.ms),
-                );
-              },
+          const Expanded(
+            child: SingleChildScrollView(
+              child: LinkedDestinationsPicker(purpose: DestinationPurpose.post),
             ),
           ),
-          const SizedBox(height: 18),
-          ElevatedButton(
-            style: ElevatedButton.styleFrom(
-              backgroundColor: AppColors.brandBlue,
-              foregroundColor: Colors.white,
-              padding: const EdgeInsets.symmetric(vertical: 16),
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(12),
+          const SizedBox(height: 12),
+          SizedBox(
+            height: 42,
+            child: FilledButton(
+              style: FilledButton.styleFrom(
+                backgroundColor: AppColors.brandBlue,
+                foregroundColor: AppColors.brandWhite,
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(AppRadius.sm)),
               ),
-              disabledBackgroundColor: context.border,
-            ),
-            onPressed: _selectedPlatformIds.isEmpty ? null : () => _startUpload(connections),
-            child: Text(
-              'Upload to ${_selectedPlatformIds.length} Platform(s)',
-              style: GoogleFonts.inter(
-                fontSize: 16,
-                fontWeight: FontWeight.w900,
-              ),
+              onPressed: _starting ? null : _startUpload,
+              child: _starting
+                  ? const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2, color: AppColors.brandWhite))
+                  : Text(
+                      count == 0 ? 'Post to Oneova' : 'Post to Oneova + $count',
+                      style: GoogleFonts.inter(fontSize: 13.5, fontWeight: FontWeight.w700),
+                    ),
             ),
           ),
         ],

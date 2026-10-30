@@ -24,7 +24,7 @@ import { onCall, HttpsError } from 'firebase-functions/v2/https';
 import { getAuth, UserRecord } from 'firebase-admin/auth';
 import { getFirestore, FieldValue, Timestamp } from 'firebase-admin/firestore';
 import { codeEmail, CodePurpose, Fact } from './mailTemplates';
-import { MAIL_SECRETS, sendMail } from './mailer';
+import { sendMail } from './mailer';
 import { createSecurityLink } from './securityMail';
 
 const db = () => getFirestore();
@@ -63,7 +63,7 @@ async function resolveTarget(data: Record<string, unknown>, authUid?: string): P
   return { email, user };
 }
 
-export const sendEmailCode = onCall({ secrets: MAIL_SECRETS }, async (request) => {
+export const sendEmailCode = onCall(async (request) => {
   const data = (request.data ?? {}) as Record<string, unknown>;
   const purpose = purposeOf(data.purpose);
   const { email, user } = await resolveTarget(data, request.auth?.uid);

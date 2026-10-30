@@ -535,7 +535,7 @@ class _CreatorDashboardDrawerState extends ConsumerState<CreatorDashboardDrawer>
               leading: Icon(Icons.chat_bubble_rounded, color: AppColors.brandBlue),
               title: const Text('Messages (Team chat)', style: TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.w500)),
               trailing: const Icon(Icons.chevron_right, color: Colors.white54),
-              onTap: () => context.push('/social_hub/unified_inbox'),
+              onTap: () => context.push('/hub/messages'),
             ),
           ],
         ),
@@ -1292,7 +1292,7 @@ class _CreatorDashboardDrawerState extends ConsumerState<CreatorDashboardDrawer>
         Navigator.pop(context);
         switch (title) {
           case 'New Message':
-            context.push('/social_hub/unified_inbox');
+            context.push('/hub/messages');
             break;
           case 'New Group':
             context.push('/communication/contacts');

@@ -36,6 +36,7 @@ import '../../ova_assistant/media/ova_chat_suggestion_bar.dart';
 import '../../ova_assistant/media/ova_media_brain.dart';
 import '../../ova_assistant/media/ova_media_studio.dart';
 import 'widgets/video_note_recorder.dart';
+import '../../shared/services/draft_store.dart';
 import 'dart:async';
 
 class ChatDetailScreen extends ConsumerStatefulWidget {
@@ -188,7 +189,15 @@ class _ChatDetailScreenState extends ConsumerState<ChatDetailScreen> with Single
       curve: Curves.easeOutBack,
     );
 
+    // Restore draft if any exists for this chat
+    final savedDraft = DraftStore.instance.getDraft(DraftStore.chatKey(widget.chatId));
+    if (savedDraft != null && savedDraft.isNotEmpty) {
+      _messageController.text = savedDraft;
+      _isTyping = true;
+    }
+
     _messageController.addListener(() {
+      DraftStore.instance.setDraft(DraftStore.chatKey(widget.chatId), _messageController.text);
       final isTyping = _messageController.text.trim().isNotEmpty;
       if (isTyping != _isTyping) {
         setState(() {
@@ -458,6 +467,7 @@ class _ChatDetailScreenState extends ConsumerState<ChatDetailScreen> with Single
     );
     ref.read(messagingRepositoryProvider).setTypingStatus(widget.chatId, currentUserId, false); // clear typing
     _messageController.clear();
+    DraftStore.instance.clearDraft(DraftStore.chatKey(widget.chatId));
     setState(() {
       _replyingTo = null;
     });

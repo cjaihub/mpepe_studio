@@ -21,6 +21,8 @@ import 'services/oneova_ai_onboarding_guardian.dart';
 import 'services/oneova_biometrics_service.dart';
 import 'services/oneova_username_service.dart';
 import 'services/oneova_smart_phone_engine.dart';
+import 'services/account_link_service.dart';
+import 'widgets/onboarding_identity_fields.dart';
 import 'security/login_security.dart';
 
 class SignupWizardScreen extends ConsumerStatefulWidget {
@@ -33,7 +35,7 @@ class SignupWizardScreen extends ConsumerStatefulWidget {
 class _SignupWizardScreenState extends ConsumerState<SignupWizardScreen> {
   final PageController _pageController = PageController();
   int _currentStep = 0;
-  static const int _totalSteps = 5;
+  static const int _totalSteps = 4;
 
   bool _isSaving = false;
   bool _isLoading = false;
@@ -46,7 +48,6 @@ class _SignupWizardScreenState extends ConsumerState<SignupWizardScreen> {
   // Fills the SMS code via Google's consent prompt (no SMS permission).
   final OtpAutofill _otpAutofill = OtpAutofill();
   String _selectedCountryCode = 'KE';
-  String get _selectedDialCode => _selectedCountryMeta.dialCode;
   String _formatHint = 'e.g. 712 345 678';
   String _fullPhoneNumber = '';
   String _verificationId = '';
@@ -57,12 +58,10 @@ class _SignupWizardScreenState extends ConsumerState<SignupWizardScreen> {
   int _otpResendTimer = 60;
   Timer? _timer;
 
-  // Step 2: Password & Biometrics
-  final TextEditingController _passwordController = TextEditingController();
-  bool _passwordVisible = false;
-  int _passwordStrength = 0;
-  String _passwordStrengthLabel = 'Weak';
+  // Fingerprint sign-in (switch on the review step). Passwords are set on the
+  // login screen only; a social account plus the SMS code is already two checks.
   bool _enableBiometrics = true;
+  bool _biometricSupported = true;
   String _biometricLabel = 'Biometric Passkey';
 
   // Step 3: Identity & Username
@@ -94,8 +93,7 @@ class _SignupWizardScreenState extends ConsumerState<SignupWizardScreen> {
   AiAccountSafetyReport? _aiSafetyReport;
   bool _isAnalyzingSafety = false;
 
-  // Google pre-fill support
-  String? _googleUid;
+  // Prefill from the social sign-in (name, handle from the email).
   bool _googleDataApplied = false;
 
   @override
@@ -106,12 +104,16 @@ class _SignupWizardScreenState extends ConsumerState<SignupWizardScreen> {
     _loadDraft();
 
     WidgetsBinding.instance.addPostFrameCallback((_) async {
+      // The wizard finishes the profile of a social sign-in. Phone sign-ups
+      // register on the login screen; people with a profile go home.
       final user = FirebaseAuth.instance.currentUser;
-      if (user != null && !user.isAnonymous && _googleUid == null) {
-        if (mounted) {
-          context.go('/hub/home');
-          return;
-        }
+      if (user == null || user.isAnonymous) {
+        if (mounted) context.go('/auth/main_login');
+        return;
+      }
+      if (await ref.read(accountLinkServiceProvider).hasProfile(user.uid)) {
+        if (mounted) context.go('/hub/home');
+        return;
       }
       await _detectCountrySilently();
     });
@@ -156,7 +158,6 @@ class _SignupWizardScreenState extends ConsumerState<SignupWizardScreen> {
     if (extra != null) {
       if (!_googleDataApplied && extra['fromGoogle'] == true) {
         _googleDataApplied = true;
-        _googleUid = extra['uid'] as String?;
         final email = extra['email'] as String? ?? '';
         final name = extra['name'] as String? ?? '';
         _nameController.text = name;
@@ -166,24 +167,9 @@ class _SignupWizardScreenState extends ConsumerState<SignupWizardScreen> {
         }
       } else if (!_googleDataApplied && (extra['fromTikTok'] == true || extra['fromFacebook'] == true)) {
         _googleDataApplied = true;
-        _googleUid = extra['uid'] as String?;
         final name = extra['name'] as String? ?? '';
         if (name.isNotEmpty && _nameController.text.isEmpty) {
           _nameController.text = name;
-        }
-      }
-
-      if (extra['phone'] != null && _phoneController.text.isEmpty) {
-        final phone = extra['phone'] as String;
-        _fullPhoneNumber = phone;
-        _phoneController.text = phone.replaceFirst(_selectedDialCode, '').replaceFirst('+254', '');
-        if (extra['phoneVerified'] == true) {
-          _isOtpSent = true;
-          WidgetsBinding.instance.addPostFrameCallback((_) {
-            if (_currentStep == 0 && mounted) {
-              _goToStep(1);
-            }
-          });
         }
       }
     }
@@ -197,7 +183,6 @@ class _SignupWizardScreenState extends ConsumerState<SignupWizardScreen> {
     _phoneController.dispose();
     _otpAutofill.cancel();
     _otpController.dispose();
-    _passwordController.dispose();
     _nameController.dispose();
     _usernameController.dispose();
     _bioController.dispose();
@@ -217,7 +202,12 @@ class _SignupWizardScreenState extends ConsumerState<SignupWizardScreen> {
         });
       }
     } else {
-      if (mounted) setState(() => _enableBiometrics = false);
+      if (mounted) {
+        setState(() {
+          _enableBiometrics = false;
+          _biometricSupported = false;
+        });
+      }
     }
   }
 
@@ -239,7 +229,9 @@ class _SignupWizardScreenState extends ConsumerState<SignupWizardScreen> {
             _selectedNiches.addAll(List<String>.from(data['niches']));
           }
           final step = draft['stepIndex'] as int? ?? 0;
-          _currentStep = step.clamp(0, _totalSteps - 1);
+          // Never skip the phone step until the number is linked.
+          final phoneLinked = FirebaseAuth.instance.currentUser?.phoneNumber != null;
+          _currentStep = phoneLinked ? step.clamp(0, _totalSteps - 1) : 0;
         });
         _pageController.jumpToPage(_currentStep);
       } else {
@@ -341,8 +333,18 @@ class _SignupWizardScreenState extends ConsumerState<SignupWizardScreen> {
     if (_currentStep > 0) {
       _goToStep(_currentStep - 1);
     } else {
-      context.pop();
+      _leaveWizard();
     }
+  }
+
+  /// Back from the first step: drop the unfinished social sign-in and return
+  /// to the login screen (the wizard is opened with go(), so there is nothing
+  /// to pop).
+  Future<void> _leaveWizard() async {
+    ref.read(accountLinkServiceProvider).clearPending();
+    await ref.read(authRepositoryProvider).signOut();
+    if (!mounted) return;
+    context.canPop() ? context.pop() : context.go('/auth/main_login');
   }
 
   // ── Phone & OTP Flow ───────────────────────────────────────────────────────
@@ -376,7 +378,8 @@ class _SignupWizardScreenState extends ConsumerState<SignupWizardScreen> {
           .limit(1)
           .get();
 
-      if (existing.docs.isNotEmpty) {
+      final me = FirebaseAuth.instance.currentUser?.uid;
+      if (existing.docs.any((d) => d.id != me)) {
         setState(() => _isLoading = false);
         _showPhoneAlreadyRegisteredModal();
         return;
@@ -392,22 +395,8 @@ class _SignupWizardScreenState extends ConsumerState<SignupWizardScreen> {
         verificationCompleted: (PhoneAuthCredential cred) async {
           if (FirebaseAuth.instance.currentUser?.phoneNumber == phone) return;
           _otpAutofill.cancel();
-          final UserCredential signed;
-          try {
-            signed = await FirebaseAuth.instance.signInWithCredential(cred);
-          } catch (e) {
-            debugPrint('[SignupWizard] auto-verify failed: $e');
-            if (mounted) setState(() => _isLoading = false);
-            return;
-          }
-          if (signed.user != null) LoginSecurity.instance.recordFactor(signed.user!.uid, AuthFactor.smsOtp);
-          if (mounted) {
-            setState(() {
-              _isLoading = false;
-              _isOtpSent = true;
-            });
-            _nextStep();
-          }
+          if (mounted) setState(() => _isOtpSent = true);
+          await _attachPhone(cred);
         },
         verificationFailed: (FirebaseAuthException e) {
           if (mounted) {
@@ -463,17 +452,38 @@ class _SignupWizardScreenState extends ConsumerState<SignupWizardScreen> {
 
     if (_isLoading) return;
     setState(() => _isLoading = true);
+    await _attachPhone(PhoneAuthProvider.credential(verificationId: _verificationId, smsCode: code));
+  }
+
+  /// Links the verified number to the social account being set up. Signing
+  /// in with the number instead (as this step used to) switched to another
+  /// Firebase user, so the social sign-in never reached the profile and asked
+  /// to register again on every sign-in.
+  Future<void> _attachPhone(PhoneAuthCredential cred) async {
+    final user = FirebaseAuth.instance.currentUser;
+    if (user == null) {
+      if (mounted) context.go('/auth/main_login');
+      return;
+    }
     try {
-      final authRepo = ref.read(authRepositoryProvider);
-      await authRepo.signInWithOTP(
-        verificationId: _verificationId,
-        smsCode: code,
-      );
-      final signedIn = FirebaseAuth.instance.currentUser;
-      if (signedIn != null) LoginSecurity.instance.recordFactor(signedIn.uid, AuthFactor.smsOtp);
+      if (user.phoneNumber == null) {
+        await user.linkWithCredential(cred);
+      } else {
+        await user.reauthenticateWithCredential(cred);
+      }
+      LoginSecurity.instance.recordFactor(user.uid, AuthFactor.smsOtp);
       if (mounted) {
         setState(() => _isLoading = false);
         _nextStep();
+      }
+    } on FirebaseAuthException catch (e) {
+      if (!mounted) return;
+      setState(() => _isLoading = false);
+      if (e.code == 'credential-already-in-use') {
+        // The number already has its own Oneova sign-in.
+        _showPhoneAlreadyRegisteredModal();
+      } else {
+        _showSnackbar(AccountLinkService.linkErrorMessage(e, 'phone number'), isError: true);
       }
     } catch (e) {
       if (mounted) {
@@ -481,6 +491,18 @@ class _SignupWizardScreenState extends ConsumerState<SignupWizardScreen> {
         _showSnackbar('Invalid code. Please re-check and try again.', isError: true);
       }
     }
+  }
+
+  /// The number belongs to an existing account: drop this half-made social
+  /// user and sign in to that account; the social credential (held by the
+  /// login screen) is linked to it after sign-in.
+  Future<void> _signInToExistingAccount() async {
+    final link = ref.read(accountLinkServiceProvider);
+    link.setPhoneHint(_fullPhoneNumber);
+    final user = FirebaseAuth.instance.currentUser;
+    if (user != null) await link.releaseEmptyUser(user);
+    await ref.read(onboardingPersistenceProvider).clearDraft();
+    if (mounted) context.go('/auth/main_login');
   }
 
   void _showPhoneAlreadyRegisteredModal() {
@@ -529,7 +551,7 @@ class _SignupWizardScreenState extends ConsumerState<SignupWizardScreen> {
             ),
             const SizedBox(height: 8),
             Text(
-              'This phone number is already linked to an existing Oneova account.',
+              'This number already has an Oneova account. Sign in to it and we\'ll link this sign-in to it, so you don\'t register twice.',
               textAlign: TextAlign.center,
               style: GoogleFonts.inter(
                 fontSize: 13,
@@ -543,7 +565,7 @@ class _SignupWizardScreenState extends ConsumerState<SignupWizardScreen> {
               child: ElevatedButton(
                 onPressed: () {
                   Navigator.of(ctx).pop();
-                  context.push('/auth/main_login');
+                  _signInToExistingAccount();
                 },
                 style: ElevatedButton.styleFrom(
                   backgroundColor: AppColors.brandBlue,
@@ -551,7 +573,7 @@ class _SignupWizardScreenState extends ConsumerState<SignupWizardScreen> {
                   shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(AppRadius.sm)),
                 ),
                 child: Text(
-                  'Log In Instead',
+                  'Sign In & Link',
                   style: GoogleFonts.inter(fontSize: 13.5, fontWeight: FontWeight.w700),
                 ),
               ),
@@ -568,30 +590,6 @@ class _SignupWizardScreenState extends ConsumerState<SignupWizardScreen> {
         ),
       ),
     );
-  }
-
-  // ── Password Evaluation ────────────────────────────────────────────────────
-
-  void _calculatePasswordStrength(String pass) {
-    int score = 0;
-    if (pass.length >= 8) score++;
-    if (pass.contains(RegExp(r'[A-Z]'))) score++;
-    if (pass.contains(RegExp(r'[0-9]'))) score++;
-    if (pass.contains(RegExp(r'[!@#\$%^&*(),.?":{}|<>]'))) score++;
-
-    String label = 'Weak';
-    if (score == 2) {
-      label = 'Fair';
-    } else if (score == 3) {
-      label = 'Good';
-    } else if (score == 4) {
-      label = 'Strong';
-    }
-
-    setState(() {
-      _passwordStrength = score;
-      _passwordStrengthLabel = label;
-    });
   }
 
   // ── Username Debounce Check ────────────────────────────────────────────────
@@ -643,15 +641,7 @@ class _SignupWizardScreenState extends ConsumerState<SignupWizardScreen> {
   Future<void> _secureNewAccount(User? user) async {
     if (user == null || user.isAnonymous) return;
     final sec = LoginSecurity.instance;
-    final pw = _passwordController.text;
     try {
-      if (pw.length >= 6 && !user.providerData.any((p) => p.providerId == 'password')) {
-        await user.linkWithCredential(EmailAuthProvider.credential(
-          email: LoginSecurity.authEmailForPhone(user.phoneNumber ?? _fullPhoneNumber),
-          password: pw,
-        ));
-        sec.recordFactor(user.uid, AuthFactor.password);
-      }
       final factors = sec.pendingFactorsFor(user.uid);
       final scan = await sec.scanDevice(user.uid);
       final trusted = scan.trusted && scan.isPhysicalDevice;
@@ -667,7 +657,12 @@ class _SignupWizardScreenState extends ConsumerState<SignupWizardScreen> {
   Future<void> _completeOnboarding() async {
     setState(() => _isSaving = true);
     final user = FirebaseAuth.instance.currentUser;
-    final uid = user?.uid ?? _googleUid ?? 'temp_${DateTime.now().millisecondsSinceEpoch}';
+    if (user == null) {
+      setState(() => _isSaving = false);
+      context.go('/auth/main_login');
+      return;
+    }
+    final uid = user.uid;
 
     try {
       final username = _usernameController.text.trim().toLowerCase();
@@ -684,7 +679,8 @@ class _SignupWizardScreenState extends ConsumerState<SignupWizardScreen> {
       await FirebaseFirestore.instance.collection('users').doc(uid).set({
         'displayName': displayName,
         'username': username,
-        'phoneNumber': _fullPhoneNumber,
+        'phoneNumber': user.phoneNumber ?? _fullPhoneNumber,
+        if (user.email != null) 'email': user.email!.toLowerCase(),
         'role': role,
         'accountType': _selectedAccountType,
         'bio': _bioController.text.trim(),
@@ -700,9 +696,12 @@ class _SignupWizardScreenState extends ConsumerState<SignupWizardScreen> {
       // the session if SMS code + password meet the two-check policy. If not,
       // the login screen asks for what is missing.
       await _secureNewAccount(user);
+      final link = ref.read(accountLinkServiceProvider);
+      link.clearPending();
+      await link.recordProviders(user);
 
       // 3b. Enroll biometrics if selected (only for a verified session)
-      if (_enableBiometrics && user != null && LoginSecurity.instance.isVerified(user)) {
+      if (_enableBiometrics && LoginSecurity.instance.isVerified(user)) {
         final bioService = ref.read(oneovaBiometricsServiceProvider);
         await bioService.enrollUserBiometrics(
           userId: user.uid,
@@ -771,7 +770,7 @@ class _SignupWizardScreenState extends ConsumerState<SignupWizardScreen> {
     required Color textP,
     required Color textS,
   }) {
-    final isAlmostThere = stepNumber >= 3;
+    final isAlmostThere = stepNumber >= _totalSteps - 1;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -793,7 +792,7 @@ class _SignupWizardScreenState extends ConsumerState<SignupWizardScreen> {
                     const SizedBox(width: 5),
                     Flexible(
                       child: Text(
-                        'STEP $stepNumber OF 5 • $milestoneText',
+                        milestoneText,
                         overflow: TextOverflow.ellipsis,
                         style: GoogleFonts.inter(
                           fontSize: 10,
@@ -821,7 +820,7 @@ class _SignupWizardScreenState extends ConsumerState<SignupWizardScreen> {
                     const Icon(Icons.flash_on_rounded, size: 11, color: AppColors.brandPink),
                     const SizedBox(width: 3),
                     Text(
-                      stepNumber == 5 ? 'ALL SET!' : 'ALMOST THERE!',
+                      stepNumber == _totalSteps ? 'ALL SET!' : 'ALMOST THERE!',
                       style: GoogleFonts.inter(
                         fontSize: 9.5,
                         fontWeight: FontWeight.w900,
@@ -956,8 +955,7 @@ class _SignupWizardScreenState extends ConsumerState<SignupWizardScreen> {
     final textSecondary = isDark ? AppColors.textSecondary : AppColors.lightTextSecondary;
 
     final stepLabels = [
-      'Welcome • Phone Auth',
-      'Security & Passkeys',
+      'Phone Check',
       'Creator Handle & Tier',
       'AI Shield & Niches',
       'VIP Creator Pass',
@@ -987,13 +985,13 @@ class _SignupWizardScreenState extends ConsumerState<SignupWizardScreen> {
               ),
               const SizedBox(height: 1),
               Text(
-                _currentStep == 4
+                _currentStep == _totalSteps - 1
                     ? 'Almost there! Final Review'
-                    : 'Step ${_currentStep + 1} of 5: ${stepLabels[_currentStep]}',
+                    : 'Step ${_currentStep + 1} of $_totalSteps: ${stepLabels[_currentStep]}',
                 style: GoogleFonts.inter(
                   fontSize: 10.5,
                   fontWeight: FontWeight.w600,
-                  color: _currentStep >= 3 ? AppColors.brandPink : AppColors.brandBlue,
+                  color: _currentStep >= _totalSteps - 1 ? AppColors.brandPink : AppColors.brandBlue,
                 ),
               ),
             ],
@@ -1054,11 +1052,10 @@ class _SignupWizardScreenState extends ConsumerState<SignupWizardScreen> {
               controller: _pageController,
               physics: const NeverScrollableScrollPhysics(),
               children: [
-                _buildStep1PhoneAndOtp(surfaceColor, borderColor, textPrimary, textSecondary),
-                _buildStep2PasswordAndBiometrics(surfaceColor, borderColor, textPrimary, textSecondary),
-                _buildStep3IdentityAndUsername(surfaceColor, borderColor, textPrimary, textSecondary),
-                _buildStep4AiProtectionAndSeeds(surfaceColor, borderColor, textPrimary, textSecondary),
-                _buildStep5AccessPassReview(surfaceColor, borderColor, textPrimary, textSecondary),
+                _buildPhoneStep(surfaceColor, borderColor, textPrimary, textSecondary),
+                _buildIdentityStep(surfaceColor, borderColor, textPrimary, textSecondary),
+                _buildNichesStep(surfaceColor, borderColor, textPrimary, textSecondary),
+                _buildReviewStep(surfaceColor, borderColor, textPrimary, textSecondary),
               ],
             ),
           ),
@@ -1070,7 +1067,7 @@ class _SignupWizardScreenState extends ConsumerState<SignupWizardScreen> {
   // ─────────────────────────────────────────────────────────────────────────
   // Step 1: Phone Authentication (Strictly 1 input on page: Phone OR OTP)
   // ─────────────────────────────────────────────────────────────────────────
-  Widget _buildStep1PhoneAndOtp(Color surface, Color border, Color textP, Color textS) {
+  Widget _buildPhoneStep(Color surface, Color border, Color textP, Color textS) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final surfaceMid = isDark ? AppColors.darkSurfaceHighlight : AppColors.lightSurfaceHighlight;
 
@@ -1317,10 +1314,54 @@ class _SignupWizardScreenState extends ConsumerState<SignupWizardScreen> {
     ).animate().fadeIn(duration: 250.ms).slideY(begin: 0.04, end: 0);
   }
 
+  Widget _buildBiometricToggle(Color surfaceMid, Color border, Color textP, Color textS) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+      decoration: BoxDecoration(
+        color: surfaceMid,
+        borderRadius: BorderRadius.circular(AppRadius.sm),
+        border: Border.all(color: border, width: 1.0),
+      ),
+      child: Row(
+        children: [
+          Container(
+            padding: const EdgeInsets.all(7),
+            decoration: BoxDecoration(
+              color: AppColors.brandPink.withValues(alpha: 0.15),
+              shape: BoxShape.circle,
+            ),
+            child: const Icon(Icons.fingerprint_rounded, size: 20, color: AppColors.brandPink),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  _biometricLabel,
+                  style: GoogleFonts.inter(fontSize: 12.5, fontWeight: FontWeight.w700, color: textP),
+                ),
+                Text(
+                  'Instant 1-touch unlock & account takeover defense',
+                  style: GoogleFonts.inter(fontSize: 10.5, color: textS),
+                ),
+              ],
+            ),
+          ),
+          Switch(
+            value: _enableBiometrics,
+            activeThumbColor: AppColors.brandBlue,
+            onChanged: (val) => setState(() => _enableBiometrics = val),
+          ),
+        ],
+      ),
+    );
+  }
+
   // ─────────────────────────────────────────────────────────────────────────
-  // Step 2: Password & Biometric Passkey (Strictly 2 inputs: Password & Passkey)
+  // Step 2: Identity & Unique Username (Strictly 3 inputs: Tier, Name, Handle)
   // ─────────────────────────────────────────────────────────────────────────
-  Widget _buildStep2PasswordAndBiometrics(Color surface, Color border, Color textP, Color textS) {
+  Widget _buildIdentityStep(Color surface, Color border, Color textP, Color textS) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final surfaceMid = isDark ? AppColors.darkSurfaceHighlight : AppColors.lightSurfaceHighlight;
 
@@ -1331,215 +1372,6 @@ class _SignupWizardScreenState extends ConsumerState<SignupWizardScreen> {
         children: [
           _buildStepHeaderBadge(
             stepNumber: 2,
-            milestoneText: 'SECURITY LAYER',
-            stepTitle: 'Password & Biometrics',
-            stepSubtitle: 'Set your master password as a secondary auth layer and enable passkeys for instant biometric login.',
-            headerIcon: Icons.shield_rounded,
-            textP: textP,
-            textS: textS,
-          ),
-
-          _buildWhyItMatters(
-            icon: Icons.fingerprint_rounded,
-            title: 'Zero Phishing & Passkey Defense',
-            description: 'Enabling biometric passkeys anchors your session to device hardware (Fingerprint/Face ID), completely eliminating phishing and credential leaks.',
-            surfaceMid: surfaceMid,
-            border: border,
-            textP: textP,
-            textS: textS,
-            iconColor: AppColors.brandPink,
-          ),
-
-          // Container with strictly 2 inputs
-          Container(
-            padding: const EdgeInsets.all(16),
-            decoration: BoxDecoration(
-              color: surface,
-              borderRadius: BorderRadius.circular(AppRadius.md),
-              border: Border.all(color: border, width: 1.0),
-            ),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                // INPUT 1: Password Field
-                Row(
-                  children: [
-                    const Icon(Icons.lock_outline_rounded, size: 15, color: AppColors.brandBlue),
-                    const SizedBox(width: 6),
-                    Text(
-                      'Master Account Password',
-                      style: GoogleFonts.inter(fontSize: 12, fontWeight: FontWeight.w600, color: textP),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 8),
-                TextField(
-                  controller: _passwordController,
-                  obscureText: !_passwordVisible,
-                  onChanged: _calculatePasswordStrength,
-                  style: GoogleFonts.inter(fontSize: 13.5, color: textP),
-                  decoration: InputDecoration(
-                    hintText: 'Enter strong password (min 8 characters)',
-                    hintStyle: GoogleFonts.inter(fontSize: 12.5, color: textS),
-                    filled: true,
-                    fillColor: surfaceMid,
-                    isDense: true,
-                    contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-                    border: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(AppRadius.sm),
-                      borderSide: BorderSide(color: border, width: 1.0),
-                    ),
-                    enabledBorder: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(AppRadius.sm),
-                      borderSide: BorderSide(color: border, width: 1.0),
-                    ),
-                    focusedBorder: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(AppRadius.sm),
-                      borderSide: const BorderSide(color: AppColors.brandBlue, width: 1.2),
-                    ),
-                    suffixIcon: IconButton(
-                      icon: Icon(
-                        _passwordVisible ? Icons.visibility_off_outlined : Icons.visibility_outlined,
-                        size: 18,
-                        color: textS,
-                      ),
-                      onPressed: () => setState(() => _passwordVisible = !_passwordVisible),
-                    ),
-                  ),
-                ),
-                const SizedBox(height: 8),
-
-                // Password strength bar
-                Row(
-                  children: [
-                    Expanded(
-                      child: ClipRRect(
-                        borderRadius: BorderRadius.circular(2),
-                        child: LinearProgressIndicator(
-                          value: _passwordStrength / 4.0,
-                          backgroundColor: surfaceMid,
-                          valueColor: AlwaysStoppedAnimation<Color>(
-                            _passwordStrength <= 1
-                                ? Colors.redAccent
-                                : _passwordStrength <= 3
-                                    ? Colors.amber
-                                    : AppColors.brandBlue,
-                          ),
-                          minHeight: 3.5,
-                        ),
-                      ),
-                    ),
-                    const SizedBox(width: 10),
-                    Text(
-                      _passwordStrengthLabel,
-                      style: GoogleFonts.inter(
-                        fontSize: 11,
-                        fontWeight: FontWeight.w700,
-                        color: _passwordStrength <= 1
-                            ? Colors.redAccent
-                            : _passwordStrength <= 3
-                                ? Colors.amber
-                                : AppColors.brandBlue,
-                      ),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 18),
-
-                // INPUT 2: Biometric passkey switch
-                Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-                  decoration: BoxDecoration(
-                    color: surfaceMid,
-                    borderRadius: BorderRadius.circular(AppRadius.sm),
-                    border: Border.all(color: border, width: 1.0),
-                  ),
-                  child: Row(
-                    children: [
-                      Container(
-                        padding: const EdgeInsets.all(7),
-                        decoration: BoxDecoration(
-                          color: AppColors.brandPink.withValues(alpha: 0.15),
-                          shape: BoxShape.circle,
-                        ),
-                        child: const Icon(Icons.fingerprint_rounded, size: 20, color: AppColors.brandPink),
-                      ),
-                      const SizedBox(width: 12),
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(
-                              _biometricLabel,
-                              style: GoogleFonts.inter(fontSize: 12.5, fontWeight: FontWeight.w700, color: textP),
-                            ),
-                            Text(
-                              'Instant 1-touch unlock & account takeover defense',
-                              style: GoogleFonts.inter(fontSize: 10.5, color: textS),
-                            ),
-                          ],
-                        ),
-                      ),
-                      Switch(
-                        value: _enableBiometrics,
-                        activeThumbColor: AppColors.brandBlue,
-                        onChanged: (val) => setState(() => _enableBiometrics = val),
-                      ),
-                    ],
-                  ),
-                ),
-                const SizedBox(height: 22),
-
-                SizedBox(
-                  width: double.infinity,
-                  height: 42,
-                  child: ElevatedButton(
-                    onPressed: () {
-                      if (_passwordController.text.length < 6) {
-                        _showSnackbar('Password must be at least 6 characters.', isError: true);
-                        return;
-                      }
-                      _nextStep();
-                    },
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: AppColors.brandBlue,
-                      foregroundColor: Colors.white,
-                      elevation: 0,
-                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(AppRadius.sm)),
-                    ),
-                    child: Row(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        Text(
-                          'Continue (Step 3 of 5) →',
-                          style: GoogleFonts.inter(fontSize: 13.5, fontWeight: FontWeight.w700),
-                        ),
-                      ],
-                    ),
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ],
-      ),
-    ).animate().fadeIn(duration: 250.ms).slideY(begin: 0.04, end: 0);
-  }
-
-  // ─────────────────────────────────────────────────────────────────────────
-  // Step 3: Identity & Unique Username (Strictly 3 inputs: Tier, Name, Handle)
-  // ─────────────────────────────────────────────────────────────────────────
-  Widget _buildStep3IdentityAndUsername(Color surface, Color border, Color textP, Color textS) {
-    final isDark = Theme.of(context).brightness == Brightness.dark;
-    final surfaceMid = isDark ? AppColors.darkSurfaceHighlight : AppColors.lightSurfaceHighlight;
-
-    return SingleChildScrollView(
-      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          _buildStepHeaderBadge(
-            stepNumber: 3,
             milestoneText: 'CREATOR IDENTITY',
             stepTitle: 'Claim Your Name & Handle',
             stepSubtitle: 'Choose your account tier, display name, and permanent unique @username handle.',
@@ -1614,134 +1446,14 @@ class _SignupWizardScreenState extends ConsumerState<SignupWizardScreen> {
                 ),
                 const SizedBox(height: 16),
 
-                // INPUT 2: Display Name Field
-                Row(
-                  children: [
-                    const Icon(Icons.badge_outlined, size: 15, color: AppColors.brandBlue),
-                    const SizedBox(width: 6),
-                    Text(
-                      'Display Name / Brand',
-                      style: GoogleFonts.inter(fontSize: 12, fontWeight: FontWeight.w600, color: textP),
-                    ),
-                  ],
+                // INPUTS 2-3: shared with the phone registration on the login screen
+                OnboardingIdentityFields(
+                  nameController: _nameController,
+                  usernameController: _usernameController,
+                  checking: _isCheckingUsername,
+                  result: _usernameCheckResult,
+                  onUsernameChanged: _checkUsernameAvailability,
                 ),
-                const SizedBox(height: 8),
-                TextField(
-                  controller: _nameController,
-                  style: GoogleFonts.inter(fontSize: 13.5, color: textP),
-                  decoration: InputDecoration(
-                    hintText: 'e.g. Maya Lin or Horizon Media',
-                    hintStyle: GoogleFonts.inter(fontSize: 12.5, color: textS),
-                    filled: true,
-                    fillColor: surfaceMid,
-                    isDense: true,
-                    contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-                    border: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(AppRadius.sm),
-                      borderSide: BorderSide(color: border, width: 1.0),
-                    ),
-                    enabledBorder: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(AppRadius.sm),
-                      borderSide: BorderSide(color: border, width: 1.0),
-                    ),
-                    focusedBorder: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(AppRadius.sm),
-                      borderSide: const BorderSide(color: AppColors.brandBlue, width: 1.2),
-                    ),
-                  ),
-                ),
-                const SizedBox(height: 16),
-
-                // INPUT 3: Unique @username Handle Field
-                Row(
-                  children: [
-                    const Icon(Icons.alternate_email_rounded, size: 15, color: AppColors.brandBlue),
-                    const SizedBox(width: 6),
-                    Text(
-                      'Unique Handle (@username)',
-                      style: GoogleFonts.inter(fontSize: 12, fontWeight: FontWeight.w600, color: textP),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 8),
-                TextField(
-                  controller: _usernameController,
-                  onChanged: _checkUsernameAvailability,
-                  style: GoogleFonts.inter(fontSize: 13.5, color: textP, fontWeight: FontWeight.w700),
-                  decoration: InputDecoration(
-                    prefixText: '@',
-                    prefixStyle: GoogleFonts.inter(fontSize: 13.5, fontWeight: FontWeight.w800, color: AppColors.brandBlue),
-                    hintText: 'mayacreates (letters, numbers, _)',
-                    hintStyle: GoogleFonts.inter(fontSize: 12.5, color: textS, fontWeight: FontWeight.w400),
-                    filled: true,
-                    fillColor: surfaceMid,
-                    isDense: true,
-                    contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-                    border: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(AppRadius.sm),
-                      borderSide: BorderSide(color: border, width: 1.0),
-                    ),
-                    enabledBorder: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(AppRadius.sm),
-                      borderSide: BorderSide(color: border, width: 1.0),
-                    ),
-                    focusedBorder: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(AppRadius.sm),
-                      borderSide: const BorderSide(color: AppColors.brandBlue, width: 1.2),
-                    ),
-                    suffixIcon: _isCheckingUsername
-                        ? const SizedBox(
-                            width: 16,
-                            height: 16,
-                            child: Padding(
-                              padding: EdgeInsets.all(12),
-                              child: CircularProgressIndicator(strokeWidth: 2, color: AppColors.brandBlue),
-                            ),
-                          )
-                        : null,
-                  ),
-                ),
-                const SizedBox(height: 8),
-
-                if (_usernameCheckResult != null)
-                  Row(
-                    children: [
-                      Icon(
-                        _usernameCheckResult!.isValidAndAvailable ? Icons.check_circle_rounded : Icons.cancel_rounded,
-                        size: 14,
-                        color: _usernameCheckResult!.isValidAndAvailable ? Colors.greenAccent : Colors.redAccent,
-                      ),
-                      const SizedBox(width: 6),
-                      Text(
-                        _usernameCheckResult!.message ?? '',
-                        style: GoogleFonts.inter(
-                          fontSize: 11,
-                          fontWeight: FontWeight.w600,
-                          color: _usernameCheckResult!.isValidAndAvailable ? Colors.greenAccent : Colors.redAccent,
-                        ),
-                      ),
-                      if (_usernameCheckResult!.potentialBadge != OneovaBadgeType.none) ...[
-                        const Spacer(),
-                        Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                          decoration: BoxDecoration(
-                            color: AppColors.brandBlue.withValues(alpha: 0.15),
-                            borderRadius: BorderRadius.circular(AppRadius.xs),
-                          ),
-                          child: Row(
-                            children: [
-                              const Icon(Icons.verified_rounded, size: 12, color: AppColors.brandBlue),
-                              const SizedBox(width: 4),
-                              Text(
-                                'Verified Qualification',
-                                style: GoogleFonts.inter(fontSize: 9.5, fontWeight: FontWeight.w700, color: AppColors.brandBlue),
-                              ),
-                            ],
-                          ),
-                        ),
-                      ],
-                    ],
-                  ),
                 const SizedBox(height: 22),
 
                 SizedBox(
@@ -1770,7 +1482,7 @@ class _SignupWizardScreenState extends ConsumerState<SignupWizardScreen> {
                       mainAxisAlignment: MainAxisAlignment.center,
                       children: [
                         Text(
-                          'Continue (Step 4 of 5) →',
+                          'Continue →',
                           style: GoogleFonts.inter(fontSize: 13.5, fontWeight: FontWeight.w700),
                         ),
                       ],
@@ -1786,9 +1498,9 @@ class _SignupWizardScreenState extends ConsumerState<SignupWizardScreen> {
   }
 
   // ─────────────────────────────────────────────────────────────────────────
-  // Step 4: AI Safety Shield & Niches (Strictly 2 inputs: Niches & Bio)
+  // Step 3: AI Safety Shield & Niches (Strictly 2 inputs: Niches & Bio)
   // ─────────────────────────────────────────────────────────────────────────
-  Widget _buildStep4AiProtectionAndSeeds(Color surface, Color border, Color textP, Color textS) {
+  Widget _buildNichesStep(Color surface, Color border, Color textP, Color textS) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final surfaceMid = isDark ? AppColors.darkSurfaceHighlight : AppColors.lightSurfaceHighlight;
 
@@ -1798,7 +1510,7 @@ class _SignupWizardScreenState extends ConsumerState<SignupWizardScreen> {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           _buildStepHeaderBadge(
-            stepNumber: 4,
+            stepNumber: 3,
             milestoneText: 'ALGORITHM SEEDING',
             stepTitle: 'AI Shield & Content Niches',
             stepSubtitle: 'Choose your creative niches so our AI models immediately calibrate your audience reach.',
@@ -2002,9 +1714,9 @@ class _SignupWizardScreenState extends ConsumerState<SignupWizardScreen> {
   }
 
   // ─────────────────────────────────────────────────────────────────────────
-  // Step 5: Creator Access Pass (Strictly 0 inputs: Celebration & Entry)
+  // Step 4: Creator Access Pass (Strictly 0 inputs: Celebration & Entry)
   // ─────────────────────────────────────────────────────────────────────────
-  Widget _buildStep5AccessPassReview(Color surface, Color border, Color textP, Color textS) {
+  Widget _buildReviewStep(Color surface, Color border, Color textP, Color textS) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final surfaceMid = isDark ? AppColors.darkSurfaceHighlight : AppColors.lightSurfaceHighlight;
 
@@ -2014,7 +1726,7 @@ class _SignupWizardScreenState extends ConsumerState<SignupWizardScreen> {
         crossAxisAlignment: CrossAxisAlignment.center,
         children: [
           _buildStepHeaderBadge(
-            stepNumber: 5,
+            stepNumber: 4,
             milestoneText: 'CREATOR VIP PASS',
             stepTitle: 'Your VIP Pass is Ready!',
             stepSubtitle: 'Review your creator credentials before launching into the global high-fidelity short video feed.',
@@ -2130,7 +1842,9 @@ class _SignupWizardScreenState extends ConsumerState<SignupWizardScreen> {
               ],
             ),
           ).animate().scale(duration: 350.ms, curve: Curves.easeOutBack),
-          const SizedBox(height: 28),
+          const SizedBox(height: 16),
+          if (_biometricSupported) _buildBiometricToggle(surfaceMid, border, textP, textS),
+          const SizedBox(height: 16),
 
           // Complete & Enter CTA
           SizedBox(

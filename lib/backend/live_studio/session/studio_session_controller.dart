@@ -18,6 +18,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../../looks/live/live_looks_controller.dart';
 import '../../observability/telemetry_service.dart';
 import '../contracts/studio_contracts.dart';
 import '../contracts/studio_ports.dart';
@@ -63,6 +64,12 @@ final studioRoomProvider = Provider.autoDispose.family<StudioRoomPort, String>((
     api: ref.watch(studioMediaApiProvider),
     metrics: TelemetryMetricsSink(ref.watch(telemetryServiceProvider)),
   );
+  room.onCameraTrackPublished = (trackId) {
+    ref.read(liveLooksControllerProvider.notifier).attachCameraTrack(trackId);
+  };
+  room.onCameraTrackUnpublished = (trackId) {
+    ref.read(liveLooksControllerProvider.notifier).detachCameraTrack();
+  };
   unawaited(room.connect());
   ref.onDispose(() => unawaited(room.disconnect()));
   return room;

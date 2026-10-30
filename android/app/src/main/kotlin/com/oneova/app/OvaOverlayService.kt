@@ -15,26 +15,23 @@ import android.os.Handler
 import android.os.IBinder
 import android.os.Looper
 import android.view.Gravity
-import android.view.LayoutInflater
 import android.view.MotionEvent
 import android.view.View
 import android.view.WindowManager
-import android.widget.EditText
 import android.widget.FrameLayout
-import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.TextView
 
 /**
  * System-Wide Floating Overlay Service for Oneova Ova Assistant.
- * Renders an ambient floating assistant dock and trigger bubble directly over any Android application.
+ * Renders a draggable "Ova" bubble over any Android application; tapping it
+ * opens the compact Ova overlay ([OvaAssistActivity]).
  */
 class OvaOverlayService : Service() {
 
     private val mainHandler = Handler(Looper.getMainLooper())
     private var windowManager: WindowManager? = null
     private var overlayRoot: FrameLayout? = null
-    private var isExpanded: Boolean = false
 
     private var initialX: Int = 0
     private var initialY: Int = 0
@@ -89,13 +86,7 @@ class OvaOverlayService : Service() {
                 hideOverlay()
                 stopSelf()
             }
-            ACTION_TOGGLE -> {
-                if (overlayRoot?.visibility == View.VISIBLE) {
-                    if (isExpanded) collapseOverlay() else expandOverlay()
-                } else {
-                    showOverlay()
-                }
-            }
+            ACTION_TOGGLE -> showOverlay()
             else -> showOverlay()
         }
         return START_STICKY
@@ -143,7 +134,7 @@ class OvaOverlayService : Service() {
 
         return builder
             .setContentTitle("Oneova Ova Active")
-            .setContentText("Tap to open or drag edge bubble over apps")
+            .setContentText("Tap the Ova bubble to ask Ova over any app")
             .setSmallIcon(R.mipmap.ic_launcher)
             .setContentIntent(pendingIntent)
             .setOngoing(true)
@@ -232,8 +223,8 @@ class OvaOverlayService : Service() {
                     val diffX = Math.abs(event.rawX - initialTouchX)
                     val diffY = Math.abs(event.rawY - initialTouchY)
                     if (diffX < 10 && diffY < 10) {
-                        // Click detected -> Expand floating assistant dock
-                        expandOverlay()
+                        // Tap -> compact Ova over the current app.
+                        OvaAssistActivity.open(this, "bubble")
                     }
                     true
                 }
@@ -246,235 +237,6 @@ class OvaOverlayService : Service() {
             windowManager?.addView(overlayRoot, params)
         } catch (e: Exception) {
             e.printStackTrace()
-        }
-    }
-
-    private fun expandOverlay() {
-        isExpanded = true
-        val dp = resources.displayMetrics.density
-        val root = overlayRoot ?: return
-
-        root.removeAllViews()
-
-        val params = root.layoutParams as WindowManager.LayoutParams
-        params.width = (resources.displayMetrics.widthPixels * 0.92).toInt()
-        params.height = WindowManager.LayoutParams.WRAP_CONTENT
-        params.flags = WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL or
-            WindowManager.LayoutParams.FLAG_WATCH_OUTSIDE_TOUCH
-        params.gravity = Gravity.BOTTOM or Gravity.CENTER_HORIZONTAL
-        params.y = (32 * dp).toInt()
-        params.x = 0
-
-        // Build Floating Dock Card matching Oneova style
-        val dockCard = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            setPadding((16 * dp).toInt(), (14 * dp).toInt(), (16 * dp).toInt(), (14 * dp).toInt())
-            background = GradientDrawable().apply {
-                cornerRadius = 22 * dp
-                setColor(Color.parseColor("#F2141416")) // Deep Dark Glass
-                setStroke((1 * dp).toInt(), Color.parseColor("#330C4FA8"))
-            }
-
-            // Header row: [Icon Oneova] ... [Close]
-            val headerRow = LinearLayout(context).apply {
-                orientation = LinearLayout.HORIZONTAL
-                gravity = Gravity.CENTER_VERTICAL
-                layoutParams = LinearLayout.LayoutParams(
-                    LinearLayout.LayoutParams.MATCH_PARENT,
-                    LinearLayout.LayoutParams.WRAP_CONTENT
-                ).apply {
-                    bottomMargin = (12 * dp).toInt()
-                }
-
-                val title = TextView(context).apply {
-                    text = "Oneova Ambient AI"
-                    setTextColor(Color.WHITE)
-                    textSize = 14f
-                    typeface = android.graphics.Typeface.DEFAULT_BOLD
-                    layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
-                }
-                addView(title)
-
-                val closeBtn = TextView(context).apply {
-                    text = "✕"
-                    setTextColor(Color.parseColor("#9CA3AF"))
-                    textSize = 16f
-                    setPadding((8 * dp).toInt(), (4 * dp).toInt(), (8 * dp).toInt(), (4 * dp).toInt())
-                    setOnClickListener {
-                        collapseOverlay()
-                    }
-                }
-                addView(closeBtn)
-            }
-            addView(headerRow)
-
-            // Quick command capsules: [Back] [Home] [WhatsApp] [Recents]
-            val chipsScroll = LinearLayout(context).apply {
-                orientation = LinearLayout.HORIZONTAL
-                layoutParams = LinearLayout.LayoutParams(
-                    LinearLayout.LayoutParams.MATCH_PARENT,
-                    LinearLayout.LayoutParams.WRAP_CONTENT
-                ).apply {
-                    bottomMargin = (12 * dp).toInt()
-                }
-
-                fun addActionChip(label: String, action: () -> Unit) {
-                    val chip = TextView(context).apply {
-                        text = label
-                        setTextColor(Color.parseColor("#F3F4F6"))
-                        textSize = 11.5f
-                        setPadding((10 * dp).toInt(), (5 * dp).toInt(), (10 * dp).toInt(), (5 * dp).toInt())
-                        background = GradientDrawable().apply {
-                            cornerRadius = 14 * dp
-                            setColor(Color.parseColor("#262628"))
-                            setStroke((1 * dp).toInt(), Color.parseColor("#26FFFFFF"))
-                        }
-                        layoutParams = LinearLayout.LayoutParams(
-                            LinearLayout.LayoutParams.WRAP_CONTENT,
-                            LinearLayout.LayoutParams.WRAP_CONTENT
-                        ).apply {
-                            rightMargin = (8 * dp).toInt()
-                        }
-                        setOnClickListener { action() }
-                    }
-                    addView(chip)
-                }
-
-                addActionChip("⇦ Back") {
-                    OvaAccessibilityService.instance?.global("back")
-                }
-                addActionChip("⌂ Home") {
-                    OvaAccessibilityService.instance?.global("home")
-                }
-                addActionChip("▢ Recents") {
-                    OvaAccessibilityService.instance?.global("recents")
-                }
-                addActionChip("📸 Screenshot") {
-                    OvaAccessibilityService.instance?.global("screenshot")
-                }
-            }
-            addView(chipsScroll)
-
-            // Input Row: [ EditText ] [ Send Button ]
-            val inputRow = LinearLayout(context).apply {
-                orientation = LinearLayout.HORIZONTAL
-                gravity = Gravity.CENTER_VERTICAL
-                setPadding((10 * dp).toInt(), (4 * dp).toInt(), (8 * dp).toInt(), (4 * dp).toInt())
-                background = GradientDrawable().apply {
-                    cornerRadius = 24 * dp
-                    setColor(Color.parseColor("#2C2C2E"))
-                    setStroke((1 * dp).toInt(), Color.parseColor("#1FFFFFFF"))
-                }
-
-                val editText = EditText(context).apply {
-                    hint = "Ask Ova or command device..."
-                    setHintTextColor(Color.parseColor("#6B7280"))
-                    setTextColor(Color.WHITE)
-                    textSize = 13f
-                    background = null
-                    isSingleLine = true
-                    layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f).apply {
-                        setPadding((6 * dp).toInt(), (6 * dp).toInt(), (6 * dp).toInt(), (6 * dp).toInt())
-                    }
-                }
-                addView(editText)
-
-                val sendBtn = TextView(context).apply {
-                    text = "➤"
-                    setTextColor(Color.parseColor("#0C4FA8")) // Brand blue
-                    textSize = 16f
-                    setPadding((8 * dp).toInt(), (4 * dp).toInt(), (8 * dp).toInt(), (4 * dp).toInt())
-                    setOnClickListener {
-                        val query = editText.text.toString().trim()
-                        if (query.isNotEmpty()) {
-                            editText.setText("")
-                            handleAmbientCommand(query)
-                        }
-                    }
-                }
-                addView(sendBtn)
-            }
-            addView(inputRow)
-        }
-
-        root.addView(dockCard)
-        windowManager?.updateViewLayout(root, params)
-    }
-
-    private fun collapseOverlay() {
-        isExpanded = false
-        overlayRoot?.let { root ->
-            windowManager?.removeView(root)
-            overlayRoot = null
-        }
-        buildOverlayView()
-    }
-
-    private fun handleAmbientCommand(query: String) {
-        val lower = query.lowercase()
-        val a11y = OvaAccessibilityService.instance
-
-        if (a11y != null) {
-            when {
-                lower == "back" || lower == "go back" -> {
-                    a11y.global("back")
-                    a11y.showBubble("Going back", isUser = false)
-                }
-                lower == "home" || lower == "go home" -> {
-                    a11y.global("home")
-                    a11y.showBubble("Navigating to Home screen", isUser = false)
-                }
-                lower.contains("recents") || lower == "recent apps" -> {
-                    a11y.global("recents")
-                    a11y.showBubble("Showing recent applications", isUser = false)
-                }
-                lower.contains("notifications") -> {
-                    a11y.global("notifications")
-                    a11y.showBubble("Opening notification panel", isUser = false)
-                }
-                lower.contains("screenshot") -> {
-                    a11y.global("screenshot")
-                    a11y.showBubble("Capturing screenshot", isUser = false)
-                }
-                lower.startsWith("scroll down") -> {
-                    a11y.scroll(forward = true)
-                    a11y.showBubble("Scrolled down", isUser = false)
-                }
-                lower.startsWith("scroll up") -> {
-                    a11y.scroll(forward = false)
-                    a11y.showBubble("Scrolled up", isUser = false)
-                }
-                lower.startsWith("tap ") || lower.startsWith("click ") -> {
-                    val label = query.substring(4).trim()
-                    val clicked = a11y.clickByText(label)
-                    a11y.showBubble(if (clicked) "Tapped '$label'" else "Couldn't locate '$label'", isUser = false)
-                }
-                lower.startsWith("type ") -> {
-                    val textToType = query.substring(5).trim()
-                    val typed = a11y.typeText(textToType)
-                    a11y.showBubble(if (typed) "Typed text" else "No active text field focused", isUser = false)
-                }
-                else -> {
-                    // Open Oneova to handle via full AI brain
-                    a11y.showBubble("Connecting to Oneova AI Brain...", isUser = false)
-                    val wakeIntent = Intent(this, MainActivity::class.java).apply {
-                        flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP
-                        putExtra("wake_assistant", true)
-                        putExtra("pending_query", query)
-                        action = "com.oneova.app.WAKE_ASSISTANT"
-                    }
-                    startActivity(wakeIntent)
-                }
-            }
-        } else {
-            // Wake full Oneova app
-            val wakeIntent = Intent(this, MainActivity::class.java).apply {
-                flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP
-                putExtra("wake_assistant", true)
-                putExtra("pending_query", query)
-                action = "com.oneova.app.WAKE_ASSISTANT"
-            }
-            startActivity(wakeIntent)
         }
     }
 

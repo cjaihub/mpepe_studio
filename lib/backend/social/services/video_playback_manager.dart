@@ -119,9 +119,11 @@ class VideoPlaybackManager {
       final isCurrent = id == currentId;
       final existing = _slotFor(id);
       if (existing == null) {
+        final content = feed.firstWhere((c) => c.id == id);
+        // Photos render as an image; they never take a player slot.
+        if (content.type == ContentType.photo) continue;
         final slot = _acquireSlot();
         if (slot == null) continue;
-        final content = feed.firstWhere((c) => c.id == id);
         _loadIntoSlot(slot, content, isCurrent);
       } else {
         // Play if current, pause if preloaded background buffer

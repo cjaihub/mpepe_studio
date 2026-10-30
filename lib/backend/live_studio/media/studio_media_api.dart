@@ -40,11 +40,16 @@ class StudioMediaApi {
   final StudioCallPort _call;
 
   /// Starts a v2 live as host. [settings] is an optional partial override of
-  /// the host's saved settings.
-  Future<StudioStartResult> start(String title, {Map<String, dynamic>? settings}) async {
+  /// the host's saved settings. [gaming] opens a Game Live (screen share in
+  /// the center, camera PiP) with an optional [gameTitle] (≤ 60 chars).
+  Future<StudioStartResult> start(String title,
+      {Map<String, dynamic>? settings, bool gaming = false, String? gameTitle}) async {
+    final game = gameTitle?.trim();
     final r = await _call.call(StudioCallables.start, {
       'title': title,
       'settings': ?settings,
+      if (gaming) 'kind': 'gaming',
+      if (gaming && game != null && game.isNotEmpty) 'gameTitle': game,
     });
     return StudioStartResult(
       streamId: r['streamId'] is String ? r['streamId'] as String : '',

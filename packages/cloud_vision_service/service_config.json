@@ -1,0 +1,36 @@
+{
+  "name": "oneova-cloud-vision-gpu",
+  "version": "1.0.0",
+  "description": "Oneova Cloud Run GPU Service: SAM 2 Rotoscoping, AI Enhance, Relight, Sky Replace & GLSL Graph Render",
+  "service": {
+    "runtime": "python311",
+    "gpu": {
+      "type": "nvidia-l4",
+      "count": 1
+    },
+    "scaling": {
+      "minInstances": 0,
+      "maxInstances": 100,
+      "scaleToZeroSeconds": 300
+    },
+    "resources": {
+      "cpu": "8",
+      "memory": "32Gi"
+    }
+  },
+  "endpoints": {
+    "rotoscope": "/v1/rotoscope",
+    "enhance": "/v1/enhance",
+    "relight": "/v1/relight",
+    "sky_replace": "/v1/sky-replace",
+    "render": "/v1/render",
+    "job_status": "/v1/jobs/{job_id}",
+    "warmup": "/v1/warmup",
+    "healthz": "/healthz"
+  },
+  "quotas": {
+    "free_tier_daily_jobs": 5,
+    "pro_tier_daily_jobs": 100,
+    "biz_tier_daily_jobs": 1000
+  }
+}

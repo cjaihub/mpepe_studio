@@ -72,6 +72,50 @@ class AppSettings {
     );
   }
 
+  /// Typed view over the canonical `user_settings/{uid}` categories.
+  factory AppSettings.fromCanonical(Map<String, dynamic> settings) {
+    Map<String, dynamic> cat(String name) => Map<String, dynamic>.from(settings[name] as Map? ?? const {});
+    final security = cat('security');
+    final privacy = cat('privacy');
+    final ai = cat('ai');
+    final appearance = cat('appearance');
+    final storage = cat('storage');
+    return AppSettings.fromMap({
+      ...security,
+      ...privacy,
+      ...ai,
+      'allowMediaAutoDownload': storage['allowMediaAutoDownload'],
+      'voiceSelection': ai['selectedVoice'],
+      'isDarkMode': appearance['themeMode'] != 'light',
+      'language': appearance['language'],
+    }..removeWhere((_, v) => v == null));
+  }
+
+  /// The canonical categories this view writes back to.
+  Map<String, Map<String, dynamic>> toCanonical() {
+    return {
+      'security': {'requirePasskey': requirePasskey, 'loginAlerts': loginAlerts},
+      'privacy': {
+        'profileVisibility': profileVisibility.name,
+        'messagePermissions': messagePermissions.name,
+        'onlineVisibility': onlineVisibility.name,
+        'readReceipts': readReceipts,
+        'typingStatus': typingStatus,
+        'dataRetentionForever': dataRetentionForever,
+      },
+      'storage': {'allowMediaAutoDownload': allowMediaAutoDownload},
+      'ai': {
+        'aiEnabled': aiEnabled,
+        'aiSuggestions': aiSuggestions,
+        'autoMode': autoMode.name,
+        'backgroundAgentEnabled': backgroundAgentEnabled,
+        'aiPersonalization': aiPersonalization,
+        if (voiceSelection != 'default') 'selectedVoice': voiceSelection,
+      },
+      'appearance': {'themeMode': isDarkMode ? 'dark' : 'light', 'language': language},
+    };
+  }
+
   Map<String, dynamic> toMap() {
     return {
       'requirePasskey': requirePasskey,

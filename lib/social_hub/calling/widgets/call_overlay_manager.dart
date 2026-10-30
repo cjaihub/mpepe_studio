@@ -16,6 +16,7 @@ import '../../../backend/calling/providers/active_call_controller.dart';
 import '../../../backend/calling/providers/call_media_service.dart';
 import '../../../backend/calling/providers/call_signaling_service.dart';
 import '../../../backend/calling/providers/webrtc_connection_manager.dart';
+import '../../../backend/calling/services/call_pip_service.dart';
 import '../../../backend/calling/services/callkit_service.dart';
 import '../../../backend/notifications/providers/push_notification_service.dart';
 import '../../../inbox/calling/screens/active_call_screen.dart';
@@ -50,6 +51,17 @@ class _CallOverlayManagerState extends ConsumerState<CallOverlayManager> {
     _callkitSub = FlutterCallkitIncoming.onEvent.listen(_onCallKitEvent, onError: (_) {});
     FlutterCallkitIncoming.onBackgroundMessage(callKitBackgroundEventHandler).catchError((_) {});
     _authSub = FirebaseAuth.instance.authStateChanges().listen(_onAuth);
+    CallPipService.inPip.addListener(_onPipChanged);
+  }
+
+  /// The app shrank into system PiP while the call was minimised: bring the
+  /// call screen up so the PiP window shows the call, not the feed.
+  void _onPipChanged() {
+    if (!CallPipService.inPip.value) return;
+    final s = ref.read(activeCallControllerProvider);
+    if (!s.isLive || ActiveCallScreen.isVisible.value) return;
+    ref.read(activeCallControllerProvider.notifier).restore();
+    _openScreen();
   }
 
   @override
@@ -57,6 +69,7 @@ class _CallOverlayManagerState extends ConsumerState<CallOverlayManager> {
     _authSub?.cancel();
     _incomingSub?.cancel();
     _callkitSub?.cancel();
+    CallPipService.inPip.removeListener(_onPipChanged);
     super.dispose();
   }
 
@@ -75,6 +88,9 @@ class _CallOverlayManagerState extends ConsumerState<CallOverlayManager> {
     );
     if (_bootstrappedUid == user.uid) return;
     _bootstrappedUid = user.uid;
+    // Accepted on the lock screen while the app was killed: connect first,
+    // before any permission prompt or token work can delay the caller.
+    await _resumeAcceptedNativeCall();
     try {
       await ref.read(pushNotificationServiceProvider).initialize();
     } catch (e) {
@@ -82,7 +98,6 @@ class _CallOverlayManagerState extends ConsumerState<CallOverlayManager> {
     }
     await CallKitService.requestPermissions();
     await CallKitService.registerVoipToken();
-    await _resumeAcceptedNativeCall();
   }
 
   /// The user accepted on the lock screen before Flutter was running.

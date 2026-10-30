@@ -1,20 +1,43 @@
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect, Suspense, lazy } from 'react';
 import Navbar from './components/Navbar';
 import Hero from './components/Hero';
 import FeaturesGrid from './components/FeaturesGrid';
 import AboutUs from './components/AboutUs';
 import DocsPortal from './components/DocsPortal';
-import DownloadModal from './components/DownloadModal';
-import PolicyModal from './components/PolicyModal';
 import FloatingVideoWidget from './components/FloatingVideoWidget';
+import OvaAssistantWidget from './components/OvaAssistantWidget';
 import WaveBackground from './components/WaveBackground';
 import Footer from './components/Footer';
+import { usePlatformDocs, useCmsAdminAuth } from './services/platformCmsClient';
+
+const DownloadModal = lazy(() => import('./components/DownloadModal'));
+const PolicyModal = lazy(() => import('./components/PolicyModal'));
+const AdminCmsModal = lazy(() => import('./components/AdminCmsModal'));
 
 export default function App() {
+  const { docs, isLiveConnected, liveOverrideCount } = usePlatformDocs({ includeDrafts: false });
+  const { isAdmin } = useCmsAdminAuth();
+
   const [currentDocId, setCurrentDocId] = useState('live-studio');
   const [isDownloadOpen, setIsDownloadOpen] = useState(false);
   const [isPolicyOpen, setIsPolicyOpen] = useState(false);
   const [policyTab, setPolicyTab] = useState('guidelines');
+  const [isOvaAssistantOpen, setIsOvaAssistantOpen] = useState(() => {
+    try {
+      return new URLSearchParams(window.location.search).get('ask') === '1';
+    } catch {
+      return false;
+    }
+  });
+  const [isAdminCmsOpen, setIsAdminCmsOpen] = useState(() => {
+    try {
+      return new URLSearchParams(window.location.search).get('admin') === '1';
+    } catch {
+      return false;
+    }
+  });
+  const [adminCmsDocId, setAdminCmsDocId] = useState(null);
+
   const [theme, setTheme] = useState(() => {
     try {
       return localStorage.getItem('oneova_theme') || 'dark';
@@ -33,20 +56,32 @@ export default function App() {
   }, [theme]);
 
   const handleToggleTheme = () => {
-    setTheme(prev => (prev === 'dark' ? 'light' : 'dark'));
+    setTheme((prev) => (prev === 'dark' ? 'light' : 'dark'));
   };
 
-  // Global search shortcut (Cmd + K / Ctrl + K)
+  const handleOpenAdminCms = (docId = null) => {
+    setAdminCmsDocId(docId || currentDocId);
+    setIsAdminCmsOpen(true);
+  };
+
+  const handleOpenOvaAssistant = () => {
+    setIsOvaAssistantOpen(true);
+  };
+
+  // Global shortcuts: Cmd/Ctrl + K (Search) and Cmd/Ctrl + Shift + E (Live Admin CMS)
   useEffect(() => {
     const handleKeyDown = (e) => {
       if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') {
         e.preventDefault();
         handleSearchFocus();
+      } else if ((e.metaKey || e.ctrlKey) && e.shiftKey && e.key.toLowerCase() === 'e') {
+        e.preventDefault();
+        handleOpenAdminCms();
       }
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, []);
+  }, [currentDocId]);
 
   const handleSearchFocus = () => {
     const docsSection = document.getElementById('docs');
@@ -73,66 +108,91 @@ export default function App() {
 
   return (
     <>
-      {/* Interactive Waves Animation Background (Tracks Mouse & Studio Audio Waves) */}
       <WaveBackground theme={theme} />
-
-      {/* Ambient background glow */}
       <div className="ambient-glow" aria-hidden="true" />
 
-      {/* Sticky Header */}
       <Navbar
         theme={theme}
         onToggleTheme={handleToggleTheme}
         onOpenDownload={() => setIsDownloadOpen(true)}
         onSearchFocus={handleSearchFocus}
         onSelectDoc={handleSelectDoc}
+        onOpenPolicy={handleOpenPolicy}
+        onOpenAdminCms={handleOpenAdminCms}
+        onOpenOvaAssistant={handleOpenOvaAssistant}
+        isAdmin={isAdmin}
       />
 
-      {/* Main Content Area */}
       <main>
-        {/* Hero Section with Call To Action & Interactive Phone Emulator */}
         <Hero onOpenDownload={() => setIsDownloadOpen(true)} />
 
-        {/* Feature Highlights Grid */}
-        <FeaturesGrid />
+        <FeaturesGrid onSelectDoc={handleSelectDoc} />
 
-        {/* High Super Powerful About Us & Cinema Spotlight Section */}
         <AboutUs
           onOpenDownload={() => setIsDownloadOpen(true)}
           onSelectDoc={handleSelectDoc}
         />
 
-        {/* Full Documented Interface */}
         <DocsPortal
+          docs={docs}
           currentDocId={currentDocId}
           onSelectDoc={handleSelectDoc}
           searchRef={searchInputRef}
           onOpenDownload={() => setIsDownloadOpen(true)}
+          onOpenAdminCms={handleOpenAdminCms}
+          onOpenOvaAssistant={handleOpenOvaAssistant}
+          isLiveConnected={isLiveConnected}
+          liveOverrideCount={liveOverrideCount}
+          isAdmin={isAdmin}
         />
       </main>
 
-      {/* Floating Ambient Video Dock Widget */}
       <FloatingVideoWidget />
 
-      {/* Footer */}
+      <OvaAssistantWidget
+        isOpen={isOvaAssistantOpen}
+        onOpen={() => setIsOvaAssistantOpen(true)}
+        onClose={() => setIsOvaAssistantOpen(false)}
+        docs={docs}
+        onSelectDoc={handleSelectDoc}
+        currentDocId={currentDocId}
+      />
+
       <Footer
         onSelectDoc={handleSelectDoc}
         onOpenDownload={() => setIsDownloadOpen(true)}
         onOpenPolicy={handleOpenPolicy}
+        onOpenAdminCms={handleOpenAdminCms}
+        onOpenOvaAssistant={handleOpenOvaAssistant}
+        isLiveConnected={isLiveConnected}
       />
 
-      {/* Download Modal with QR Code */}
-      <DownloadModal
-        isOpen={isDownloadOpen}
-        onClose={() => setIsDownloadOpen(false)}
-      />
+      <Suspense fallback={null}>
+        {isDownloadOpen && (
+          <DownloadModal
+            isOpen={isDownloadOpen}
+            onClose={() => setIsDownloadOpen(false)}
+          />
+        )}
 
-      {/* Interactive Trust, Safety & Policy Modal */}
-      <PolicyModal
-        isOpen={isPolicyOpen}
-        initialTab={policyTab}
-        onClose={() => setIsPolicyOpen(false)}
-      />
+        {isPolicyOpen && (
+          <PolicyModal
+            isOpen={isPolicyOpen}
+            initialTab={policyTab}
+            docs={docs}
+            onOpenAdminCms={handleOpenAdminCms}
+            onClose={() => setIsPolicyOpen(false)}
+          />
+        )}
+
+        {isAdminCmsOpen && (
+          <AdminCmsModal
+            isOpen={isAdminCmsOpen}
+            initialDocId={adminCmsDocId}
+            onClose={() => setIsAdminCmsOpen(false)}
+          />
+        )}
+      </Suspense>
     </>
   );
 }

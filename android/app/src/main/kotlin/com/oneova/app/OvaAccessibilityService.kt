@@ -2,6 +2,10 @@ package com.oneova.app
 
 import android.accessibilityservice.AccessibilityButtonController
 import android.accessibilityservice.AccessibilityService
+import android.accessibilityservice.AccessibilityServiceInfo
+import android.app.KeyguardManager
+import android.content.BroadcastReceiver
+import android.content.IntentFilter
 import android.accessibilityservice.GestureDescription
 import android.content.Context
 import android.content.Intent
@@ -14,6 +18,7 @@ import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
 import android.view.Gravity
+import android.view.KeyEvent
 import android.view.WindowManager
 import android.view.accessibility.AccessibilityEvent
 import android.view.accessibility.AccessibilityNodeInfo
@@ -30,6 +35,17 @@ class OvaAccessibilityService : AccessibilityService() {
     private var bubbleContainer: LinearLayout? = null
     private var currentPackage: String = ""
     private val recentNotifications = java.util.concurrent.CopyOnWriteArrayList<Map<String, Any>>()
+
+    // System-wide triggers: the edge "Ova handle" (draw "O") and the button shortcut.
+    private var triggerConfig = OvaTriggerConfig()
+    private var gestureHandle: OvaGestureHandle? = null
+    private var lastVolumeDownUp = 0L
+    private var swallowVolumeDown = false
+    private val heldVolumeKeys = mutableMapOf<Int, Long>()
+    private var chordActive = false
+    private val screenReceiver = object : BroadcastReceiver() {
+        override fun onReceive(context: Context?, intent: Intent?) = refreshHandle()
+    }
 
     companion object {
         @Volatile
@@ -56,6 +72,17 @@ class OvaAccessibilityService : AccessibilityService() {
     override fun onServiceConnected() {
         super.onServiceConnected()
         instance = this
+        val filter = IntentFilter().apply {
+            addAction(Intent.ACTION_SCREEN_ON)
+            addAction(Intent.ACTION_SCREEN_OFF)
+            addAction(Intent.ACTION_USER_PRESENT)
+        }
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            registerReceiver(screenReceiver, filter, Context.RECEIVER_NOT_EXPORTED)
+        } else {
+            registerReceiver(screenReceiver, filter)
+        }
+        applyTriggerConfig()
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             accessibilityButtonController.registerAccessibilityButtonCallback(
                 object : AccessibilityButtonController.AccessibilityButtonCallback() {
@@ -85,18 +112,114 @@ class OvaAccessibilityService : AccessibilityService() {
 
     override fun onUnbind(intent: Intent?): Boolean {
         removeBubbles()
+        gestureHandle?.hide()
+        gestureHandle = null
+        try {
+            unregisterReceiver(screenReceiver)
+        } catch (_: Exception) {}
         instance = null
         return super.onUnbind(intent)
     }
 
-    // ---- Wake Ova (Accessibility button / QS tile / notification) ----
-    fun wakeAssistant() {
-        val intent = Intent(this, MainActivity::class.java).apply {
-            flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP
-            putExtra("wake_assistant", true)
-            action = "com.oneova.app.WAKE_ASSISTANT"
+    // ---- Wake Ova (Accessibility button / handle / button shortcut) ----
+    fun wakeAssistant(source: String = "accessibility_button") {
+        if (isLocked() && !triggerConfig.lockScreen) return
+        OvaAssistActivity.open(this, source)
+    }
+
+    private fun isLocked(): Boolean =
+        getSystemService(KeyguardManager::class.java)?.isKeyguardLocked == true
+
+    /** Re-reads [OvaTriggerConfig] (called when the user changes Ova Triggers settings). */
+    fun applyTriggerConfig() {
+        triggerConfig = OvaTriggerConfig.load(this)
+        // Only receive key events while a button shortcut is on.
+        serviceInfo?.let { info ->
+            val filterKeys = triggerConfig.buttonShortcut != OvaTriggerConfig.SHORTCUT_OFF
+            info.flags = if (filterKeys) {
+                info.flags or AccessibilityServiceInfo.FLAG_REQUEST_FILTER_KEY_EVENTS
+            } else {
+                info.flags and AccessibilityServiceInfo.FLAG_REQUEST_FILTER_KEY_EVENTS.inv()
+            }
+            serviceInfo = info
         }
-        startActivity(intent)
+        main.post { refreshHandle() }
+    }
+
+    private fun refreshHandle() {
+        val want = triggerConfig.drawO && (triggerConfig.lockScreen || !isLocked())
+        if (want) {
+            // Rebuild so a changed edge/position applies.
+            gestureHandle?.hide()
+            val handle = gestureHandle ?: OvaGestureHandle(
+                this,
+                WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY,
+            ) { source -> wakeAssistant(source) }
+            handle.show()
+            gestureHandle = handle
+        } else {
+            gestureHandle?.hide()
+        }
+    }
+
+    // ---- Button shortcut (volume keys; the power key cannot be intercepted) ----
+    override fun onKeyEvent(event: KeyEvent): Boolean {
+        return when (triggerConfig.buttonShortcut) {
+            OvaTriggerConfig.SHORTCUT_DOUBLE_VOLUME_DOWN -> handleDoubleVolumeDown(event)
+            OvaTriggerConfig.SHORTCUT_VOLUME_UP_DOWN -> handleVolumeChord(event)
+            else -> false
+        }
+    }
+
+    /** Volume Down twice within 400 ms. The first press still changes the volume. */
+    private fun handleDoubleVolumeDown(event: KeyEvent): Boolean {
+        if (event.keyCode != KeyEvent.KEYCODE_VOLUME_DOWN) return false
+        when (event.action) {
+            KeyEvent.ACTION_DOWN -> {
+                if (swallowVolumeDown) return true
+                if (event.repeatCount == 0 && event.eventTime - lastVolumeDownUp <= 400) {
+                    swallowVolumeDown = true
+                    lastVolumeDownUp = 0
+                    wakeAssistant("button_shortcut")
+                    return true
+                }
+            }
+            KeyEvent.ACTION_UP -> {
+                if (swallowVolumeDown) {
+                    swallowVolumeDown = false
+                    return true
+                }
+                lastVolumeDownUp = event.eventTime
+            }
+        }
+        return false
+    }
+
+    /** Volume Up + Volume Down pressed together (within 300 ms). */
+    private fun handleVolumeChord(event: KeyEvent): Boolean {
+        val code = event.keyCode
+        if (code != KeyEvent.KEYCODE_VOLUME_UP && code != KeyEvent.KEYCODE_VOLUME_DOWN) return false
+        val other = if (code == KeyEvent.KEYCODE_VOLUME_UP) KeyEvent.KEYCODE_VOLUME_DOWN else KeyEvent.KEYCODE_VOLUME_UP
+        when (event.action) {
+            KeyEvent.ACTION_DOWN -> {
+                if (chordActive) return true
+                if (event.repeatCount == 0) heldVolumeKeys[code] = event.eventTime
+                val otherDown = heldVolumeKeys[other]
+                if (otherDown != null && event.eventTime - otherDown <= 300) {
+                    chordActive = true
+                    wakeAssistant("button_shortcut")
+                    return true
+                }
+            }
+            KeyEvent.ACTION_UP -> {
+                heldVolumeKeys.remove(code)
+                if (chordActive) {
+                    if (heldVolumeKeys.isEmpty()) chordActive = false
+                    return true
+                }
+            }
+        }
+        return false
     }
 
     fun foregroundPackage(): String = currentPackage

@@ -17,7 +17,8 @@ final followStateProvider = StreamProvider.autoDispose
 class RelationshipRepository {
   final FirebaseFirestore _firestore;
 
-  RelationshipRepository(this._firestore);
+  RelationshipRepository([FirebaseFirestore? firestore])
+      : _firestore = firestore ?? FirebaseFirestore.instance;
 
   void _publishEvent(Transaction tx, String type, Map<String, dynamic> payload) {
     final eventRef = _firestore.collection('social_events').doc();
@@ -70,7 +71,7 @@ class RelationshipRepository {
         }
       }
 
-      final isPrivate = privacyStr == 'private' || privacyStr == 'friends';
+      final isPrivate = targetData['isPrivate'] == true || privacyStr == 'private' || privacyStr == 'friends';
       final newStatus = isPrivate ? RelationshipStatus.pending : RelationshipStatus.accepted;
 
       if (existingRel != null) {
@@ -381,6 +382,39 @@ class RelationshipRepository {
 
   Future<void> addFavorite(String currentUserId, String targetUserId) => _toggleFlag(currentUserId, targetUserId, 'isFavorite', true);
   Future<void> removeFavorite(String currentUserId, String targetUserId) => _toggleFlag(currentUserId, targetUserId, 'isFavorite', false);
+
+  /// Stream pending follow requests for a user
+  Stream<List<Relationship>> watchPendingFollowRequests(String userId) {
+    if (userId.isEmpty) return Stream.value([]);
+    return _firestore
+        .collection('relationships')
+        .where('followingId', isEqualTo: userId)
+        .where('status', isEqualTo: RelationshipStatus.pending.name)
+        .snapshots()
+        .map((snapshot) => snapshot.docs.map((doc) => Relationship.fromFirestore(doc)).toList());
+  }
+
+  /// Get pending follow requests count
+  Stream<int> watchPendingFollowRequestsCount(String userId) {
+    if (userId.isEmpty) return Stream.value(0);
+    return _firestore
+        .collection('relationships')
+        .where('followingId', isEqualTo: userId)
+        .where('status', isEqualTo: RelationshipStatus.pending.name)
+        .snapshots()
+        .map((snapshot) => snapshot.docs.length);
+  }
+
+  /// Stream blocked users for a user
+  Stream<List<Relationship>> watchBlockedUsers(String userId) {
+    if (userId.isEmpty) return Stream.value([]);
+    return _firestore
+        .collection('relationships')
+        .where('followerId', isEqualTo: userId)
+        .where('status', isEqualTo: RelationshipStatus.blocked.name)
+        .snapshots()
+        .map((snapshot) => snapshot.docs.map((doc) => Relationship.fromFirestore(doc)).toList());
+  }
 
   /// Get followers for a user
   Future<List<String>> getFollowers(String userId) async {

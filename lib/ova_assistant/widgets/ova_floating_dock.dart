@@ -196,6 +196,8 @@ class _OvaFloatingDockState extends ConsumerState<OvaFloatingDock> with WidgetsB
   // Only after the full two-check sign-in (never for guests or half-way).
   bool _signedIn = LoginSecurity.instance.isVerified(FirebaseAuth.instance.currentUser);
   OvaChatController? _chat;
+  // Held so dispose() can unsubscribe without touching `ref`.
+  GoRouterDelegate? _routerDelegate;
 
   @override
   void initState() {
@@ -206,8 +208,8 @@ class _OvaFloatingDockState extends ConsumerState<OvaFloatingDock> with WidgetsB
       if (mounted) setState(() => _signedIn = LoginSecurity.instance.isVerified(u));
     });
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      final router = ref.read(routerProvider);
-      router.routerDelegate.addListener(_onRoute);
+      if (!mounted) return;
+      _routerDelegate = ref.read(routerProvider).routerDelegate..addListener(_onRoute);
       _onRoute();
       final chat = ref.read(ovaChatProvider)..addListener(_onChat);
       _chat = chat;
@@ -222,9 +224,7 @@ class _OvaFloatingDockState extends ConsumerState<OvaFloatingDock> with WidgetsB
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
-    try {
-      ref.read(routerProvider).routerDelegate.removeListener(_onRoute);
-    } catch (_) {}
+    _routerDelegate?.removeListener(_onRoute);
     _chat?.removeListener(_onChat);
     OvaAssistantSheet.openState.removeListener(_rebuild);
     LoginSecurity.instance.removeListener(_onSecurity);
@@ -255,8 +255,7 @@ class _OvaFloatingDockState extends ConsumerState<OvaFloatingDock> with WidgetsB
   }
 
   void _onRoute() {
-    final router = ref.read(routerProvider);
-    final config = router.routerDelegate.currentConfiguration;
+    final config = _routerDelegate!.currentConfiguration;
     // Pushed routes are not part of `uri`; read the top match instead.
     final top = config.isNotEmpty ? config.last : null;
     final p = top is ImperativeRouteMatch ? top.matches.uri.path : config.uri.path;

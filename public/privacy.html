@@ -3,207 +3,432 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Privacy Policy - ONEOVA</title>
-    <link rel="icon" type="image/jpeg" href="/assets/images/oneova_logo.jpg" />
+    <title>ONEOVA PRIVACY POLICY — Oneova</title>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
     <style>
-        :root {
-            --brand-blue: #007AFF;
-            --brand-pink: #FF2D87;
-            --dark-bg: #07080B;
-            --dark-surface: #0E1017;
-            --dark-card: rgba(14, 16, 23, 0.85);
-            --border-color: rgba(255, 255, 255, 0.08);
-            --text-primary: #F8FAFC;
-            --text-secondary: #CBD5E1;
-            --text-muted: #64748B;
-        }
-        * {
-            box-sizing: border-box;
-            margin: 0;
-            padding: 0;
-        }
-        body {
-            font-family: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-            line-height: 1.7;
-            color: var(--text-primary);
-            background-color: var(--dark-bg);
-            background-image: 
-                radial-gradient(circle at 15% 10%, rgba(0, 122, 255, 0.12) 0%, transparent 45%),
-                radial-gradient(circle at 85% 90%, rgba(255, 45, 135, 0.10) 0%, transparent 50%);
-            min-height: 100vh;
-            padding: 40px 24px 80px;
-        }
-        .container {
-            max-width: 860px;
-            margin: 0 auto;
-        }
-        .header-nav {
-            display: flex;
-            align-items: center;
-            justify-content: space-between;
-            margin-bottom: 40px;
-            padding-bottom: 20px;
-            border-bottom: 1px solid var(--border-color);
-        }
-        .back-link {
-            color: var(--brand-blue);
-            text-decoration: none;
-            font-weight: 700;
-            font-size: 0.92rem;
-            display: inline-flex;
-            align-items: center;
-            gap: 8px;
-            transition: color 0.18s ease;
-        }
-        .back-link:hover {
-            color: #60A5FA;
-        }
-        .badge-pill {
-            font-weight: 800;
-            color: var(--brand-pink);
-            font-size: 0.75rem;
-            background: rgba(255, 45, 135, 0.12);
-            border: 1px solid rgba(255, 45, 135, 0.3);
-            padding: 4px 12px;
-            border-radius: 9999px;
-            letter-spacing: 0.5px;
-        }
-        h1 {
-            color: #FFFFFF;
-            font-size: 2.8rem;
-            font-weight: 900;
-            letter-spacing: -1px;
-            margin-bottom: 8px;
-            line-height: 1.15;
-        }
-        .update-date {
-            color: var(--text-muted);
-            font-size: 0.9rem;
-            margin-bottom: 24px;
-        }
-        .highlight-card {
-            background: var(--dark-card);
-            border: 1px solid var(--border-color);
-            border-left: 4px solid var(--brand-pink);
-            border-radius: 14px;
-            padding: 24px;
-            margin: 24px 0 36px;
-            backdrop-filter: blur(16px);
-            box-shadow: 0 16px 40px rgba(0, 0, 0, 0.5);
-        }
-        .highlight-card p {
-            color: var(--text-secondary);
-            font-size: 1rem;
-            margin: 0;
-            line-height: 1.6;
-        }
-        h2 {
-            color: #FFFFFF;
-            font-size: 1.45rem;
-            font-weight: 800;
-            margin-top: 40px;
-            margin-bottom: 14px;
-            display: flex;
-            align-items: center;
-            gap: 10px;
-        }
-        h2::before {
-            content: '';
-            display: inline-block;
-            width: 4px;
-            height: 18px;
-            background: var(--brand-blue);
-            border-radius: 2px;
-        }
-        p, li {
-            color: var(--text-secondary);
-            font-size: 0.98rem;
-            line-height: 1.7;
-        }
-        ul {
-            margin: 12px 0 20px 24px;
-            display: flex;
-            flex-direction: column;
-            gap: 8px;
-        }
-        li strong {
-            color: #FFFFFF;
-        }
-        a {
-            color: var(--brand-pink);
-            text-decoration: none;
-            font-weight: 600;
-        }
-        a:hover {
-            text-decoration: underline;
-        }
-        .footer-note {
-            margin-top: 60px;
-            padding-top: 24px;
-            border-top: 1px solid var(--border-color);
-            font-size: 0.85rem;
-            color: var(--text-muted);
-            text-align: center;
-        }
-    </style>
+:root {
+    --brand-blue: #0C4FA8;
+    --brand-blue-soft: rgba(12, 79, 168, 0.10);
+    --brand-pink: #FF2D87;
+    --brand-pink-soft: rgba(255, 45, 135, 0.12);
+    --bg: #FFFFFF;
+    --surface: #F8FAFC;
+    --surface-mid: #F1F5F9;
+    --border: #E2E8F0;
+    --text-primary: #0F172A;
+    --text-secondary: #334155;
+    --text-muted: #64748B;
+}
+html[data-theme="dark"] {
+    --bg: #0A0A0A;
+    --surface: #141414;
+    --surface-mid: #1F1F1F;
+    --border: #262626;
+    --text-primary: #F3F4F6;
+    --text-secondary: #CBD5E1;
+    --text-muted: #9CA3AF;
+    --brand-blue-soft: rgba(12, 79, 168, 0.24);
+}
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body {
+    font-family: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    background: var(--bg);
+    color: var(--text-primary);
+    line-height: 1.62;
+    font-size: 14.5px;
+    -webkit-font-smoothing: antialiased;
+}
+.top-bar {
+    position: sticky;
+    top: 0;
+    z-index: 40;
+    background: var(--bg);
+    border-bottom: 1px solid var(--border);
+    padding: 12px 24px;
+}
+.top-bar-inner {
+    max-width: 960px;
+    margin: 0 auto;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    flex-wrap: wrap;
+}
+.brand-mark {
+    display: inline-flex;
+    align-items: center;
+    gap: 10px;
+    text-decoration: none;
+    color: var(--text-primary);
+    font-weight: 900;
+    font-size: 16px;
+    letter-spacing: -0.3px;
+}
+.brand-dot {
+    width: 26px;
+    height: 26px;
+    border-radius: 7px;
+    background: var(--brand-blue);
+    color: #FFFFFF;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 13px;
+    font-weight: 900;
+}
+.actions-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+.btn-chip {
+    appearance: none;
+    border: 1px solid var(--border);
+    background: var(--surface);
+    color: var(--text-primary);
+    font-family: inherit;
+    font-size: 12px;
+    font-weight: 700;
+    padding: 7px 12px;
+    border-radius: 8px;
+    cursor: pointer;
+    text-decoration: none;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+}
+.btn-chip.primary {
+    background: var(--brand-blue);
+    border-color: var(--brand-blue);
+    color: #FFFFFF;
+}
+.sub-nav {
+    max-width: 960px;
+    margin: 14px auto 0;
+    padding: 0 24px;
+    display: flex;
+    gap: 6px;
+    overflow-x: auto;
+    padding-bottom: 6px;
+}
+.nav-pill {
+    text-decoration: none;
+    font-size: 12px;
+    font-weight: 600;
+    padding: 6px 11px;
+    border-radius: 8px;
+    border: 1px solid var(--border);
+    background: var(--surface);
+    color: var(--text-secondary);
+    white-space: nowrap;
+}
+.nav-pill.active {
+    background: var(--brand-blue);
+    border-color: var(--brand-blue);
+    color: #FFFFFF;
+    font-weight: 700;
+}
+.doc-shell {
+    max-width: 960px;
+    margin: 0 auto;
+    padding: 26px 24px 72px;
+}
+.doc-badge {
+    display: inline-block;
+    font-size: 10px;
+    font-weight: 800;
+    letter-spacing: 0.7px;
+    text-transform: uppercase;
+    padding: 4px 10px;
+    border-radius: 6px;
+    background: var(--brand-pink-soft);
+    color: var(--brand-pink);
+    border: 1px solid rgba(255, 45, 135, 0.32);
+    margin-bottom: 10px;
+}
+h1 {
+    font-size: 26px;
+    font-weight: 850;
+    letter-spacing: -0.5px;
+    line-height: 1.2;
+    color: var(--text-primary);
+    margin-bottom: 14px;
+}
+h2 {
+    font-size: 17.5px;
+    font-weight: 800;
+    letter-spacing: -0.25px;
+    color: var(--text-primary);
+    margin-top: 28px;
+    margin-bottom: 10px;
+    padding-bottom: 6px;
+    border-bottom: 1px solid var(--border);
+}
+h3 {
+    font-size: 14.5px;
+    font-weight: 700;
+    color: var(--text-primary);
+    margin-top: 18px;
+    margin-bottom: 8px;
+}
+p {
+    color: var(--text-secondary);
+    margin-bottom: 11px;
+}
+p strong, li strong {
+    color: var(--text-primary);
+}
+ul, ol {
+    margin: 8px 0 14px 22px;
+    color: var(--text-secondary);
+}
+li {
+    margin-bottom: 6px;
+}
+a {
+    color: var(--brand-blue);
+    font-weight: 600;
+    text-decoration: none;
+}
+html[data-theme="dark"] a {
+    color: #60A5FA;
+}
+a:hover { text-decoration: underline; }
+code {
+    font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+    font-size: 12.5px;
+    background: var(--surface-mid);
+    border: 1px solid var(--border);
+    padding: 1px 6px;
+    border-radius: 5px;
+    color: var(--text-primary);
+}
+.sig-blank {
+    font-family: inherit;
+    font-weight: 500;
+    color: var(--text-primary);
+    background: transparent;
+    border: none;
+    padding: 0 2px;
+}
+h2, h3 {
+    break-after: avoid;
+    page-break-after: avoid;
+}
+.exec-callout {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-left: 4px solid var(--brand-blue);
+    border-radius: 10px;
+    padding: 14px 16px;
+    margin: 14px 0 18px;
+    color: var(--text-secondary);
+    font-size: 13.5px;
+}
+.rule-divider {
+    border: none;
+    border-top: 1px solid var(--border);
+    margin: 20px 0;
+}
+.table-wrap {
+    width: 100%;
+    overflow-x: auto;
+    margin: 14px 0 18px;
+    border: 1px solid var(--border);
+    border-radius: 10px;
+}
+table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 12.8px;
+}
+th {
+    background: var(--surface-mid);
+    color: var(--text-primary);
+    font-weight: 700;
+    text-align: left;
+    padding: 10px 12px;
+    border-bottom: 1px solid var(--border);
+}
+td {
+    padding: 9px 12px;
+    border-bottom: 1px solid var(--border);
+    color: var(--text-secondary);
+    vertical-align: top;
+}
+tr:last-child td { border-bottom: none; }
+.doc-footer {
+    margin-top: 44px;
+    padding-top: 18px;
+    border-top: 1px solid var(--border);
+    display: flex;
+    justify-content: space-between;
+    flex-wrap: wrap;
+    gap: 10px;
+    font-size: 12px;
+    color: var(--text-muted);
+}
+.hub-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+    gap: 14px;
+    margin-top: 18px;
+}
+.hub-card {
+    display: block;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 16px;
+    text-decoration: none;
+    transition: border-color 0.15s ease, transform 0.15s ease;
+}
+.hub-card:hover {
+    border-color: var(--brand-blue);
+    transform: translateY(-1px);
+    text-decoration: none;
+}
+.hub-card h3 {
+    margin-top: 6px;
+    margin-bottom: 6px;
+    color: var(--text-primary);
+}
+.hub-card p {
+    font-size: 12.8px;
+    color: var(--text-secondary);
+    margin: 0;
+}
+
+@page {
+    size: A4;
+    margin: 16mm 15mm 16mm 15mm;
+}
+@media print {
+    html, body {
+        background: #FFFFFF !important;
+        color: #0F172A !important;
+        font-size: 10.5pt;
+        line-height: 1.48;
+    }
+    .no-print { display: none !important; }
+    .doc-shell { max-width: 100%; padding: 0; margin: 0; }
+    .print-letterhead {
+        display: flex !important;
+        justify-content: space-between;
+        align-items: center;
+        padding-bottom: 10px;
+        margin-bottom: 14px;
+        border-bottom: 2px solid #0C4FA8;
+    }
+    h1 { font-size: 18pt; margin-bottom: 8px; }
+    h2 { font-size: 12.5pt; margin-top: 16px; page-break-after: avoid; }
+    h3 { font-size: 10.8pt; page-break-after: avoid; }
+    .exec-callout, tr { page-break-inside: avoid; }
+    .table-wrap { overflow: visible; }
+    table { font-size: 9pt; }
+    th, td { padding: 6px 8px; }
+    a { color: #0C4FA8 !important; text-decoration: none !important; }
+}
+.print-letterhead { display: none; }
+</style>
+    
+<script>
+(function() {
+    const saved = localStorage.getItem('oneova_legal_theme');
+    if (saved === 'dark' || saved === 'light') {
+        document.documentElement.setAttribute('data-theme', saved);
+    } else if (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches) {
+        document.documentElement.setAttribute('data-theme', 'dark');
+    }
+})();
+function toggleTheme() {
+    const cur = document.documentElement.getAttribute('data-theme') === 'dark' ? 'light' : 'dark';
+    document.documentElement.setAttribute('data-theme', cur);
+    localStorage.setItem('oneova_legal_theme', cur);
+}
+</script>
+
 </head>
 <body>
-    <div class="container">
-        <div class="header-nav">
-            <a href="/" class="back-link">← Back to Oneova Showcase</a>
-            <span class="badge-pill">TIKTOK & META STANDARD</span>
+    
+    <header class="top-bar no-print">
+        <div class="top-bar-inner">
+            <a href="/legal.html" class="brand-mark">
+                <span class="brand-dot">O</span>
+                <span>Oneova Trust &amp; Legal Center</span>
+            </a>
+            <div class="actions-row">
+                <a class="btn-chip" href="/">← Oneova Portal</a>
+                <a class="btn-chip" href="/docs/pdf/02_Oneova_Privacy_Policy.pdf" download>⬇ Official PDF</a>
+                <button class="btn-chip" onclick="toggleTheme()" type="button">Light / Dark</button>
+                <button class="btn-chip primary" onclick="window.print()" type="button">Print / Save PDF</button>
+            </div>
         </div>
-
-        <h1>Privacy Policy</h1>
-        <p class="update-date"><strong>Last Updated:</strong> October 2026 • Global GDPR & CCPA Verified</p>
-        
-        <div class="highlight-card">
-            <p>
-                At <strong>Oneova</strong>, we hold creator privacy and intellectual property to the highest industry standards. This policy outlines how your data, media streams, and device telemetry are safeguarded when using the Oneova mobile app and creator suite.
-            </p>
+    </header>
+    
+    <nav class="sub-nav no-print"><a class="nav-pill" href="/legal.html">All Policies</a><a class="nav-pill" href="/terms.html">Terms of Service</a><a class="nav-pill active" href="/privacy.html">Privacy Policy</a><a class="nav-pill" href="/guidelines.html">Community Guidelines</a><a class="nav-pill" href="/child-safety.html">Child &amp; Teen Safety</a><a class="nav-pill" href="/biz-policy.html">Biz &amp; Monetization</a><a class="nav-pill" href="/deletion.html">Data Deletion</a><a class="nav-pill" href="/law-enforcement.html">Law Enforcement</a></nav>
+    <main class="doc-shell">
+        <div class="print-letterhead">
+            <div>
+                <strong style="font-size:13pt;color:#0C4FA8;font-weight:900;">ONEOVA TECHNOLOGIES INC.</strong><br>
+                <span style="font-size:8.5pt;color:#64748B;">OFFICIAL PUBLIC POLICY — ONEOVA.APP</span>
+            </div>
+            <div style="text-align:right;font-size:8.5pt;color:#64748B;">
+                <strong>Document #02</strong><br>
+                Effective: October 25, 2026
+            </div>
         </div>
-
-        <h2>1. Information We Collect</h2>
-        <p>We collect only the essential data necessary to deliver low-latency live streaming and creative mobile workflows:</p>
-        <ul>
-            <li><strong>Account & Profile Credentials:</strong> Username, display handle, avatar, and authentication details required for verified creator badges.</li>
-            <li><strong>Real-Time Live Streaming Data:</strong> Video and audio camera feeds captured during 4K Live Broadcasts and Creator Rooms. Streams are routed in real-time with zero unauthorized archival.</li>
-            <li><strong>Mobile Editor Telemetry:</strong> Timeline edit data and cut parameters. AI Subject Cutouts run locally on device hardware whenever available to keep your source clips private.</li>
-        </ul>
-
-        <h2>2. Data Usage & Protection</h2>
-        <p>Collected information is used strictly to power high-performance creator capabilities:</p>
-        <ul>
-            <li>Delivering zero-buffering 60 FPS Reels feeds and personalized creator recommendations.</li>
-            <li>Facilitating interactive split-screen PK Battles, virtual gifting, and real-time chat interactions.</li>
-            <li>Enabling 1-Tap Universal Sharing to TikTok, YouTube Shorts, Instagram Reels, and Facebook with preserved attribution.</li>
-            <li>We do not sell personal data, facial biometrics, or video assets to third-party data brokers.</li>
-        </ul>
-
-        <h2>3. Third-Party Platform Publishing</h2>
-        <p>When you use Oneova's Universal 1-Tap Sharer to publish reels across social platforms:</p>
-        <ul>
-            <li>We transmit only the specific exported video, captions, and tags that you explicitly authorize.</li>
-            <li>Account credentials are exchanged via secure, encrypted OAuth tokens.</li>
-            <li>You can revoke connected platform permissions at any time inside app settings.</li>
-        </ul>
-
-        <h2>4. Data Deletion & Creator Autonomy</h2>
-        <p>You maintain complete ownership of your creative footprint:</p>
-        <ul>
-            <li>You may request immediate account deletion directly from the mobile app (Profile → Settings → Delete Account) or via our <a href="/deletion.html">Data Deletion Instructions</a>.</li>
-            <li>Upon deletion confirmation, all user data, videos, drafts, and followers are purged from production clusters within 24 hours.</li>
-        </ul>
-
-        <h2>5. Contact & Trust Team</h2>
-        <p>For questions or privacy inquiries, contact our Trust & Safety Officer at: <a href="mailto:privacy@oneova.app">privacy@oneova.app</a></p>
-
-        <div class="footer-note">
-            © 2026 Oneova Technologies Inc. All rights reserved. Built to world-class creator trust standards.
-        </div>
-    </div>
+        <span class="doc-badge">DATA PROTECTION</span>
+        <h1>ONEOVA PRIVACY POLICY</h1>
+<p><strong>Document ID:</strong> <code>ONV-LEGAL-PRIV-2026-V1</code><br><strong>Effective Date:</strong> October 25, 2026<br><strong>Data Controller:</strong> Oneova Technologies Inc. ("Oneova", "we", "us", or "our")<br><strong>Data Protection Officer (DPO) &amp; Trust Office:</strong> <code>dpo@oneova.app</code> · <code>privacy@oneova.app</code><br><strong>Web Portal:</strong> <code>https://oneova.app/privacy</code> · <strong>Data Deletion:</strong> <code>https://oneova.app/deletion</code></p>
+<hr class="rule-divider">
+<div class="exec-callout"><strong>Executive Summary ("In Short"):</strong><br>1. <strong>We never sell your personal data</strong>—not your phone number, not your contacts, not your private chats, and not your videos.<br>2. <strong>We never store mobile-money PINs</strong> (M-Pesa, MTN MoMo, Airtel, Orange, Wave) or raw card CVVs.<br>3. <strong>On-device first:</strong> Hardware profiling (<code>Device Advisor</code>), thermal protection, and local Studio edits run on your device wherever possible to protect your privacy and save your mobile data bundle.<br>4. <strong>Private stays private:</strong> Private Chat messages, voice/video calls, KYC IDs, and unpublished Studio drafts are <strong>never</strong> used to train generative AI models.<br>5. <strong>2-Tap Control:</strong> Access, export, or permanently delete your account anytime in <strong>Me → Settings → Privacy &amp; Security</strong>.</div>
+<hr class="rule-divider">
+<h2 id="1-scope-and-global-african-data-protection-standards">1. Scope and Global + African Data Protection Standards</h2>
+<p>This Privacy Policy explains how <strong>Oneova Technologies Inc.</strong> collects, uses, protects, shares, and deletes personal data across the Oneova mobile, desktop, and web applications (<strong>Reels</strong>, <strong>Stories</strong>, <strong>Chat &amp; Calls</strong>, <strong>4K Live</strong>, <strong>Studio</strong>, <strong>AI Lab</strong>, <strong>Ova Assistant</strong>, <strong>Wallet &amp; Coins</strong>, and <strong>Biz Marketplace</strong>).</p>
+<p>We engineer our privacy practices to comply with leading African and global data protection laws, including:</p>
+<ul><li><strong>Kenya:</strong> Data Protection Act, 2019 (ODPC)</li><li><strong>Nigeria:</strong> Nigeria Data Protection Act (NDPA), 2023 (NDPC)</li><li><strong>South Africa:</strong> Protection of Personal Information Act, 2013 (POPIA — Information Regulator)</li><li><strong>Tanzania:</strong> Personal Data Protection Act, 2022 (PDPC)</li><li><strong>Uganda:</strong> Data Protection and Privacy Act, 2019 (PDPO)</li><li><strong>Rwanda:</strong> Law No. 058/2021 Relating to the Protection of Personal Data and Privacy (NCSA)</li><li><strong>Ghana:</strong> Data Protection Act, 2012 (Act 843 — DPC)</li><li><strong>Francophone &amp; North Africa:</strong> Côte d'Ivoire Law No. 2013-450 (ARTCI), Senegal Data Protection Law (CDP), Egypt PDPL No. 151/2020, Morocco Law 09-08 (CNDP), Ethiopia Proclamation No. 1321/2024, and the <strong>African Union Malabo Convention</strong></li><li><strong>Global:</strong> EU/EEA &amp; UK General Data Protection Regulation (<strong>GDPR</strong>), California (<strong>CCPA/CPRA</strong>), and Brazil (<strong>LGPD</strong>).</li></ul>
+<hr class="rule-divider">
+<h2 id="2-schedule-of-personal-data-we-collect-purpose-legal-basis">2. Schedule of Personal Data We Collect, Purpose &amp; Legal Basis</h2>
+<div class="table-wrap"><table><thead><tr><th>Data Category</th><th>Specific Data Elements</th><th>Purpose of Processing</th><th>Lawful Basis</th></tr></thead><tbody><tr><td><strong>1. Account &amp; Identity</strong></td><td>Username, display name, phone number or email, birth date / age bracket, password hash or WebAuthn passkey, profile bio &amp; avatar</td><td>Create and authenticate your account, enforce teen age-safety defaults, prevent SIM-swap and bot takeovers</td><td><strong>Performance of Contract</strong> &amp; <strong>Legal Obligation</strong> (child safety)</td></tr><tr><td><strong>2. Creative &amp; Public Content</strong></td><td>Reels, Stories, photos, captions, hashtags, comments, Live streams, custom Studio Looks (<code>.oneovapack</code>), Biz product listings</td><td>Host, transcode into adaptive bitrates, and distribute content to your selected audience</td><td><strong>Performance of Contract</strong></td></tr><tr><td><strong>3. Private Messaging &amp; Calls</strong></td><td>Chat messages, media attachments, voice notes, call signaling/routing logs, read/delivery state</td><td>Deliver private communications reliably, synchronize across authorized devices, prevent spam/abuse</td><td><strong>Performance of Contract</strong> &amp; <strong>Legitimate Interest</strong> (network security)</td></tr><tr><td><strong>4. Wallet, Coins &amp; Biz Transactions</strong></td><td>Coin purchase receipts, Gift ledger entries, payout mobile-money number or bank account, transaction IDs, KYC verification status (for 18+ payouts/merchants)</td><td>Process payments and creator payouts via licensed PSPs, maintain double-entry accounting, prevent fraud and money laundering</td><td><strong>Performance of Contract</strong> &amp; <strong>Legal Obligation</strong> (tax, AML/CTF &amp; payment laws)</td></tr><tr><td><strong>5. Device, Network &amp; Thermal Telemetry</strong></td><td>Device model, OS version, GPU/RAM/thermal capability tier (<code>Device Advisor</code>), app version, IP address, coarse country/region, crash diagnostics</td><td>Prevent phone overheating during 4K/Live use, optimize video streaming for 2G/3G/4G/Wi-Fi, fix crashes, block credential stuffing</td><td><strong>Legitimate Interest</strong> (service reliability, device safety &amp; security)</td></tr><tr><td><strong>6. Engagement &amp; Feed Signals</strong></td><td>Watch completion, likes, saves, shares, follows, "Not Interested" taps, preferred app language</td><td>Rank relevant Reels and Biz items in your <strong>For You</strong> feed and honor content filters</td><td><strong>Performance of Contract</strong> / <strong>Legitimate Interest</strong> (customizable in Settings)</td></tr><tr><td><strong>7. Connected OAuth Channels</strong></td><td>Encrypted OAuth access/refresh tokens and basic channel IDs when you link TikTok, YouTube, Instagram, or Meta</td><td>Execute 1-tap cross-platform video publishing strictly at your command</td><td><strong>Explicit Consent</strong> (revocable anytime)</td></tr><tr><td><strong>8. Optional Device Permissions</strong></td><td>Camera, Microphone, Photo Library, Contacts (cryptographically hashed), Coarse/Precise Location (for optional Biz delivery or geo-tags)</td><td>Operate capture, voice chat, friend discovery, or local commerce <strong>only when enabled by you</strong></td><td><strong>Explicit Consent</strong> (revocable in OS or app settings)</td></tr><tr><td><strong>9. AI Lab &amp; Ova Assistant Inputs</strong></td><td>Prompts, voice commands, captions, or media frames you actively submit to AI tools</td><td>Generate the color grade, cutout, caption, or assistant action you requested</td><td><strong>Performance of Contract</strong> / <strong>Consent</strong></td></tr></tbody></table></div>
+<h3 id="strict-exclusions-data-we-never-collect">Strict Exclusions — Data We NEVER Collect</h3>
+<ol><li><strong>Never Mobile-Money PINs or Card CVVs:</strong> We never request, see, or store your M-Pesa PIN, MTN MoMo PIN, Airtel/Orange PIN, bank password, or raw payment card CVV. All payment authentication happens inside regulated PCI-DSS / central-bank-licensed gateways.</li><li><strong>Never Covert Recording:</strong> Oneova never activates your camera or microphone in the background without an active recording, call, Live broadcast, or explicit voice-assistant session initiated by you.</li><li><strong>Never Unconsented Contact Harvesting:</strong> Your phone address book is never uploaded unless you explicitly grant Contacts permission.</li></ol>
+<hr class="rule-divider">
+<h2 id="3-how-we-protect-ai-biometrics-facial-landmarks">3. How We Protect AI, Biometrics &amp; Facial Landmarks</h2>
+<p><strong>3.1 On-Device AR &amp; Beauty Processing.</strong> When you use Studio Looks, Boost Beauty, or AR camera lenses, facial/pose landmark alignment runs in volatile device memory in real time to position visual effects. <strong>Oneova does not build or sell a facial-recognition identity database from camera effects.</strong></p>
+<p><strong>3.2 App Biometric Lock.</strong> When you enable Fingerprint or Face Unlock in <strong>Privacy &amp; Security</strong>, authentication is performed strictly by your operating system's secure hardware enclave (<code>Android Keystore</code> / <code>Apple Secure Enclave</code>). Oneova never receives or stores your fingerprint image or facial scan.</p>
+<p><strong>3.3 AI Firewall &amp; Zero Private Training.</strong> Inputs handled by Oneova AI tools pass through <code>AiSecurityGateway</code> prompt-injection isolation. Private Chat messages, calls, KYC documents, and unpublished Studio drafts are <strong>never</strong> used to train generative AI models or shared with external advertisers.</p>
+<hr class="rule-divider">
+<h2 id="4-how-and-when-information-is-shared">4. How and When Information Is Shared</h2>
+<p>We <strong>never sell or rent</strong> personal data to data brokers or third parties. We share limited data only in five strictly controlled situations:</p>
+<ol><li><strong>According to Your Audience Settings:</strong> Other users see your profile, public Reels, Live broadcasts, or Biz store according to whether you choose <strong>Public</strong>, <strong>Followers Only</strong>, or <strong>Private</strong>.</li><li><strong>Biz Order Fulfillment:</strong> When you order a physical item from a Biz Seller, that seller receives only the order details, name, delivery address, and contact number needed to deliver your order.</li><li><strong>Contractually Bound Infrastructure Processors:</strong> Trusted cloud, streaming, and payment processors—such as Google Cloud / Firebase (database, auth, storage), LiveKit (low-latency Live WebRTC relay), Flutterwave, Stripe, licensed mobile-money aggregators, Apple, and Google Play—acting strictly under written <strong>Data Processing Agreements (DPAs)</strong> with confidentiality and security mandates.</li><li><strong>Valid Legal Process &amp; Emergency Child/Life Protection:</strong> We disclose non-public records to law enforcement or regulators <strong>only</strong> in response to a legally valid warrant, court order, or statutory mandate (such as confirmed CSAM reporting under child-protection laws), subject to human-rights and legality review under our <a href="/law-enforcement.html">Law Enforcement Guidelines</a>. Unless legally prohibited, we notify affected users prior to disclosure.</li><li><strong>Corporate Transactions:</strong> In a merger, acquisition, or financing, data remains subject to protections at least as strong as this Privacy Policy, with advance notice to users before any material change.</li></ol>
+<hr class="rule-divider">
+<h2 id="5-international-intra-african-data-transfers">5. International &amp; Intra-African Data Transfers</h2>
+<p>Because Oneova connects creators and businesses across Africa and the world, personal data may be processed on secure cloud servers outside your country of residence. Whenever data is transferred internationally, we implement legally recognized transfer safeguards:</p>
+<ul><li><strong>Adequacy &amp; Regulator Whitelists</strong> recognized under your national data protection law;</li><li><strong>Standard Contractual Clauses (SCCs)</strong> and binding Data Transfer Agreements enforcing equivalent technical and legal protections;</li><li><strong>Statutory Registration &amp; Prior Authorization</strong> where required for specific data categories under <strong>Kenya DPA Part VI</strong>, <strong>Nigeria NDPA Part VI</strong>, <strong>South Africa POPIA s.72</strong>, <strong>Tanzania PDPA</strong>, <strong>Rwanda Law No. 058/2021</strong>, <strong>Côte d'Ivoire ARTCI</strong>, and <strong>Morocco CNDP</strong>; and</li><li><strong>End-to-end TLS 1.3 encryption in transit</strong> and <strong>AES-256 encryption at rest</strong>.</li></ul>
+<hr class="rule-divider">
+<h2 id="6-data-retention-deletion-schedule">6. Data Retention &amp; Deletion Schedule</h2>
+<div class="table-wrap"><table><thead><tr><th>Record Type</th><th>Retention Period</th></tr></thead><tbody><tr><td><strong>Active Account &amp; Published Posts</strong></td><td>Retained while your account remains open and until you delete the item</td></tr><tr><td><strong>User-Deleted Posts or Deleted Account</strong></td><td>Removed from public visibility <strong>immediately</strong>; purged from active production clusters within <strong>24 hours to 30 days</strong>, and rotated out of encrypted backups within <strong>90 days</strong></td></tr><tr><td><strong>24-Hour Stories</strong></td><td>Automatically expire from Story rings after <strong>24 hours</strong> (unless saved by you to Archive/Highlights)</td></tr><tr><td><strong>Connected Social OAuth Tokens</strong></td><td>Deleted <strong>immediately</strong> when you disconnect the channel or delete your account</td></tr><tr><td><strong>Wallet, Coin &amp; Biz Tax/AML Ledgers</strong></td><td>Retained in restricted accounting storage for <strong>5 to 7 years</strong> strictly as mandated by tax, central-bank, and anti-money-laundering laws</td></tr><tr><td><strong>Confirmed CSAM / Severe Fraud Ban Records</strong></td><td>Hashed identifiers and preserved evidence retained for the statutory period required by cybercrime laws and to prevent ban evasion</td></tr><tr><td><strong>Diagnostic, Security &amp; Crash Logs</strong></td><td>Automatically rotated or anonymized within <strong>90 to 180 days</strong></td></tr></tbody></table></div>
+<hr class="rule-divider">
+<h2 id="7-security-architecture-72-hour-breach-commitment">7. Security Architecture &amp; 72-Hour Breach Commitment</h2>
+<p>Oneova enforces defense-in-depth engineering controls:</p>
+<ul><li><strong>Cryptographic Tenant Isolation</strong> (<code>users/{uid}</code>) and explicit <code>allowedViewers</code> access control lists preventing cross-account data leaks;</li><li><strong>Passkeys, 2FA, App PIN / Biometrics, and Active Session Controls</strong> allowing instant remote sign-out of lost or stolen phones;</li><li><strong>Zero Standing Staff Access</strong> to private messages, audited break-glass controls, and mandatory hardware MFA across internal infrastructure;</li><li><strong>Breach Notification Guarantee:</strong> In the event of a personal data breach posing a risk to user rights and freedoms, Oneova notifies competent Data Protection Authorities within <strong>72 hours</strong> (or shorter national deadline) and promptly notifies affected users in plain language.</li></ul>
+<hr class="rule-divider">
+<h2 id="8-your-privacy-rights-how-to-exercise-them">8. Your Privacy Rights &amp; How to Exercise Them</h2>
+<p>We extend strong data rights to <strong>every Oneova user worldwide</strong>:</p>
+<ol><li><strong>Right of Access &amp; Information:</strong> Know what personal data we process about you.</li><li><strong>Right to Data Portability (Export):</strong> Download a structured copy of your profile, settings, and content (<strong>Me → Settings → Privacy &amp; Security → Export Data</strong>).</li><li><strong>Right to Rectification:</strong> Update or correct inaccurate account details anytime.</li><li><strong>Right to Erasure (Account &amp; Data Deletion):</strong> Permanently delete individual items or your entire account in-app or via <code>https://oneova.app/deletion</code>.</li><li><strong>Right to Withdraw Consent:</strong> Revoke Camera, Microphone, Location, Contacts, Connected Channels, or marketing notifications at any time without penalty.</li><li><strong>Right to Object / Restrict Automated Profiling:</strong> Reset feed recommendations or opt out of personalized promotional targeting in Settings.</li><li><strong>Right to Lodge a Regulatory Complaint:</strong> You may contact our DPO at <strong><code>dpo@oneova.app</code></strong> (free response within <strong>21 days</strong>, and always within statutory 30-day limits) or contact your national supervisory authority:</li></ol>
+<ul><li><strong>Kenya:</strong> Office of the Data Protection Commissioner (<code>odpc.go.ke</code>)</li><li><strong>Nigeria:</strong> Nigeria Data Protection Commission (<code>ndpc.gov.ng</code>)</li><li><strong>South Africa:</strong> Information Regulator (<code>inforegulator.org.za</code>)</li><li><strong>Tanzania:</strong> Personal Data Protection Commission (<code>pdpc.go.tz</code>)</li><li><strong>Uganda:</strong> Personal Data Protection Office (<code>pdpo.go.ug</code>)</li><li><strong>Rwanda:</strong> National Cyber Security Authority — Data Protection Office (<code>dpo.gov.rw</code>)</li><li><strong>Ghana:</strong> Data Protection Commission (<code>dataprotection.org.gh</code>)</li><li><strong>EU / EEA / UK:</strong> Your local Data Protection Authority or UK ICO (<code>ico.org.uk</code>).</li></ul>
+<hr class="rule-divider">
+<h2 id="9-children-s-teen-privacy">9. Children's &amp; Teen Privacy</h2>
+<p>Oneova does not permit accounts for children under <strong>13</strong>. Users aged <strong>13 to 17</strong> receive privacy-by-design defaults—including private-by-default profiles for ages 13–15, mutual-follower DM protections, disabled targeted ad profiling, and blocked Wallet/Live monetization. Full details are set out in our <a href="/child-safety.html">Child &amp; Teen Safety Policy</a>.</p>
+        <footer class="doc-footer">
+            <span>© 2026 Oneova Technologies Inc. All rights reserved.</span>
+            <span>Official Trust &amp; Legal Office: legal@oneova.app · dpo@oneova.app</span>
+        </footer>
+    </main>
+    <script src="/js/live-legal-sync.js" data-cms-doc="policy-privacy" defer></script>
 </body>
 </html>

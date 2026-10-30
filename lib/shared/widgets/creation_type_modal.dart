@@ -49,6 +49,22 @@ class _CreationTypeModalState extends ConsumerState<CreationTypeModal> {
 
   late final List<_StudioToolSpec> _allTools = [
     _StudioToolSpec(
+      title: 'Studio editor',
+      subtitle: 'Edit & Post',
+      category: 'Video & Camera',
+      icon: Icons.movie_edit,
+      route: '/create/studio',
+      badge: 'NEW',
+      description:
+          'Edit videos and photos from your gallery: trim, split, speed, filters, adjust, text, captions, music, then export and post.',
+      highlights: const [
+        'Multi-clip timeline with undo / redo',
+        'Filters, adjust, crop, text, stickers, captions, audio',
+        'Export 480p to 4K, then post or share to your story',
+      ],
+      accentColor: AppColors.brandBlue,
+    ),
+    _StudioToolSpec(
       title: 'Create video',
       subtitle: 'Record & Reel',
       category: 'Video & Camera',
@@ -113,6 +129,22 @@ class _CreationTypeModalState extends ConsumerState<CreationTypeModal> {
       accentColor: AppColors.brandBlue,
     ),
     _StudioToolSpec(
+      title: 'Game Live',
+      subtitle: 'Stream your phone game',
+      category: 'Cinema Live',
+      icon: Icons.sports_esports,
+      route: '/live/broadcast?mode=gaming',
+      badge: 'GAME',
+      description:
+          'Go live while you play any game on your phone. Your screen is the main stage, your camera sits in a bubble, and the live keeps going while you are in the game.',
+      highlights: const [
+        'Your game screen on the center stage',
+        'Camera bubble you can drag or hide',
+        'Viewers comment, love and share as you play',
+      ],
+      accentColor: AppColors.brandPink,
+    ),
+    _StudioToolSpec(
       title: 'AutoCut AI',
       subtitle: 'Smart Montage',
       category: 'PiP & Video',
@@ -128,17 +160,17 @@ class _CreationTypeModalState extends ConsumerState<CreationTypeModal> {
       accentColor: AppColors.brandBlue,
     ),
     _StudioToolSpec(
-      title: 'Auto captions',
-      subtitle: 'Speech to Text',
+      title: 'Captions',
+      subtitle: 'Type or import',
       category: 'PiP & Video',
       icon: Icons.subtitles_outlined,
-      route: '/video/dashboard',
+      route: '/create/studio',
       description:
-          'Generate animated kinetic subtitles synchronized to speech with 99.4% speech-to-text accuracy.',
+          'Add timed captions in Studio: type them at the playhead, style them with templates, or import an .srt file.',
       highlights: const [
-        'Multilingual neural transcription',
-        'Custom kinetic word-by-word animations',
-        'Auto-highlighted keywords',
+        'Captions burned into the exported video',
+        'Caption templates for every caption at once',
+        'Import SubRip (.srt) files',
       ],
       accentColor: AppColors.brandBlue,
     ),

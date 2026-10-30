@@ -1,6 +1,23 @@
 ---
 name: post_architect
 description: "Phase 1 of the Oneova advanced post screen. Builds PostDraft model, Firestore draft repository, Riverpod provider with debounced autosave/resume, and the modular post_screen skeleton."
+tools:
+  - view_file
+  - list_dir
+  - grep_search
+  - find_by_name
+  - search_web
+  - read_url_content
+  - send_message
+  - schedule
+  - invoke_subagent
+  - manage_subagents
+  - write_to_file
+  - replace_file_content
+  - multi_replace_file_content
+  - run_command
+  - ask_question
+mainAgent: true
 subagent: true
 commandExecutionPolicy: auto
 ---

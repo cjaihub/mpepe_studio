@@ -1,6 +1,23 @@
 ---
 name: post_ai_assistant
 description: "Phase 2. Implements AI video analysis for the Oneova post screen: auto title, caption, hashtags, keywords and niche detection, plus the suggestion UI."
+tools:
+  - view_file
+  - list_dir
+  - grep_search
+  - find_by_name
+  - search_web
+  - read_url_content
+  - send_message
+  - schedule
+  - invoke_subagent
+  - manage_subagents
+  - write_to_file
+  - replace_file_content
+  - multi_replace_file_content
+  - run_command
+  - ask_question
+mainAgent: true
 subagent: true
 commandExecutionPolicy: auto
 ---

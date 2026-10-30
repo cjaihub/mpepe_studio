@@ -99,3 +99,23 @@ class StudioSubscriptionPlan {
   @override
   int get hashCode => Object.hash(enabled, width, height);
 }
+
+/// Game Live: the host's whole screen is the center screen, so it gets a
+/// motion-friendly profile — up to 1080p at 30 fps with a high bitrate
+/// (games move a lot; 15 fps / 2.5 Mbps smears), plus a 720p/15 fallback layer.
+const VideoParameters kGameScreenParams = VideoParameters(
+  dimensions: VideoDimensionsPresets.h1080_169,
+  encoding: VideoEncoding(maxBitrate: 6000 * 1000, maxFramerate: 30),
+);
+
+const ScreenShareCaptureOptions kGameScreenCaptureOptions = ScreenShareCaptureOptions(
+  params: kGameScreenParams,
+);
+
+/// Same track name as the table screen so [StudioRoomPort.tableScreen] finds it.
+const VideoPublishOptions kGameScreenPublishOptions = VideoPublishOptions(
+  name: StudioTrackNames.tableScreen,
+  simulcast: true,
+  screenShareEncoding: VideoEncoding(maxBitrate: 6000 * 1000, maxFramerate: 30),
+  screenShareSimulcastLayers: [VideoParametersPresets.screenShareH720FPS15],
+);

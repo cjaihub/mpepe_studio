@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:cloud_functions/cloud_functions.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
@@ -82,11 +83,9 @@ class TikTokOAuthService extends Notifier<TikTokOAuthState> {
   final _auth = FirebaseAuth.instance;
 
   static const String _authUrl = 'https://www.tiktok.com/v2/auth/authorize/';
-  static const String _tokenUrl = 'https://open.tiktokapis.com/v2/oauth/token/';
   static const String _userInfoUrl = 'https://open.tiktokapis.com/v2/user/info/';
 
   String get _clientKey => dotenv.env['TIKTOK_CLIENT_KEY'] ?? '';
-  String get _clientSecret => dotenv.env['TIKTOK_CLIENT_SECRET'] ?? '';
   String get _redirectUri => dotenv.env['TIKTOK_REDIRECT_URI'] ?? 'oneova://tiktok-callback';
   String get _userId => _auth.currentUser?.uid ?? '';
 
@@ -188,25 +187,11 @@ class TikTokOAuthService extends Notifier<TikTokOAuthState> {
     state = state.copyWith(statusMessage: 'Exchanging secure tokens…');
 
     try {
-      final response = await http.post(
-        Uri.parse(_tokenUrl),
-        headers: {
-          'Content-Type': 'application/x-www-form-urlencoded',
-        },
-        body: {
-          'client_key': _clientKey,
-          'client_secret': _clientSecret,
-          'code': code,
-          'grant_type': 'authorization_code',
-          'redirect_uri': _redirectUri,
-        },
-      );
-
-      if (response.statusCode != 200) {
-        throw Exception('Token exchange failed: ${response.body}');
-      }
-
-      final data = jsonDecode(response.body) as Map<String, dynamic>;
+      // The client secret stays in Secret Manager; the exchange runs server-side.
+      final result = await FirebaseFunctions.instance
+          .httpsCallable('tiktokExchangeCode')
+          .call<Map<String, dynamic>>({'code': code});
+      final data = Map<String, dynamic>.from(result.data);
       final accessToken = data['access_token'] as String?;
 
       if (accessToken == null) {

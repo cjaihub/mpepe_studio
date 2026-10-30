@@ -10,6 +10,7 @@ import 'package:http/http.dart' as http;
 
 import '../../backend/ai_brain_service.dart';
 import '../../backend/security/secure_api_key_vault.dart';
+import '../../backend/security/oneova_ai_gateway.dart';
 import '../services/ova_task_center.dart';
 
 enum OvaMediaKind { image, video, audio, pdf, document }
@@ -238,13 +239,13 @@ class OvaMediaBrain {
     }
     var orKey = _brain.openRouterKey;
     if (orKey.isEmpty) orKey = await _vault.getOpenRouterApiKey();
-    if (orKey.isEmpty) throw const OvaMediaException('no_key');
+    if (!OneovaAiGateway.canCall(orKey)) throw const OvaMediaException('no_key');
     final res = await http
         .post(
-          Uri.parse('https://openrouter.ai/api/v1/chat/completions'),
+          OneovaAiGateway.chatUri(orKey),
           headers: {
             'Content-Type': 'application/json',
-            'Authorization': 'Bearer $orKey',
+            'Authorization': 'Bearer ${await OneovaAiGateway.bearer(orKey)}',
             'HTTP-Referer': 'https://oneova.studio',
             'X-Title': 'Oneova',
           },
@@ -323,7 +324,7 @@ class OvaMediaBrain {
 
     var orKey = _brain.openRouterKey;
     if (orKey.isEmpty) orKey = await _vault.getOpenRouterApiKey();
-    if (orKey.isEmpty) {
+    if (!OneovaAiGateway.canCall(orKey)) {
       throw const OvaMediaException('Add a Gemini or OpenRouter key in Settings → AI to let Ova read media.');
     }
     final Map<String, dynamic> part = switch (kind) {
@@ -343,10 +344,10 @@ class OvaMediaBrain {
     };
     final res = await http
         .post(
-          Uri.parse('https://openrouter.ai/api/v1/chat/completions'),
+          OneovaAiGateway.chatUri(orKey),
           headers: {
             'Content-Type': 'application/json',
-            'Authorization': 'Bearer $orKey',
+            'Authorization': 'Bearer ${await OneovaAiGateway.bearer(orKey)}',
             'HTTP-Referer': 'https://oneova.studio',
             'X-Title': 'Oneova',
           },

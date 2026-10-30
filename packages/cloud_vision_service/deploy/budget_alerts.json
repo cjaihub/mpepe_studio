@@ -1,0 +1,55 @@
+{
+  "budgetName": "oneova-looks-cloud-budget",
+  "projectId": "oneova-prod",
+  "billingAccount": "billingAccounts/012345-6789AB-CDEF01",
+  "currencyCode": "USD",
+  "amount": {
+    "specifiedAmount": {
+      "currencyCode": "USD",
+      "units": "30000"
+    }
+  },
+  "budgetFilter": {
+    "projects": ["projects/oneova-prod"],
+    "services": [
+      "services/run.googleapis.com",
+      "services/container.googleapis.com",
+      "services/compute.googleapis.com"
+    ]
+  },
+  "thresholdRules": [
+    {
+      "thresholdPercent": 0.50,
+      "spendBasis": "CURRENT_SPEND",
+      "action": "NOTIFY_OPS_CHANNEL",
+      "description": "50% budget threshold reached. Normal operational status."
+    },
+    {
+      "thresholdPercent": 0.80,
+      "spendBasis": "CURRENT_SPEND",
+      "action": "THROTTLE_PREVIEWS",
+      "description": "80% budget threshold reached. Throttle Cloud Render preview jobs and enable spot queueing."
+    },
+    {
+      "thresholdPercent": 1.00,
+      "spendBasis": "CURRENT_SPEND",
+      "action": "TRIGGER_PHONE_FALLBACK",
+      "description": "100% budget reached. Activate Compute Router phone fallback for free & standard tiers. Reserve cloud GPU for Biz marketplace creators only."
+    },
+    {
+      "thresholdPercent": 1.20,
+      "spendBasis": "CURRENT_SPEND",
+      "action": "HARD_FALLBACK_TO_DEVICE",
+      "description": "120% budget reached. Enforce strict 100% on-device LiteRT and hardware export fallback across all non-critical requests."
+    }
+  ],
+  "notificationsRule": {
+    "pubsubTopic": "projects/oneova-prod/topics/cloud-budget-alerts",
+    "schemaVersion": "1.0",
+    "monitoringNotificationChannels": [
+      "projects/oneova-prod/notificationChannels/ops-pagerduty",
+      "projects/oneova-prod/notificationChannels/ops-slack"
+    ],
+    "disableDefaultIamRecipients": false
+  }
+}

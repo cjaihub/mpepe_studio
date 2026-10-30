@@ -6,6 +6,7 @@ import android.app.NotificationManager
 import android.app.Service
 import android.content.Context
 import android.content.Intent
+import android.content.pm.PackageManager
 import android.content.pm.ServiceInfo
 import android.os.Build
 import android.os.IBinder
@@ -17,6 +18,12 @@ import android.os.IBinder
  *   2. LiveScreenCaptureService.start()                  (this service)
  *   3. createScreenShareTrack()                          (uses the stored consent)
  *   4. LiveScreenCaptureService.stop() when sharing ends
+ *
+ * Game Live: the host leaves Oneova to play, so on API 30+ the service also
+ * claims the microphone (and the camera when CAMERA is granted) types; that
+ * keeps the mic/camera tracks alive while Oneova is in the background.
+ * Android throws when a type is claimed without its runtime permission, so
+ * each type is only added when its permission is granted at start.
  */
 class LiveScreenCaptureService : Service() {
 
@@ -26,11 +33,28 @@ class LiveScreenCaptureService : Service() {
         createChannel()
         val notification = buildNotification()
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-            startForeground(NOTIFICATION_ID, notification, ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PROJECTION)
+            startForeground(NOTIFICATION_ID, notification, serviceTypes())
         } else {
             startForeground(NOTIFICATION_ID, notification)
         }
         return START_NOT_STICKY
+    }
+
+    private fun granted(permission: String): Boolean =
+        checkSelfPermission(permission) == PackageManager.PERMISSION_GRANTED
+
+    /** mediaProjection, plus microphone / camera (API 30+) when their permission is granted. */
+    private fun serviceTypes(): Int {
+        var types = ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PROJECTION
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            if (granted(android.Manifest.permission.RECORD_AUDIO)) {
+                types = types or ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE
+            }
+            if (granted(android.Manifest.permission.CAMERA)) {
+                types = types or ServiceInfo.FOREGROUND_SERVICE_TYPE_CAMERA
+            }
+        }
+        return types
     }
 
     private fun createChannel() {
@@ -54,7 +78,7 @@ class LiveScreenCaptureService : Service() {
         }
         return builder
             .setContentTitle("Oneova is sharing your screen")
-            .setContentText("Your screen is on the Live Studio table")
+            .setContentText("Your live keeps going while you use other apps")
             .setSmallIcon(R.mipmap.ic_launcher)
             .setOngoing(true)
             .build()

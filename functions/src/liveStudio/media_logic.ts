@@ -5,6 +5,7 @@
  */
 import {
   ACCENT_PALETTE,
+  GAME_TITLE_MAX_LENGTH,
   SCHEMA_VERSION,
   StageMember,
   StudioRole,
@@ -75,6 +76,56 @@ export function mergeStartSettings(saved: unknown, arg: unknown): Record<string,
   return { ...obj(saved), ...obj(arg) };
 }
 
+/** Kind of live lsStart opens. `gaming` = screen share center + camera PiP. */
+export type LiveKind = 'studio' | 'gaming';
+
+export interface StartKind {
+  kind: LiveKind;
+  /** Trimmed game title (gaming only), or null. */
+  gameTitle: string | null;
+}
+
+/** Thrown for a bad lsStart `kind` / `gameTitle`; the callable maps it to `invalid-argument`. */
+export class StartValidationError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'StartValidationError';
+  }
+}
+
+// eslint-disable-next-line no-control-regex
+const CONTROL_CHARS = /[\u0000-\u001F\u007F-\u009F]/;
+
+/**
+ * Validates lsStart's optional `kind` and `gameTitle`.
+ * - `kind` absent/null → 'studio'; anything other than 'studio' | 'gaming' is rejected;
+ * - `gameTitle` (gaming only, optional) is trimmed; > 60 chars or control characters are rejected;
+ *   an empty title becomes null. Ignored for studio lives.
+ */
+export function parseStartKind(data: unknown): StartKind {
+  const d = (data && typeof data === 'object' && !Array.isArray(data) ? data : {}) as Record<string, unknown>;
+  const k = d.kind;
+  if (k !== undefined && k !== null && k !== 'studio' && k !== 'gaming') {
+    throw new StartValidationError('kind must be studio or gaming.');
+  }
+  const kind: LiveKind = k === 'gaming' ? 'gaming' : 'studio';
+  if (kind !== 'gaming') return { kind, gameTitle: null };
+  const g = d.gameTitle;
+  if (g === undefined || g === null) return { kind, gameTitle: null };
+  if (typeof g !== 'string') throw new StartValidationError('gameTitle must be a string.');
+  if (CONTROL_CHARS.test(g)) throw new StartValidationError('gameTitle contains invalid characters.');
+  const t = g.trim();
+  if (t.length > GAME_TITLE_MAX_LENGTH) {
+    throw new StartValidationError(`gameTitle must be at most ${GAME_TITLE_MAX_LENGTH} characters.`);
+  }
+  return { kind, gameTitle: t.length ? t : null };
+}
+
+/** The layout preset is decided by the kind of live, never by saved settings. */
+export function applyStartKind(settings: StudioSettings, kind: LiveKind): StudioSettings {
+  return { ...settings, layoutPreset: kind === 'gaming' ? 'gaming' : 'studio' };
+}
+
 /** Initial `studio/state` for a new live: host in the center, empty wall, goods table. */
 export function buildInitialState(a: {
   streamId: string;
@@ -82,6 +133,7 @@ export function buildInitialState(a: {
   title: string;
   settings: StudioSettings;
   nowMs: number;
+  gameTitle?: string | null;
 }): StudioState {
   return {
     schemaVersion: SCHEMA_VERSION,
@@ -94,6 +146,7 @@ export function buildInitialState(a: {
     stage: { ...emptyStage(a.hostId), updatedAtMs: a.nowMs, updatedBy: a.hostId },
     table: { mode: 'goods', goods: null, screen: null, watch: null },
     counts: { viewers: 0, participants: 1, loves: 0, sparkles: 0, shares: 0 },
+    ...(a.gameTitle ? { gameTitle: a.gameTitle } : {}),
   };
 }
 
@@ -127,7 +180,15 @@ export function buildHostMember(uid: string, p: Profile, nowMs: number): StageMe
 }
 
 /** Fields of `live_streams/{id}` required by the v1 rules + the v2 markers. */
-export function buildStreamDoc(a: { streamId: string; hostId: string; title: string; profile: Profile }) {
+export function buildStreamDoc(a: {
+  streamId: string;
+  hostId: string;
+  title: string;
+  profile: Profile;
+  kind?: LiveKind;
+  gameTitle?: string | null;
+}) {
+  const gaming = a.kind === 'gaming';
   return {
     id: a.streamId,
     hostId: a.hostId,
@@ -141,6 +202,9 @@ export function buildStreamDoc(a: { streamId: string; hostId: string; title: str
     viewerCount: 0,
     totalLikes: 0,
     totalComments: 0,
+    ...(gaming
+      ? { liveKind: 'gaming' as const, category: 'Gaming' as const, ...(a.gameTitle ? { gameTitle: a.gameTitle } : {}) }
+      : {}),
   };
 }
 

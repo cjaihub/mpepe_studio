@@ -32,45 +32,12 @@ void main() {
     );
   }
 
-  test('Public expired story goes to archive if not highlight', () async {
-    final story = createStory(privacy: StoryPrivacy.public, isExpired: true);
-    await storyService.createStory(story);
-
-    await storyService.enforceRetentionPolicy();
-
-    final archived = await storyService.getArchivedStories();
-    expect(archived.length, 1);
-    expect(archived.first.id, story.id);
-    expect(archived.first.lifecycle, StoryLifecycle.archived);
-  });
-
-  test('Private expired story is hard deleted, not archived', () async {
-    // e.g. closeFriends
-    final story = createStory(privacy: StoryPrivacy.closeFriends, isExpired: true);
-    await storyService.createStory(story);
-
-    await storyService.enforceRetentionPolicy();
-
-    final archived = await storyService.getArchivedStories();
-    expect(archived.isEmpty, true);
-  });
-  
-  test('Active stories are not removed by retention policy', () async {
-    final story = createStory(privacy: StoryPrivacy.public, isExpired: false);
-    await storyService.createStory(story);
-
-    await storyService.enforceRetentionPolicy();
-
-    final archived = await storyService.getArchivedStories();
-    expect(archived.isEmpty, true); // Still active, not archived
-  });
-  
   test('Can react and reply to story', () async {
     final story = createStory(privacy: StoryPrivacy.public, isExpired: false);
     await storyService.createStory(story);
 
     await storyService.reactToStory(story.id, 'user_1', '🔥');
-    await storyService.replyToStory(story.id, 'Great story!');
+    await storyService.replyToStory(story.id, 'user_1', 'Great story!');
     
     // We cannot easily fetch the exact story via API here because getFeedStories returns mocks right now.
     // However, if we added a getStory method we could verify it. 

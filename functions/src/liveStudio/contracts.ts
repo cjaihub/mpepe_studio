@@ -54,6 +54,10 @@ export type JoinRequestStatus = 'pending' | 'approved' | 'declined' | 'cancelled
 export type SystemLineKind = 'joined' | 'love' | 'sparkles' | 'shared' | 'requested' | 'onStage';
 export type ReactionKind = 'love' | 'sparkles';
 export type ModerationAction = 'mute' | 'removeFromStage' | 'block';
+/** `gaming` = host screen share in the center, host camera in a PiP bubble. */
+export type LayoutPreset = 'studio' | 'gaming';
+export const LAYOUT_PRESETS: readonly LayoutPreset[] = ['studio', 'gaming'];
+export const GAME_TITLE_MAX_LENGTH = 60;
 
 export const isManager = (r: StudioRole) => r === 'host' || r === 'coHost';
 export const canPublish = (r: StudioRole) => r !== 'viewer';
@@ -74,6 +78,7 @@ export interface StudioSettings {
   showNames: boolean;
   studioDim: number;
   speakerMode: SpeakerMode;
+  layoutPreset: LayoutPreset;
 }
 
 export const defaultSettings = (theme: StudioTheme = 'dark'): StudioSettings => ({
@@ -85,6 +90,7 @@ export const defaultSettings = (theme: StudioTheme = 'dark'): StudioSettings => 
   showNames: true,
   studioDim: theme === 'light' ? 0 : 0.15,
   speakerMode: 'hostPinned',
+  layoutPreset: 'studio',
 });
 
 export interface StageLayout {
@@ -132,6 +138,8 @@ export interface StudioState {
   stage: StageLayout;
   table: TableState;
   counts: StudioCounts;
+  /** Game being streamed on a gaming live (≤ GAME_TITLE_MAX_LENGTH). Absent otherwise. */
+  gameTitle?: string;
 }
 
 export interface StageMember {

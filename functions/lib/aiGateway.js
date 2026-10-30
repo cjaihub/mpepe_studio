@@ -6,6 +6,7 @@ const params_1 = require("firebase-functions/params");
 const genai_1 = require("@google/genai");
 const ToolExecutionLayer_1 = require("./services/ToolExecutionLayer");
 const firestore_1 = require("firebase-admin/firestore");
+const accountSettings_1 = require("./accountSettings");
 const geminiSecret = (0, params_1.defineSecret)('GEMINI_API_KEY');
 /**
  * Short-lived Gemini Live token for the app's voice mode. It can only open
@@ -174,13 +175,9 @@ exports.aiGateway = (0, https_1.onCall)({ secrets: [geminiSecret] }, async (requ
         throw new https_1.HttpsError('internal', 'AI is not configured.');
     }
     // Check global AI agent kill switch
-    const db = (0, firestore_1.getFirestore)();
-    const configDoc = await db.collection('users').doc(userId).collection('ai_settings').doc('agent_config').get();
-    if (configDoc.exists) {
-        const configData = configDoc.data();
-        if (configData === null || configData === void 0 ? void 0 : configData.isGloballyPaused) {
-            throw new https_1.HttpsError('permission-denied', 'AI Agent is globally paused by the user.');
-        }
+    const agentConfig = await (0, accountSettings_1.readAccountSettings)(userId, 'aiAgent', 'ai_settings/agent_config');
+    if (agentConfig.isGloballyPaused === true) {
+        throw new https_1.HttpsError('permission-denied', 'AI Agent is globally paused by the user.');
     }
     if (operation === 'composeMessage') {
         return await handleComposeMessage(userId, data, apiKey);

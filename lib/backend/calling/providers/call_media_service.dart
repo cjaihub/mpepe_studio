@@ -88,7 +88,7 @@ class CallMediaService extends Notifier<CallMediaState> {
       isAudioMuted: false,
       audioRoute: video ? AudioRoute.speaker : AudioRoute.earpiece,
     );
-    navigator.mediaDevices.ondevicechange = (_) => refreshOutputs();
+    navigator.mediaDevices.ondevicechange = (_) => _onDevicesChanged();
     await refreshOutputs();
     // Video calls default to the loudspeaker, audio calls to the earpiece,
     // unless a headset is connected.
@@ -101,6 +101,25 @@ class CallMediaService extends Notifier<CallMediaState> {
       ),
     );
     await selectRoute(preferred.route, deviceId: preferred.deviceId);
+  }
+
+  /// A headset was plugged in or paired mid-call: switch to it. The device in
+  /// use went away: fall back to the speaker (video) or earpiece (audio).
+  Future<void> _onDevicesChanged() async {
+    if (state.localStream == null) return;
+    final before = state.outputs.map((o) => o.route).toSet();
+    await refreshOutputs();
+    final after = state.outputs;
+    final added = after.where(
+      (o) => (o.route == AudioRoute.bluetooth || o.route == AudioRoute.wired) && !before.contains(o.route),
+    );
+    if (added.isNotEmpty) {
+      await selectRoute(added.first.route, deviceId: added.first.deviceId);
+      return;
+    }
+    if (!after.any((o) => o.route == state.audioRoute)) {
+      await selectRoute(state.isVideoOn ? AudioRoute.speaker : AudioRoute.earpiece);
+    }
   }
 
   void toggleAudio() => setAudioMuted(!state.isAudioMuted);

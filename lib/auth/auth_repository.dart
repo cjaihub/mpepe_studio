@@ -3,7 +3,7 @@ import 'package:flutter/foundation.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:google_sign_in/google_sign_in.dart';
-import 'package:cloud_firestore/cloud_firestore.dart';
+import '../backend/settings_service.dart';
 
 final googleSignInProvider = Provider<GoogleSignIn>((ref) {
   // In v7, GoogleSignIn is a singleton and must be initialized.
@@ -39,6 +39,24 @@ class AuthRepository {
 
   Future<UserCredential?> signInWithGoogle() async {
     try {
+      final credential = await googleCredential();
+      if (credential == null) return null;
+      lastGoogleCredential = credential;
+      return await _auth.signInWithCredential(credential);
+    } catch (e) {
+      debugPrint('Google Sign-In Error: $e');
+      rethrow;
+    }
+  }
+
+  /// The Google credential from the last [signInWithGoogle], kept so it can
+  /// be linked to an existing account (AccountLinkService).
+  OAuthCredential? lastGoogleCredential;
+
+  /// Runs the Google account picker and returns a Firebase credential without
+  /// signing in, for sign-in or for linking Google to the current user.
+  Future<OAuthCredential?> googleCredential() async {
+    try {
       // Ensure Google SignIn is initialized before authenticating
       await _googleSignIn.initialize();
 
@@ -62,14 +80,12 @@ class AuthRepository {
         debugPrint('Google Sign-In optional scope authorization non-fatal: $scopeError');
       }
 
-      final OAuthCredential credential = GoogleAuthProvider.credential(
+      return GoogleAuthProvider.credential(
         accessToken: accessToken,
         idToken: idToken,
       );
-
-      return await _auth.signInWithCredential(credential);
     } catch (e) {
-      debugPrint('Google Sign-In Error: $e');
+      debugPrint('Google credential error: $e');
       rethrow;
     }
   }
@@ -116,33 +132,24 @@ class AuthRepository {
     await _auth.signInWithCredential(credential);
   }
 
-  // AI Voice and Model Settings
+  // AI Voice and Model Settings: the `ai` category of the one settings
+  // store, user_settings/{uid}.
   Future<Map<String, dynamic>> getUserSettings() async {
     final user = _auth.currentUser;
     if (user == null) return {};
-    
-    try {
-      final doc = await FirebaseFirestore.instance.collection('users').doc(user.uid).collection('settings').doc('ai_preferences').get();
-      if (doc.exists) {
-        return doc.data() ?? {};
-      }
-      return {};
-    } catch (e) {
-      debugPrint("Error getting settings: $e");
-      return {};
-    }
+    final settings = await SettingsService().getSettings(user.uid);
+    return Map<String, dynamic>.from(settings['ai'] as Map? ?? const {});
   }
 
   Future<void> saveUserSettings({String? selectedVoice, String? selectedModel}) async {
     final user = _auth.currentUser;
     if (user == null) return;
-    
+
     try {
-      Map<String, dynamic> data = {};
-      if (selectedVoice != null) data['selectedVoice'] = selectedVoice;
-      if (selectedModel != null) data['selectedModel'] = selectedModel;
-      
-      await FirebaseFirestore.instance.collection('users').doc(user.uid).collection('settings').doc('ai_preferences').set(data, SetOptions(merge: true));
+      await SettingsService().updateSettingsCategory(user.uid, 'ai', {
+        'selectedVoice': ?selectedVoice,
+        'selectedModel': ?selectedModel,
+      });
     } catch (e) {
       debugPrint("Error saving settings: $e");
     }

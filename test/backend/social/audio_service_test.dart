@@ -57,7 +57,7 @@ void main() {
   });
   
   test('View videos for sound returns list', () async {
-    final videos = await audioService.getVideosForSound('sound_123');
+    final videos = await audioService.watchVideosForSound('sound_123').first;
     expect(videos, isNotNull);
   });
 }

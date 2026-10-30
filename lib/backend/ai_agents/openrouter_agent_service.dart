@@ -3,6 +3,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:http/http.dart' as http;
 import '../security/secure_api_key_vault.dart';
+import '../security/oneova_ai_gateway.dart';
 
 final openRouterAgentServiceProvider = Provider<OpenRouterAgentService>((ref) {
   final vault = ref.watch(secureKeyVaultProvider);
@@ -10,7 +11,6 @@ final openRouterAgentServiceProvider = Provider<OpenRouterAgentService>((ref) {
 });
 
 class OpenRouterAgentService {
-  final String _baseUrl = 'https://openrouter.ai/api/v1/chat/completions';
   final SecureKeyVault? _vault;
 
   OpenRouterAgentService({this._vault});
@@ -21,8 +21,7 @@ class OpenRouterAgentService {
       final key = await _vault.getOpenRouterApiKey();
       if (key.trim().isNotEmpty) return key.trim();
     }
-    const compileVal = String.fromEnvironment('OPENROUTER_API_KEY', defaultValue: '');
-    return compileVal.trim();
+    return '';
   }
 
   /// Resolves preferred model from vault or defaults to fast instructor.
@@ -40,7 +39,7 @@ class OpenRouterAgentService {
   /// Generates a cinematic 'look' (color grading, filter parameters) based on a user prompt.
   Future<Map<String, dynamic>> generateLookParameters(String prompt) async {
     final key = await _resolveApiKey();
-    if (key.isEmpty) {
+    if (!OneovaAiGateway.canCall(key)) {
       // Return fallback parameters for development if no key is provided
       return {
         'temperature': 0.8,
@@ -54,9 +53,9 @@ class OpenRouterAgentService {
     try {
       final model = await _resolveModel();
       final response = await http.post(
-        Uri.parse(_baseUrl),
+        OneovaAiGateway.chatUri(key),
         headers: {
-          'Authorization': 'Bearer $key',
+          'Authorization': 'Bearer ${await OneovaAiGateway.bearer(key)}',
           'Content-Type': 'application/json',
           'HTTP-Referer': 'https://oneova.app',
           'X-Title': 'Oneova',
@@ -99,16 +98,16 @@ class OpenRouterAgentService {
     Duration timeout = const Duration(seconds: 25),
   }) async {
     final key = await _resolveApiKey();
-    if (key.isEmpty) {
+    if (!OneovaAiGateway.canCall(key)) {
       return null;
     }
 
     try {
       final selectedModel = await _resolveModel(requestedModel: model);
       final response = await http.post(
-        Uri.parse(_baseUrl),
+        OneovaAiGateway.chatUri(key),
         headers: {
-          'Authorization': 'Bearer $key',
+          'Authorization': 'Bearer ${await OneovaAiGateway.bearer(key)}',
           'Content-Type': 'application/json',
           'HTTP-Referer': 'https://oneova.app',
           'X-Title': 'Oneova',

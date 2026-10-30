@@ -1,0 +1,417 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ONEOVA LAW ENFORCEMENT &amp; GOVERNMENT REQUEST GUIDELINES — Oneova</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
+    <style>
+:root {
+    --brand-blue: #0C4FA8;
+    --brand-blue-soft: rgba(12, 79, 168, 0.10);
+    --brand-pink: #FF2D87;
+    --brand-pink-soft: rgba(255, 45, 135, 0.12);
+    --bg: #FFFFFF;
+    --surface: #F8FAFC;
+    --surface-mid: #F1F5F9;
+    --border: #E2E8F0;
+    --text-primary: #0F172A;
+    --text-secondary: #334155;
+    --text-muted: #64748B;
+}
+html[data-theme="dark"] {
+    --bg: #0A0A0A;
+    --surface: #141414;
+    --surface-mid: #1F1F1F;
+    --border: #262626;
+    --text-primary: #F3F4F6;
+    --text-secondary: #CBD5E1;
+    --text-muted: #9CA3AF;
+    --brand-blue-soft: rgba(12, 79, 168, 0.24);
+}
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body {
+    font-family: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    background: var(--bg);
+    color: var(--text-primary);
+    line-height: 1.62;
+    font-size: 14.5px;
+    -webkit-font-smoothing: antialiased;
+}
+.top-bar {
+    position: sticky;
+    top: 0;
+    z-index: 40;
+    background: var(--bg);
+    border-bottom: 1px solid var(--border);
+    padding: 12px 24px;
+}
+.top-bar-inner {
+    max-width: 960px;
+    margin: 0 auto;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    flex-wrap: wrap;
+}
+.brand-mark {
+    display: inline-flex;
+    align-items: center;
+    gap: 10px;
+    text-decoration: none;
+    color: var(--text-primary);
+    font-weight: 900;
+    font-size: 16px;
+    letter-spacing: -0.3px;
+}
+.brand-dot {
+    width: 26px;
+    height: 26px;
+    border-radius: 7px;
+    background: var(--brand-blue);
+    color: #FFFFFF;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 13px;
+    font-weight: 900;
+}
+.actions-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+.btn-chip {
+    appearance: none;
+    border: 1px solid var(--border);
+    background: var(--surface);
+    color: var(--text-primary);
+    font-family: inherit;
+    font-size: 12px;
+    font-weight: 700;
+    padding: 7px 12px;
+    border-radius: 8px;
+    cursor: pointer;
+    text-decoration: none;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+}
+.btn-chip.primary {
+    background: var(--brand-blue);
+    border-color: var(--brand-blue);
+    color: #FFFFFF;
+}
+.sub-nav {
+    max-width: 960px;
+    margin: 14px auto 0;
+    padding: 0 24px;
+    display: flex;
+    gap: 6px;
+    overflow-x: auto;
+    padding-bottom: 6px;
+}
+.nav-pill {
+    text-decoration: none;
+    font-size: 12px;
+    font-weight: 600;
+    padding: 6px 11px;
+    border-radius: 8px;
+    border: 1px solid var(--border);
+    background: var(--surface);
+    color: var(--text-secondary);
+    white-space: nowrap;
+}
+.nav-pill.active {
+    background: var(--brand-blue);
+    border-color: var(--brand-blue);
+    color: #FFFFFF;
+    font-weight: 700;
+}
+.doc-shell {
+    max-width: 960px;
+    margin: 0 auto;
+    padding: 26px 24px 72px;
+}
+.doc-badge {
+    display: inline-block;
+    font-size: 10px;
+    font-weight: 800;
+    letter-spacing: 0.7px;
+    text-transform: uppercase;
+    padding: 4px 10px;
+    border-radius: 6px;
+    background: var(--brand-pink-soft);
+    color: var(--brand-pink);
+    border: 1px solid rgba(255, 45, 135, 0.32);
+    margin-bottom: 10px;
+}
+h1 {
+    font-size: 26px;
+    font-weight: 850;
+    letter-spacing: -0.5px;
+    line-height: 1.2;
+    color: var(--text-primary);
+    margin-bottom: 14px;
+}
+h2 {
+    font-size: 17.5px;
+    font-weight: 800;
+    letter-spacing: -0.25px;
+    color: var(--text-primary);
+    margin-top: 28px;
+    margin-bottom: 10px;
+    padding-bottom: 6px;
+    border-bottom: 1px solid var(--border);
+}
+h3 {
+    font-size: 14.5px;
+    font-weight: 700;
+    color: var(--text-primary);
+    margin-top: 18px;
+    margin-bottom: 8px;
+}
+p {
+    color: var(--text-secondary);
+    margin-bottom: 11px;
+}
+p strong, li strong {
+    color: var(--text-primary);
+}
+ul, ol {
+    margin: 8px 0 14px 22px;
+    color: var(--text-secondary);
+}
+li {
+    margin-bottom: 6px;
+}
+a {
+    color: var(--brand-blue);
+    font-weight: 600;
+    text-decoration: none;
+}
+html[data-theme="dark"] a {
+    color: #60A5FA;
+}
+a:hover { text-decoration: underline; }
+code {
+    font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+    font-size: 12.5px;
+    background: var(--surface-mid);
+    border: 1px solid var(--border);
+    padding: 1px 6px;
+    border-radius: 5px;
+    color: var(--text-primary);
+}
+.sig-blank {
+    font-family: inherit;
+    font-weight: 500;
+    color: var(--text-primary);
+    background: transparent;
+    border: none;
+    padding: 0 2px;
+}
+h2, h3 {
+    break-after: avoid;
+    page-break-after: avoid;
+}
+.exec-callout {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-left: 4px solid var(--brand-blue);
+    border-radius: 10px;
+    padding: 14px 16px;
+    margin: 14px 0 18px;
+    color: var(--text-secondary);
+    font-size: 13.5px;
+}
+.rule-divider {
+    border: none;
+    border-top: 1px solid var(--border);
+    margin: 20px 0;
+}
+.table-wrap {
+    width: 100%;
+    overflow-x: auto;
+    margin: 14px 0 18px;
+    border: 1px solid var(--border);
+    border-radius: 10px;
+}
+table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 12.8px;
+}
+th {
+    background: var(--surface-mid);
+    color: var(--text-primary);
+    font-weight: 700;
+    text-align: left;
+    padding: 10px 12px;
+    border-bottom: 1px solid var(--border);
+}
+td {
+    padding: 9px 12px;
+    border-bottom: 1px solid var(--border);
+    color: var(--text-secondary);
+    vertical-align: top;
+}
+tr:last-child td { border-bottom: none; }
+.doc-footer {
+    margin-top: 44px;
+    padding-top: 18px;
+    border-top: 1px solid var(--border);
+    display: flex;
+    justify-content: space-between;
+    flex-wrap: wrap;
+    gap: 10px;
+    font-size: 12px;
+    color: var(--text-muted);
+}
+.hub-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+    gap: 14px;
+    margin-top: 18px;
+}
+.hub-card {
+    display: block;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 16px;
+    text-decoration: none;
+    transition: border-color 0.15s ease, transform 0.15s ease;
+}
+.hub-card:hover {
+    border-color: var(--brand-blue);
+    transform: translateY(-1px);
+    text-decoration: none;
+}
+.hub-card h3 {
+    margin-top: 6px;
+    margin-bottom: 6px;
+    color: var(--text-primary);
+}
+.hub-card p {
+    font-size: 12.8px;
+    color: var(--text-secondary);
+    margin: 0;
+}
+
+@page {
+    size: A4;
+    margin: 16mm 15mm 16mm 15mm;
+}
+@media print {
+    html, body {
+        background: #FFFFFF !important;
+        color: #0F172A !important;
+        font-size: 10.5pt;
+        line-height: 1.48;
+    }
+    .no-print { display: none !important; }
+    .doc-shell { max-width: 100%; padding: 0; margin: 0; }
+    .print-letterhead {
+        display: flex !important;
+        justify-content: space-between;
+        align-items: center;
+        padding-bottom: 10px;
+        margin-bottom: 14px;
+        border-bottom: 2px solid #0C4FA8;
+    }
+    h1 { font-size: 18pt; margin-bottom: 8px; }
+    h2 { font-size: 12.5pt; margin-top: 16px; page-break-after: avoid; }
+    h3 { font-size: 10.8pt; page-break-after: avoid; }
+    .exec-callout, tr { page-break-inside: avoid; }
+    .table-wrap { overflow: visible; }
+    table { font-size: 9pt; }
+    th, td { padding: 6px 8px; }
+    a { color: #0C4FA8 !important; text-decoration: none !important; }
+}
+.print-letterhead { display: none; }
+</style>
+    
+<script>
+(function() {
+    const saved = localStorage.getItem('oneova_legal_theme');
+    if (saved === 'dark' || saved === 'light') {
+        document.documentElement.setAttribute('data-theme', saved);
+    } else if (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches) {
+        document.documentElement.setAttribute('data-theme', 'dark');
+    }
+})();
+function toggleTheme() {
+    const cur = document.documentElement.getAttribute('data-theme') === 'dark' ? 'light' : 'dark';
+    document.documentElement.setAttribute('data-theme', cur);
+    localStorage.setItem('oneova_legal_theme', cur);
+}
+</script>
+
+</head>
+<body>
+    
+    <header class="top-bar no-print">
+        <div class="top-bar-inner">
+            <a href="/legal.html" class="brand-mark">
+                <span class="brand-dot">O</span>
+                <span>Oneova Trust &amp; Legal Center</span>
+            </a>
+            <div class="actions-row">
+                <a class="btn-chip" href="/">← Oneova Portal</a>
+                <a class="btn-chip" href="/docs/pdf/07_Oneova_Law_Enforcement_Guidelines.pdf" download>⬇ Official PDF</a>
+                <button class="btn-chip" onclick="toggleTheme()" type="button">Light / Dark</button>
+                <button class="btn-chip primary" onclick="window.print()" type="button">Print / Save PDF</button>
+            </div>
+        </div>
+    </header>
+    
+    <nav class="sub-nav no-print"><a class="nav-pill" href="/legal.html">All Policies</a><a class="nav-pill" href="/terms.html">Terms of Service</a><a class="nav-pill" href="/privacy.html">Privacy Policy</a><a class="nav-pill" href="/guidelines.html">Community Guidelines</a><a class="nav-pill" href="/child-safety.html">Child &amp; Teen Safety</a><a class="nav-pill" href="/biz-policy.html">Biz &amp; Monetization</a><a class="nav-pill" href="/deletion.html">Data Deletion</a><a class="nav-pill active" href="/law-enforcement.html">Law Enforcement</a></nav>
+    <main class="doc-shell">
+        <div class="print-letterhead">
+            <div>
+                <strong style="font-size:13pt;color:#0C4FA8;font-weight:900;">ONEOVA TECHNOLOGIES INC.</strong><br>
+                <span style="font-size:8.5pt;color:#64748B;">OFFICIAL PUBLIC POLICY — ONEOVA.APP</span>
+            </div>
+            <div style="text-align:right;font-size:8.5pt;color:#64748B;">
+                <strong>Document #07</strong><br>
+                Effective: October 25, 2026
+            </div>
+        </div>
+        <span class="doc-badge">DUE PROCESS</span>
+        <h1>ONEOVA LAW ENFORCEMENT &amp; GOVERNMENT REQUEST GUIDELINES</h1>
+<p><strong>Document ID:</strong> <code>ONV-LEGAL-LER-2026-V1</code><br><strong>Effective Date:</strong> October 25, 2026<br><strong>Official Legal Process Intake:</strong> <code>lawenforcement@oneova.app</code><br><strong>24/7 Imminent Danger / Child Safety Intake:</strong> <code>childsafety@oneova.app</code><br><strong>Web Portal:</strong> <code>https://oneova.app/law-enforcement</code></p>
+<hr class="rule-divider">
+<div class="exec-callout"><strong>In Short:</strong> Oneova cooperates with lawful investigations into serious crimes (especially child exploitation, terrorism, human trafficking, and financial fraud) while strictly defending users' constitutional privacy, due process, and freedom-of-expression rights across Africa and globally. <strong>We never grant unfettered backdoor access, and we reject overbroad or unlawful requests.</strong></div>
+<hr class="rule-divider">
+<h2 id="1-guiding-principles">1. Guiding Principles</h2>
+<ol><li><strong>Rule of Law &amp; Due Process:</strong> Non-public user information is disclosed <strong>only</strong> in response to valid, binding legal process issued by a court or competent authority with lawful jurisdiction.</li><li><strong>Specificity &amp; Proportionality:</strong> Every request must target specific accounts (<code>@username</code>, user UID, registered phone/email, or exact post URL) and narrow date ranges. <strong>Blanket, bulk, or "fishing expedition" demands are rejected.</strong></li><li><strong>International Human Rights Review:</strong> Requests implicating peaceful civic speech, journalism, whistleblowing, or political opposition are escalated to Senior Legal Counsel and evaluated against domestic constitutional guarantees and international human-rights norms (including the <strong>African Charter on Human and Peoples' Rights</strong> and the <strong>ICCPR</strong>).</li><li><strong>No Backdoors:</strong> Oneova does not install government surveillance backdoors or weaken platform encryption.</li></ol>
+<hr class="rule-divider">
+<h2 id="2-legal-process-required-by-data-category">2. Legal Process Required by Data Category</h2>
+<div class="table-wrap"><table><thead><tr><th>Requested Record Category</th><th>Examples</th><th>Minimum Legal Process Required</th></tr></thead><tbody><tr><td><strong>Basic Subscriber Records</strong></td><td>Username, account creation timestamp, sign-up email/phone, recent login IP</td><td>Valid statutory subpoena, production order, or court order under applicable national law</td></tr><tr><td><strong>Transaction &amp; Payout Logs</strong></td><td>Coin purchase timestamps, payout mobile-money/bank reference IDs</td><td>Court order or statutory financial-crime / AML warrant</td></tr><tr><td><strong>Non-Public Account Metadata</strong></td><td>Device identifiers, session logs, non-public friend/follower graphs</td><td>Court order establishing specific legal relevance to an active criminal investigation</td></tr><tr><td><strong>Private Content</strong></td><td>Private Chat messages, unpublished Studio drafts, private Stories, deleted items still in retention window</td><td><strong>Judicial Search Warrant</strong> (or equivalent highest-tier judicial court order) supported by probable cause / reasonable suspicion</td></tr></tbody></table></div>
+<p><em>Cross-Border Requests:</em> Authorities requesting private content held outside their domestic jurisdiction should submit requests via <strong>Mutual Legal Assistance Treaty (MLAT)</strong> channels, Letters Rogatory, or applicable cooperative frameworks, alongside a preservation request while diplomatic process is pending.</p>
+<hr class="rule-divider">
+<h2 id="3-mandatory-contents-of-a-valid-request">3. Mandatory Contents of a Valid Request</h2>
+<p>Every official submission to <strong><code>lawenforcement@oneova.app</code></strong> must:</p>
+<ol><li>Be sent from an <strong>official government, judicial, or police email domain</strong> (requests from personal webmail accounts are not processed);</li><li>Identify the requesting agency, investigating officer's name, badge/ID number, official phone number, and physical office address;</li><li>Attach a signed, dated, and sealed copy of the court order, subpoena, or warrant citing the specific statutory authority;</li><li>Specify the <strong>exact Oneova account identifier</strong> (<code>@username</code>, profile URL, post URL, or registered phone/email)—display names alone are insufficient because multiple users may share similar names; and</li><li>Specify the <strong>exact data categories and narrow UTC date range</strong> sought.</li></ol>
+<hr class="rule-divider">
+<h2 id="4-90-day-data-preservation-requests">4. 90-Day Data Preservation Requests</h2>
+<p>We honor formal preservation requests from verified law-enforcement agencies for <strong>90 days</strong> (renewable once for an additional 90 days) while authorities obtain formal judicial legal process. Preservation freezes existing records in a snapshot as of receipt; it does not disclose data until valid legal process is served.</p>
+<hr class="rule-divider">
+<h2 id="5-emergency-disclosure-requests-imminent-danger-to-life-or-child-safety">5. Emergency Disclosure Requests (Imminent Danger to Life or Child Safety)</h2>
+<p>If an authority has a good-faith belief that an <strong>imminent emergency involving danger of death, kidnapping, child sexual exploitation, or severe physical injury</strong> requires immediate disclosure without delay:</p>
+<ul><li>Submit an official request marked <strong><code>URGENT EMERGENCY DISCLOSURE</code></strong> from an official government email domain to <strong><code>lawenforcement@oneova.app</code></strong> (and <code>childsafety@oneova.app</code> for threats to minors);</li><li>State: (a) nature of the imminent threat to life/physical safety, (b) exact <code>@username</code> / URL involved, (c) specific minimal data needed to avert the emergency, and (d) why normal judicial process cannot be obtained in time.</li><li>Legal &amp; Trust leadership evaluate valid emergency requests <strong>24/7</strong>.</li></ul>
+<hr class="rule-divider">
+<h2 id="6-user-notification-semi-annual-transparency-report">6. User Notification &amp; Semi-Annual Transparency Report</h2>
+<ul><li><strong>Advance Notice to Users:</strong> Oneova's policy is to <strong>notify users before disclosing their account information</strong>, giving them an opportunity to seek legal counsel, <strong>except</strong> where: (a) prohibited by a valid judicial non-disclosure/gag order, or (b) Oneova reasonably determines notice would create an immediate risk of harm to a child, threat to human life, flight from prosecution, or intimidation of witnesses.</li><li><strong>Transparency Reporting:</strong> Every six months, Oneova publishes the total number of government data and takedown requests received per country, the percentage complied with vs. rejected, and the number of accounts affected.</li></ul>
+        <footer class="doc-footer">
+            <span>© 2026 Oneova Technologies Inc. All rights reserved.</span>
+            <span>Official Trust &amp; Legal Office: legal@oneova.app · dpo@oneova.app</span>
+        </footer>
+    </main>
+    <script src="/js/live-legal-sync.js" data-cms-doc="policy-law-enforcement" defer></script>
+</body>
+</html>

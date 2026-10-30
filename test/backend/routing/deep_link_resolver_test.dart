@@ -35,7 +35,7 @@ void main() {
     
     test('Should route live streams to viewer', () async {
       final path = await resolver.resolveAndAuthorize('live', 'stream-456', mockUid: 'test-user-id');
-      expect(path, equals('/live/view/stream-456'));
+      expect(path, equals('/live/viewer/stream-456'));
     });
   });
 }

@@ -265,8 +265,11 @@ export * from './security';
 export * from './securityMail';
 export * from './emailCodes';
 export * from './metaOAuth';
+export * from './gmailUser';
 export * from './inbox';
 export { aiGateway, generateLiveApiToken } from './aiGateway';
+export { aiProxy } from './aiProxy';
+export { tiktokExchangeCode } from './tiktokOAuth';
 export { globalSemanticSearch } from './search/searchQuery';
 
 // Live Studio v2 (docs/live-studio/ARCHITECTURE.md §5)
@@ -278,3 +281,6 @@ export { lsSetTable, lsPlayback } from './liveStudio/table';
 export { lsMediaKey, lsSecOnIncident, lsSecOnBlock, lsSecOnMemberWrite } from './liveStudio/security';
 export { lsSetChatMode, lsSetJoinRequests } from './liveStudio/controls';
 export { lsComment, lsDeleteComment, lsMuteChat, lsReact, lsShare, lsLivekitWebhook } from './liveStudio/social';
+
+// Oneova Looks & Visual Intelligence (§4.5, §8, §10)
+export * from './looks';

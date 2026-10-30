@@ -43,6 +43,7 @@ class UploadService {
     bool isFastTrendBoosted = true,
     int? durationMs,
     double? aspectRatio,
+    void Function(double progress)? onProgress,
   }) async {
     final Set<PlatformDestination> allDestinations = {
       PlatformDestination.internal, // Oneova native public reels engine is always guaranteed
@@ -88,13 +89,24 @@ class UploadService {
       );
 
       final uploadTask = storageRef.putFile(file, metadata);
-      final snapshot = await uploadTask;
+      final progressSub = onProgress == null
+          ? null
+          : uploadTask.snapshotEvents.listen((s) {
+              if (s.totalBytes > 0) onProgress(0.95 * s.bytesTransferred / s.totalBytes);
+            }, onError: (_) {});
+      final TaskSnapshot snapshot;
+      try {
+        snapshot = await uploadTask;
+      } finally {
+        await progressSub?.cancel();
+      }
       final mediaUrl = await snapshot.ref.getDownloadURL();
 
       debugPrint('[UploadService] Media uploaded successfully. URL: $mediaUrl');
 
       // 2b. Upload Custom Cover Image if provided
       String? resolvedCoverUrl = coverUrl;
+      final storagePaths = <String>[storagePath];
       if (customCoverPath != null && customCoverPath.isNotEmpty) {
         try {
           final coverFile = File(customCoverPath);
@@ -103,6 +115,7 @@ class UploadService {
             final coverRef = FirebaseStorage.instance.ref(coverStoragePath);
             final coverSnap = await coverRef.putFile(coverFile, SettableMetadata(contentType: 'image/jpeg'));
             resolvedCoverUrl = await coverSnap.ref.getDownloadURL();
+            storagePaths.add(coverStoragePath);
           }
         } catch (e) {
           debugPrint('[UploadService] Custom cover upload error: $e');
@@ -149,8 +162,11 @@ class UploadService {
         'type': isVideo ? 'short_video' : 'photo',
         'mediaUrl': mediaUrl,
         'coverUrl': resolvedCoverUrl ?? '',
+        // Owner-deletable files backing this post (ContentDeletionService).
+        'storagePaths': storagePaths,
         'coverTimeMs': coverTimeMs ?? 0,
         'mediaMetadata': {
+          if (resolvedCoverUrl != null && resolvedCoverUrl.isNotEmpty) 'thumbnailUrl': resolvedCoverUrl,
           'aspectRatio': aspectRatio ?? 9 / 16,
           'durationMs': isVideo ? (durationMs ?? 0) : 0,
           'effects': [],
@@ -275,6 +291,7 @@ class UploadService {
       }
 
       debugPrint('[UploadService] Content document created with id: ${contentDoc.id}');
+      onProgress?.call(1);
       return contentDoc.id;
     } catch (e, st) {
       debugPrint('[UploadService] Error uploading post in background: $e\n$st');

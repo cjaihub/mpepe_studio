@@ -1,335 +1,323 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:flutter_animate/flutter_animate.dart';
 import 'package:go_router/go_router.dart';
-import 'package:flutter_svg/flutter_svg.dart';
-import '../shared/theme/app_theme.dart';
-import '../shared/widgets/components.dart';
-import '../shared/widgets/studio_background.dart';
-import '../backend/social_connection_service.dart';
-import 'components/tiktok_profile_panel.dart';
+import 'package:google_fonts/google_fonts.dart';
 
-class SocialIntegrationDashboard extends ConsumerWidget {
+import '../backend/connections/linked_accounts.dart';
+import '../backend/inbox/platform_inbox.dart';
+import '../shared/theme/app_theme.dart';
+import '../shared/widgets/linked_destinations_picker.dart';
+import 'gmail/gmail_screens.dart';
+
+/// Social Hub: the user's connected accounts (`/social_hub`).
+///
+/// Status is read from the records the real OAuth flows write
+/// ([linkedAccountsProvider]); nothing here marks an account connected by
+/// itself. From here the user opens the one inbox and picks the platforms
+/// Post and Go Live publish to by default.
+class SocialIntegrationDashboard extends ConsumerStatefulWidget {
   const SocialIntegrationDashboard({super.key});
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final connectionsState = ref.watch(socialConnectionProvider);
-    final connections = connectionsState.value ?? [];
-    
-    bool isConnected(String p) => connections.any((c) => c.platform.toLowerCase() == p.toLowerCase());
-    bool hasYoutube = isConnected('youtube');
-    bool hasTiktok = isConnected('tiktok');
-    bool hasFacebook = isConnected('facebook');
-    bool hasInstagram = isConnected('instagram');
+  ConsumerState<SocialIntegrationDashboard> createState() => _SocialIntegrationDashboardState();
+}
+
+class _SocialIntegrationDashboardState extends ConsumerState<SocialIntegrationDashboard> {
+  final Set<LinkedPlatform> _busy = {};
+
+  Future<void> _connect(LinkedPlatform p) async {
+    HapticFeedback.lightImpact();
+    final route = LinkedAccountsController.wizardRoute(p);
+    if (route != null) {
+      context.push(route);
+      return;
+    }
+    setState(() => _busy.add(p));
+    try {
+      final ok = await ref.read(linkedAccountsControllerProvider).connect(p);
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+        content: Text(ok ? '${p.label} connected' : '${p.label} wasn\'t connected. Access was not granted.'),
+      ));
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Couldn\'t connect ${p.label}: $e')));
+    } finally {
+      if (mounted) setState(() => _busy.remove(p));
+    }
+  }
+
+  Future<void> _disconnect(LinkedAccount a) async {
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: context.surface,
+        title: Text('Disconnect ${a.platform.label}?', style: GoogleFonts.inter(fontSize: 16, fontWeight: FontWeight.w700, color: context.textPrimary)),
+        content: Text(
+          '${a.accountName.isEmpty ? 'This account' : a.accountName} will stop appearing in your inbox and as a Post / Go Live destination.',
+          style: GoogleFonts.inter(fontSize: 13, color: context.textSecondary),
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.of(ctx).pop(false), child: const Text('Cancel')),
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(true),
+            child: const Text('Disconnect', style: TextStyle(color: AppColors.brandPink)),
+          ),
+        ],
+      ),
+    );
+    if (ok != true) return;
+    setState(() => _busy.add(a.platform));
+    try {
+      await ref.read(linkedAccountsControllerProvider).disconnect(a);
+    } finally {
+      if (mounted) setState(() => _busy.remove(a.platform));
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final accountsAsync = ref.watch(linkedAccountsProvider);
+    final accounts = accountsAsync.value ?? const <LinkedAccount>[];
+    final unread = ref.watch(platformUnreadCountsProvider);
+    final unreadTotal = unread.values.fold<int>(0, (a, b) => a + b);
 
     return Scaffold(
-      body: StudioBackground(
-        backgroundIcons: const [Icons.share, Icons.camera_rear, Icons.auto_awesome],
-        child: SafeArea(
-          child: CustomScrollView(
-            slivers: [
-              SliverToBoxAdapter(
-                child: Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 18.0, vertical: 10.0),
+      backgroundColor: context.bg,
+      appBar: AppBar(
+        backgroundColor: context.bg,
+        surfaceTintColor: Colors.transparent,
+        toolbarHeight: 50,
+        leading: IconButton(
+          icon: Icon(Icons.arrow_back_rounded, color: context.textPrimary),
+          onPressed: () => context.canPop() ? context.pop() : context.go('/hub/home'),
+        ),
+        title: Text('Connected accounts', style: GoogleFonts.inter(fontSize: 17, fontWeight: FontWeight.w700, color: context.textPrimary)),
+      ),
+      body: accountsAsync.hasError
+          ? Center(
+              child: Padding(
+                padding: const EdgeInsets.all(24),
+                child: Text('Couldn\'t load your accounts: ${accountsAsync.error}',
+                    textAlign: TextAlign.center, style: GoogleFonts.inter(fontSize: 13, color: context.textSecondary)),
+              ),
+            )
+          : ListView(
+              padding: const EdgeInsets.fromLTRB(16, 4, 16, 32),
+              children: [
+                Text(
+                  'Link your accounts to read their messages and comments in your Oneova inbox and to publish or go live on them.',
+                  style: GoogleFonts.inter(fontSize: 12.5, height: 1.35, color: context.textSecondary),
+                ),
+                const SizedBox(height: 14),
+                _Section(
+                  title: 'Accounts',
                   child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      _buildHeader(context),
-                      const SizedBox(height: 24),
-                      _buildConnectionStatusCard(context, hasYoutube, hasTiktok, hasFacebook, hasInstagram),
-                      if (hasTiktok) ...[
-                        const SizedBox(height: 24),
-                        const TikTokProfilePanel(),
-                      ],
-                      const SizedBox(height: 32),
-                      if (connections.isNotEmpty) ...[
-                        _buildSectionTitle(context, 'Core Automation'),
-                        const SizedBox(height: 16),
-                        _buildFeatureGrid(context),
-                        const SizedBox(height: 32),
-                        _buildSectionTitle(context, 'Growth & Analytics'),
-                        const SizedBox(height: 16),
-                        _buildAnalyticsCommandCenter(context),
-                      ] else ...[
-                        _buildLockedState(context),
+                      for (final (i, p) in LinkedPlatform.values.indexed) ...[
+                        if (i > 0) Divider(height: 1, color: context.border),
+                        _PlatformRow(
+                          platform: p,
+                          accounts: accounts.where((a) => a.platform == p).toList(),
+                          loading: accountsAsync.isLoading && accounts.isEmpty,
+                          busy: _busy.contains(p),
+                          onConnect: () => _connect(p),
+                          onDisconnect: _disconnect,
+                        ),
                       ],
                     ],
                   ),
                 ),
-              ),
-            ],
-          ),
-        ),
-      ),
-      floatingActionButton: Column(
-        mainAxisSize: MainAxisSize.min,
-        crossAxisAlignment: CrossAxisAlignment.end,
-        children: [
-          FloatingActionButton.extended(
-            heroTag: 'upload_hub',
-            onPressed: () => context.push('/upload/global'),
-            backgroundColor: AppColors.brandBlue,
-            icon: const Icon(Icons.cloud_upload, color: Colors.black),
-            label: const Text('Global Upload', style: TextStyle(color: Colors.black, fontWeight: FontWeight.bold)),
-          ),
-          const SizedBox(height: 16),
-          if (hasTiktok) 
-            FloatingActionButton.extended(
-              heroTag: 'tiktok_assistant',
-              onPressed: () => context.push('/social_hub/tiktok_assistant'),
-              backgroundColor: AppColors.brandBlue,
-              icon: const Icon(Icons.mic, color: AppColors.brandBlue),
-              label: const Text('AI Manager', style: TextStyle(color: AppColors.brandBlue, fontWeight: FontWeight.bold)),
+                const SizedBox(height: 18),
+                const _Section(
+                  title: 'Email',
+                  subtitle: 'Your own Gmail, connected only to your Oneova account.',
+                  child: GmailConnectRow(),
+                ),
+                const SizedBox(height: 18),
+                _Section(
+                  title: 'Inbox',
+                  child: ListTile(
+                    dense: true,
+                    leading: const Icon(Icons.all_inbox_rounded, color: AppColors.brandBlue),
+                    title: Text('Open inbox', style: GoogleFonts.inter(fontSize: 13.5, fontWeight: FontWeight.w600, color: context.textPrimary)),
+                    subtitle: Text(
+                      unreadTotal > 0 ? '$unreadTotal unread from linked accounts' : 'Oneova chats and every linked account in one place',
+                      style: GoogleFonts.inter(fontSize: 11.5, color: context.textMuted),
+                    ),
+                    trailing: Icon(Icons.chevron_right_rounded, color: context.textMuted),
+                    onTap: () => context.push('/hub/messages'),
+                  ),
+                ),
+                const SizedBox(height: 18),
+                _Section(
+                  title: 'Post to',
+                  subtitle: 'Picked by default when you post. You can change it on each post.',
+                  child: const Padding(
+                    padding: EdgeInsets.all(12),
+                    child: LinkedDestinationsPicker(purpose: DestinationPurpose.post),
+                  ),
+                ),
+                const SizedBox(height: 18),
+                _Section(
+                  title: 'Go live on',
+                  subtitle: 'Your Oneova live is restreamed to these. Only YouTube and Facebook offer a live API.',
+                  child: const Padding(
+                    padding: EdgeInsets.all(12),
+                    child: LinkedDestinationsPicker(purpose: DestinationPurpose.live),
+                  ),
+                ),
+                const SizedBox(height: 18),
+                _Section(
+                  title: 'Insights',
+                  child: ListTile(
+                    dense: true,
+                    leading: const Icon(Icons.insights_rounded, color: AppColors.brandBlue),
+                    title: Text('Analytics', style: GoogleFonts.inter(fontSize: 13.5, fontWeight: FontWeight.w600, color: context.textPrimary)),
+                    trailing: Icon(Icons.chevron_right_rounded, color: context.textMuted),
+                    onTap: () => context.push('/social_hub/analytics'),
+                  ),
+                ),
+              ],
             ),
-        ],
-      ).animate().scale(delay: 500.ms, duration: 400.ms, curve: Curves.easeOutBack),
     );
   }
+}
 
-  Widget _buildHeader(BuildContext context) {
+class _Section extends StatelessWidget {
+  final String title;
+  final String? subtitle;
+  final Widget child;
+
+  const _Section({required this.title, required this.child, this.subtitle});
+
+  @override
+  Widget build(BuildContext context) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        GestureDetector(
-          onTap: () {
-            if (context.canPop()) {
-              context.pop();
-            } else {
-              context.pop();
-            }
-          },
-          child: Row(
-            children: [
-              Icon(Icons.chevron_left, color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.6), size: 16),
-              const SizedBox(width: 4),
-              Text(
-                'Studio Home',
-                style: AppTheme.bodyStyle.copyWith(
-                  color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.6),
-                  fontSize: 12,
-                ),
-              ),
-            ],
-          ),
+        Padding(
+          padding: const EdgeInsets.only(left: 4, bottom: 6),
+          child: Text(title.toUpperCase(),
+              style: GoogleFonts.inter(fontSize: 10.5, fontWeight: FontWeight.w800, letterSpacing: 0.8, color: AppColors.brandBlue)),
         ),
-        const SizedBox(height: 14),
-        Text('Social Integrations', style: AppTheme.h1Style).animate().fade().slideY(begin: -0.2, curve: Curves.easeOutCubic),
-        const SizedBox(height: 8),
-        Text(
-          'Unified Accounts & AI Sync',
-          style: TextStyle(
-            color: Theme.of(context).colorScheme.primary, 
-            fontSize: 14, 
-            fontWeight: FontWeight.bold,
+        if (subtitle != null)
+          Padding(
+            padding: const EdgeInsets.only(left: 4, bottom: 8),
+            child: Text(subtitle!, style: GoogleFonts.inter(fontSize: 11.5, color: context.textMuted)),
           ),
-        ).animate().fade(delay: 100.ms),
+        Container(
+          width: double.infinity,
+          decoration: BoxDecoration(
+            color: context.surface,
+            borderRadius: BorderRadius.circular(AppRadius.md),
+            border: Border.all(color: context.border, width: 1),
+          ),
+          clipBehavior: Clip.antiAlias,
+          child: child,
+        ),
       ],
     );
   }
+}
 
-  Widget _buildConnectionStatusCard(BuildContext context, bool hasYoutube, bool hasTiktok, bool hasFacebook, bool hasInstagram) {
-    return OneovaCard(
-      child: Column(
-        children: [
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-            children: [
-              _buildPlatformNode(
-                context, 
-                'YouTube', 
-                'assets/logos/youtube.svg', 
-                hasYoutube,
-                onTap: hasYoutube ? null : () => context.push('/auth/youtube'),
-              ),
-              _buildPlatformNode(
-                context, 
-                'TikTok', 
-                'assets/logos/tiktok.svg', 
-                hasTiktok,
-                onTap: hasTiktok ? null : () => context.push('/social_hub/tiktok_wizard'),
-              ),
-              _buildPlatformNode(
-                context, 
-                'Instagram', 
-                'assets/logos/instagram.svg', 
-                hasInstagram,
-                onTap: hasInstagram ? null : () => context.push('/social_hub/meta_wizard/instagram'),
-              ),
-              _buildPlatformNode(
-                context, 
-                'Facebook', 
-                'assets/logos/facebook.svg', 
-                hasFacebook,
-                onTap: hasFacebook ? null : () => context.push('/social_hub/meta_wizard/facebook'),
-              ),
-            ],
-          ),
-          if (!hasYoutube || !hasTiktok || !hasFacebook || !hasInstagram) ...[
-            const SizedBox(height: 24),
-            Text(
-              'Connect your platforms to unlock cross-platform features without pasting API keys.',
-              textAlign: TextAlign.center,
-              style: TextStyle(
-                color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.6),
-                fontSize: 12,
-              ),
-            ),
-          ] else ...[
-            const SizedBox(height: 16),
-            const OneovaPill(text: 'All Core Platforms Connected', color: Color(0xFF00E676), isGhost: true),
-          ]
-        ],
-      ),
-    ).animate().fade(duration: 400.ms).slideY(begin: 0.1);
-  }
+class _PlatformRow extends StatelessWidget {
+  final LinkedPlatform platform;
+  final List<LinkedAccount> accounts;
+  final bool loading;
+  final bool busy;
+  final VoidCallback onConnect;
+  final ValueChanged<LinkedAccount> onDisconnect;
 
-  Widget _buildPlatformNode(BuildContext context, String name, String asset, bool connected, {VoidCallback? onTap}) {
-    return GestureDetector(
-      onTap: onTap,
-      child: Column(
+  const _PlatformRow({
+    required this.platform,
+    required this.accounts,
+    required this.loading,
+    required this.busy,
+    required this.onConnect,
+    required this.onDisconnect,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final caps = [
+      if (platform.publish) 'Post',
+      if (platform.live) 'Live',
+      if (platform.messages) 'Messages',
+      if (platform.comments) 'Comments',
+    ];
+    final account = accounts.firstOrNull;
+    final usable = account?.isUsable ?? false;
+    final statusText = switch (account?.status) {
+      LinkStatus.connected => accounts.length > 1 ? '${account!.accountName} +${accounts.length - 1}' : account!.accountName,
+      LinkStatus.expired => 'Sign-in expired',
+      LinkStatus.needsReconnect => 'Not verified, reconnect',
+      null => loading ? 'Checking…' : 'Not connected',
+    };
+
+    Widget action;
+    if (busy) {
+      action = const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2));
+    } else if (usable) {
+      action = TextButton(
+        onPressed: () => onDisconnect(account!),
+        child: Text('Disconnect', style: GoogleFonts.inter(fontSize: 12, fontWeight: FontWeight.w600, color: context.textSecondary)),
+      );
+    } else {
+      action = FilledButton(
+        style: FilledButton.styleFrom(
+          backgroundColor: AppColors.brandBlue,
+          foregroundColor: AppColors.brandWhite,
+          visualDensity: VisualDensity.compact,
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(AppRadius.sm)),
+        ),
+        onPressed: onConnect,
+        child: Text(account == null ? 'Connect' : 'Reconnect', style: GoogleFonts.inter(fontSize: 12, fontWeight: FontWeight.w700)),
+      );
+    }
+
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+      child: Row(
         children: [
           Container(
-            width: 64,
-            height: 64,
-            padding: const EdgeInsets.all(14),
+            width: 34,
+            height: 34,
             decoration: BoxDecoration(
-              shape: BoxShape.circle,
-              color: connected ? Theme.of(context).colorScheme.surface : Theme.of(context).colorScheme.surface.withValues(alpha: 0.5),
-              border: Border.all(
-                color: connected ? Theme.of(context).colorScheme.primary : Theme.of(context).colorScheme.outline,
-                width: 2,
-              ),
-              boxShadow: connected ? [
-                BoxShadow(
-                  color: Theme.of(context).colorScheme.primary.withValues(alpha: 0.3),
-                  blurRadius: 15,
-                  spreadRadius: 2,
-                )
-              ] : [],
+              color: (usable ? AppColors.brandBlue : context.textMuted).withValues(alpha: 0.12),
+              borderRadius: BorderRadius.circular(AppRadius.sm),
             ),
-            child: SvgPicture.asset(asset, 
-              colorFilter: connected ? null : const ColorFilter.mode(Colors.grey, BlendMode.srcIn),
+            child: Icon(platform.icon, size: 18, color: usable ? AppColors.brandBlue : context.textSecondary),
+          ),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    Text(platform.label, style: GoogleFonts.inter(fontSize: 13.5, fontWeight: FontWeight.w700, color: context.textPrimary)),
+                    if (usable) ...[
+                      const SizedBox(width: 6),
+                      const Icon(Icons.verified_rounded, size: 13, color: AppColors.brandBlue),
+                    ],
+                  ],
+                ),
+                Text(statusText,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: GoogleFonts.inter(
+                        fontSize: 11.5, color: account != null && !usable ? AppColors.brandPink : context.textMuted)),
+                const SizedBox(height: 2),
+                Text(caps.join(' · '), style: GoogleFonts.inter(fontSize: 10.5, color: context.textMuted)),
+              ],
             ),
           ),
-          const SizedBox(height: 8),
-          Text(name, style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
+          action,
         ],
       ),
     );
-  }
-
-  Widget _buildSectionTitle(BuildContext context, String title) {
-    return Text(
-      title,
-      style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold, letterSpacing: -0.5),
-    );
-  }
-
-  Widget _buildFeatureGrid(BuildContext context) {
-    return GridView.count(
-      crossAxisCount: 2,
-      shrinkWrap: true,
-      physics: const NeverScrollableScrollPhysics(),
-      crossAxisSpacing: 12,
-      mainAxisSpacing: 12,
-      childAspectRatio: 0.85,
-      children: [
-        _buildFeatureCard(context, 'Smart Sync', 'Auto-publish Long-form to Shorts', Icons.sync_alt, AppColors.premiumGradient, null),
-        _buildFeatureCard(context, 'AI Cropper', 'Face-tracking 16:9 to 9:16', Icons.crop_free, AppColors.aiGradient, null),
-        _buildFeatureCard(context, 'Auto-Caption', 'Dynamic animated text', Icons.subtitles, null, null),
-        _buildFeatureCard(context, 'Unified Inbox', 'Moderate YT & TT comments', Icons.inbox, null, () => context.push('/social_hub/unified_inbox')),
-      ],
-    ).animate().fade().slideY(begin: 0.2);
-  }
-
-  Widget _buildFeatureCard(BuildContext context, String title, String subtitle, IconData icon, Gradient? gradient, VoidCallback? onTap) {
-    return OneovaCard(
-      padding: const EdgeInsets.all(16),
-      onTap: onTap ?? () {},
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Container(
-            padding: const EdgeInsets.all(10),
-            decoration: BoxDecoration(
-              gradient: gradient,
-              color: gradient == null ? Theme.of(context).colorScheme.primary.withValues(alpha: 0.1) : null,
-              borderRadius: BorderRadius.circular(12),
-            ),
-            child: Icon(icon, color: gradient == null ? Theme.of(context).colorScheme.primary : Colors.white),
-          ),
-          const Spacer(),
-          Text(title, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14)),
-          const SizedBox(height: 4),
-          Text(subtitle, style: TextStyle(fontSize: 11, color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.6))),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildAnalyticsCommandCenter(BuildContext context) {
-    return OneovaCard(
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              const Text('Cross-Platform Health', style: TextStyle(fontWeight: FontWeight.bold)),
-              OneovaPill(text: '+12% this week', color: Colors.green, isGhost: true),
-            ],
-          ),
-          const SizedBox(height: 20),
-          Row(
-            children: [
-              Expanded(child: _buildStatColumn(context, 'Combined Reach', '2.4M')),
-              Container(width: 1, height: 40, color: Theme.of(context).colorScheme.outline),
-              Expanded(child: _buildStatColumn(context, 'Unified Revenue', '\$12.5K')),
-            ],
-          ),
-          const SizedBox(height: 24),
-          OneovaButton(
-            text: 'View Full Report',
-            onPressed: () => context.push('/social_hub/analytics'),
-            isPrimary: false,
-            icon: Icons.analytics,
-          ),
-        ],
-      ),
-    ).animate().fade().slideY(begin: 0.2);
-  }
-
-  Widget _buildStatColumn(BuildContext context, String label, String value) {
-    return Column(
-      children: [
-        Text(value, style: const TextStyle(fontSize: 24, fontWeight: FontWeight.w900, letterSpacing: -1.0)),
-        const SizedBox(height: 4),
-        Text(label, style: TextStyle(fontSize: 11, color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.6))),
-      ],
-    );
-  }
-
-  Widget _buildLockedState(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.all(32),
-      alignment: Alignment.center,
-      child: Column(
-        children: [
-          Icon(Icons.lock_outline, size: 48, color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.3)),
-          const SizedBox(height: 16),
-          Text(
-            'Features Locked',
-            style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.6)),
-          ),
-          const SizedBox(height: 8),
-          Text(
-            'Connect both platforms to enable the automation suite.',
-            textAlign: TextAlign.center,
-            style: TextStyle(fontSize: 13, color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.5)),
-          ),
-        ],
-      ),
-    ).animate().fade(delay: 300.ms);
   }
 }

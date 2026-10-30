@@ -133,11 +133,11 @@ class _AiSettingsScreenState extends ConsumerState<AiSettingsScreen> {
                       child: const Icon(Icons.picture_in_picture_alt_rounded, color: AppColors.brandBlue, size: 22),
                     ),
                     title: Text(
-                      'Ova Triggers & Gesture Conflict Solver',
+                      'Ways to open Ova',
                       style: TextStyle(fontWeight: FontWeight.bold, color: Theme.of(context).colorScheme.onSurface, fontSize: 14),
                     ),
                     subtitle: Text(
-                      'Floating overlay, Draw "O" circle, double-tap & side keys',
+                      'Draw "O", button shortcut, lock screen, over other apps',
                       style: TextStyle(fontSize: 12, color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.6)),
                     ),
                     trailing: const Icon(Icons.arrow_forward_ios_rounded, size: 16),

@@ -104,6 +104,11 @@ class OvaAssistantPanel extends ConsumerStatefulWidget {
   final bool autoStartVoice;
   final void Function(String text)? onInsertIntoChat;
 
+  /// Set by hosts without the app router (the system overlay): called instead
+  /// of pushing [route] / popping the sheet.
+  final void Function(String route)? onOpenRoute;
+  final VoidCallback? onClose;
+
   const OvaAssistantPanel({
     super.key,
     required this.isSheet,
@@ -114,6 +119,8 @@ class OvaAssistantPanel extends ConsumerStatefulWidget {
     this.screenContextLabel,
     this.autoStartVoice = false,
     this.onInsertIntoChat,
+    this.onOpenRoute,
+    this.onClose,
   });
 
   @override
@@ -190,7 +197,9 @@ class _OvaAssistantPanelState extends ConsumerState<OvaAssistantPanel> {
 
   void _navigate(String route) {
     HapticFeedback.selectionClick();
-    if (widget.isSheet) {
+    if (widget.onOpenRoute != null) {
+      widget.onOpenRoute!(route);
+    } else if (widget.isSheet) {
       Navigator.of(context).pop();
       final root = rootNavigatorKey.currentContext;
       if (root != null) GoRouter.of(root).push(route);
@@ -214,7 +223,9 @@ class _OvaAssistantPanelState extends ConsumerState<OvaAssistantPanel> {
 
   void _close() {
     HapticFeedback.lightImpact();
-    if (widget.isSheet) {
+    if (widget.onClose != null) {
+      widget.onClose!();
+    } else if (widget.isSheet) {
       Navigator.of(context).pop();
     } else if (context.canPop()) {
       context.pop();

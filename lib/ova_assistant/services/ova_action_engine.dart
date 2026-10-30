@@ -287,7 +287,7 @@ class OvaActionEngine {
 
     // 7. Live AI Brain Query (Gemini / OpenRouter Claude / GPT-4o)
     final brain = aiBrain;
-    if (brain != null && brain.openRouterKey.isNotEmpty) {
+    if (brain != null && brain.hasApiKey) {
       try {
         final phoneContextSummary = "Current Phone Context:\n"
             "- Battery: ${(context.batteryLevel * 100).toInt()}% ${context.isCharging ? '(Charging)' : ''}\n"

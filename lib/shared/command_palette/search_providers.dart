@@ -21,7 +21,7 @@ final staticCommandsProvider = Provider<List<CommandItem>>((ref) {
       icon: Icons.inbox,
       category: CommandCategory.navigation,
       searchTags: ['messages', 'mail', 'home', 'inbox'],
-      onExecute: (context) async => context.push('/social_hub/unified_inbox'),
+      onExecute: (context) async => context.push('/hub/messages'),
     ),
     CommandItem(
       id: 'nav_contacts',

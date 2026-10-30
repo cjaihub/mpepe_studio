@@ -7,6 +7,8 @@
 import {
   FRAME_COLOR_OPTIONS,
   GuestSize,
+  LAYOUT_PRESETS,
+  LayoutPreset,
   Limits,
   SpeakerMode,
   StudioSettings,
@@ -33,6 +35,7 @@ export const SETTINGS_KEYS: readonly (keyof StudioSettings)[] = [
   'showNames',
   'studioDim',
   'speakerMode',
+  'layoutPreset',
 ];
 
 const THEMES: readonly StudioTheme[] = ['dark', 'light'];
@@ -99,6 +102,9 @@ export function normalizeSettings(raw: unknown): StudioSettings {
     speakerMode: SPEAKER_MODES.includes(j.speakerMode as SpeakerMode)
       ? (j.speakerMode as SpeakerMode)
       : d.speakerMode,
+    layoutPreset: LAYOUT_PRESETS.includes(j.layoutPreset as LayoutPreset)
+      ? (j.layoutPreset as LayoutPreset)
+      : d.layoutPreset,
   };
 }
 
@@ -163,6 +169,10 @@ export function applySettingsPatch(current: StudioSettings, partial: unknown): S
       fail('speakerMode must be hostPinned, autoActiveSpeaker or manual.');
     }
     next.speakerMode = p.speakerMode as SpeakerMode;
+  }
+  if ('layoutPreset' in p) {
+    if (!LAYOUT_PRESETS.includes(p.layoutPreset as LayoutPreset)) fail('layoutPreset must be studio or gaming.');
+    next.layoutPreset = p.layoutPreset as LayoutPreset;
   }
 
   const changed = SETTINGS_KEYS.filter((k) => next[k] !== current[k]);

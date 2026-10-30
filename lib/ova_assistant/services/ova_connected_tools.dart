@@ -11,6 +11,7 @@ import 'package:googleapis/gmail/v1.dart' as gm;
 import 'package:googleapis/youtube/v3.dart' as yt;
 import 'package:http/http.dart' as http;
 
+import '../../social_hub/gmail/gmail_service.dart';
 import '../core/ova_tool_result.dart';
 import 'ova_abilities.dart';
 import 'ova_context_service.dart';
@@ -263,6 +264,20 @@ class OvaConnectedTools {
 
   static const _gmailConnect = OvaResultAction(label: 'Connect Gmail', icon: Icons.mail_rounded, prompt: 'show my unread email');
 
+  /// The user's server-side Gmail connection (Connected accounts), if any.
+  /// Preferred over the on-phone Google prompt: works for Ova in the
+  /// background and never keeps a Gmail token on the device.
+  Future<GmailService?> _srv() async {
+    final uid = FirebaseAuth.instance.currentUser?.uid;
+    if (uid == null) return null;
+    var connected = false;
+    try {
+      final d = await FirebaseFirestore.instance.collection('users').doc(uid).collection('social_connections').doc('gmail').get();
+      connected = d.exists;
+    } catch (_) {}
+    return connected ? ref.read(gmailServiceProvider) : null;
+  }
+
   Future<gm.GmailApi?> _gmail() async {
     final c = await OvaGoogleAccess.client(OvaGoogleAccess.gmailScopes);
     return c == null ? null : gm.GmailApi(c);
@@ -279,6 +294,29 @@ class OvaConnectedTools {
       m.payload?.headers?.firstWhere((h) => (h.name ?? '').toLowerCase() == name.toLowerCase(), orElse: () => gm.MessagePartHeader()).value ?? '';
 
   Future<OvaToolResult> _gmailList(String q, int limit, {required String title}) async {
+    final srv = await _srv();
+    if (srv != null) {
+      final page = await srv.list(query: q, limit: limit.clamp(1, 15));
+      if (page.messages.isEmpty) {
+        return OvaToolResult(ok: true, summary: q.contains('unread') ? 'No unread email. Inbox zero.' : 'No emails match "$q".', icon: Icons.mark_email_read_rounded);
+      }
+      final items = <OvaResultItem>[];
+      final lines = <String>[];
+      for (final m in page.messages) {
+        final id = _short('g', m.id);
+        final subject = m.subject.isEmpty ? '(no subject)' : m.subject;
+        _mailMeta[m.id] = {'from': m.fromName, 'fromRaw': m.from, 'subject': subject, 'msgId': '', 'thread': m.threadId, 'server': '1'};
+        lines.add('[$id] ${m.fromName} · $subject — ${m.snippet}');
+        items.add(OvaResultItem(
+          title: '${m.fromName} · $subject',
+          subtitle: m.snippet,
+          icon: Icons.mail_outline_rounded,
+          onTap: OvaResultAction(label: 'Open', icon: Icons.mail_rounded, route: '/social_hub/gmail/${m.id}'),
+        ));
+      }
+      return OvaToolResult(ok: true, title: title, summary: 'Emails:\n${lines.join('\n')}', icon: Icons.mail_rounded, items: items,
+          actions: const [OvaResultAction(label: 'Open inbox', icon: Icons.inbox_rounded, route: '/social_hub/gmail')]);
+    }
     final api = await _gmail();
     if (api == null) return _noGoogle('Gmail', _gmailConnect);
     final list = await api.users.messages.list('me', q: q, maxResults: limit.clamp(1, 15));
@@ -324,6 +362,23 @@ class OvaConnectedTools {
   Future<OvaToolResult> _gmailRead(String short) async {
     final real = _ids[short];
     if (real == null) return OvaToolResult.fail('I don\'t know email "$short". List your inbox first.');
+    final srv = await _srv();
+    if (srv != null) {
+      final m = await srv.get(real);
+      final body = (m.body ?? m.snippet).trim();
+      final clipped = body.length > 2500 ? '${body.substring(0, 2500)}…' : body;
+      return OvaToolResult(
+        ok: true,
+        title: m.subject.isEmpty ? 'Email' : m.subject,
+        summary: 'From: ${m.from}\nSubject: ${m.subject}\n\n$clipped',
+        icon: Icons.drafts_rounded,
+        items: [OvaResultItem(title: m.from, subtitle: clipped.length > 400 ? '${clipped.substring(0, 400)}…' : clipped, icon: Icons.person_rounded)],
+        actions: [
+          OvaResultAction(label: 'Reply', icon: Icons.reply_rounded, prompt: 'Help me reply to email $short'),
+          OvaResultAction(label: 'Open', icon: Icons.open_in_new_rounded, route: '/social_hub/gmail/$real'),
+        ],
+      );
+    }
     final api = await _gmail();
     if (api == null) return _noGoogle('Gmail', _gmailConnect);
     final m = await api.users.messages.get('me', real, format: 'full');
@@ -364,6 +419,11 @@ class OvaConnectedTools {
 
   Future<OvaToolResult> _gmailSend(String to, String subject, String body) async {
     if (!RegExp(r'^[^\s@]+@[^\s@]+\.[^\s@]+$').hasMatch(to)) return OvaToolResult.fail('"$to" is not an email address.');
+    final srv = await _srv();
+    if (srv != null) {
+      await srv.send(to: to, subject: subject, body: body);
+      return OvaToolResult(ok: true, summary: 'Email sent to $to.', icon: Icons.mark_email_read_rounded);
+    }
     final api = await _gmail();
     if (api == null) return _noGoogle('Gmail', _gmailConnect);
     await api.users.messages.send(gm.Message(raw: _rfc822(to: to, subject: subject, body: body)), 'me');
@@ -374,6 +434,11 @@ class OvaConnectedTools {
     final real = _ids[short];
     final meta = _mailMeta[real ?? ''];
     if (real == null || meta == null) return OvaToolResult.fail('I don\'t know email "$short". List your inbox first.');
+    final srv = await _srv();
+    if (srv != null) {
+      final to = await srv.reply(real, body);
+      return OvaToolResult(ok: true, summary: 'Replied to ${to.isEmpty ? meta['from'] : to}.', icon: Icons.mark_email_read_rounded);
+    }
     final api = await _gmail();
     if (api == null) return _noGoogle('Gmail', _gmailConnect);
     final subj = meta['subject']!.toLowerCase().startsWith('re:') ? meta['subject']! : 'Re: ${meta['subject']}';
@@ -387,6 +452,11 @@ class OvaConnectedTools {
   Future<OvaToolResult> _gmailModify(String short, {required List<String> remove, required String done}) async {
     final real = _ids[short];
     if (real == null) return OvaToolResult.fail('I don\'t know email "$short".');
+    final srv = await _srv();
+    if (srv != null) {
+      await srv.modify(real, remove: remove);
+      return OvaToolResult(ok: true, summary: done, icon: Icons.done_all_rounded);
+    }
     final api = await _gmail();
     if (api == null) return _noGoogle('Gmail', _gmailConnect);
     await api.users.messages.modify(gm.ModifyMessageRequest(removeLabelIds: remove), 'me', real);
@@ -396,6 +466,11 @@ class OvaConnectedTools {
   Future<OvaToolResult> _gmailTrash(String short) async {
     final real = _ids[short];
     if (real == null) return OvaToolResult.fail('I don\'t know email "$short".');
+    final srv = await _srv();
+    if (srv != null) {
+      await srv.trash(real);
+      return const OvaToolResult(ok: true, summary: 'Moved to Trash.', icon: Icons.delete_rounded);
+    }
     final api = await _gmail();
     if (api == null) return _noGoogle('Gmail', _gmailConnect);
     await api.users.messages.trash('me', real);

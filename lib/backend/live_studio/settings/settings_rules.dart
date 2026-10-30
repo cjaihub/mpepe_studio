@@ -16,9 +16,11 @@ class StudioSettingsKeys {
   static const String showNames = 'showNames';
   static const String studioDim = 'studioDim';
   static const String speakerMode = 'speakerMode';
+  static const String layoutPreset = 'layoutPreset';
 
   static const List<String> all = [
     studioId, theme, frameWidth, frameColor, guestSize, showNames, studioDim, speakerMode,
+    layoutPreset,
   ];
 }
 
@@ -89,6 +91,10 @@ StudioSettings applySettingsPatch(StudioSettings base, Map<String, Object?> patc
   final sm = patch[StudioSettingsKeys.speakerMode];
   if (sm is String && SpeakerMode.values.any((m) => m.wire == sm)) {
     next = next.copyWith(speakerMode: SpeakerMode.fromWire(sm));
+  }
+  final lp = patch[StudioSettingsKeys.layoutPreset];
+  if (lp is String && LayoutPreset.values.any((m) => m.wire == lp)) {
+    next = next.copyWith(layoutPreset: LayoutPreset.fromWire(lp));
   }
   return next;
 }

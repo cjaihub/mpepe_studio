@@ -63,7 +63,7 @@ class OneovaProfileSidebarDrawer extends ConsumerStatefulWidget {
     _SideSection('SOCIAL', [
       _SideLink(Icons.explore_outlined, 'Discover', '/hub/discover'),
       _SideLink(Icons.storefront_outlined, 'Business', '/biz_feed'),
-      _SideLink(Icons.all_inbox_rounded, 'Unified inbox', '/social_hub/unified_inbox'),
+      _SideLink(Icons.all_inbox_rounded, 'Inbox', '/hub/messages'),
       _SideLink(Icons.hub_outlined, 'Connected accounts', '/social_hub'),
     ]),
     _SideSection('GROW', [
@@ -79,7 +79,7 @@ class OneovaProfileSidebarDrawer extends ConsumerStatefulWidget {
     _SideSection('ACCOUNT', [
       _SideLink(Icons.notifications_none_rounded, 'Notifications', '/notifications', hint: _RowHint.unreadAlerts),
       _SideLink(Icons.lock_outline_rounded, 'Privacy', '/settings/privacy'),
-      _SideLink(Icons.stars_rounded, 'Finish onboarding', '/auth/signup_wizard'),
+      _SideLink(Icons.link_rounded, 'Sign-in methods', '/settings/sign-in-methods'),
     ]),
   ];
 

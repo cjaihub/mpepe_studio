@@ -58,6 +58,15 @@ class AppUser {
   final String? fcmToken;
   final PrivacyMode defaultPrivacyMode;
   final AiVoicePersonalizationMetadata aiVoicePersonalization;
+  final String? pronouns;
+  final List<Map<String, String>> links;
+  final String? category;
+  final String accountType;
+  final Map<String, dynamic>? businessDetails;
+  final List<String> pinnedPostIds;
+  final bool isPrivate;
+  final DateTime? usernameLastChangedAt;
+  final String? badgeTier;
 
   AppUser({
     required this.id,
@@ -82,6 +91,15 @@ class AppUser {
     this.fcmToken,
     this.defaultPrivacyMode = PrivacyMode.public,
     this.aiVoicePersonalization = const AiVoicePersonalizationMetadata(),
+    this.pronouns,
+    this.links = const [],
+    this.category,
+    this.accountType = 'personal',
+    this.businessDetails,
+    this.pinnedPostIds = const [],
+    this.isPrivate = false,
+    this.usernameLastChangedAt,
+    this.badgeTier,
   });
 
   String? get photoUrl => profilePhotoUrl;
@@ -121,6 +139,18 @@ class AppUser {
       aiVoicePersonalization: AiVoicePersonalizationMetadata.fromMap(
         map['aiVoicePersonalization'] as Map<String, dynamic>?,
       ),
+      pronouns: map['pronouns'] as String?,
+      links: (map['links'] as List?)
+              ?.map((e) => e is Map ? Map<String, String>.from(e.map((k, v) => MapEntry(k.toString(), v.toString()))) : <String, String>{})
+              .toList() ??
+          const [],
+      category: map['category'] as String?,
+      accountType: map['accountType'] as String? ?? (map['isBusiness'] == true ? 'business' : 'personal'),
+      businessDetails: map['businessDetails'] is Map ? Map<String, dynamic>.from(map['businessDetails']) : null,
+      pinnedPostIds: (map['pinnedPostIds'] as List?)?.map((e) => e.toString()).toList() ?? const [],
+      isPrivate: map['isPrivate'] as bool? ?? false,
+      usernameLastChangedAt: (map['usernameLastChangedAt'] as Timestamp?)?.toDate(),
+      badgeTier: map['badgeTier'] as String?,
     );
   }
 
@@ -142,6 +172,16 @@ class AppUser {
       'isBusiness': isBusiness,
       if (location != null) 'location': location,
       'createdAt': FieldValue.serverTimestamp(),
+      if (pronouns != null) 'pronouns': pronouns,
+      'links': links,
+      if (category != null) 'category': category,
+      'accountType': accountType,
+      if (businessDetails != null) 'businessDetails': businessDetails,
+      'pinnedPostIds': pinnedPostIds,
+      'isPrivate': isPrivate,
+      if (usernameLastChangedAt != null)
+        'usernameLastChangedAt': Timestamp.fromDate(usernameLastChangedAt!),
+      if (badgeTier != null) 'badgeTier': badgeTier,
       // fcmToken is managed separately via FirebaseService — not written here
     };
   }
@@ -231,6 +271,37 @@ class UserService extends AsyncNotifier<List<AppUser>> {
       );
     } catch (e) {
       debugPrint('Error updating FCM token: $e');
+    }
+  }
+
+  Future<bool> isUsernameAvailable(String username, String currentUid) async {
+    final clean = username.trim().toLowerCase().replaceAll('@', '');
+    if (clean.length < 3) return false;
+    try {
+      final snap = await _firestore
+          .collection('users')
+          .where('username', isEqualTo: clean)
+          .limit(1)
+          .get();
+      if (snap.docs.isEmpty) return true;
+      return snap.docs.first.id == currentUid;
+    } catch (e) {
+      debugPrint('Error checking username: $e');
+      return false;
+    }
+  }
+
+  Future<void> requestVerification(String uid, Map<String, dynamic> data) async {
+    try {
+      await _firestore.collection('verification_requests').doc(uid).set({
+        'userId': uid,
+        'status': 'pending',
+        'createdAt': FieldValue.serverTimestamp(),
+        ...data,
+      }, SetOptions(merge: true));
+    } catch (e) {
+      debugPrint('Error submitting verification request: $e');
+      rethrow;
     }
   }
 }

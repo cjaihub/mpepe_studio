@@ -149,6 +149,21 @@ enum SpeakerMode {
       _byWire(values, w, SpeakerMode.hostPinned, (v) => v.wire);
 }
 
+/// Stage layout preset. `gaming` = the host's screen share is the center
+/// screen and the host camera is a picture-in-picture bubble.
+enum LayoutPreset {
+  studio('studio'),
+  gaming('gaming');
+
+  final String wire;
+  const LayoutPreset(this.wire);
+  static LayoutPreset fromWire(Object? w) =>
+      _byWire(values, w, LayoutPreset.studio, (v) => v.wire);
+}
+
+/// Max length of [StudioState.gameTitle].
+const int kGameTitleMaxLength = 60;
+
 enum TableMode {
   goods('goods'),
   screen('screen'),
@@ -260,6 +275,7 @@ class StudioSettings {
   final bool showNames;
   final double studioDim;
   final SpeakerMode speakerMode;
+  final LayoutPreset layoutPreset;
 
   const StudioSettings({
     this.studioId = 'broadcast_curved_wall',
@@ -270,6 +286,7 @@ class StudioSettings {
     this.showNames = true,
     this.studioDim = 0.15,
     this.speakerMode = SpeakerMode.hostPinned,
+    this.layoutPreset = LayoutPreset.studio,
   });
 
   /// Theme-appropriate defaults (light: frame #3B4763, dim 0).
@@ -291,6 +308,7 @@ class StudioSettings {
       studioDim: _dbl(j['studioDim'], d.studioDim)
           .clamp(StudioLimits.studioDimMin, StudioLimits.studioDimMax),
       speakerMode: SpeakerMode.fromWire(j['speakerMode']),
+      layoutPreset: LayoutPreset.fromWire(j['layoutPreset']),
     );
   }
 
@@ -303,6 +321,7 @@ class StudioSettings {
         'showNames': showNames,
         'studioDim': studioDim,
         'speakerMode': speakerMode.wire,
+        'layoutPreset': layoutPreset.wire,
       };
 
   StudioSettings copyWith({
@@ -314,6 +333,7 @@ class StudioSettings {
     bool? showNames,
     double? studioDim,
     SpeakerMode? speakerMode,
+    LayoutPreset? layoutPreset,
   }) =>
       StudioSettings(
         studioId: studioId ?? this.studioId,
@@ -324,6 +344,7 @@ class StudioSettings {
         showNames: showNames ?? this.showNames,
         studioDim: studioDim ?? this.studioDim,
         speakerMode: speakerMode ?? this.speakerMode,
+        layoutPreset: layoutPreset ?? this.layoutPreset,
       );
 
   @override
@@ -665,6 +686,9 @@ class StudioState {
   final TableState table;
   final StudioCounts counts;
 
+  /// Game being streamed on a gaming live (≤ [kGameTitleMaxLength]); null otherwise.
+  final String? gameTitle;
+
   const StudioState({
     this.schemaVersion = kStudioSchemaVersion,
     required this.streamId,
@@ -676,7 +700,11 @@ class StudioState {
     required this.stage,
     this.table = const TableState(),
     this.counts = const StudioCounts(),
+    this.gameTitle,
   });
+
+  /// True when the stage uses the gaming preset.
+  bool get isGaming => settings.layoutPreset == LayoutPreset.gaming;
 
   factory StudioState.fromJson(Map<String, dynamic> j) => StudioState(
         schemaVersion: _int(j['schemaVersion'], kStudioSchemaVersion),
@@ -689,7 +717,14 @@ class StudioState {
         stage: StageLayout.fromJson(_map(j['stage'])),
         table: TableState.fromJson(_map(j['table'])),
         counts: StudioCounts.fromJson(_map(j['counts'])),
+        gameTitle: _gameTitle(j['gameTitle']),
       );
+
+  static String? _gameTitle(Object? v) {
+    final s = _strOrNull(v)?.trim();
+    if (s == null || s.isEmpty) return null;
+    return s.length > kGameTitleMaxLength ? s.substring(0, kGameTitleMaxLength) : s;
+  }
 
   Map<String, dynamic> toJson() => {
         'schemaVersion': schemaVersion,
@@ -702,6 +737,7 @@ class StudioState {
         'stage': stage.toJson(),
         'table': table.toJson(),
         'counts': counts.toJson(),
+        if (gameTitle != null) 'gameTitle': gameTitle,
       };
 
   StudioState copyWith({
@@ -712,6 +748,7 @@ class StudioState {
     StageLayout? stage,
     TableState? table,
     StudioCounts? counts,
+    String? gameTitle,
   }) =>
       StudioState(
         schemaVersion: schemaVersion,
@@ -724,6 +761,7 @@ class StudioState {
         stage: stage ?? this.stage,
         table: table ?? this.table,
         counts: counts ?? this.counts,
+        gameTitle: gameTitle ?? this.gameTitle,
       );
 
   /// Applies a server `state.patch` (top-level section replace).
@@ -742,6 +780,8 @@ class StudioState {
         return copyWith(seq: patchSeq, status: StudioStatus.fromWire(value));
       case 'title':
         return copyWith(seq: patchSeq, title: _str(value, title));
+      case 'gameTitle':
+        return copyWith(seq: patchSeq, gameTitle: _gameTitle(value));
       default:
         return copyWith(seq: patchSeq);
     }

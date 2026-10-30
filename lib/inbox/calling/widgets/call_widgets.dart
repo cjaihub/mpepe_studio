@@ -133,7 +133,8 @@ String callStatusLabel(ActiveCallState s) {
     case CallPhase.idle:
       return '';
     case CallPhase.outgoing:
-      return s.remoteParticipants.isEmpty ? 'Calling…' : 'Ringing…';
+      // "Ringing…" only once a callee's phone confirmed it is ringing.
+      return s.remoteParticipants.any((p) => p.deliveredAt != null) ? 'Ringing…' : 'Calling…';
     case CallPhase.incoming:
       final video = s.call?.isVideo ?? false;
       final group = s.call?.isGroup ?? false;
@@ -145,8 +146,18 @@ String callStatusLabel(ActiveCallState s) {
     case CallPhase.connected:
       return '';
     case CallPhase.ended:
-      return callEndLabel(s.endReason);
+      final talk = s.talkTime;
+      if (talk == null || talk.inSeconds < 1) return callEndLabel(s.endReason);
+      return '${callEndLabel(s.endReason)} · ${formatCallDuration(talk)}';
   }
+}
+
+/// 0:42, 3:05, 1:02:09.
+String formatCallDuration(Duration d) {
+  final h = d.inHours;
+  final m = d.inMinutes.remainder(60);
+  final sec = d.inSeconds.remainder(60).toString().padLeft(2, '0');
+  return h > 0 ? '$h:${m.toString().padLeft(2, '0')}:$sec' : '$m:$sec';
 }
 
 String callEndLabel(CallEndReason? r) {

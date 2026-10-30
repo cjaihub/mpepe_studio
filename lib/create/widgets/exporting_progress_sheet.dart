@@ -6,6 +6,8 @@ import 'package:flutter/services.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:share_plus/share_plus.dart';
 
+import 'package:oneova_media_engine/oneova_media_engine.dart';
+
 import '../../shared/theme/app_theme.dart';
 
 /// Insta Edits / CapCut style Exporting Indicator Panel
@@ -62,7 +64,7 @@ class _ExportingProgressSheetState extends State<ExportingProgressSheet>
   bool _savedSuccess = false;
 
   Timer? _tickerTimer;
-  String _currentStage = 'Initializing Neural Video Engine...';
+  String _currentStage = 'Reading file…';
 
   @override
   void initState() {
@@ -95,8 +97,52 @@ class _ExportingProgressSheetState extends State<ExportingProgressSheet>
       }
     });
 
-    // Start simulated high-speed neural export
-    _animController.forward();
+    _readSpecs();
+  }
+
+  // Real facts about the file being posted (this sheet does not re-encode).
+  String _format = '';
+  String _resolution = '—';
+  String _frameRate = '—';
+  String _size = '—';
+  String _specLine = '';
+
+  Future<void> _readSpecs() async {
+    final file = File(widget.mediaPath);
+    final bytes = await file.exists() ? await file.length() : 0;
+    var format = widget.isVideo ? 'MP4' : 'PHOTO';
+    var resolution = '—', frameRate = '—', line = '';
+    try {
+      if (widget.isVideo) {
+        final probe = await OneovaMediaEngine.probe(widget.mediaPath);
+        resolution = '${probe.width}×${probe.height}';
+        frameRate = probe.fps > 0 ? '${probe.fps.round()} FPS' : '—';
+        line = 'Video · ${probe.duration.inSeconds}s${probe.hasAudio ? ' · with sound' : ' · no sound'}';
+      } else {
+        final ext = widget.mediaPath.split('.').last.toUpperCase();
+        format = ext == 'JPG' ? 'JPEG' : ext;
+        final buffer = await ImmutableBuffer.fromUint8List(await file.readAsBytes());
+        final desc = await ImageDescriptor.encoded(buffer);
+        resolution = '${desc.width}×${desc.height}';
+        desc.dispose();
+        buffer.dispose();
+        frameRate = 'Still';
+        line = '$format photo';
+      }
+    } catch (e) {
+      debugPrint('[ExportingSheet] could not read media specs: $e');
+    }
+    if (!mounted) return;
+    setState(() {
+      _format = format;
+      _resolution = resolution;
+      _frameRate = frameRate;
+      _size = bytes <= 0 ? '—' : '${(bytes / (1024 * 1024)).toStringAsFixed(1)} MB';
+      _specLine = line;
+      _isExportComplete = true;
+      _currentProgress = 1.0;
+      _currentStage = 'Ready to post';
+    });
   }
 
   void _updateStageText(double progress) {
@@ -264,7 +310,7 @@ class _ExportingProgressSheetState extends State<ExportingProgressSheet>
                           borderRadius: BorderRadius.circular(6),
                         ),
                         child: Text(
-                          '4K HDR',
+                          _format,
                           style: GoogleFonts.inter(
                             color: AppColors.brandPink,
                             fontSize: 9.5,
@@ -388,7 +434,7 @@ class _ExportingProgressSheetState extends State<ExportingProgressSheet>
               ),
               const SizedBox(height: 6),
               Text(
-                'High-density 10-bit H.265 • Lossless Audio • ONPA-Flow Tagged',
+                _specLine,
                 textAlign: TextAlign.center,
                 style: GoogleFonts.inter(
                   color: Colors.white38,
@@ -412,11 +458,11 @@ class _ExportingProgressSheetState extends State<ExportingProgressSheet>
                 child: Row(
                   mainAxisAlignment: MainAxisAlignment.spaceAround,
                   children: [
-                    _buildMetaPill('RESOLUTION', '3840×2160 (4K)'),
+                    _buildMetaPill('RESOLUTION', _resolution),
                     Container(width: 1, height: 24, color: Colors.white12),
-                    _buildMetaPill('FRAME RATE', '60.0 FPS'),
+                    _buildMetaPill('FRAME RATE', _frameRate),
                     Container(width: 1, height: 24, color: Colors.white12),
-                    _buildMetaPill('EST. SIZE', '~32.4 MB'),
+                    _buildMetaPill('FILE SIZE', _size),
                   ],
                 ),
               ),

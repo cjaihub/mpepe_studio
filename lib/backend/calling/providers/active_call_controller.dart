@@ -7,10 +7,12 @@ import 'package:flutter/services.dart';
 import 'package:flutter_callkit_incoming/entities/entities.dart';
 import 'package:flutter_callkit_incoming/flutter_callkit_incoming.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:permission_handler/permission_handler.dart';
 import 'package:wakelock_plus/wakelock_plus.dart';
 
 import '../models/call_model.dart';
 import '../models/call_participant.dart';
+import '../services/call_pip_service.dart';
 import '../services/callkit_service.dart';
 import 'call_media_service.dart';
 import 'call_signaling_service.dart';
@@ -24,6 +26,9 @@ class ActiveCallState {
   final CallModel? call;
   final Map<String, CallParticipant> participants;
   final DateTime? connectedAt;
+
+  /// When this device left the call, for the "Call ended · 3:24" summary.
+  final DateTime? endedAt;
   final CallEndReason? endReason;
   final bool isMinimized;
   final String? errorMessage;
@@ -33,10 +38,27 @@ class ActiveCallState {
     this.call,
     this.participants = const {},
     this.connectedAt,
+    this.endedAt,
     this.endReason,
     this.isMinimized = false,
     this.errorMessage,
   });
+
+  /// How long the two sides actually talked (null if it never connected).
+  Duration? get talkTime =>
+      connectedAt == null ? null : (endedAt ?? DateTime.now()).difference(connectedAt!);
+
+  /// The caller's unanswered call (no answer, busy, declined): the end screen
+  /// offers "Call again".
+  bool get canRedial =>
+      phase == CallPhase.ended &&
+      connectedAt == null &&
+      call != null &&
+      call!.hostId == FirebaseAuth.instance.currentUser?.uid &&
+      (endReason == CallEndReason.noAnswer ||
+          endReason == CallEndReason.busy ||
+          endReason == CallEndReason.declined ||
+          endReason == CallEndReason.failed);
 
   /// Kept for older call sites.
   CallModel? get activeCall => call;
@@ -60,6 +82,7 @@ class ActiveCallState {
     CallModel? call,
     Map<String, CallParticipant>? participants,
     DateTime? connectedAt,
+    DateTime? endedAt,
     CallEndReason? endReason,
     bool? isMinimized,
     String? errorMessage,
@@ -69,6 +92,7 @@ class ActiveCallState {
       call: call ?? this.call,
       participants: participants ?? this.participants,
       connectedAt: connectedAt ?? this.connectedAt,
+      endedAt: endedAt ?? this.endedAt,
       endReason: endReason ?? this.endReason,
       isMinimized: isMinimized ?? this.isMinimized,
       errorMessage: errorMessage ?? this.errorMessage,
@@ -109,6 +133,8 @@ class ActiveCallController extends Notifier<ActiveCallState> {
   @override
   ActiveCallState build() {
     ref.listen<WebRTCMeshState>(webrtcConnectionManagerProvider, (_, mesh) => _onMesh(mesh));
+    ref.listen<CallMediaState>(callMediaServiceProvider, (_, _) => _syncDevice());
+    listenSelf((_, _) => _syncDevice());
     ref.onDispose(_cancelSubs);
     return const ActiveCallState();
   }
@@ -162,6 +188,7 @@ class ActiveCallController extends Notifier<ActiveCallState> {
     _finishing = false;
     state = const ActiveCallState(phase: CallPhase.outgoing);
     try {
+      await _askBluetooth();
       await _media.initializeMedia(video: isVideo);
     } catch (e) {
       state = const ActiveCallState();
@@ -179,7 +206,7 @@ class ActiveCallController extends Notifier<ActiveCallState> {
       _watch(call.id);
       _ringTimer = Timer(kCallRingTimeout, _onRingTimeout);
       _watchNetwork();
-      _syncWakelock();
+      _syncDevice();
       HapticFeedback.lightImpact();
       // Android: foreground service + ongoing notification. iOS: CallKit call.
       unawaited(CallKitService.startOngoing(_paramsFor(call)));
@@ -248,16 +275,31 @@ class ActiveCallController extends Notifier<ActiveCallState> {
     });
     HapticFeedback.heavyImpact();
     await CallKitService.showIncoming(_paramsFor(call));
+    unawaited(_signaling.markDelivered(call.id));
   }
 
   /// Accepts a ringing call by id (used when the native UI accepted while the
   /// app was in the background or killed).
   Future<void> acceptById(String callId) async {
     if (state.call?.id == callId && state.phase != CallPhase.incoming) return;
+    // A cold start can deliver the same accept twice (event + active calls).
+    if (!_acceptingIds.add(callId)) return;
+    try {
+      await _acceptById(callId);
+    } finally {
+      _acceptingIds.remove(callId);
+    }
+  }
+
+  final Set<String> _acceptingIds = {};
+
+  Future<void> _acceptById(String callId) async {
     final call = await _signaling.getCall(callId);
     if (call == null || call.isFinished) {
-      final p = state.call == null ? null : _paramsFor(state.call!);
-      if (p != null) await CallKitService.end(p.id);
+      // The caller hung up before the answer got through: clear the native
+      // call so the ongoing notification doesn't linger.
+      final stale = call ?? state.call;
+      if (stale != null) await CallKitService.end(_paramsFor(stale).id);
       return;
     }
     await accept(incoming: call, fromNativeUi: true);
@@ -288,6 +330,7 @@ class ActiveCallController extends Notifier<ActiveCallState> {
       }
     }
     try {
+      await _askBluetooth();
       await _media.initializeMedia(video: call.isVideo);
     } catch (e) {
       state = state.copyWith(errorMessage: 'Allow microphone${call.isVideo ? ' and camera' : ''} access to answer.');
@@ -298,7 +341,7 @@ class ActiveCallController extends Notifier<ActiveCallState> {
       _mesh.attach(call.id);
       await _signaling.acceptCall(call.id, videoOn: call.isVideo);
       _watchNetwork();
-      _syncWakelock();
+      _syncDevice();
       // We are the newest joiner, so we offer to everyone already in.
       final current = await _signaling.fetchParticipants(call.id);
       final others = current.where(
@@ -377,7 +420,7 @@ class ActiveCallController extends Notifier<ActiveCallState> {
     }
     final call = state.call;
     if (call != null) unawaited(_signaling.updateMediaState(call.id, videoMuted: !on));
-    _syncWakelock();
+    _syncDevice();
   }
 
   Future<void> switchCamera() async {
@@ -406,8 +449,24 @@ class ActiveCallController extends Notifier<ActiveCallState> {
       call: state.call,
       participants: state.participants,
       connectedAt: state.connectedAt,
+      endedAt: state.endedAt,
       endReason: state.endReason,
       isMinimized: state.isMinimized,
+    );
+  }
+
+  /// "Call again" from the end screen of an unanswered call.
+  Future<CallModel?> redial() async {
+    final s = state;
+    final call = s.call;
+    if (!s.canRedial || call == null) return null;
+    _resetTimer?.cancel();
+    final targets = call.participantIds.where((id) => id != _me).toList();
+    return startCall(
+      targetUserIds: targets,
+      isVideo: call.isVideo,
+      chatId: call.chatId,
+      title: call.isGroup ? call.title : null,
     );
   }
 
@@ -566,13 +625,36 @@ class ActiveCallController extends Notifier<ActiveCallState> {
     });
   }
 
-  void _syncWakelock() {
-    final videoOn = ref.read(callMediaServiceProvider).isVideoOn;
-    if (state.isBusy && videoOn) {
-      WakelockPlus.enable().catchError((_) {});
-    } else {
-      WakelockPlus.disable().catchError((_) {});
+  /// Android 12+ hides Bluetooth headsets from the audio router until
+  /// "Nearby devices" is allowed. Asked once, never blocks the call.
+  Future<void> _askBluetooth() async {
+    if (kIsWeb || defaultTargetPlatform != TargetPlatform.android) return;
+    try {
+      final status = await Permission.bluetoothConnect.status;
+      if (status.isDenied) await Permission.bluetoothConnect.request();
+    } catch (_) {}
+  }
+
+  bool? _wakelockOn;
+
+  /// Keeps the phone in step with the call: screen awake for video, screen
+  /// off at the ear for audio on the earpiece, ringback while the other side
+  /// rings, and system PiP for video.
+  void _syncDevice() {
+    final media = ref.read(callMediaServiceProvider);
+    final busy = state.isBusy;
+    final wake = busy && media.isVideoOn;
+    if (_wakelockOn != wake) {
+      _wakelockOn = wake;
+      (wake ? WakelockPlus.enable() : WakelockPlus.disable()).catchError((_) {});
     }
+    CallPipService.setProximity(busy && media.localStream != null && !media.isVideoOn && media.audioRoute == AudioRoute.earpiece);
+    CallPipService.setRingback(state.phase == CallPhase.outgoing && state.call != null);
+    final inCall = state.phase == CallPhase.connected || state.phase == CallPhase.reconnecting;
+    final remoteVideo = state.remoteParticipants.any(
+      (p) => p.status == ParticipantStatus.joined && !p.isVideoMuted,
+    );
+    CallPipService.setAutoEnter(inCall && (media.isVideoOn || remoteVideo));
   }
 
   Future<void> _finish(CallEndReason reason, {bool remote = false, bool silent = false}) async {
@@ -599,18 +681,21 @@ class ActiveCallController extends Notifier<ActiveCallState> {
 
     await _mesh.leaveMesh();
     await _media.disposeMedia();
-    WakelockPlus.disable().catchError((_) {});
 
     state = ActiveCallState(
       phase: CallPhase.ended,
       call: call,
       participants: state.participants,
       connectedAt: state.connectedAt,
+      endedAt: DateTime.now(),
       endReason: reason,
       errorMessage: state.errorMessage,
     );
     _resetTimer?.cancel();
-    _resetTimer = Timer(Duration(milliseconds: silent ? 300 : 1600), () {
+    // An unanswered outgoing call stays on screen a little longer so the
+    // caller can tap "Call again".
+    final hold = silent ? 300 : (state.canRedial ? 6000 : 2200);
+    _resetTimer = Timer(Duration(milliseconds: hold), () {
       if (state.phase == CallPhase.ended) state = const ActiveCallState();
       _finishing = false;
     });

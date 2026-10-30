@@ -76,6 +76,26 @@
             </intent-filter>
         </activity>
 
+        <!-- Compact Ova over any app / home screen / lock screen (unlock required first).
+             ACTION_ASSIST lets Oneova be the default digital assistant (long-press power or home). -->
+        <activity
+            android:name=".OvaAssistActivity"
+            android:exported="true"
+            android:launchMode="singleTask"
+            android:taskAffinity="com.oneova.app.ova"
+            android:excludeFromRecents="true"
+            android:theme="@style/OvaOverlayTheme"
+            android:showWhenLocked="true"
+            android:turnScreenOn="true"
+            android:configChanges="orientation|keyboardHidden|keyboard|screenSize|smallestScreenSize|locale|layoutDirection|fontScale|screenLayout|density|uiMode"
+            android:hardwareAccelerated="true"
+            android:windowSoftInputMode="adjustResize">
+            <intent-filter>
+                <action android:name="android.intent.action.ASSIST"/>
+                <category android:name="android.intent.category.DEFAULT"/>
+            </intent-filter>
+        </activity>
+
         <!-- Ova system-wide control (user must enable in Settings > Accessibility) -->
         <service
             android:name=".OvaAccessibilityService"
@@ -116,7 +136,7 @@
         <service
             android:name=".LiveScreenCaptureService"
             android:exported="false"
-            android:foregroundServiceType="mediaProjection" />
+            android:foregroundServiceType="mediaProjection|microphone|camera" />
 
         <service
             android:name=".OvaOverlayService"

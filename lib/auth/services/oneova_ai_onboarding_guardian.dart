@@ -4,6 +4,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:http/http.dart' as http;
 import '../../backend/security/secure_api_key_vault.dart';
+import '../../backend/security/oneova_ai_gateway.dart';
 
 final oneovaAiOnboardingGuardianProvider = Provider<OneovaAiOnboardingGuardian>((ref) {
   final vault = ref.read(secureKeyVaultProvider);
@@ -70,7 +71,6 @@ class OneovaAiOnboardingGuardian {
     http.Client? client,
   })  : _client = client ?? http.Client();
 
-  static const String _openRouterEndpoint = 'https://openrouter.ai/api/v1/chat/completions';
 
   /// Evaluates safety and anti-scam posture for newly created or updated profile identity.
   Future<AiAccountSafetyReport> evaluateProfileSafety({
@@ -124,7 +124,7 @@ class OneovaAiOnboardingGuardian {
     // 2. Query OpenRouter AI Guardian for deep semantic risk assessment
     try {
       final apiKey = await vault.getOpenRouterApiKey();
-      if (apiKey.isEmpty) {
+      if (!OneovaAiGateway.canCall(apiKey)) {
         // Fallback: heuristic check passed cleanly
         return AiAccountSafetyReport.safe();
       }
@@ -150,7 +150,7 @@ Return ONLY a JSON object:
 ''';
 
       final response = await _client.post(
-        Uri.parse(_openRouterEndpoint),
+        OneovaAiGateway.chatUri(apiKey),
         headers: headers,
         body: jsonEncode({
           'model': model,
@@ -217,7 +217,7 @@ Return ONLY a JSON object:
 
     try {
       final apiKey = await vault.getOpenRouterApiKey();
-      if (apiKey.isNotEmpty) {
+      if (OneovaAiGateway.canCall(apiKey)) {
         final headers = await vault.getOpenRouterHeaders(overrideKey: apiKey);
         final model = await vault.getPreferredOpenRouterModel();
 
@@ -238,7 +238,7 @@ Generate an algorithmic taste seed JSON:
 ''';
 
         final response = await _client.post(
-          Uri.parse(_openRouterEndpoint),
+          OneovaAiGateway.chatUri(apiKey),
           headers: headers,
           body: jsonEncode({
             'model': model,

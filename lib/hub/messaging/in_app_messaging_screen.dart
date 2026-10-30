@@ -22,10 +22,9 @@ import '../../backend/social/services/story_service.dart';
 import '../../backend/social/models/story.dart';
 import '../../backend/storage_service.dart';
 import '../../feed/widgets/story_viewer_screen.dart';
-import '../../backend/social_connection_service.dart';
-import '../../upload/screens/premium_post_screen.dart';
 import 'connected_inboxes_dropdown.dart';
-import 'platform_comments_modal.dart';
+import 'platform_inbox_view.dart';
+import '../../backend/connections/linked_accounts.dart' show LinkedPlatform;
 import 'user_search_screen.dart';
 import 'create_group_screen.dart';
 import '../../providers/settings_provider.dart';
@@ -34,8 +33,13 @@ import '../../backend/inbox/providers/presence_service.dart';
 import '../../ova_assistant/widgets/ova_assistant_sheet.dart';
 import '../../backend/social/models/creator_engagement_level.dart';
 
+/// The single Oneova inbox (`/hub/messages`): Oneova chats plus the
+/// messages and comments of every linked platform. Every inbox entry point
+/// routes here; `?platform=<id>` opens one linked platform's inbox.
 class InAppMessagingScreen extends ConsumerStatefulWidget {
-  const InAppMessagingScreen({super.key});
+  final String? initialPlatform;
+
+  const InAppMessagingScreen({super.key, this.initialPlatform});
 
   @override
   ConsumerState<InAppMessagingScreen> createState() =>
@@ -58,8 +62,10 @@ class _InAppMessagingScreenState extends ConsumerState<InAppMessagingScreen> {
   // Creator Pro Banner dismissed state
   bool _isBannerDismissed = false;
 
-  // Selected platform filter: 'all', 'whatsapp', 'studio'
-  String _selectedPlatform = 'all';
+  // Inbox shown: 'all' (Oneova chats) or a LinkedPlatform id.
+  late String _selectedPlatform = _platformOrAll(widget.initialPlatform);
+
+  static String _platformOrAll(String? id) => LinkedPlatform.fromId(id)?.id ?? 'all';
 
   final Map<String, Future<AppUser?>> _userFutures = {};
   Future<AppUser?>? _currentUserFuture;
@@ -84,6 +90,14 @@ class _InAppMessagingScreenState extends ConsumerState<InAppMessagingScreen> {
         _searchQuery = _searchController.text.toLowerCase();
       });
     });
+  }
+
+  @override
+  void didUpdateWidget(covariant InAppMessagingScreen oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (widget.initialPlatform != oldWidget.initialPlatform && widget.initialPlatform != null) {
+      setState(() => _selectedPlatform = _platformOrAll(widget.initialPlatform));
+    }
   }
 
   @override
@@ -473,12 +487,8 @@ class _InAppMessagingScreenState extends ConsumerState<InAppMessagingScreen> {
                   // Search Bar
                   _buildSearchBar(),
 
-                  // Active Connected Platform Capabilities Banner (when filtered by platform)
-                  if (_selectedPlatform != 'all')
-                    _buildPlatformCapabilitiesBanner(),
-
-                  // Filter chips only make sense for the chat list
-                  if (_activeBottomTab == 0) _buildFilterPillsBar(chatsAsync),
+                  // Filter chips only make sense for the Oneova chat list
+                  if (_activeBottomTab == 0 && _selectedPlatform == 'all') _buildFilterPillsBar(chatsAsync),
                 ],
 
                 // Main Content Body (Chats list, Communities/Rooms, or Updates/Calls)
@@ -663,6 +673,7 @@ class _InAppMessagingScreenState extends ConsumerState<InAppMessagingScreen> {
                 HapticFeedback.lightImpact();
                 ConnectedInboxesDropdown.show(
                   context,
+                  totalUnreadCount: unreadCount,
                   selectedPlatform: _selectedPlatform,
                   onSelectPlatform: (platform) =>
                       setState(() => _selectedPlatform = platform),
@@ -719,320 +730,8 @@ class _InAppMessagingScreenState extends ConsumerState<InAppMessagingScreen> {
     );
   }
 
-  String _resolveSelectedPlatformName(String platform) {
-    switch (platform.toLowerCase()) {
-      case 'whatsapp':
-        return 'WhatsApp Biz';
-      case 'tiktok':
-        return 'TikTok Direct';
-      case 'instagram':
-        return 'Instagram DMs';
-      case 'youtube':
-        return 'YouTube Studio';
-      case 'x':
-        return 'X (Twitter)';
-      case 'facebook':
-        return 'Facebook';
-      case 'telegram':
-        return 'Telegram';
-      case 'all':
-      default:
-        return 'Omni';
-    }
-  }
-
-  // ──────────────────────────────────────────────────────────────────────────
-  // 1B. ACTIVE CONNECTED PLATFORM CAPABILITIES BANNER
-  // ──────────────────────────────────────────────────────────────────────────
-  Widget _buildPlatformCapabilitiesBanner() {
-    final platformId = _selectedPlatform.toLowerCase();
-    final connectionsAsync = ref.watch(userSocialConnectionsStreamProvider);
-    final connections = connectionsAsync.value ?? [];
-    final currentConn = connections
-        .where((c) => c.platform.toLowerCase() == platformId)
-        .firstOrNull;
-
-    final platformName =
-        currentConn?.displayName ?? _resolveSelectedPlatformName(platformId);
-    final badgeCode =
-        currentConn?.badgeCode ??
-        (platformId.length >= 2
-            ? platformId.substring(0, 2).toUpperCase()
-            : platformId.toUpperCase());
-    final badgeColor = Color(currentConn?.badgeColorHex ?? 0xFF0C4FA8);
-    final accountHandle = currentConn?.accountName.isNotEmpty == true
-        ? currentConn!.accountName
-        : '@oneova_creator';
-
-    return Container(
-      margin: const EdgeInsets.fromLTRB(16, 2, 16, 8),
-      padding: const EdgeInsets.all(12),
-      decoration: BoxDecoration(
-        color: context.surface,
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(
-          color: badgeColor.withValues(alpha: 0.4),
-          width: 1.2,
-        ),
-        boxShadow: [
-          BoxShadow(
-            color: badgeColor.withValues(alpha: 0.12),
-            blurRadius: 14,
-            offset: const Offset(0, 4),
-          ),
-        ],
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              Container(
-                width: 28,
-                height: 28,
-                decoration: BoxDecoration(
-                  color: badgeColor.withValues(alpha: 0.2),
-                  borderRadius: BorderRadius.circular(8),
-                  border: Border.all(color: badgeColor.withValues(alpha: 0.6)),
-                ),
-                child: Center(
-                  child: Text(
-                    badgeCode,
-                    style: GoogleFonts.inter(
-                      color: badgeColor,
-                      fontSize: 11,
-                      fontWeight: FontWeight.w900,
-                    ),
-                  ),
-                ),
-              ),
-              const SizedBox(width: 8),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Row(
-                      children: [
-                        Flexible(
-                          child: Text(
-                            platformName,
-                            style: GoogleFonts.inter(
-                              color: context.textPrimary,
-                              fontSize: 13,
-                              fontWeight: FontWeight.w800,
-                            ),
-                            overflow: TextOverflow.ellipsis,
-                          ),
-                        ),
-                        const SizedBox(width: 6),
-                        Container(
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 5,
-                            vertical: 1.5,
-                          ),
-                          decoration: BoxDecoration(
-                            color: AppColors.brandBlue.withValues(alpha: 0.2),
-                            borderRadius: BorderRadius.circular(4),
-                            border: Border.all(
-                              color: AppColors.brandBlue.withValues(alpha: 0.5),
-                            ),
-                          ),
-                          child: Text(
-                            'API LIVE',
-                            style: TextStyle(
-                              color: context.textPrimary,
-                              fontSize: 8.5,
-                              fontWeight: FontWeight.w900,
-                            ),
-                          ),
-                        ),
-                      ],
-                    ),
-                    Text(
-                      accountHandle,
-                      style: GoogleFonts.inter(
-                        color: context.textMuted,
-                        fontSize: 11,
-                      ),
-                      overflow: TextOverflow.ellipsis,
-                    ),
-                  ],
-                ),
-              ),
-              GestureDetector(
-                onTap: () {
-                  setState(() {
-                    _selectedPlatform = 'all';
-                  });
-                },
-                child: Container(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 8,
-                    vertical: 4,
-                  ),
-                  decoration: BoxDecoration(
-                    color: context.border,
-                    borderRadius: BorderRadius.circular(12),
-                  ),
-                  child: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Icon(
-                        Icons.close_rounded,
-                        size: 12,
-                        color: context.textSecondary,
-                      ),
-                      const SizedBox(width: 3),
-                      Text(
-                        'All Inboxes',
-                        style: GoogleFonts.inter(
-                          color: context.textSecondary,
-                          fontSize: 10.5,
-                          fontWeight: FontWeight.w600,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 10),
-          // API Capability Action Pills Row
-          Wrap(
-            spacing: 8,
-            runSpacing: 6,
-            children: [
-              // 1. Direct Chats (Active filter)
-              Container(
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 10,
-                  vertical: 5,
-                ),
-                decoration: BoxDecoration(
-                  color: AppColors.brandBlue.withValues(alpha: 0.25),
-                  borderRadius: BorderRadius.circular(8),
-                  border: Border.all(
-                    color: AppColors.brandBlue.withValues(alpha: 0.5),
-                  ),
-                ),
-                child: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Icon(
-                      Icons.chat_bubble_rounded,
-                      size: 12,
-                      color: context.textPrimary,
-                    ),
-                    const SizedBox(width: 5),
-                    Text(
-                      'Direct Chats',
-                      style: GoogleFonts.inter(
-                        color: context.textPrimary,
-                        fontSize: 11,
-                        fontWeight: FontWeight.w700,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-              // 2. Comments Sync (opens PlatformCommentsModal)
-              GestureDetector(
-                onTap: () {
-                  PlatformCommentsModal.show(
-                    context,
-                    platform: platformId,
-                    platformDisplayName: platformName,
-                    accountHandle: accountHandle,
-                  );
-                },
-                child: Container(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 10,
-                    vertical: 5,
-                  ),
-                  decoration: BoxDecoration(
-                    color: context.surfaceMid,
-                    borderRadius: BorderRadius.circular(8),
-                    border: Border.all(
-                      color: AppColors.brandPink.withValues(alpha: 0.4),
-                    ),
-                  ),
-                  child: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      const Icon(
-                        Icons.forum_outlined,
-                        size: 12,
-                        color: AppColors.brandPink,
-                      ),
-                      const SizedBox(width: 5),
-                      Text(
-                        'Comments Sync API',
-                        style: GoogleFonts.inter(
-                          color: context.textPrimary,
-                          fontSize: 11,
-                          fontWeight: FontWeight.w600,
-                        ),
-                      ),
-                      const SizedBox(width: 4),
-                      Icon(
-                        Icons.arrow_forward_ios_rounded,
-                        size: 9,
-                        color: context.textMuted,
-                      ),
-                    ],
-                  ),
-                ),
-              ),
-              // 3. Omnichannel Upload (opens PremiumPostScreen / upload modal)
-              GestureDetector(
-                onTap: () {
-                  Navigator.of(context).push(
-                    MaterialPageRoute(
-                      builder: (context) => const PremiumPostScreen(),
-                    ),
-                  );
-                },
-                child: Container(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 10,
-                    vertical: 5,
-                  ),
-                  decoration: BoxDecoration(
-                    color: context.surface,
-                    borderRadius: BorderRadius.circular(8),
-                    border: Border.all(
-                      color: AppColors.brandBlue.withValues(alpha: 0.4),
-                    ),
-                  ),
-                  child: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      const Icon(
-                        Icons.rocket_launch_rounded,
-                        size: 12,
-                        color: AppColors.brandPink,
-                      ),
-                      const SizedBox(width: 5),
-                      Text(
-                        'Upload & Publish',
-                        style: GoogleFonts.inter(
-                          color: context.textPrimary,
-                          fontSize: 11,
-                          fontWeight: FontWeight.w600,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ),
-            ],
-          ),
-        ],
-      ),
-    );
-  }
+  String _resolveSelectedPlatformName(String platform) =>
+      LinkedPlatform.fromId(platform)?.label ?? 'All chats';
 
   // ──────────────────────────────────────────────────────────────────────────
   // 2. SEARCH BAR
@@ -1426,6 +1125,15 @@ class _InAppMessagingScreenState extends ConsumerState<InAppMessagingScreen> {
       return _buildVerifiedCreatorsView();
     } else if (_activeFilter == 'requests') {
       return _buildMessageRequestsView(chatsAsync);
+    }
+
+    // A linked platform's messages and comments.
+    if (_selectedPlatform != 'all') {
+      return PlatformInboxView(
+        key: ValueKey(_selectedPlatform),
+        platformId: _selectedPlatform,
+        onShowAll: () => setState(() => _selectedPlatform = 'all'),
+      );
     }
 
     // Default: Chats Inbox List with optional AI studio banner and following creators quick message bar
@@ -2337,34 +2045,6 @@ class _InAppMessagingScreenState extends ConsumerState<InAppMessagingScreen> {
               .toList();
         }
 
-        if (_selectedPlatform != 'all') {
-          filtered = filtered.where((c) {
-            final p = _selectedPlatform.toLowerCase();
-            if (p == 'whatsapp') {
-              return c.category == 'whatsapp_sync' ||
-                  (c.roleBadge?.toLowerCase().contains('whatsapp') ?? false);
-            } else if (p == 'tiktok') {
-              return c.category == 'tiktok_sync' ||
-                  (c.roleBadge?.toLowerCase().contains('tiktok') ?? false);
-            } else if (p == 'instagram') {
-              return c.category == 'instagram_sync' ||
-                  (c.roleBadge?.toLowerCase().contains('instagram') ?? false);
-            } else if (p == 'youtube') {
-              return c.category == 'youtube_sync' ||
-                  (c.roleBadge?.toLowerCase().contains('youtube') ?? false);
-            } else if (p == 'x') {
-              return c.category == 'x_sync' ||
-                  (c.roleBadge?.toLowerCase().contains('x') ?? false);
-            } else if (p == 'facebook') {
-              return c.category == 'facebook_sync' ||
-                  (c.roleBadge?.toLowerCase().contains('facebook') ?? false);
-            } else {
-              return c.category?.toLowerCase() == '${p}_sync' ||
-                  (c.roleBadge?.toLowerCase().contains(p) ?? false);
-            }
-          }).toList();
-        }
-
         if (_searchQuery.isNotEmpty) {
           filtered = filtered.where((c) {
             final t = (c.title ?? '').toLowerCase();
@@ -2379,145 +2059,6 @@ class _InAppMessagingScreenState extends ConsumerState<InAppMessagingScreen> {
         }
 
         if (filtered.isEmpty) {
-          if (_selectedPlatform != 'all') {
-            final pName = _resolveSelectedPlatformName(_selectedPlatform);
-            return Center(
-              child: SingleChildScrollView(
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 24,
-                  vertical: 24,
-                ),
-                child: Column(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    Container(
-                      width: 58,
-                      height: 58,
-                      decoration: BoxDecoration(
-                        color: AppColors.brandBlue.withValues(alpha: 0.15),
-                        shape: BoxShape.circle,
-                        border: Border.all(
-                          color: AppColors.brandBlue.withValues(alpha: 0.3),
-                        ),
-                      ),
-                      child: const Icon(
-                        Icons.sync_alt_rounded,
-                        size: 28,
-                        color: AppColors.brandBlue,
-                      ),
-                    ),
-                    const SizedBox(height: 14),
-                    Text(
-                      '$pName In-App Messages Synced',
-                      style: GoogleFonts.inter(
-                        color: context.textPrimary,
-                        fontSize: 16,
-                        fontWeight: FontWeight.bold,
-                      ),
-                      textAlign: TextAlign.center,
-                    ),
-                    const SizedBox(height: 6),
-                    Text(
-                      'No direct chat threads pending on $pName. You can view comments or publish new media via the API.',
-                      style: TextStyle(
-                        color: context.textSecondary,
-                        fontSize: 12.5,
-                        height: 1.4,
-                      ),
-                      textAlign: TextAlign.center,
-                    ),
-                    const SizedBox(height: 20),
-                    Row(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        ElevatedButton.icon(
-                          onPressed: () {
-                            PlatformCommentsModal.show(
-                              context,
-                              platform: _selectedPlatform,
-                              platformDisplayName: pName,
-                              accountHandle: '@oneova_creator',
-                            );
-                          },
-                          icon: const Icon(
-                            Icons.comment_rounded,
-                            size: 14,
-                            color: Colors.white,
-                          ),
-                          label: const Text(
-                            'View Comments',
-                            style: TextStyle(
-                              color: Colors.white,
-                              fontSize: 12,
-                              fontWeight: FontWeight.bold,
-                            ),
-                          ),
-                          style: ElevatedButton.styleFrom(
-                            backgroundColor: AppColors.brandPink,
-                            shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(12),
-                            ),
-                            padding: const EdgeInsets.symmetric(
-                              horizontal: 14,
-                              vertical: 10,
-                            ),
-                          ),
-                        ),
-                        const SizedBox(width: 10),
-                        OutlinedButton.icon(
-                          onPressed: () {
-                            Navigator.of(context).push(
-                              MaterialPageRoute(
-                                builder: (_) => const PremiumPostScreen(),
-                              ),
-                            );
-                          },
-                          icon: const Icon(
-                            Icons.cloud_upload_outlined,
-                            size: 14,
-                            color: AppColors.brandBlue,
-                          ),
-                          label: const Text(
-                            'Upload Content',
-                            style: TextStyle(
-                              color: Colors.white,
-                              fontSize: 12,
-                              fontWeight: FontWeight.bold,
-                            ),
-                          ),
-                          style: OutlinedButton.styleFrom(
-                            side: const BorderSide(color: AppColors.brandBlue),
-                            shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(12),
-                            ),
-                            padding: const EdgeInsets.symmetric(
-                              horizontal: 14,
-                              vertical: 10,
-                            ),
-                          ),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 16),
-                    TextButton(
-                      onPressed: () {
-                        setState(() {
-                          _selectedPlatform = 'all';
-                        });
-                      },
-                      child: Text(
-                        'Switch back to All Inboxes',
-                        style: TextStyle(
-                          color: context.textMuted,
-                          fontSize: 12,
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            );
-          }
           if (_activeFilter != 'all') {
             return Center(
               child: Column(
@@ -4672,10 +4213,15 @@ class _InAppMessagingScreenState extends ConsumerState<InAppMessagingScreen> {
       padding: const EdgeInsets.fromLTRB(12, 4, 12, 140),
       children: [
         StreamBuilder<QuerySnapshot>(
+          // Per-user history written by the onCallFinished Cloud Function
+          // (outcome and talk time from this user's point of view).
           stream: currentUserId != null
               ? FirebaseFirestore.instance
-                    .collection('calls')
-                    .where('participants', arrayContains: currentUserId)
+                    .collection('users')
+                    .doc(currentUserId)
+                    .collection('call_history')
+                    .orderBy('startedAt', descending: true)
+                    .limit(100)
                     .snapshots()
               : const Stream.empty(),
           builder: (context, snapshot) {
@@ -4827,52 +4373,67 @@ class _InAppMessagingScreenState extends ConsumerState<InAppMessagingScreen> {
 
   Widget _buildLiveCallItem(DocumentSnapshot doc) {
     final data = doc.data() as Map<String, dynamic>? ?? {};
-    final callerId = data['callerId'] ?? data['hostId'] ?? '';
-    final participants = List<String>.from(
-      data['participants'] ?? data['participantIds'] ?? [],
-    );
-    final otherUserId = participants.firstWhere(
-      (p) => p != currentUserId,
-      orElse: () => callerId,
-    );
+    final participants = List<String>.from(data['participantIds'] ?? const []);
+    final others = participants.where((p) => p != currentUserId).toList();
+    final hostId = (data['hostId'] ?? '') as String;
+    final otherUserId = others.isNotEmpty ? others.first : hostId;
+    final isGroup = data['isGroup'] == true || others.length > 1;
+    final groupTitle = data['title'] as String?;
 
-    final isVideo = data['isVideo'] == true || data['type'] == 'video';
-    final status = data['status'] as String? ?? 'ended';
+    final isVideo = data['isVideo'] == true;
+    final outcome = data['outcome'] as String? ?? 'completed';
+    final isOutgoing = data['direction'] == 'outgoing';
+    final durationSec = (data['durationSec'] as num?)?.toInt() ?? 0;
     final startedAt = data['startedAt'];
-    final date = startedAt is Timestamp
-        ? startedAt.toDate()
-        : (startedAt is String ? DateTime.tryParse(startedAt) : null) ??
-              DateTime.now();
+    final date = startedAt is Timestamp ? startedAt.toDate() : DateTime.now();
     final timeStr = timeago.format(date);
 
-    final isOutgoing = callerId == currentUserId;
-    final isMissed = status == 'missed' || status == 'declined';
+    final isMissed = !isOutgoing && outcome != 'completed';
+    final String outcomeLabel;
+    if (outcome == 'completed') {
+      final m = durationSec ~/ 60;
+      final sec = (durationSec % 60).toString().padLeft(2, '0');
+      outcomeLabel = durationSec > 0 ? '$m:$sec' : (isOutgoing ? 'Outgoing' : 'Incoming');
+    } else if (isOutgoing) {
+      outcomeLabel = outcome == 'busy'
+          ? 'Busy'
+          : outcome == 'declined'
+              ? 'Declined'
+              : 'No answer';
+    } else {
+      outcomeLabel = outcome == 'declined' ? 'Declined' : 'Missed';
+    }
 
     final IconData directionIcon;
     final Color directionColor;
-    if (isOutgoing) {
-      directionIcon = Icons.call_made_rounded;
-      directionColor = AppColors.brandBlue;
-    } else if (isMissed) {
+    if (isMissed) {
       directionIcon = Icons.call_missed_rounded;
       directionColor = AppColors.brandPink;
+    } else if (isOutgoing) {
+      directionIcon = Icons.call_made_rounded;
+      directionColor = AppColors.brandBlue;
     } else {
       directionIcon = Icons.call_received_rounded;
-      directionColor = AppColors.brandPink;
+      directionColor = AppColors.brandBlue;
     }
 
     return FutureBuilder<AppUser?>(
       future: otherUserId.isNotEmpty ? _getUserCached(otherUserId) : null,
       builder: (context, userSnap) {
         final user = userSnap.data;
-        final String name = (user != null && user.fullName.isNotEmpty)
+        final String userName = (user != null && user.fullName.isNotEmpty)
             ? user.fullName
             : ((user != null &&
                       user.username != null &&
                       user.username!.isNotEmpty)
                   ? user.username!
-                  : 'Oneova Creator');
-        final String avatar = user?.photoUrl ?? '';
+                  : 'Oneova user');
+        final String name = isGroup
+            ? ((groupTitle != null && groupTitle.isNotEmpty)
+                  ? groupTitle
+                  : '$userName +${others.length - 1}')
+            : userName;
+        final String avatar = isGroup ? '' : (user?.photoUrl ?? '');
 
         return Container(
           margin: const EdgeInsets.only(bottom: 10),
@@ -4909,7 +4470,9 @@ class _InAppMessagingScreenState extends ConsumerState<InAppMessagingScreen> {
                     Text(
                       name,
                       style: TextStyle(
-                        color: context.textPrimary,
+                        color: isMissed
+                            ? AppColors.brandPink
+                            : context.textPrimary,
                         fontWeight: FontWeight.bold,
                         fontSize: 14.5,
                       ),
@@ -4921,11 +4484,15 @@ class _InAppMessagingScreenState extends ConsumerState<InAppMessagingScreen> {
                       children: [
                         Icon(directionIcon, color: directionColor, size: 13),
                         const SizedBox(width: 5),
-                        Text(
-                          '${isVideo ? 'Video' : 'Voice'} Call • $timeStr',
-                          style: TextStyle(
-                            color: context.textSecondary,
-                            fontSize: 12,
+                        Flexible(
+                          child: Text(
+                            '${isGroup ? 'Group ' : ''}${isVideo ? 'video' : 'voice'} · $outcomeLabel · $timeStr',
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: TextStyle(
+                              color: context.textSecondary,
+                              fontSize: 12,
+                            ),
                           ),
                         ),
                       ],
@@ -4940,12 +4507,20 @@ class _InAppMessagingScreenState extends ConsumerState<InAppMessagingScreen> {
                   size: 22,
                 ),
                 tooltip: isVideo ? 'Video Call Back' : 'Voice Call Back',
-                onPressed: () => _initiateDirectCall(
-                  otherUserId: otherUserId,
-                  otherUserName: name,
-                  otherUserAvatar: avatar,
-                  isVideo: isVideo,
-                ),
+                onPressed: () => isGroup
+                    ? startOneovaCall(
+                        context,
+                        ref,
+                        targetUserIds: others,
+                        isVideo: isVideo,
+                        title: groupTitle,
+                      )
+                    : _initiateDirectCall(
+                        otherUserId: otherUserId,
+                        otherUserName: name,
+                        otherUserAvatar: avatar,
+                        isVideo: isVideo,
+                      ),
               ),
             ],
           ),

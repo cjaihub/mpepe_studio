@@ -3,207 +3,479 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Terms of Service - ONEOVA</title>
-    <link rel="icon" type="image/jpeg" href="/assets/images/oneova_logo.jpg" />
+    <title>ONEOVA TERMS OF SERVICE — Oneova</title>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
     <style>
-        :root {
-            --brand-blue: #007AFF;
-            --brand-pink: #FF2D87;
-            --dark-bg: #07080B;
-            --dark-surface: #0E1017;
-            --dark-card: rgba(14, 16, 23, 0.85);
-            --border-color: rgba(255, 255, 255, 0.08);
-            --text-primary: #F8FAFC;
-            --text-secondary: #CBD5E1;
-            --text-muted: #64748B;
-        }
-        * {
-            box-sizing: border-box;
-            margin: 0;
-            padding: 0;
-        }
-        body {
-            font-family: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-            line-height: 1.7;
-            color: var(--text-primary);
-            background-color: var(--dark-bg);
-            background-image: 
-                radial-gradient(circle at 15% 10%, rgba(0, 122, 255, 0.12) 0%, transparent 45%),
-                radial-gradient(circle at 85% 90%, rgba(255, 45, 135, 0.10) 0%, transparent 50%);
-            min-height: 100vh;
-            padding: 40px 24px 80px;
-        }
-        .container {
-            max-width: 860px;
-            margin: 0 auto;
-        }
-        .header-nav {
-            display: flex;
-            align-items: center;
-            justify-content: space-between;
-            margin-bottom: 40px;
-            padding-bottom: 20px;
-            border-bottom: 1px solid var(--border-color);
-        }
-        .back-link {
-            color: var(--brand-blue);
-            text-decoration: none;
-            font-weight: 700;
-            font-size: 0.92rem;
-            display: inline-flex;
-            align-items: center;
-            gap: 8px;
-            transition: color 0.18s ease;
-        }
-        .back-link:hover {
-            color: #60A5FA;
-        }
-        .badge-pill {
-            font-weight: 800;
-            color: var(--brand-pink);
-            font-size: 0.75rem;
-            background: rgba(255, 45, 135, 0.12);
-            border: 1px solid rgba(255, 45, 135, 0.3);
-            padding: 4px 12px;
-            border-radius: 9999px;
-            letter-spacing: 0.5px;
-        }
-        h1 {
-            color: #FFFFFF;
-            font-size: 2.8rem;
-            font-weight: 900;
-            letter-spacing: -1px;
-            margin-bottom: 8px;
-            line-height: 1.15;
-        }
-        .update-date {
-            color: var(--text-muted);
-            font-size: 0.9rem;
-            margin-bottom: 24px;
-        }
-        .highlight-card {
-            background: var(--dark-card);
-            border: 1px solid var(--border-color);
-            border-left: 4px solid var(--brand-blue);
-            border-radius: 14px;
-            padding: 24px;
-            margin: 24px 0 36px;
-            backdrop-filter: blur(16px);
-            box-shadow: 0 16px 40px rgba(0, 0, 0, 0.5);
-        }
-        .highlight-card p {
-            color: var(--text-secondary);
-            font-size: 1rem;
-            margin: 0;
-            line-height: 1.6;
-        }
-        h2 {
-            color: #FFFFFF;
-            font-size: 1.45rem;
-            font-weight: 800;
-            margin-top: 40px;
-            margin-bottom: 14px;
-            display: flex;
-            align-items: center;
-            gap: 10px;
-        }
-        h2::before {
-            content: '';
-            display: inline-block;
-            width: 4px;
-            height: 18px;
-            background: var(--brand-pink);
-            border-radius: 2px;
-        }
-        p, li {
-            color: var(--text-secondary);
-            font-size: 0.98rem;
-            line-height: 1.7;
-        }
-        ul {
-            margin: 12px 0 20px 24px;
-            display: flex;
-            flex-direction: column;
-            gap: 8px;
-        }
-        li strong {
-            color: #FFFFFF;
-        }
-        a {
-            color: var(--brand-pink);
-            text-decoration: none;
-            font-weight: 600;
-        }
-        a:hover {
-            text-decoration: underline;
-        }
-        .footer-note {
-            margin-top: 60px;
-            padding-top: 24px;
-            border-top: 1px solid var(--border-color);
-            font-size: 0.85rem;
-            color: var(--text-muted);
-            text-align: center;
-        }
-    </style>
+:root {
+    --brand-blue: #0C4FA8;
+    --brand-blue-soft: rgba(12, 79, 168, 0.10);
+    --brand-pink: #FF2D87;
+    --brand-pink-soft: rgba(255, 45, 135, 0.12);
+    --bg: #FFFFFF;
+    --surface: #F8FAFC;
+    --surface-mid: #F1F5F9;
+    --border: #E2E8F0;
+    --text-primary: #0F172A;
+    --text-secondary: #334155;
+    --text-muted: #64748B;
+}
+html[data-theme="dark"] {
+    --bg: #0A0A0A;
+    --surface: #141414;
+    --surface-mid: #1F1F1F;
+    --border: #262626;
+    --text-primary: #F3F4F6;
+    --text-secondary: #CBD5E1;
+    --text-muted: #9CA3AF;
+    --brand-blue-soft: rgba(12, 79, 168, 0.24);
+}
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body {
+    font-family: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    background: var(--bg);
+    color: var(--text-primary);
+    line-height: 1.62;
+    font-size: 14.5px;
+    -webkit-font-smoothing: antialiased;
+}
+.top-bar {
+    position: sticky;
+    top: 0;
+    z-index: 40;
+    background: var(--bg);
+    border-bottom: 1px solid var(--border);
+    padding: 12px 24px;
+}
+.top-bar-inner {
+    max-width: 960px;
+    margin: 0 auto;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    flex-wrap: wrap;
+}
+.brand-mark {
+    display: inline-flex;
+    align-items: center;
+    gap: 10px;
+    text-decoration: none;
+    color: var(--text-primary);
+    font-weight: 900;
+    font-size: 16px;
+    letter-spacing: -0.3px;
+}
+.brand-dot {
+    width: 26px;
+    height: 26px;
+    border-radius: 7px;
+    background: var(--brand-blue);
+    color: #FFFFFF;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 13px;
+    font-weight: 900;
+}
+.actions-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+.btn-chip {
+    appearance: none;
+    border: 1px solid var(--border);
+    background: var(--surface);
+    color: var(--text-primary);
+    font-family: inherit;
+    font-size: 12px;
+    font-weight: 700;
+    padding: 7px 12px;
+    border-radius: 8px;
+    cursor: pointer;
+    text-decoration: none;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+}
+.btn-chip.primary {
+    background: var(--brand-blue);
+    border-color: var(--brand-blue);
+    color: #FFFFFF;
+}
+.sub-nav {
+    max-width: 960px;
+    margin: 14px auto 0;
+    padding: 0 24px;
+    display: flex;
+    gap: 6px;
+    overflow-x: auto;
+    padding-bottom: 6px;
+}
+.nav-pill {
+    text-decoration: none;
+    font-size: 12px;
+    font-weight: 600;
+    padding: 6px 11px;
+    border-radius: 8px;
+    border: 1px solid var(--border);
+    background: var(--surface);
+    color: var(--text-secondary);
+    white-space: nowrap;
+}
+.nav-pill.active {
+    background: var(--brand-blue);
+    border-color: var(--brand-blue);
+    color: #FFFFFF;
+    font-weight: 700;
+}
+.doc-shell {
+    max-width: 960px;
+    margin: 0 auto;
+    padding: 26px 24px 72px;
+}
+.doc-badge {
+    display: inline-block;
+    font-size: 10px;
+    font-weight: 800;
+    letter-spacing: 0.7px;
+    text-transform: uppercase;
+    padding: 4px 10px;
+    border-radius: 6px;
+    background: var(--brand-pink-soft);
+    color: var(--brand-pink);
+    border: 1px solid rgba(255, 45, 135, 0.32);
+    margin-bottom: 10px;
+}
+h1 {
+    font-size: 26px;
+    font-weight: 850;
+    letter-spacing: -0.5px;
+    line-height: 1.2;
+    color: var(--text-primary);
+    margin-bottom: 14px;
+}
+h2 {
+    font-size: 17.5px;
+    font-weight: 800;
+    letter-spacing: -0.25px;
+    color: var(--text-primary);
+    margin-top: 28px;
+    margin-bottom: 10px;
+    padding-bottom: 6px;
+    border-bottom: 1px solid var(--border);
+}
+h3 {
+    font-size: 14.5px;
+    font-weight: 700;
+    color: var(--text-primary);
+    margin-top: 18px;
+    margin-bottom: 8px;
+}
+p {
+    color: var(--text-secondary);
+    margin-bottom: 11px;
+}
+p strong, li strong {
+    color: var(--text-primary);
+}
+ul, ol {
+    margin: 8px 0 14px 22px;
+    color: var(--text-secondary);
+}
+li {
+    margin-bottom: 6px;
+}
+a {
+    color: var(--brand-blue);
+    font-weight: 600;
+    text-decoration: none;
+}
+html[data-theme="dark"] a {
+    color: #60A5FA;
+}
+a:hover { text-decoration: underline; }
+code {
+    font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+    font-size: 12.5px;
+    background: var(--surface-mid);
+    border: 1px solid var(--border);
+    padding: 1px 6px;
+    border-radius: 5px;
+    color: var(--text-primary);
+}
+.sig-blank {
+    font-family: inherit;
+    font-weight: 500;
+    color: var(--text-primary);
+    background: transparent;
+    border: none;
+    padding: 0 2px;
+}
+h2, h3 {
+    break-after: avoid;
+    page-break-after: avoid;
+}
+.exec-callout {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-left: 4px solid var(--brand-blue);
+    border-radius: 10px;
+    padding: 14px 16px;
+    margin: 14px 0 18px;
+    color: var(--text-secondary);
+    font-size: 13.5px;
+}
+.rule-divider {
+    border: none;
+    border-top: 1px solid var(--border);
+    margin: 20px 0;
+}
+.table-wrap {
+    width: 100%;
+    overflow-x: auto;
+    margin: 14px 0 18px;
+    border: 1px solid var(--border);
+    border-radius: 10px;
+}
+table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 12.8px;
+}
+th {
+    background: var(--surface-mid);
+    color: var(--text-primary);
+    font-weight: 700;
+    text-align: left;
+    padding: 10px 12px;
+    border-bottom: 1px solid var(--border);
+}
+td {
+    padding: 9px 12px;
+    border-bottom: 1px solid var(--border);
+    color: var(--text-secondary);
+    vertical-align: top;
+}
+tr:last-child td { border-bottom: none; }
+.doc-footer {
+    margin-top: 44px;
+    padding-top: 18px;
+    border-top: 1px solid var(--border);
+    display: flex;
+    justify-content: space-between;
+    flex-wrap: wrap;
+    gap: 10px;
+    font-size: 12px;
+    color: var(--text-muted);
+}
+.hub-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+    gap: 14px;
+    margin-top: 18px;
+}
+.hub-card {
+    display: block;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 16px;
+    text-decoration: none;
+    transition: border-color 0.15s ease, transform 0.15s ease;
+}
+.hub-card:hover {
+    border-color: var(--brand-blue);
+    transform: translateY(-1px);
+    text-decoration: none;
+}
+.hub-card h3 {
+    margin-top: 6px;
+    margin-bottom: 6px;
+    color: var(--text-primary);
+}
+.hub-card p {
+    font-size: 12.8px;
+    color: var(--text-secondary);
+    margin: 0;
+}
+
+@page {
+    size: A4;
+    margin: 16mm 15mm 16mm 15mm;
+}
+@media print {
+    html, body {
+        background: #FFFFFF !important;
+        color: #0F172A !important;
+        font-size: 10.5pt;
+        line-height: 1.48;
+    }
+    .no-print { display: none !important; }
+    .doc-shell { max-width: 100%; padding: 0; margin: 0; }
+    .print-letterhead {
+        display: flex !important;
+        justify-content: space-between;
+        align-items: center;
+        padding-bottom: 10px;
+        margin-bottom: 14px;
+        border-bottom: 2px solid #0C4FA8;
+    }
+    h1 { font-size: 18pt; margin-bottom: 8px; }
+    h2 { font-size: 12.5pt; margin-top: 16px; page-break-after: avoid; }
+    h3 { font-size: 10.8pt; page-break-after: avoid; }
+    .exec-callout, tr { page-break-inside: avoid; }
+    .table-wrap { overflow: visible; }
+    table { font-size: 9pt; }
+    th, td { padding: 6px 8px; }
+    a { color: #0C4FA8 !important; text-decoration: none !important; }
+}
+.print-letterhead { display: none; }
+</style>
+    
+<script>
+(function() {
+    const saved = localStorage.getItem('oneova_legal_theme');
+    if (saved === 'dark' || saved === 'light') {
+        document.documentElement.setAttribute('data-theme', saved);
+    } else if (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches) {
+        document.documentElement.setAttribute('data-theme', 'dark');
+    }
+})();
+function toggleTheme() {
+    const cur = document.documentElement.getAttribute('data-theme') === 'dark' ? 'light' : 'dark';
+    document.documentElement.setAttribute('data-theme', cur);
+    localStorage.setItem('oneova_legal_theme', cur);
+}
+</script>
+
 </head>
 <body>
-    <div class="container">
-        <div class="header-nav">
-            <a href="/" class="back-link">← Back to Oneova Showcase</a>
-            <span class="badge-pill">CREATOR RIGHTS & SAFETY</span>
+    
+    <header class="top-bar no-print">
+        <div class="top-bar-inner">
+            <a href="/legal.html" class="brand-mark">
+                <span class="brand-dot">O</span>
+                <span>Oneova Trust &amp; Legal Center</span>
+            </a>
+            <div class="actions-row">
+                <a class="btn-chip" href="/">← Oneova Portal</a>
+                <a class="btn-chip" href="/docs/pdf/01_Oneova_Terms_of_Service.pdf" download>⬇ Official PDF</a>
+                <button class="btn-chip" onclick="toggleTheme()" type="button">Light / Dark</button>
+                <button class="btn-chip primary" onclick="window.print()" type="button">Print / Save PDF</button>
+            </div>
         </div>
-
-        <h1>Terms of Service</h1>
-        <p class="update-date"><strong>Last Updated:</strong> October 2026 • TikTok & Global Social Media Standard</p>
-        
-        <div class="highlight-card">
-            <p>
-                These Terms of Service constitute a legally binding agreement between you and <strong>Oneova Technologies Inc.</strong> governing your use of the Oneova mobile app, 4K Live Broadcast Studio, Creator Rooms, and Mobile Video Editor.
-            </p>
+    </header>
+    
+    <nav class="sub-nav no-print"><a class="nav-pill" href="/legal.html">All Policies</a><a class="nav-pill active" href="/terms.html">Terms of Service</a><a class="nav-pill" href="/privacy.html">Privacy Policy</a><a class="nav-pill" href="/guidelines.html">Community Guidelines</a><a class="nav-pill" href="/child-safety.html">Child &amp; Teen Safety</a><a class="nav-pill" href="/biz-policy.html">Biz &amp; Monetization</a><a class="nav-pill" href="/deletion.html">Data Deletion</a><a class="nav-pill" href="/law-enforcement.html">Law Enforcement</a></nav>
+    <main class="doc-shell">
+        <div class="print-letterhead">
+            <div>
+                <strong style="font-size:13pt;color:#0C4FA8;font-weight:900;">ONEOVA TECHNOLOGIES INC.</strong><br>
+                <span style="font-size:8.5pt;color:#64748B;">OFFICIAL PUBLIC POLICY — ONEOVA.APP</span>
+            </div>
+            <div style="text-align:right;font-size:8.5pt;color:#64748B;">
+                <strong>Document #01</strong><br>
+                Effective: October 25, 2026
+            </div>
         </div>
-
-        <h2>1. Creator Intellectual Property & Ownership</h2>
-        <p>You retain 100% intellectual property ownership of your original video recordings, live camera feeds, audio masters, and creative projects:</p>
-        <ul>
-            <li>By uploading or broadcasting on Oneova, you grant us a worldwide, non-exclusive license solely to host, cache, distribute, and stream your content to your viewers.</li>
-            <li>You can delete, archive, or unpublish your content at any time; removals take effect immediately across our delivery edge network.</li>
-            <li>We do not claim ownership of your video footage or use your private drafts for third-party commercial advertisements without consent.</li>
-        </ul>
-
-        <h2>2. Community Guidelines & Standards</h2>
-        <p>To preserve a creative and constructive community, all users must abide by our TikTok-standard rules:</p>
-        <ul>
-            <li><strong>Harassment & Hate Speech:</strong> Bullying, abusive conduct, hate group symbols, and doxxing result in immediate suspension and device bans.</li>
-            <li><strong>Commercial Transparency (FTC Compliance):</strong> Sponsored reels and paid brand endorsements must display the #ad or #sponsored badge.</li>
-            <li><strong>Copyright & Audio Integrity:</strong> Use only original or authorized audio tracks. Audio attribution discs are strictly preserved platform-wide.</li>
-        </ul>
-
-        <h2>3. Virtual Gifting & Monetization</h2>
-        <p>Oneova offers interactive live gifting and monetization features during 4K Live Broadcasts and Creator Rooms:</p>
-        <ul>
-            <li>Viewers can purchase virtual tokens to send animated stickers, hearts, and celebratory gifts to active creators.</li>
-            <li>Creators can redeem gift earnings into verified payment methods in accordance with our transparent creator payout schedule.</li>
-            <li>Fraudulent tipping, chargeback abuse, or wash-gifting accounts will be frozen and banned permanently.</li>
-        </ul>
-
-        <h2>4. Universal Multi-Platform Sharing</h2>
-        <p>When you export reels to TikTok, YouTube Shorts, Instagram Reels, Facebook Reels, and X:</p>
-        <ul>
-            <li>You remain subject to the respective terms and community guidelines of each destination platform.</li>
-            <li>Oneova facilitates direct high-bitrate video delivery without retaining unauthorized third-party credentials.</li>
-        </ul>
-
-        <h2>5. Termination & Contact</h2>
-        <p>You can terminate your agreement at any time by deleting your account via the mobile app or submitting a request at <a href="/deletion.html">Data Deletion Instructions</a>.</p>
-        <p>For questions regarding these terms, contact our legal counsel at: <a href="mailto:legal@oneova.app">legal@oneova.app</a></p>
-
-        <div class="footer-note">
-            © 2026 Oneova Technologies Inc. All rights reserved. Built to world-class creator trust standards.
-        </div>
-    </div>
+        <span class="doc-badge">LEGAL AGREEMENT</span>
+        <h1>ONEOVA TERMS OF SERVICE</h1>
+<p><strong>Document ID:</strong> <code>ONV-LEGAL-TOS-2026-V1</code><br><strong>Effective Date:</strong> October 25, 2026<br><strong>Contracting Entity:</strong> Oneova Technologies Inc. ("Oneova", "we", "us", or "our")<br><strong>Official Legal &amp; Support Contacts:</strong> <code>legal@oneova.app</code> · <code>support@oneova.app</code> · <code>disputes@oneova.app</code><br><strong>Web Portal:</strong> <code>https://oneova.app/terms</code></p>
+<hr class="rule-divider">
+<div class="exec-callout"><strong>Executive Summary ("In Short"):</strong><br>Welcome to <strong>Oneova</strong>—the social video, messaging, live broadcast, AI creative studio, and social commerce platform built with Africa-first accessibility and global trust standards.<br>1. <strong>You own 100% of your original content.</strong> You only grant Oneova the operational license required to host, optimize, and stream what you choose to share.<br>2. <strong>We never sell your personal data</strong>, and private chats or unpublished Studio drafts are never used to train public AI models.<br>3. <strong>Fair, transparent rules:</strong> Every moderation decision explains which rule applied and gives you a human appeal right.<br>4. <strong>Your local legal rights stay protected:</strong> Nothing in these Terms overrides mandatory consumer or data-protection rights under the laws of your country of residence.</div>
+<hr class="rule-divider">
+<h2 id="1-contractual-relationship-and-acceptance">1. Contractual Relationship and Acceptance</h2>
+<p><strong>1.1 Binding Agreement.</strong> These Terms of Service ("Terms") form a legally binding contract between you and <strong>Oneova Technologies Inc.</strong> governing your access to and use of the Oneova mobile, desktop, and web applications, including <strong>Reels</strong>, <strong>Stories</strong>, <strong>Chat &amp; Calls</strong>, <strong>4K Live Broadcasts &amp; Creator Rooms</strong>, <strong>Oneova Studio &amp; Looks Engine</strong>, <strong>AI Lab &amp; Ova Assistant</strong>, <strong>Oneova Wallet &amp; Coins</strong>, <strong>Oneova Biz Marketplace</strong>, and related websites and APIs (collectively, the <strong>"Services"</strong>).</p>
+<p><strong>1.2 Incorporated Policies.</strong> By creating an account or using the Services, you also agree to comply with our:</p>
+<ul><li><a href="/privacy.html">Privacy Policy</a> (<code>https://oneova.app/privacy</code>);</li><li><a href="/guidelines.html">Community Guidelines</a> (<code>https://oneova.app/guidelines</code>);</li><li><a href="/child-safety.html">Child &amp; Teen Safety Policy</a> (<code>https://oneova.app/child-safety</code>); and</li><li><a href="/biz-policy.html">Biz Marketplace &amp; Creator Monetization Policy</a> (<code>https://oneova.app/biz-policy</code>), where you buy, sell, tip, or monetize on Oneova.</li></ul>
+<p><strong>1.3 Organization and Business Accounts.</strong> If you open or operate an account on behalf of a company, merchant, record label, agency, cooperative, non-profit, or public institution, you represent and warrant that you have legal authority to bind that entity, and "you" includes both you and that entity.</p>
+<hr class="rule-divider">
+<h2 id="2-eligibility-and-age-tier-rules">2. Eligibility and Age-Tier Rules</h2>
+<div class="exec-callout"><strong>In Short:</strong> You must be at least <strong>13</strong> to use Oneova (or older if your country's law requires), and <strong>18+</strong> to go Live, use Wallet/Coins, or sell on Biz.</div>
+<p><strong>2.1 Minimum Age.</strong> You must be at least <strong>13 years of age</strong> to create an account or use the Services. Where the law of your country of residence sets a higher minimum age to consent to digital services without parental authorization (such as <strong>16</strong> or <strong>18</strong> under specific national laws), you may only use Oneova if you meet that age or have verifiable consent from your parent or legal guardian.</p>
+<p><strong>2.2 Adult-Only (18+) Commercial &amp; Live Features.</strong> You must be at least <strong>18 years old</strong> (and have full legal capacity in your jurisdiction) to:</p>
+<ul><li>Host a <strong>Live</strong> broadcast, join a monetized PK Battle, or receive virtual Gifts;</li><li>Purchase, hold, convert, or withdraw <strong>Oneova Coins</strong> or <strong>Creator Earnings</strong>;</li><li>Open a <strong>Biz</strong> seller storefront, publish paid <code>.oneovapack</code> digital assets, or purchase paid advertising.</li></ul>
+<p><strong>2.3 Disqualified Users.</strong> You may not use Oneova if: (a) you are a convicted sex offender or have ever been banned for child sexual exploitation; (b) we previously terminated your account for fraud or severe safety violations (unless reinstated via formal appeal); or (c) applicable sanctions or trade laws prohibit us from providing Services to you.</p>
+<hr class="rule-divider">
+<h2 id="3-account-registration-security-sim-recycle-safeguards">3. Account Registration, Security &amp; SIM-Recycle Safeguards</h2>
+<div class="exec-callout"><strong>In Short:</strong> Keep your login and PIN secret. Because mobile networks across Africa frequently reassign inactive phone numbers, bind a backup email/passkey and App PIN so a recycled SIM can never access your account.</div>
+<p><strong>3.1 Account Accuracy.</strong> You must provide truthful registration information and maintain only accounts for which you have legitimate use. Impersonation and automated bot sign-ups are prohibited.</p>
+<p><strong>3.2 Credential Confidentiality.</strong> You are responsible for safeguarding your password, passkeys, Two-Factor Authentication (2FA) codes, and Oneova App PIN. <strong>Oneova personnel will never ask for your password, SMS OTP, or mobile-money PIN.</strong> Notify <code>security@oneova.app</code> immediately if you suspect unauthorized access.</p>
+<p><strong>3.3 Mobile Number Recycling &amp; SIM-Swap Protection.</strong> Across many African and emerging telecom markets, mobile network operators deactivate and reassign unused SIM numbers after 90 to 180 days. To protect your account, private chats, and Wallet:</p>
+<ul><li>You agree to update your phone number promptly in <strong>Me → Settings → Profile</strong> if you change SIM cards or lose access to your line;</li><li>We strongly recommend enabling <strong>App PIN / Biometric Lock</strong>, <strong>Passkeys</strong>, and a <strong>Recovery Email</strong> in <strong>Me → Settings → Privacy &amp; Security</strong>;</li><li>Oneova reserves the right to require step-up identity verification (and block access to historical private messages or Wallet balances) whenever we detect a SIM-swap anomaly or reassigned phone number.</li></ul>
+<p><strong>3.4 No Account Sale or Transfer.</strong> You may not sell, lease, pledge, or transfer your username, verification badge, or account without Oneova's prior written consent.</p>
+<hr class="rule-divider">
+<h2 id="4-creator-content-ownership-and-license">4. Creator Content Ownership and License</h2>
+<div class="exec-callout"><strong>In Short:</strong> What you create stays <strong>100% yours</strong>. You only give Oneova a revocable license to store, compress for smooth playback, and display your content to the audience you choose.</div>
+<p><strong>4.1 100% Creator Ownership.</strong> As between you and Oneova, <strong>you retain full ownership and intellectual property rights</strong> in all original videos, Reels, Stories, audio recordings, music masters, photographs, custom Studio color grades/Looks, captions, and text you submit to the Services (<strong>"User Content"</strong>).</p>
+<p><strong>4.2 Respect for Cultural &amp; Creative Heritage.</strong> Original African and global music, vocal performances, spoken word, choreography, fashion, visual art, and traditional cultural expressions remain the property of their respective creators and rights-holders.</p>
+<p><strong>4.3 Limited Operational License to Oneova.</strong> By posting or publishing User Content on Oneova, you grant Oneova a <strong>worldwide, non-exclusive, royalty-free, transferable, sub-licensable (solely to infrastructure/CDN/streaming providers needed to operate the Services), and revocable</strong> license to host, cache, transcode (including adaptive low-bitrate streams for 2G/3G/4G networks), reproduce, display, stream, and distribute your User Content <strong>strictly in accordance with the privacy, audience, download, and Remix permissions you select</strong>.</p>
+<p><strong>4.4 Audience &amp; Remix Permissions.</strong></p>
+<ul><li>If you publish a post as <strong>Public</strong> with <strong>Remix</strong> enabled, other Oneova users may create in-app Remixes, Duets, or reaction clips linked to your attribution handle while your post remains public.</li><li>You may switch Remix or Download permissions off at any time in post settings.</li><li><strong>Unpublished Studio Drafts, Private Stories, and Private Chat Messages</strong> are strictly confidential to you and your chosen recipients; Oneova never distributes them publicly or uses them in advertising.</li></ul>
+<p><strong>4.5 Termination of License Upon Deletion.</strong> When you delete User Content or delete your account, the public display license terminates immediately, and copies are purged from active production servers within <strong>30 days</strong> (and from encrypted disaster-recovery backups within <strong>90 days</strong>), except where: (a) another user created a permitted in-app Remix prior to deletion (which you may separately request removed on safety/IP grounds), or (b) retention in an isolated legal vault is required by law, tax rules, or an active safety/fraud investigation.</p>
+<p><strong>4.6 Your Content Warranties &amp; Commercial Disclosure.</strong> You represent that you own or hold all necessary rights, music licenses, and personal consents for your User Content, and that any paid sponsorship, endorsement, or brand partnership clearly displays <code>#ad</code>, <code>#sponsored</code>, or Oneova's <strong>Paid Partnership</strong> toggle in compliance with applicable advertising laws (including Nigeria ARCON rules, Kenya/South Africa consumer standards, UK ASA, and US FTC guidelines).</p>
+<hr class="rule-divider">
+<h2 id="5-universal-multi-platform-publishing">5. Universal Multi-Platform Publishing</h2>
+<p>When you connect external social accounts (such as TikTok, YouTube Shorts, Instagram, or Meta) via OAuth in <strong>Oneova Social Hub</strong> for 1-tap cross-publishing:</p>
+<ol><li>Oneova transmits <strong>only</strong> the exported media, captions, and metadata that you explicitly instruct us to publish;</li><li>Connected platforms govern content once published on their networks under their respective terms and privacy policies; and</li><li>You may revoke third-party publishing tokens at any time in <strong>Me → Settings → Social Accounts</strong> or within the external platform's security settings.</li></ol>
+<hr class="rule-divider">
+<h2 id="6-oneova-studio-ai-lab-ova-assistant">6. Oneova Studio, AI Lab &amp; Ova Assistant</h2>
+<div class="exec-callout"><strong>In Short:</strong> You can use your AI Lab and Studio creations commercially, we never train AI on your private chats or drafts, and realistic AI media of real-looking people or events must stay labeled.</div>
+<p><strong>6.1 Ownership of Studio &amp; AI Outputs.</strong> Subject to applicable law and third-party rights in any input media you provide, Oneova assigns to you any rights we might hold in creative outputs you generate using <strong>Studio</strong>, <strong>AI Color Grader</strong>, <strong>AI Lab</strong>, or <strong>Ova Assistant</strong>.</p>
+<p><strong>6.2 Strict AI Privacy Boundary.</strong> Oneova does <strong>not</strong> use your private Chat messages, voice/video calls, KYC identity documents, or unpublished Studio drafts to train foundation or public generative AI models.</p>
+<p><strong>6.3 Mandatory Synthetic Media Transparency.</strong> Any AI-generated or materially manipulated realistic audio, image, or video depicting realistic people, public figures, or real-world events must retain Oneova's <strong>AI-Generated</strong> visual label and embedded provenance metadata. Using AI tools to generate non-consensual sexual content, child exploitation, financial fraud, identity theft, or election disinformation is strictly prohibited.</p>
+<p><strong>6.4 No Professional Advice.</strong> Outputs from <strong>Ova Assistant</strong> and AI tools are provided for creative and informational assistance only and do not constitute medical, legal, financial, or emergency advice.</p>
+<hr class="rule-divider">
+<h2 id="7-oneova-wallet-coins-live-gifts-creator-payouts">7. Oneova Wallet, Coins, Live Gifts &amp; Creator Payouts</h2>
+<div class="exec-callout"><strong>In Short:</strong> Payments and payouts operate through licensed mobile-money, card, and bank partners, with clear local-currency pricing and zero hidden fees.</div>
+<p><strong>7.1 Licensed Payment Partners.</strong> Payment collection and creator disbursements operate through regulated payment service providers (including central-bank-licensed mobile-money rails such as M-Pesa, MTN MoMo, Airtel Money, Orange Money, Wave, Flutterwave, Stripe, Apple In-App Purchase, and Google Play Billing where platform rules mandate). <strong>Oneova Technologies Inc. is a technology platform, not a bank or deposit-taking institution</strong>, and Wallet/Creator balances do not earn interest.</p>
+<p><strong>7.2 Oneova Coins.</strong></p>
+<ul><li><strong>Coins</strong> are closed-loop virtual tokens usable solely inside Oneova to send virtual Live/Creator Gifts or unlock eligible digital items.</li><li>Coins are <strong>not</strong> legal tender, electronic money, securities, or cryptocurrency, have no cash value outside Oneova, and may not be sold or traded off-platform.</li><li>Full local-currency price, applicable VAT/digital service taxes, and Coin quantity are displayed before checkout confirmation.</li><li>Completed Coin purchases are non-refundable except where mandatory local consumer law, app-store refund rules, or verified unauthorized/duplicate mobile-money debits require a refund.</li></ul>
+<p><strong>7.3 Creator Earnings &amp; Payout KYC.</strong> Eligible 18+ creators earn <strong>Creator Balance</strong> from valid virtual Gifts, Look Pack sales, and monetization programs under the revenue-share schedule displayed in Creator Studio. Payouts to mobile money or bank accounts require completion of <strong>Know Your Customer (KYC)</strong>, tax, and sanctions/AML checks required by financial regulations.</p>
+<p><strong>7.4 Anti-Fraud &amp; Chargebacks.</strong> Wash-gifting, stolen cards, SIM-swap fraud, chargeback abuse, or money laundering will result in reversal of fraudulent credits, payout holds, account termination, and statutory reporting. <strong>Legitimate, verified creator balances unrelated to fraud are never arbitrarily forfeited.</strong></p>
+<hr class="rule-divider">
+<h2 id="8-oneova-biz-marketplace">8. Oneova Biz Marketplace</h2>
+<div class="exec-callout"><strong>In Short:</strong> Biz connects buyers directly with verified entrepreneurs and creators. Sellers must price honestly in local currency, deliver genuine goods, and honor statutory consumer rights.</div>
+<p><strong>8.1 Marketplace Role.</strong> Unless a product explicitly lists "Oneova Technologies Inc." as the seller of record, <strong>Biz Sellers</strong> are independent merchants, and the contract of sale is directly between the Buyer and the Biz Seller.</p>
+<p><strong>8.2 Biz Seller Obligations.</strong> Every Biz Seller warrants that they will: (a) list only genuine, lawful goods or authorized <code>.oneovapack</code> digital packs they have the right to sell; (b) display the complete local-currency price, delivery charges, and dispatch timeline upfront; (c) fulfill orders accurately; and (d) honor statutory cancellation, return, repair, and refund rights under applicable consumer protection statutes (including Kenya's Consumer Protection Act, Nigeria's FCCPA, South Africa's CPA, UK/EU consumer laws, and equivalents).</p>
+<hr class="rule-divider">
+<h2 id="9-intellectual-property-protection-copyright-takedowns">9. Intellectual Property Protection &amp; Copyright Takedowns</h2>
+<p><strong>9.1 Reporting Infringement.</strong> Rights-holders may report suspected copyright, trademark, or counterfeit infringement in-app (<strong>⋯ → Report → Intellectual Property</strong>) or by emailing our Designated IP Agent at <strong><code>copyright@oneova.app</code></strong> with: (a) identification of the protected work, (b) the exact Oneova URL or post ID, (c) contact details, (d) a good-faith statement of unauthorized use, and (e) a statement under penalty of perjury that the notice is accurate and authorized.</p>
+<p><strong>9.2 Counter-Notices &amp; Repeat Infringers.</strong> Creators whose content is removed in error or under fair dealing/fair use may submit a counter-notice via the in-app <strong>Appeal</strong> flow or <code>appeals@oneova.app</code>. Accounts engaging in repeat infringement are terminated.</p>
+<p><strong>9.3 Protection of Oneova IP.</strong> The <strong>Oneova</strong> name, logos, UI design system, proprietary GLSL Look shaders, <code>.oneovapack</code> specifications, recommendation algorithms, and software code are owned exclusively by Oneova Technologies Inc. Automated scraping, reverse engineering, unauthorized API access, or framing of the Services is prohibited.</p>
+<hr class="rule-divider">
+<h2 id="10-content-moderation-enforcement-appeals">10. Content Moderation, Enforcement &amp; Appeals</h2>
+<p><strong>10.1 Transparent Enforcement.</strong> We enforce our <a href="/guidelines.html">Community Guidelines</a> through automated safety classifiers and trained human moderators (including specialists fluent in major African and global languages).</p>
+<p><strong>10.2 Statement of Reasons &amp; Human Appeal.</strong> Whenever we remove content, issue a strike, restrict monetization, or suspend an account, we notify you of the specific rule violated (unless prohibited by law or an active CSAM/severe-crime investigation) and provide a free <strong>in-app Appeal</strong> reviewed by a human reviewer who did not make the initial decision.</p>
+<p><strong>10.3 Voluntary Termination by You.</strong> You may stop using Oneova and permanently delete your account at any time via <strong>Me → Settings → Privacy &amp; Security → Delete Account</strong> or <code>https://oneova.app/deletion</code>.</p>
+<hr class="rule-divider">
+<h2 id="11-updates-to-services-and-terms">11. Updates to Services and Terms</h2>
+<p>We continually enhance Oneova—including low-data compression, security hardening, and Studio features. For material changes to these Terms, we provide at least <strong>14 days' advance notice</strong> in-app or by email/SMS (<strong>30 days' notice</strong> for changes to Creator payout rates or Wallet fee schedules), except when immediate updates are legally mandated or required to stop an active security or safety threat.</p>
+<hr class="rule-divider">
+<h2 id="12-warranties-disclaimers-statutory-consumer-rights">12. Warranties, Disclaimers &amp; Statutory Consumer Rights</h2>
+<p><strong>12.1 Non-Waivable Local Consumer Rights.</strong> If you are a consumer residing in Kenya, Nigeria, South Africa, Tanzania, Uganda, Rwanda, Ghana, Egypt, the European Economic Area, the United Kingdom, or any jurisdiction granting non-waivable statutory consumer or data rights, <strong>nothing in these Terms excludes, restricts, or modifies those statutory rights</strong>.</p>
+<p><strong>12.2 Service Standard.</strong> We provide the Services with reasonable commercial skill and care. Subject to Section 12.1, Oneova does not guarantee uninterrupted availability (particularly during external telecom, subsea cable, power, or mobile-money network outages) and does not endorse the accuracy or safety of third-party User Content or Biz listings.</p>
+<hr class="rule-divider">
+<h2 id="13-limitation-of-liability">13. Limitation of Liability</h2>
+<p>To the maximum extent permitted by applicable law:</p>
+<ol><li>Oneova Technologies Inc. and its officers, directors, employees, and affiliates shall not be liable for indirect, incidental, special, consequential, or punitive damages, or loss of speculative profits; and</li><li>Our aggregate liability for all claims arising out of or relating to the Services in any 12-month period shall not exceed the greater of <strong>USD $100</strong> (or equivalent in your local currency) or <strong>100% of the fees you paid to Oneova in the 12 months preceding the claim</strong>.</li><li><strong>Carve-Outs:</strong> Nothing in these Terms limits Oneova's liability for fraud, fraudulent misrepresentation, gross negligence, willful misconduct, death or personal injury caused by negligence, or wrongful loss of verified legitimate Creator/Wallet funds held in settlement due to our breach.</li></ol>
+<hr class="rule-divider">
+<h2 id="14-indemnification-commercial-business-users-only">14. Indemnification (Commercial &amp; Business Users Only)</h2>
+<p>If you use Oneova as a <strong>Business Account, Biz Seller, Advertiser, or Commercial Entity</strong>, you agree to indemnify and hold harmless Oneova Technologies Inc. against third-party claims, regulatory fines, and reasonable legal costs arising from your breach of these Terms, your commercial products/ads, or your infringement of third-party intellectual property rights. <em>(This clause does not apply to individual non-commercial consumers where prohibited by consumer law.)</em></p>
+<hr class="rule-divider">
+<h2 id="15-friendly-dispute-resolution-governing-law-venue">15. Friendly Dispute Resolution, Governing Law &amp; Venue</h2>
+<p><strong>15.1 Mandatory 30-Day Friendly Resolution Step.</strong> Most concerns can be resolved quickly and free of charge. Before initiating litigation or arbitration, you agree to send a brief written description of the issue and your <code>@username</code> to <strong><code>disputes@oneova.app</code></strong>. Both parties will work in good faith to resolve the matter within <strong>30 days</strong>.</p>
+<p><strong>15.2 Consumer Protections &amp; Forum.</strong></p>
+<ul><li><strong>Individual Consumers:</strong> Where mandatory laws of your country of residence entitle you to bring claims under local consumer or data-protection laws before your national courts, small-claims tribunals, or statutory consumer/data authorities, <strong>you retain that full right</strong>.</li><li><strong>Commercial Disputes &amp; Default Governing Law:</strong> Subject to mandatory local consumer rights above, these Terms are governed by the laws of the <strong>State of Delaware, United States</strong> (without regard to conflict-of-law rules), with commercial disputes eligible for expedited confidential mediation or arbitration through a mutually convenient internationally recognized center (including the <strong>Nairobi Centre for International Arbitration (NCIA)</strong>, <strong>Kigali International Arbitration Centre (KIAC)</strong>, <strong>Lagos Court of Arbitration (LCA)</strong>, or <strong>ICC/AAA</strong>).</li></ul>
+<p><strong>15.3 Severability &amp; Entire Agreement.</strong> If any provision of these Terms is held invalid or unenforceable in a particular jurisdiction, the remaining provisions remain in full force and effect. Failure to enforce a provision is not a waiver.</p>
+        <footer class="doc-footer">
+            <span>© 2026 Oneova Technologies Inc. All rights reserved.</span>
+            <span>Official Trust &amp; Legal Office: legal@oneova.app · dpo@oneova.app</span>
+        </footer>
+    </main>
+    <script src="/js/live-legal-sync.js" data-cms-doc="policy-terms-of-service" defer></script>
 </body>
 </html>

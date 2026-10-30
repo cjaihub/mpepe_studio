@@ -182,7 +182,7 @@ class _OvaAbilitiesScreenState extends ConsumerState<OvaAbilitiesScreen> with Wi
         play: _Play.ok,
       ),
       const SizedBox(height: 10),
-      _linkTile(Icons.gesture_rounded, 'Ways to open Ova', 'Gestures, double tap, quick settings tile', '/ova/triggers'),
+      _linkTile(Icons.gesture_rounded, 'Ways to open Ova', 'Draw "O", button shortcut, lock screen', '/ova/triggers'),
       _linkTile(Icons.key_rounded, 'AI key', 'Needed for chat answers', '/settings/ai'),
       const SizedBox(height: 14),
       Text(

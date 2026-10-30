@@ -4,8 +4,14 @@ import 'package:cloud_functions/cloud_functions.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'settings_models.dart';
+import '../settings_service.dart';
+import 'account_settings_schema.dart' show AccountSettingsSchema;
 import '../../auth/security/login_security.dart';
 
+/// Typed view of the account's security, privacy, AI and appearance
+/// settings. It reads and writes the one settings store, `user_settings/{uid}`
+/// (lib/backend/settings_service.dart); the old `users/{uid}/settings/prefs`
+/// doc is only read once, by the migration in [AccountSettingsSchema].
 final settingsProvider = AsyncNotifierProvider<SettingsNotifier, AppSettings>(() {
   return SettingsNotifier();
 });
@@ -13,23 +19,18 @@ final settingsProvider = AsyncNotifierProvider<SettingsNotifier, AppSettings>(()
 class SettingsNotifier extends AsyncNotifier<AppSettings> {
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
   final FirebaseAuth _auth = FirebaseAuth.instance;
-
-  DocumentReference get _settingsRef {
-    final uid = _auth.currentUser?.uid;
-    if (uid == null) throw Exception("User not authenticated.");
-    return _firestore.collection('users').doc(uid).collection('settings').doc('prefs');
-  }
+  late final SettingsService _store = SettingsService(firestore: _firestore);
 
   @override
   Future<AppSettings> build() {
-    if (_auth.currentUser == null) return Future.value(const AppSettings());
+    final uid = _auth.currentUser?.uid;
+    if (uid == null) return Future.value(const AppSettings());
 
     // Real-time: the first snapshot resolves build(), later ones update state.
     final first = Completer<AppSettings>();
-    final sub = _settingsRef.snapshots().listen(
-      (doc) {
-        final data = doc.data() as Map<String, dynamic>?;
-        final settings = data != null ? AppSettings.fromMap(data) : const AppSettings();
+    final sub = _store.watchSettings(uid).listen(
+      (data) {
+        final settings = AppSettings.fromCanonical(data);
         if (!first.isCompleted) {
           first.complete(settings);
         } else {
@@ -45,16 +46,13 @@ class SettingsNotifier extends AsyncNotifier<AppSettings> {
   }
 
   Future<void> updateSettings(AppSettings newSettings) async {
-    // Optimistic UI update
+    final uid = _auth.currentUser?.uid;
+    if (uid == null) return;
     state = AsyncData(newSettings);
-    
-    // Persist to backend
     try {
-      await _settingsRef.set(newSettings.toMap(), SetOptions(merge: true));
+      await _store.updateSettings(uid, newSettings.toCanonical());
     } catch (e) {
-      // Revert on failure (or handle gracefully)
-      // In production, would capture exception via Crashlytics
-      ref.invalidateSelf(); 
+      ref.invalidateSelf();
     }
   }
 

@@ -90,6 +90,73 @@ rules_version = '2';
 //   - reactions/{reactionId}: hearts and stream reactions
 //   - guest_requests/{requestId}: requests to join stage
 //
+// Collection: platform_cms_docs
+// Document ID: {docId} (slug <= 80 chars, immutable via id == docId)
+// Fields:
+//   - id: string (required, == docId, 1..80 chars, immutable)
+//   - docType: string (required, 'feature' | 'policy' | 'regulation')
+//   - category: string (required, 1..80 chars)
+//   - policyTab: string (optional, <= 80 chars)
+//   - title: string (required, 1..160 chars)
+//   - badge: string (required, 1..40 chars)
+//   - isAccentBadge: bool (required)
+//   - inShort: string (required, 1..800 chars)
+//   - readTime: string (optional, <= 40 chars)
+//   - version: string (optional, <= 40 chars)
+//   - effectiveDate: string (optional, <= 80 chars)
+//   - order: int | number (optional, -100000..1000000)
+//   - isPublished: bool (required; controls public read visibility)
+//   - sections: list<map> (required, <= 40 items)
+//   - htmlOverride: string (optional, <= 80000 chars)
+//   - updatedAt: timestamp (required)
+//   - updatedByUid: string (required, == request.auth.uid)
+//   - updatedByName: string (optional, <= 120 chars)
+//   - changeNote: string (optional, <= 1000 chars)
+// Subcollections:
+//   - revisions/{revId}: immutable admin-only audit & rollback snapshot
+//     - actorUid: string (required, == request.auth.uid)
+//     - createdAt: timestamp (required)
+//     - version, actorName, changeNote: optional bounded strings
+//     - snapshot: optional map (<= 25 keys)
+//
+// Collection: look_packs
+// Document ID: {packId}
+// Fields:
+//   - creatorId: string (creator UID, immutable)
+//   - priceCoins: int (coins >= 0)
+//   - title: string
+//   - description: string
+//   - coverUrl: string
+//   - createdAt: timestamp
+//
+// Collection: wallets
+// Document ID: {uid} (Firebase Auth UID)
+// Fields:
+//   - balanceCoins: int / number
+//   - pendingCoins: int / number
+//   - updatedAt: timestamp
+// Subcollections:
+//   - ledger/{entryId}: immutable double-entry ledger records (server-only)
+//     - amount: int / number
+//     - type: string
+//     - referenceId: string
+//     - createdAt: timestamp
+//
+// Collection: pack_entitlements
+// Document ID: {entitlementId}
+// Fields:
+//   - userId: string (buyer UID, immutable)
+//   - packId: string
+//   - grantedAt: timestamp
+//
+// Collection: withdrawal_requests
+// Document ID: {requestId}
+// Fields:
+//   - userId: string (creator UID, immutable)
+//   - status: string ('pending', 'approved', 'rejected')
+//   - amountCoins: int / number
+//   - createdAt: timestamp
+//
 // ===============================================================
 
 service cloud.firestore {
@@ -178,9 +245,12 @@ service cloud.firestore {
       );
     }
 
+    // resource == null: deleteComment deletes both the posts/ and content/
+    // copy in one transaction, and only one of them usually exists.
     function canDeleteComment(postId) {
       return isSignedIn() &&
-             (resource.data.authorId == request.auth.uid || isPostOwner(postId) || isAdmin());
+             (resource == null || resource.data.authorId == request.auth.uid ||
+              isPostOwner(postId) || isAdmin());
     }
 
     // Generic ownership check for docs keyed by an owner field.
@@ -191,6 +261,24 @@ service cloud.firestore {
         data.get('uid', '') == request.auth.uid ||
         data.get('createdBy', '') == request.auth.uid ||
         data.get('authorId', '') == request.auth.uid
+      );
+    }
+
+    // Enforces user privacy: public accounts are readable by everyone,
+    // private accounts are readable by author, admin, or accepted followers.
+    function canReadAuthorContent(authorId) {
+      return !isSignedIn() ? (
+        !exists(/databases/$(database)/documents/users/$(authorId)) ||
+        !get(/databases/$(database)/documents/users/$(authorId)).data.get('isPrivate', false)
+      ) : (
+        request.auth.uid == authorId ||
+        isAdmin() ||
+        !exists(/databases/$(database)/documents/users/$(authorId)) ||
+        !get(/databases/$(database)/documents/users/$(authorId)).data.get('isPrivate', false) ||
+        (
+          exists(/databases/$(database)/documents/relationships/$(request.auth.uid)_$(authorId)) &&
+          get(/databases/$(database)/documents/relationships/$(request.auth.uid)_$(authorId)).data.get('status', '') == 'accepted'
+        )
       );
     }
 
@@ -226,15 +314,20 @@ service cloud.firestore {
               request.resource.data.get(field, 0) - resource.data.get(field, 0) <= 1);
     }
 
-    // Owners may edit their profile but never grant themselves admin or lift
-    // their own suspension.
+    // Owners may edit their profile but never grant themselves privileged roles
+    // ('admin', 'owner', 'founder') or lift their own suspension.
+    function isPrivilegedRoleValue(role) {
+      return role in ['admin', 'owner', 'founder'] ||
+             (role is string && role.trim().lower() in ['admin', 'owner', 'founder']);
+    }
     function keepsPrivilegesOnCreate() {
-      return request.resource.data.get('role', 'user') != 'admin' &&
+      return !isPrivilegedRoleValue(request.resource.data.get('role', 'user')) &&
              request.resource.data.get('status', 'active') != 'suspended';
     }
     function keepsPrivilegesOnUpdate() {
-      return (request.resource.data.get('role', '') == resource.data.get('role', '') ||
-              request.resource.data.get('role', '') != 'admin') &&
+      let prevRole = resource.data.get('role', 'user');
+      let nextRole = request.resource.data.get('role', 'user');
+      return (nextRole == prevRole || !isPrivilegedRoleValue(nextRole)) &&
              (resource.data.get('status', '') != 'suspended' ||
               request.resource.data.get('status', '') == 'suspended');
     }
@@ -273,7 +366,7 @@ service cloud.firestore {
       // Mirror of the user's own comments (comment_service). The owner of the
       // commented post may remove the mirror when deleting the comment.
       match /comments/{commentId} {
-        allow delete: if isSignedIn() && isPostOwner(resource.data.postId);
+        allow delete: if isSignedIn() && (resource == null || isPostOwner(resource.data.get('postId', '')));
       }
 
       // Collab invites written into the invited user's inbox by the owner
@@ -285,6 +378,12 @@ service cloud.firestore {
       // Subcollection: YouTube accounts
       match /youtube_accounts/{accountId} {
         allow read, write: if isOwner(uid) || isAdmin();
+      }
+
+      // Subcollection: GDPR Data export requests
+      match /data_exports/{exportId} {
+        allow read, create: if isOwner(uid) || isAdmin();
+        allow update, delete: if isAdmin();
       }
 
       // Sign-in log: owner reads, the owner's app only appends, nobody edits.
@@ -300,11 +399,61 @@ service cloud.firestore {
         allow update, delete: if false;
       }
 
-      // Other user subcollections (settings, private data, etc.).
-      // login_history is excluded so it stays append-only.
-      match /{sub}/{document=**} {
-        allow read, write: if (isOwner(uid) || isAdmin()) && sub != 'login_history';
+      // Looks: owned packs are granted by Cloud Functions only.
+      match /entitlements/{packId} {
+        allow read: if isOwner(uid) || isAdmin();
+        allow write: if false;
       }
+
+      // Other user subcollections (settings, looks, lookFolders, liveSettings,
+      // liveProfiles, liveScenes, private data, etc.).
+      // login_history stays append-only; entitlements stay server-written.
+      match /{sub}/{document=**} {
+        allow read, write: if (isOwner(uid) || isAdmin()) && sub != 'login_history' && sub != 'entitlements';
+      }
+    }
+
+    // ─── Looks catalog (published by Cloud Functions / admin tools) ─────────
+    match /lookCatalog/{lookId} {
+      allow read: if isSignedIn();
+      allow write: if false;
+    }
+    match /lookCategories/{catId} {
+      allow read: if isSignedIn();
+      allow write: if false;
+    }
+
+    // ─── Oneova Looks: Scale, Compute & Cost Rules (§4.5, §8, §10) ───────────
+    match /opsConfig/cloudSpend {
+      allow read: if isSignedIn();
+      allow write: if false; // server-only via budget alert function
+    }
+
+    match /computeJobs/{jobId} {
+      allow read: if isSignedIn() && resource.data.userId == request.auth.uid;
+      allow write: if false; // managed by Cloud Functions & workers
+    }
+
+    match /aiResultCache/{cacheKey} {
+      allow read, write: if false; // server-only cache
+    }
+
+    match /rateLimits/{limitId} {
+      allow read, write: if false; // server-only token bucket
+    }
+
+    match /publicLooks/{lookId} {
+      allow read: if isSignedIn();
+      allow write: if false; // server-only
+
+      match /shards/{shardId} {
+        allow read: if isSignedIn();
+        allow write: if false; // server-only sharded counter
+      }
+    }
+
+    match /aiSkillFeedback/{id} {
+      allow read, write: if false; // server-only feedback collection exported to BigQuery
     }
 
     // ─── Telemetry Events ────────────────────────────────────────────────────
@@ -314,7 +463,7 @@ service cloud.firestore {
 
     // ─── Content & Engagement Collections ────────────────────────────────────
     match /content/{contentId} {
-      allow read: if true;
+      allow read: if canReadAuthorContent(resource.data.authorId);
       allow create: if isSignedIn() && !isSuspended() && request.resource.data.authorId == request.auth.uid;
       allow update: if isSignedIn() && !isSuspended() && (
         (resource.data.authorId == request.auth.uid && request.resource.data.authorId == resource.data.authorId) ||
@@ -331,7 +480,7 @@ service cloud.firestore {
       allow delete: if isSignedIn() && (resource.data.authorId == request.auth.uid || isAdmin());
 
       match /comments/{commentId} {
-        allow read: if true;
+        allow read: if canReadAuthorContent(get(/databases/$(database)/documents/content/$(contentId)).data.authorId);
         allow create: if canCreateComment();
         allow update: if canUpdateComment(contentId);
         allow delete: if canDeleteComment(contentId);
@@ -420,7 +569,7 @@ service cloud.firestore {
 
     // ─── Posts ───────────────────────────────────────────────────────────────
     match /posts/{postId} {
-      allow read: if true;
+      allow read: if canReadAuthorContent(resource.data.authorId);
       allow create: if isSignedIn() && !isSuspended() && request.resource.data.authorId == request.auth.uid;
       // Author edits; anyone else may only bump engagement counters.
       allow update: if isSignedIn() && !isSuspended() && (
@@ -431,7 +580,7 @@ service cloud.firestore {
       allow delete: if isSignedIn() && (resource.data.authorId == request.auth.uid || isAdmin());
 
       match /comments/{commentId} {
-        allow read: if true;
+        allow read: if canReadAuthorContent(get(/databases/$(database)/documents/posts/$(postId)).data.authorId);
         allow create: if canCreateComment();
         allow update: if canUpdateComment(postId);
         allow delete: if canDeleteComment(postId);
@@ -479,7 +628,7 @@ service cloud.firestore {
 
     // ─── Stories ─────────────────────────────────────────────────────────────
     match /stories/{storyId} {
-      allow read: if true;
+      allow read: if canReadAuthorContent(resource.data.authorId);
       allow create: if isSignedIn() && !isSuspended() && request.resource.data.authorId == request.auth.uid;
       // Author edits; viewers may only record their view / reaction / reply.
       allow update: if isSignedIn() && !isSuspended() && (
@@ -593,16 +742,118 @@ service cloud.firestore {
         return isSignedIn() &&
                request.auth.uid in getAfter(/databases/$(database)/documents/chats/$(chatId)).data.get('participants', []);
       }
-      allow read: if isSignedIn() && (resource == null || request.auth.uid in resource.data.get('participants', []));
-      allow create: if isSignedIn() && !isSuspended() &&
-                       request.auth.uid in request.resource.data.get('participants', []);
-      allow update: if isSignedIn() && !isSuspended() &&
-                       request.auth.uid in resource.data.get('participants', []);
-      allow delete: if isSignedIn() && request.auth.uid in resource.data.get('participants', []);
+      // Rooms ('room'), VIP rooms ('vip_room') and broadcast channels
+      // ('channel') are chats with an ownerId (messaging_repository).
+      function isRoomCategory(category) {
+        return category in ['room', 'vip_room', 'channel'];
+      }
+      function isChatOwnerAfter() {
+        return isSignedIn() &&
+               getAfter(/databases/$(database)/documents/chats/$(chatId)).data.get('ownerId', '') == request.auth.uid;
+      }
+      function chatCategoryAfter() {
+        return getAfter(/databases/$(database)/documents/chats/$(chatId)).data.get('category', '');
+      }
+      // Set of uids added to or removed from participants by this update.
+      function participantsDelta() {
+        let before = resource.data.get('participants', []).toSet();
+        let after = request.resource.data.get('participants', []).toSet();
+        return after.difference(before).union(before.difference(after));
+      }
+      // A signed-in non-member joins an open room: adds only themselves and
+      // their own unread counter.
+      function isJoiningOpenRoom() {
+        return resource.data.get('category', '') == 'room' &&
+               !(request.auth.uid in resource.data.get('participants', [])) &&
+               onlyChanges(['participants', 'unreadCounts']) &&
+               request.resource.data.get('participants', []).toSet()
+                 .difference(resource.data.get('participants', []).toSet()).hasOnly([request.auth.uid]) &&
+               resource.data.get('participants', []).toSet()
+                 .difference(request.resource.data.get('participants', []).toSet()).size() == 0 &&
+               request.resource.data.get('unreadCounts', {})
+                 .diff(resource.data.get('unreadCounts', {})).affectedKeys().hasOnly([request.auth.uid]);
+      }
+      // Updates by an existing member. 1:1 and group chats are unchanged; in
+      // rooms/channels only the owner may change identity fields or add
+      // members, others may only remove themselves (leave), and in a channel
+      // only the owner sets the last-message preview.
+      function isMemberUpdate() {
+        let category = resource.data.get('category', '');
+        let ownsRoom = resource.data.get('ownerId', '') == request.auth.uid;
+        return request.auth.uid in resource.data.get('participants', []) && (
+          !isRoomCategory(category) ||
+          (request.resource.data.get('category', '') == category &&
+           request.resource.data.get('ownerId', '') == resource.data.get('ownerId', '') &&
+           (ownsRoom || (
+             !request.resource.data.diff(resource.data).affectedKeys()
+               .hasAny(['title', 'description', 'tags', 'accessNote']) &&
+             // Already a member, so the only possible self-change is leaving.
+             participantsDelta().hasOnly([request.auth.uid]) &&
+             (category != 'channel' ||
+              !request.resource.data.diff(resource.data).affectedKeys()
+                .hasAny(['lastMessage', 'lastMessageTime', 'lastMessageSenderId']))
+           )))
+        );
+      }
 
-      match /{document=**} {
-        allow read: if isChatMember();
-        allow write: if isChatMemberAfter() && !isSuspended();
+      // Members read their chats; open and VIP rooms are listable by anyone
+      // signed in for discovery (watchRooms queries category == room/vip_room).
+      allow read: if isSignedIn() && (resource == null ||
+                     request.auth.uid in resource.data.get('participants', []) ||
+                     resource.data.get('category', '') in ['room', 'vip_room']);
+      allow create: if isSignedIn() && !isSuspended() &&
+                       request.auth.uid in request.resource.data.get('participants', []) &&
+                       (!isRoomCategory(request.resource.data.get('category', '')) ||
+                        (request.resource.data.get('ownerId', '') == request.auth.uid &&
+                         // Rooms start with only the owner; channels also
+                         // carry the owner's followers.
+                         (request.resource.data.category == 'channel' ||
+                          request.resource.data.participants == [request.auth.uid])));
+      allow update: if isSignedIn() && !isSuspended() && (isMemberUpdate() || isJoiningOpenRoom());
+      allow delete: if isSignedIn() && request.auth.uid in resource.data.get('participants', []) &&
+                       (!isRoomCategory(resource.data.get('category', '')) ||
+                        resource.data.get('ownerId', '') == request.auth.uid);
+
+      // VIP room access requests: doc id == requester uid. The requester
+      // creates a pending request; only the room owner resolves it.
+      match /joinRequests/{requesterId} {
+        function roomData() {
+          return get(/databases/$(database)/documents/chats/$(chatId)).data;
+        }
+        allow read: if isSignedIn() &&
+                       (requesterId == request.auth.uid || roomData().get('ownerId', '') == request.auth.uid);
+        allow create: if isSignedIn() && !isSuspended() &&
+                         requesterId == request.auth.uid &&
+                         roomData().get('category', '') == 'vip_room' &&
+                         request.resource.data.get('userId', '') == request.auth.uid &&
+                         request.resource.data.get('status', '') == 'pending';
+        allow update: if isSignedIn() && !isSuspended() &&
+                         roomData().get('ownerId', '') == request.auth.uid &&
+                         onlyChanges(['status', 'resolvedAt']) &&
+                         request.resource.data.status in ['approved', 'declined'];
+        allow delete: if isSignedIn() &&
+                         (requesterId == request.auth.uid || roomData().get('ownerId', '') == request.auth.uid);
+      }
+
+      // Channel members can't post, but may still mark messages read and
+      // react, as themselves only.
+      match /messages/{messageId} {
+        allow update: if isChatMemberAfter() && !isSuspended() && chatCategoryAfter() == 'channel' &&
+                         onlyChanges(['readBy', 'reactions']) &&
+                         request.resource.data.get('readBy', []).toSet()
+                           .difference(resource.data.get('readBy', []).toSet()).hasOnly([request.auth.uid]) &&
+                         resource.data.get('readBy', []).toSet()
+                           .difference(request.resource.data.get('readBy', []).toSet()).size() == 0 &&
+                         request.resource.data.get('reactions', {})
+                           .diff(resource.data.get('reactions', {})).affectedKeys().hasOnly([request.auth.uid]);
+      }
+
+      // Messages and other chat subcollections: members only. In a channel
+      // only the owner writes messages. joinRequests has its own rules above.
+      match /{sub}/{rest=**} {
+        allow read: if sub != 'joinRequests' && isChatMember();
+        allow write: if sub != 'joinRequests' && isChatMemberAfter() && !isSuspended() &&
+                        (sub != 'messages' || chatCategoryAfter() != 'channel' || isChatOwnerAfter());
       }
     }
 
@@ -1016,6 +1267,16 @@ service cloud.firestore {
     // ─── Moderation & audit (write-once from clients) ────────────────────────
     match /moderation_tickets/{ticketId} {
       allow create: if isSignedIn() && request.resource.data.reportedByUserId == request.auth.uid;
+      // Profile reports use a fixed id '<reporter>_user_<target>' and set(),
+      // so reporting the same account again overwrites the reporter's own
+      // ticket while it is still awaiting review.
+      allow update: if isSignedIn() &&
+                       ticketId == request.auth.uid + '_user_' + resource.data.get('targetId', '') &&
+                       resource.data.get('reportedByUserId', '') == request.auth.uid &&
+                       resource.data.get('state', '') == 'pendingAutomatedReview' &&
+                       request.resource.data.reportedByUserId == request.auth.uid &&
+                       request.resource.data.get('targetId', '') == resource.data.get('targetId', '') &&
+                       request.resource.data.get('state', '') == 'pendingAutomatedReview';
       allow read, update, delete: if isAdmin();
     }
     match /moderation_cases/{caseId} {
@@ -1078,6 +1339,132 @@ service cloud.firestore {
     match /{shard}/{docId}/{sub=**} {
       allow read, write: if isSignedIn() &&
         shard.matches('user_notifications_shard_[0-9]+') && docId == request.auth.uid;
+    }
+
+    // ─── Platform Documentation, Rules & Regulations CMS ─────────────────────
+    function isPlatformDocsAdmin() {
+      return isSignedIn() && (
+        request.auth.token.get('admin', false) == true ||
+        (exists(/databases/$(database)/documents/users/$(request.auth.uid)) && (
+          isAdmin() ||
+          get(/databases/$(database)/documents/users/$(request.auth.uid)).data.get('role', '') in ['admin', 'owner', 'founder']
+        ))
+      );
+    }
+
+    function isValidCmsOptionalString(data, field, maxLen) {
+      return !(field in data) ||
+             data[field] == null ||
+             (data[field] is string && data[field].size() <= maxLen);
+    }
+
+    function isValidPlatformCmsDoc(docId, data) {
+      return docId.size() >= 1 && docId.size() <= 80 &&
+             data.keys().hasOnly([
+               'id', 'docType', 'category', 'policyTab', 'title', 'badge',
+               'isAccentBadge', 'inShort', 'readTime', 'version',
+               'effectiveDate', 'order', 'isPublished', 'sections',
+               'htmlOverride', 'updatedAt', 'updatedByUid', 'updatedByName',
+               'changeNote'
+             ]) &&
+             data.keys().hasAll([
+               'id', 'docType', 'category', 'title', 'badge',
+               'isAccentBadge', 'inShort', 'isPublished', 'sections',
+               'updatedAt', 'updatedByUid'
+             ]) &&
+             data.id is string && data.id == docId &&
+             data.docType in ['feature', 'policy', 'regulation'] &&
+             data.category is string && data.category.size() >= 1 && data.category.size() <= 80 &&
+             data.title is string && data.title.size() >= 1 && data.title.size() <= 160 &&
+             data.badge is string && data.badge.size() >= 1 && data.badge.size() <= 40 &&
+             data.isAccentBadge is bool &&
+             data.inShort is string && data.inShort.size() >= 1 && data.inShort.size() <= 800 &&
+             data.isPublished is bool &&
+             data.sections is list && data.sections.size() <= 40 &&
+             (data.sections.size() == 0 || data.sections[0] is map) &&
+             data.updatedByUid is string && data.updatedByUid == request.auth.uid &&
+             data.updatedAt is timestamp &&
+             isValidCmsOptionalString(data, 'policyTab', 80) &&
+             isValidCmsOptionalString(data, 'readTime', 40) &&
+             isValidCmsOptionalString(data, 'version', 40) &&
+             isValidCmsOptionalString(data, 'effectiveDate', 80) &&
+             isValidCmsOptionalString(data, 'updatedByName', 120) &&
+             isValidCmsOptionalString(data, 'changeNote', 1000) &&
+             isValidCmsOptionalString(data, 'htmlOverride', 80000) &&
+             (!('order' in data) || data.order == null ||
+              ((data.order is int || data.order is number) &&
+               data.order >= -100000 && data.order <= 1000000));
+    }
+
+    function isValidPlatformCmsRevision(docId, revId, data) {
+      return docId.size() >= 1 && docId.size() <= 80 &&
+             revId.size() >= 1 && revId.size() <= 120 &&
+             data.keys().size() <= 20 &&
+             data.get('actorUid', '') is string &&
+             data.get('actorUid', '') == request.auth.uid &&
+             data.get('createdAt', null) is timestamp &&
+             isValidCmsOptionalString(data, 'version', 40) &&
+             isValidCmsOptionalString(data, 'actorName', 120) &&
+             isValidCmsOptionalString(data, 'changeNote', 1000) &&
+             (!('snapshot' in data) || data.snapshot == null ||
+              (data.snapshot is map && data.snapshot.keys().size() <= 25));
+    }
+
+    match /platform_cms_docs/{docId} {
+      // Published docs are publicly readable (React web portal & pre-signup /legal);
+      // unpublished drafts are readable only by platform docs admins.
+      allow get, list: if (resource != null && resource.data.get('isPublished', false) == true) ||
+                          isPlatformDocsAdmin();
+      allow create: if isPlatformDocsAdmin() && isValidPlatformCmsDoc(docId, request.resource.data);
+      allow update: if isPlatformDocsAdmin() && isValidPlatformCmsDoc(docId, request.resource.data);
+      allow delete: if isPlatformDocsAdmin();
+
+      // Immutable audit & rollback revision history (admin-only, append-only).
+      match /revisions/{revId} {
+        allow get, list: if isPlatformDocsAdmin();
+        allow create: if isPlatformDocsAdmin() &&
+                         isValidPlatformCmsRevision(docId, revId, request.resource.data);
+        allow update, delete: if false;
+      }
+    }
+
+    // ─── Looks Marketplace, Wallets & Entitlements (Phases 8 & 10) ───────────
+    match /look_packs/{packId} {
+      allow read: if isSignedIn();
+      allow create: if isSignedIn() && !isSuspended() &&
+                       request.resource.data.creatorId == request.auth.uid &&
+                       request.resource.data.priceCoins is int &&
+                       request.resource.data.priceCoins >= 0;
+      allow update: if isSignedIn() && !isSuspended() &&
+                       ((resource.data.creatorId == request.auth.uid &&
+                         request.resource.data.creatorId == resource.data.creatorId &&
+                         (!('priceCoins' in request.resource.data) || (request.resource.data.priceCoins is int && request.resource.data.priceCoins >= 0))) ||
+                        isAdmin());
+      allow delete: if isSignedIn() &&
+                       (resource.data.creatorId == request.auth.uid || isAdmin());
+    }
+
+    match /wallets/{uid} {
+      allow read: if isOwner(uid) || isAdmin();
+      allow write: if false;
+
+      match /ledger/{entryId} {
+        allow read: if isOwner(uid) || isAdmin();
+        allow write: if false;
+      }
+    }
+
+    match /pack_entitlements/{entitlementId} {
+      allow read: if isSignedIn() && (resource.data.userId == request.auth.uid || isAdmin());
+      allow write: if false;
+    }
+
+    match /withdrawal_requests/{requestId} {
+      allow read: if isSignedIn() && (resource.data.userId == request.auth.uid || isAdmin());
+      allow create: if isSignedIn() && !isSuspended() &&
+                       request.resource.data.userId == request.auth.uid &&
+                       request.resource.data.status == 'pending';
+      allow update, delete: if isAdmin();
     }
 
     // ─── Deny everything else ────────────────────────────────────────────────

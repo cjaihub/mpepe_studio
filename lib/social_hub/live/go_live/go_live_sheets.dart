@@ -4,6 +4,7 @@ import 'package:flutter_animate/flutter_animate.dart';
 import 'package:google_fonts/google_fonts.dart';
 
 import '../../../shared/theme/app_theme.dart';
+import '../settings/live_advanced_settings_sheet.dart';
 import '../widgets/oneova_live_creation_wizard.dart'
     show OneovaLiveCreationConfig;
 
@@ -219,43 +220,12 @@ class GoLiveSheets {
             ));
   }
 
-  // ── Beauty ──────────────────────────────────────────────────────────────
+  // ── Beauty & Looks ────────────────────────────────────────────────────────
 
   static Future<void> beauty(BuildContext context,
       {required OneovaLiveCreationConfig config,
       required ConfigChanged onChanged}) {
-    var cfg = config;
-    void set(StateSetter s, OneovaLiveCreationConfig n) {
-      s(() => cfg = n);
-      onChanged(n);
-    }
-
-    return _open(context,
-        title: 'Beauty & light',
-        icon: Icons.auto_awesome_rounded,
-        body: (ctx, s) => Column(
-              children: [
-                _SliderTile(
-                  icon: Icons.face_retouching_natural_outlined,
-                  title: 'Smooth',
-                  value: cfg.skinSmoothing,
-                  onChanged: (v) => set(s, cfg.copyWith(skinSmoothing: v)),
-                ),
-                _SliderTile(
-                  icon: Icons.wb_sunny_outlined,
-                  title: 'Ring light',
-                  value: cfg.studioLighting,
-                  onChanged: (v) => set(s, cfg.copyWith(studioLighting: v)),
-                ),
-                _SwitchTile(
-                  icon: Icons.blur_circular_outlined,
-                  title: 'Background blur',
-                  subtitle: 'Soften what is behind you',
-                  value: cfg.aiBackgroundBlur,
-                  onChanged: (v) => set(s, cfg.copyWith(aiBackgroundBlur: v)),
-                ),
-              ],
-            ));
+    return showLiveAdvancedSettingsSheet(context);
   }
 
   // ── Scene / effects ─────────────────────────────────────────────────────

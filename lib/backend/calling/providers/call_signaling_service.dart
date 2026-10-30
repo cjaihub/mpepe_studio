@@ -178,6 +178,19 @@ class CallSignalingService {
     });
   }
 
+  /// Tells the caller this device is ringing ("Calling…" → "Ringing…").
+  Future<void> markDelivered(String callId) async {
+    final me = currentUserId;
+    if (me.isEmpty) return;
+    try {
+      await _participantRef(callId, me).set({
+        'deliveredAt': FieldValue.serverTimestamp(),
+      }, SetOptions(merge: true));
+    } catch (e) {
+      debugPrint('[CallSignaling] markDelivered failed: $e');
+    }
+  }
+
   Future<void> declineCall(String callId) =>
       _setMyStatusAndSettle(callId, ParticipantStatus.declined);
 

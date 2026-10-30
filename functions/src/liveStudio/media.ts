@@ -31,6 +31,8 @@ import {
   ROOM_EMPTY_TIMEOUT_SECONDS,
   TOKEN_TTL_SECONDS,
   Profile,
+  StartValidationError,
+  applyStartKind,
   buildHostMember,
   buildInitialState,
   buildStreamDoc,
@@ -38,6 +40,7 @@ import {
   grantForRole,
   mergeStartSettings,
   parseOwnMedia,
+  parseStartKind,
   profileFrom,
   tokenDecision,
   wireState,
@@ -74,13 +77,24 @@ function streamIdArg(data: unknown): string {
 /** Host starts a v2 live. Returns `{streamId, token, url, role}`. */
 export const lsStart = onCall({ secrets: LIVEKIT_SECRETS }, async (req) => {
   const uid = requireUid(req);
-  const data = (req.data ?? {}) as { title?: unknown; settings?: unknown };
+  const data = (req.data ?? {}) as { title?: unknown; settings?: unknown; kind?: unknown; gameTitle?: unknown };
   const title = requireString(data.title, 'title', 200);
+  let start;
+  try {
+    start = parseStartKind(data);
+  } catch (e) {
+    if (e instanceof StartValidationError) throw new HttpsError('invalid-argument', e.message);
+    throw e;
+  }
+  const { kind, gameTitle } = start;
   const [profile, savedSnap] = await Promise.all([
     profileOf(uid, req.auth?.token),
     db().doc(Paths.hostSettings(uid)).get(),
   ]);
-  const settings = normalizeSettings(mergeStartSettings(savedSnap.exists ? savedSnap.data() : undefined, data.settings));
+  const settings = applyStartKind(
+    normalizeSettings(mergeStartSettings(savedSnap.exists ? savedSnap.data() : undefined, data.settings)),
+    kind,
+  );
 
   const streamRef = db().collection(Paths.streams).doc();
   const streamId = streamRef.id;
@@ -96,11 +110,11 @@ export const lsStart = onCall({ secrets: LIVEKIT_SECRETS }, async (req) => {
 
   const batch = db().batch();
   batch.set(streamRef, {
-    ...buildStreamDoc({ streamId, hostId: uid, title, profile }),
+    ...buildStreamDoc({ streamId, hostId: uid, title, profile, kind, gameTitle }),
     createdAt: FieldValue.serverTimestamp(),
   });
   batch.set(db().doc(Paths.state(streamId)), {
-    ...buildInitialState({ streamId, hostId: uid, title, settings, nowMs: now }),
+    ...buildInitialState({ streamId, hostId: uid, title, settings, nowMs: now, gameTitle }),
     updatedAt: FieldValue.serverTimestamp(),
   });
   batch.set(db().doc(`${Paths.members(streamId)}/${uid}`), buildHostMember(uid, profile, now));

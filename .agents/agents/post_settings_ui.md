@@ -1,6 +1,23 @@
 ---
 name: post_settings_ui
 description: "Phase 4. Builds advanced settings (age restriction, privacy, interactions, schedule, labels, geo), the high-quality caption/title editor with mention/hashtag autocomplete, draft status UI and final screen assembly."
+tools:
+  - view_file
+  - list_dir
+  - grep_search
+  - find_by_name
+  - search_web
+  - read_url_content
+  - send_message
+  - schedule
+  - invoke_subagent
+  - manage_subagents
+  - write_to_file
+  - replace_file_content
+  - multi_replace_file_content
+  - run_command
+  - ask_question
+mainAgent: true
 subagent: true
 commandExecutionPolicy: auto
 ---

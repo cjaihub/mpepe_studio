@@ -1,0 +1,421 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ONEOVA BIZ MARKETPLACE &amp; CREATOR MONETIZATION POLICY — Oneova</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
+    <style>
+:root {
+    --brand-blue: #0C4FA8;
+    --brand-blue-soft: rgba(12, 79, 168, 0.10);
+    --brand-pink: #FF2D87;
+    --brand-pink-soft: rgba(255, 45, 135, 0.12);
+    --bg: #FFFFFF;
+    --surface: #F8FAFC;
+    --surface-mid: #F1F5F9;
+    --border: #E2E8F0;
+    --text-primary: #0F172A;
+    --text-secondary: #334155;
+    --text-muted: #64748B;
+}
+html[data-theme="dark"] {
+    --bg: #0A0A0A;
+    --surface: #141414;
+    --surface-mid: #1F1F1F;
+    --border: #262626;
+    --text-primary: #F3F4F6;
+    --text-secondary: #CBD5E1;
+    --text-muted: #9CA3AF;
+    --brand-blue-soft: rgba(12, 79, 168, 0.24);
+}
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body {
+    font-family: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    background: var(--bg);
+    color: var(--text-primary);
+    line-height: 1.62;
+    font-size: 14.5px;
+    -webkit-font-smoothing: antialiased;
+}
+.top-bar {
+    position: sticky;
+    top: 0;
+    z-index: 40;
+    background: var(--bg);
+    border-bottom: 1px solid var(--border);
+    padding: 12px 24px;
+}
+.top-bar-inner {
+    max-width: 960px;
+    margin: 0 auto;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    flex-wrap: wrap;
+}
+.brand-mark {
+    display: inline-flex;
+    align-items: center;
+    gap: 10px;
+    text-decoration: none;
+    color: var(--text-primary);
+    font-weight: 900;
+    font-size: 16px;
+    letter-spacing: -0.3px;
+}
+.brand-dot {
+    width: 26px;
+    height: 26px;
+    border-radius: 7px;
+    background: var(--brand-blue);
+    color: #FFFFFF;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 13px;
+    font-weight: 900;
+}
+.actions-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+.btn-chip {
+    appearance: none;
+    border: 1px solid var(--border);
+    background: var(--surface);
+    color: var(--text-primary);
+    font-family: inherit;
+    font-size: 12px;
+    font-weight: 700;
+    padding: 7px 12px;
+    border-radius: 8px;
+    cursor: pointer;
+    text-decoration: none;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+}
+.btn-chip.primary {
+    background: var(--brand-blue);
+    border-color: var(--brand-blue);
+    color: #FFFFFF;
+}
+.sub-nav {
+    max-width: 960px;
+    margin: 14px auto 0;
+    padding: 0 24px;
+    display: flex;
+    gap: 6px;
+    overflow-x: auto;
+    padding-bottom: 6px;
+}
+.nav-pill {
+    text-decoration: none;
+    font-size: 12px;
+    font-weight: 600;
+    padding: 6px 11px;
+    border-radius: 8px;
+    border: 1px solid var(--border);
+    background: var(--surface);
+    color: var(--text-secondary);
+    white-space: nowrap;
+}
+.nav-pill.active {
+    background: var(--brand-blue);
+    border-color: var(--brand-blue);
+    color: #FFFFFF;
+    font-weight: 700;
+}
+.doc-shell {
+    max-width: 960px;
+    margin: 0 auto;
+    padding: 26px 24px 72px;
+}
+.doc-badge {
+    display: inline-block;
+    font-size: 10px;
+    font-weight: 800;
+    letter-spacing: 0.7px;
+    text-transform: uppercase;
+    padding: 4px 10px;
+    border-radius: 6px;
+    background: var(--brand-pink-soft);
+    color: var(--brand-pink);
+    border: 1px solid rgba(255, 45, 135, 0.32);
+    margin-bottom: 10px;
+}
+h1 {
+    font-size: 26px;
+    font-weight: 850;
+    letter-spacing: -0.5px;
+    line-height: 1.2;
+    color: var(--text-primary);
+    margin-bottom: 14px;
+}
+h2 {
+    font-size: 17.5px;
+    font-weight: 800;
+    letter-spacing: -0.25px;
+    color: var(--text-primary);
+    margin-top: 28px;
+    margin-bottom: 10px;
+    padding-bottom: 6px;
+    border-bottom: 1px solid var(--border);
+}
+h3 {
+    font-size: 14.5px;
+    font-weight: 700;
+    color: var(--text-primary);
+    margin-top: 18px;
+    margin-bottom: 8px;
+}
+p {
+    color: var(--text-secondary);
+    margin-bottom: 11px;
+}
+p strong, li strong {
+    color: var(--text-primary);
+}
+ul, ol {
+    margin: 8px 0 14px 22px;
+    color: var(--text-secondary);
+}
+li {
+    margin-bottom: 6px;
+}
+a {
+    color: var(--brand-blue);
+    font-weight: 600;
+    text-decoration: none;
+}
+html[data-theme="dark"] a {
+    color: #60A5FA;
+}
+a:hover { text-decoration: underline; }
+code {
+    font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+    font-size: 12.5px;
+    background: var(--surface-mid);
+    border: 1px solid var(--border);
+    padding: 1px 6px;
+    border-radius: 5px;
+    color: var(--text-primary);
+}
+.sig-blank {
+    font-family: inherit;
+    font-weight: 500;
+    color: var(--text-primary);
+    background: transparent;
+    border: none;
+    padding: 0 2px;
+}
+h2, h3 {
+    break-after: avoid;
+    page-break-after: avoid;
+}
+.exec-callout {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-left: 4px solid var(--brand-blue);
+    border-radius: 10px;
+    padding: 14px 16px;
+    margin: 14px 0 18px;
+    color: var(--text-secondary);
+    font-size: 13.5px;
+}
+.rule-divider {
+    border: none;
+    border-top: 1px solid var(--border);
+    margin: 20px 0;
+}
+.table-wrap {
+    width: 100%;
+    overflow-x: auto;
+    margin: 14px 0 18px;
+    border: 1px solid var(--border);
+    border-radius: 10px;
+}
+table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 12.8px;
+}
+th {
+    background: var(--surface-mid);
+    color: var(--text-primary);
+    font-weight: 700;
+    text-align: left;
+    padding: 10px 12px;
+    border-bottom: 1px solid var(--border);
+}
+td {
+    padding: 9px 12px;
+    border-bottom: 1px solid var(--border);
+    color: var(--text-secondary);
+    vertical-align: top;
+}
+tr:last-child td { border-bottom: none; }
+.doc-footer {
+    margin-top: 44px;
+    padding-top: 18px;
+    border-top: 1px solid var(--border);
+    display: flex;
+    justify-content: space-between;
+    flex-wrap: wrap;
+    gap: 10px;
+    font-size: 12px;
+    color: var(--text-muted);
+}
+.hub-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+    gap: 14px;
+    margin-top: 18px;
+}
+.hub-card {
+    display: block;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 16px;
+    text-decoration: none;
+    transition: border-color 0.15s ease, transform 0.15s ease;
+}
+.hub-card:hover {
+    border-color: var(--brand-blue);
+    transform: translateY(-1px);
+    text-decoration: none;
+}
+.hub-card h3 {
+    margin-top: 6px;
+    margin-bottom: 6px;
+    color: var(--text-primary);
+}
+.hub-card p {
+    font-size: 12.8px;
+    color: var(--text-secondary);
+    margin: 0;
+}
+
+@page {
+    size: A4;
+    margin: 16mm 15mm 16mm 15mm;
+}
+@media print {
+    html, body {
+        background: #FFFFFF !important;
+        color: #0F172A !important;
+        font-size: 10.5pt;
+        line-height: 1.48;
+    }
+    .no-print { display: none !important; }
+    .doc-shell { max-width: 100%; padding: 0; margin: 0; }
+    .print-letterhead {
+        display: flex !important;
+        justify-content: space-between;
+        align-items: center;
+        padding-bottom: 10px;
+        margin-bottom: 14px;
+        border-bottom: 2px solid #0C4FA8;
+    }
+    h1 { font-size: 18pt; margin-bottom: 8px; }
+    h2 { font-size: 12.5pt; margin-top: 16px; page-break-after: avoid; }
+    h3 { font-size: 10.8pt; page-break-after: avoid; }
+    .exec-callout, tr { page-break-inside: avoid; }
+    .table-wrap { overflow: visible; }
+    table { font-size: 9pt; }
+    th, td { padding: 6px 8px; }
+    a { color: #0C4FA8 !important; text-decoration: none !important; }
+}
+.print-letterhead { display: none; }
+</style>
+    
+<script>
+(function() {
+    const saved = localStorage.getItem('oneova_legal_theme');
+    if (saved === 'dark' || saved === 'light') {
+        document.documentElement.setAttribute('data-theme', saved);
+    } else if (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches) {
+        document.documentElement.setAttribute('data-theme', 'dark');
+    }
+})();
+function toggleTheme() {
+    const cur = document.documentElement.getAttribute('data-theme') === 'dark' ? 'light' : 'dark';
+    document.documentElement.setAttribute('data-theme', cur);
+    localStorage.setItem('oneova_legal_theme', cur);
+}
+</script>
+
+</head>
+<body>
+    
+    <header class="top-bar no-print">
+        <div class="top-bar-inner">
+            <a href="/legal.html" class="brand-mark">
+                <span class="brand-dot">O</span>
+                <span>Oneova Trust &amp; Legal Center</span>
+            </a>
+            <div class="actions-row">
+                <a class="btn-chip" href="/">← Oneova Portal</a>
+                <a class="btn-chip" href="/docs/pdf/05_Oneova_Biz_and_Creator_Monetization_Policy.pdf" download>⬇ Official PDF</a>
+                <button class="btn-chip" onclick="toggleTheme()" type="button">Light / Dark</button>
+                <button class="btn-chip primary" onclick="window.print()" type="button">Print / Save PDF</button>
+            </div>
+        </div>
+    </header>
+    
+    <nav class="sub-nav no-print"><a class="nav-pill" href="/legal.html">All Policies</a><a class="nav-pill" href="/terms.html">Terms of Service</a><a class="nav-pill" href="/privacy.html">Privacy Policy</a><a class="nav-pill" href="/guidelines.html">Community Guidelines</a><a class="nav-pill" href="/child-safety.html">Child &amp; Teen Safety</a><a class="nav-pill active" href="/biz-policy.html">Biz &amp; Monetization</a><a class="nav-pill" href="/deletion.html">Data Deletion</a><a class="nav-pill" href="/law-enforcement.html">Law Enforcement</a></nav>
+    <main class="doc-shell">
+        <div class="print-letterhead">
+            <div>
+                <strong style="font-size:13pt;color:#0C4FA8;font-weight:900;">ONEOVA TECHNOLOGIES INC.</strong><br>
+                <span style="font-size:8.5pt;color:#64748B;">OFFICIAL PUBLIC POLICY — ONEOVA.APP</span>
+            </div>
+            <div style="text-align:right;font-size:8.5pt;color:#64748B;">
+                <strong>Document #05</strong><br>
+                Effective: October 25, 2026
+            </div>
+        </div>
+        <span class="doc-badge">COMMERCE &amp; PAYOUTS</span>
+        <h1>ONEOVA BIZ MARKETPLACE &amp; CREATOR MONETIZATION POLICY</h1>
+<p><strong>Document ID:</strong> <code>ONV-COMM-BIZ-2026-V1</code><br><strong>Effective Date:</strong> October 25, 2026<br><strong>Compliance &amp; Merchant Support:</strong> <code>commerce@oneova.app</code> · <code>legal@oneova.app</code><br><strong>Web Portal:</strong> <code>https://oneova.app/biz-policy</code></p>
+<hr class="rule-divider">
+<div class="exec-callout"><strong>Executive Summary ("In Short"):</strong><br>Oneova empowers African and global creators, SMEs, and brands to earn transparently through <strong>Virtual Gifts</strong>, <strong>Studio Look Packs (<code>.oneovapack</code>)</strong>, and the <strong>Oneova Biz Marketplace</strong>.<br>1. <strong>18+ &amp; Verified:</strong> Every monetizing creator and Biz merchant must be 18+ and pass required KYC/AML checks before withdrawing funds.<br>2. <strong>Licensed Payment Rails Only:</strong> M-Pesa, MTN MoMo, Airtel Money, Orange Money, Wave, bank transfers, and card settlements run strictly through central-bank-licensed and PCI-DSS-certified payment partners.<br>3. <strong>Honest Pricing &amp; Buyer Trust:</strong> Full prices in local currency, genuine goods only, zero hidden fees, and strict respect for statutory consumer refund laws.</div>
+<hr class="rule-divider">
+<h2 id="1-eligibility-kyc-aml-ctf-compliance">1. Eligibility, KYC &amp; AML/CTF Compliance</h2>
+<p><strong>1.1 Age &amp; Account Standing.</strong> To open a Biz storefront, sell <code>.oneovapack</code> digital assets, receive Live Gifts, or withdraw Creator Earnings, you must: (a) be at least <strong>18 years old</strong>, (b) hold an account in good standing under our <a href="/guidelines.html">Community Guidelines</a>, and (c) reside in a supported payout country.</p>
+<p><strong>1.2 Know Your Customer (KYC) &amp; Business Verification (KYB).</strong> Before disbursing payouts above regulatory thresholds, our licensed payment partners verify:</p>
+<ul><li>Government-issued photo identification (National ID, Passport, Voter/Alien Card, or Driver's License);</li><li>Matching mobile-money wallet registration name (e.g., registered M-Pesa / MTN MoMo / Airtel Money subscriber name) or verified bank account in the creator/merchant's legal name; and</li><li>Business registration / tax identification (e.g., KRA PIN, CAC/TIN Nigeria, CIPC/SARS South Africa, BRELA/TIN Tanzania, RDB Rwanda) where commercial law requires.</li></ul>
+<p><strong>1.3 Anti-Money Laundering (AML) &amp; Sanctions Screening.</strong> All payouts and high-velocity Coin flows are screened against global and national AML/CTF and sanctions rules (including Kenya POCAMLA, Nigeria Money Laundering Prevention &amp; Prohibition Act, South Africa FICA, BCEAO directives, FATF standards, OFAC, UN, UK, and EU sanctions lists).</p>
+<hr class="rule-divider">
+<h2 id="2-oneova-coins-virtual-gifts-creator-revenue-share">2. Oneova Coins, Virtual Gifts &amp; Creator Revenue Share</h2>
+<p><strong>2.1 Nature of Oneova Coins.</strong> Oneova Coins are closed-loop digital tokens redeemable solely inside Oneova for virtual Gifts and eligible digital features. Coins are <strong>not</strong> deposits, e-money, stablecoins, cryptocurrency, or transferable financial instruments.</p>
+<p><strong>2.2 Transparent Checkout.</strong> Coin bundle prices are displayed in the buyer's local currency inclusive of applicable VAT, Digital Services Tax (DST), and platform billing fees (Apple In-App Purchase / Google Play Billing on mobile apps where required, or licensed web/mobile-money checkout where permitted).</p>
+<p><strong>2.3 Creator Payout Ledger.</strong></p>
+<ul><li>Valid Gifts received during Live broadcasts or on eligible Reels credit the creator's <strong>Creator Balance</strong> at the published net revenue-share rate shown in <strong>Creator Studio</strong> prior to activation.</li><li>Payout schedules, minimum withdrawal amounts, FX conversion rates, and mobile-money/bank network fees are displayed clearly before you confirm any withdrawal.</li><li><strong>Anti-Wash-Trading Rule:</strong> Using stolen cards, SIM-swapped mobile-money accounts, self-tipping rings, or chargeback cycling to launder funds results in immediate freeze of tainted credits, permanent account termination, and reporting to payment partners and financial-crime authorities.</li></ul>
+<hr class="rule-divider">
+<h2 id="3-oneova-biz-marketplace-rules-for-sellers">3. Oneova Biz Marketplace Rules for Sellers</h2>
+<p><strong>3.1 Independent Seller Status.</strong> Unless explicitly marked "Sold by Oneova", each Biz Seller is the independent seller of record responsible for product quality, lawful sourcing, tax remittance, and fulfillment.</p>
+<p><strong>3.2 Mandatory Listing Standards.</strong> Every Biz product listing must:</p>
+<ol><li>Show real, unmanipulated photos/videos of the actual item or <code>.oneovapack</code> showcase;</li><li>Display the <strong>true total price</strong> in local currency, clear delivery fees, and realistic dispatch/delivery timelines;</li><li>Never demand off-book "customs release fees" or surprise post-payment surcharges from buyers; and</li><li>Honor statutory return, replacement, and refund rights under applicable consumer law (including defective, damaged, undelivered, or materially misdescribed items).</li></ol>
+<p><strong>3.3 Studio Look Packs (<code>.oneovapack</code>).</strong> Verified Business creators selling <code>.oneovapack</code> color-grading and LUT bundles must own 100% of the packaged LUTs/grades and include an authentic before/after showcase video. Buyers receive a non-exclusive license to apply purchased Looks to their own photos/videos inside Oneova, without redistribution rights.</p>
+<hr class="rule-divider">
+<h2 id="4-prohibited-restricted-commerce-schedule">4. Prohibited &amp; Restricted Commerce Schedule</h2>
+<p>The following may <strong>never</strong> be listed, promoted, or sold on Oneova Biz or Live Shopping:</p>
+<ol><li>Counterfeit, replica, pirated, or stolen goods;</li><li>Firearms, ammunition, explosives, tasers, or tactical weapons;</li><li>Illegal narcotics, controlled substances, prescription-only medicines without licensed pharmacy authorization, or unapproved "miracle cure" supplements;</li><li>Hazardous cosmetics containing banned mercury, high-dose hydroquinone, or steroids;</li><li>Human organs, blood, body parts, or surrogacy/trafficking brokerage;</li><li>Protected wildlife, ivory, rhino horn, pangolin, exotic live animals, or illegal timber/charcoal;</li><li>Adult sexual services, escorting, pornography, or non-consensual imagery;</li><li>Unlicensed gambling, lottery tickets, pyramid/Ponzi investment packages, fake currencies, or forged government documents/academic certificates;</li><li>Personal data dumps, hacked social accounts, spyware, or SIM-cloning hardware.</li></ol>
+<hr class="rule-divider">
+<h2 id="5-refunds-escrow-holds-buyer-protection">5. Refunds, Escrow Holds &amp; Buyer Protection</h2>
+<ul><li><strong>Digital Coins:</strong> Final upon delivery except for unauthorized fraudulent debits, duplicate mobile-money charges (reconciled automatically via webhook ledger checks), or mandatory statutory/app-store refund rights.</li><li><strong>Biz Orders:</strong> Where in-app checkout/escrow is active, seller settlement may be held until delivery confirmation or expiry of the buyer inspection window so buyers are protected against non-delivery.</li><li><strong>Dispute Escalation:</strong> Buyers and Sellers who cannot resolve an order issue within 48 hours may escalate in-app or via <code>commerce@oneova.app</code>.</li></ul>
+        <footer class="doc-footer">
+            <span>© 2026 Oneova Technologies Inc. All rights reserved.</span>
+            <span>Official Trust &amp; Legal Office: legal@oneova.app · dpo@oneova.app</span>
+        </footer>
+    </main>
+    <script src="/js/live-legal-sync.js" data-cms-doc="policy-biz-monetization" defer></script>
+</body>
+</html>

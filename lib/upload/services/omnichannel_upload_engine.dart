@@ -3,7 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:firebase_storage/firebase_storage.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
-import '../../backend/social_connection_service.dart';
+import '../../backend/connections/linked_accounts.dart';
 import '../../youtube_manager/services/youtube_account_store.dart';
 import '../models/connected_destination.dart';
 import '../models/omnichannel_upload_task.dart';
@@ -41,37 +41,27 @@ class OmnichannelUploadEngine extends Notifier<List<OmnichannelUploadTask>> {
       }
     }
 
-    // 2. Fetch Meta/TikTok destinations from unified social connection state
-    final socialConnectionsAsync = ref.read(socialConnectionProvider);
-    final socialConnections = socialConnectionsAsync.value ?? [];
-    
-    final fbConnection = socialConnections.where((c) => c.platform.toLowerCase() == 'facebook').firstOrNull;
-    if (fbConnection != null) {
-      destinations.add(ConnectedDestination.meta(
-        pageId: fbConnection.accountName, // Fake ID for mock
-        pageName: fbConnection.accountName,
-        metaUserId: fbConnection.accountName,
-        platform: PlatformType.facebook,
-      ));
-    }
-
-    final igConnection = socialConnections.where((c) => c.platform.toLowerCase() == 'instagram').firstOrNull;
-    if (igConnection != null) {
-      destinations.add(ConnectedDestination.meta(
-        pageId: igConnection.accountName,
-        pageName: igConnection.accountName,
-        metaUserId: igConnection.accountName,
-        platform: PlatformType.instagram,
-      ));
-    }
-
-    // 3. Fetch TikTok Accounts
-    final ttConnection = socialConnections.where((c) => c.platform.toLowerCase() == 'tiktok').firstOrNull;
-    if (ttConnection != null) {
-      destinations.add(ConnectedDestination.tiktok(
-        tiktokUserId: ttConnection.accountName,
-        username: ttConnection.accountName,
-      ));
+    // 2. Meta / TikTok: the accounts linked through their OAuth flows, by
+    //    their real page / open ids.
+    final accounts = await ref.read(linkedAccountsProvider.future);
+    for (final a in accounts.where((a) => a.isUsable)) {
+      switch (a.platform) {
+        case LinkedPlatform.facebook:
+        case LinkedPlatform.instagram:
+          destinations.add(ConnectedDestination.meta(
+            pageId: a.accountId,
+            pageName: a.accountName,
+            metaUserId: a.accountId,
+            platform: a.platform == LinkedPlatform.facebook ? PlatformType.facebook : PlatformType.instagram,
+          ));
+        case LinkedPlatform.tiktok:
+          destinations.add(ConnectedDestination.tiktok(
+            tiktokUserId: a.accountId,
+            username: a.accountName,
+          ));
+        default:
+          break;
+      }
     }
 
     return destinations;

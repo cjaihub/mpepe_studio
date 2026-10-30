@@ -11,6 +11,7 @@ import 'package:path_provider/path_provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../security/secure_api_key_vault.dart';
+import '../security/oneova_ai_gateway.dart';
 
 /// Represents individual component health check state.
 enum ComponentStatus { healthy, degraded, repaired, failed }
@@ -180,11 +181,13 @@ class OneOvaSelfRepairEngine {
         status: ComponentStatus.healthy,
         details: 'Google AI Studio key verified (${_vault.maskKey(geminiKey)})',
       ));
-    } else if (openRouterKey.isNotEmpty) {
+    } else if (OneovaAiGateway.canCall(openRouterKey)) {
       checks.add(HealthCheckItem(
         component: 'Gemini Autonomous AI Core',
         status: ComponentStatus.healthy,
-        details: 'Bridged via OpenRouter fallback (${_vault.maskKey(openRouterKey)})',
+        details: openRouterKey.isNotEmpty
+            ? 'Bridged via OpenRouter fallback (${_vault.maskKey(openRouterKey)})'
+            : 'Connected through Oneova AI gateway',
       ));
     } else {
       checks.add(const HealthCheckItem(
@@ -467,14 +470,14 @@ Platform: ${Platform.operatingSystem}
       // Fallback to OpenRouter if Gemini Key is not set or failed
       if (jsonResponse.isEmpty) {
         final openRouterKey = await _vault.getOpenRouterApiKey();
-        if (openRouterKey.isNotEmpty) {
-          final uri = Uri.parse('https://openrouter.ai/api/v1/chat/completions');
+        if (OneovaAiGateway.canCall(openRouterKey)) {
+          final uri = OneovaAiGateway.chatUri(openRouterKey);
           final response = await http
               .post(
                 uri,
                 headers: {
                   'Content-Type': 'application/json',
-                  'Authorization': 'Bearer $openRouterKey',
+                  'Authorization': 'Bearer ${await OneovaAiGateway.bearer(openRouterKey)}',
                   'HTTP-Referer': 'https://oneova.app',
                   'X-Title': 'Oneova',
                 },

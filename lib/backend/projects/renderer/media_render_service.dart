@@ -34,9 +34,12 @@ class MediaRenderService {
     }
 
     // 1. Resolve sequence
-    final sequence = project.sequences.firstWhere(
+    // Copy to a List<dynamic>: `project` is dynamic, so an orElse closure on the
+    // typed List<Sequence> fails its runtime type check.
+    final sequences = List<dynamic>.from(project.sequences as List);
+    final sequence = sequences.firstWhere(
       (s) => s.id == request.sequenceId,
-      orElse: () => project.sequences.first,
+      orElse: () => sequences.first,
     );
 
     // 2. Resolve Active Clips at the requested sequenceTime

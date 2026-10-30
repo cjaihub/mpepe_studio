@@ -111,7 +111,7 @@ const Map<String, String> ovaScreens = {
   'go_live': '/live/broadcast',
   'live_studio': '/live/broadcast?mode=studio',
   'connect_pc': '/connect',
-  'social_inbox': '/social_hub/unified_inbox',
+  'social_inbox': '/hub/messages',
   'social_analytics': '/social_hub/analytics',
   'youtube': '/yt/dashboard',
   'ova_triggers': '/ova/triggers',

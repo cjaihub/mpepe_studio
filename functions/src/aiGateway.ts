@@ -3,6 +3,7 @@ import { defineSecret } from 'firebase-functions/params';
 import { GoogleGenAI, Type } from '@google/genai';
 import { ToolExecutionLayer } from './services/ToolExecutionLayer';
 import { getFirestore } from 'firebase-admin/firestore';
+import { readAccountSettings } from './accountSettings';
 
 const geminiSecret = defineSecret('GEMINI_API_KEY');
 
@@ -177,13 +178,9 @@ export const aiGateway = onCall({ secrets: [geminiSecret] }, async (request) => 
   }
   
   // Check global AI agent kill switch
-  const db = getFirestore();
-  const configDoc = await db.collection('users').doc(userId).collection('ai_settings').doc('agent_config').get();
-  if (configDoc.exists) {
-      const configData = configDoc.data();
-      if (configData?.isGloballyPaused) {
-          throw new HttpsError('permission-denied', 'AI Agent is globally paused by the user.');
-      }
+  const agentConfig = await readAccountSettings(userId, 'aiAgent', 'ai_settings/agent_config');
+  if (agentConfig.isGloballyPaused === true) {
+      throw new HttpsError('permission-denied', 'AI Agent is globally paused by the user.');
   }
 
   if (operation === 'composeMessage') {

@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -78,7 +80,137 @@ class RecommendationService {
   Future<List<Content>> getFeed(String currentUserId, FeedMode mode, {String? topic, int limit = 20}) async {
     // Pipeline Step 1: Candidate Generation
     final candidates = await _generateCandidates(currentUserId, mode, topic: topic, limit: limit * 3);
+    final ranked = await rankCandidates(currentUserId, mode, candidates);
+    return ranked.take(limit).toList();
+  }
 
+  /// Content types the home feed shows: reels play, photos render full-screen.
+  static const feedContentTypes = <String>['short_video', 'photo'];
+
+  /// Whether [c] may appear in other users' public feeds.
+  static bool isFeedEligible(Content c) =>
+      c.visibility == 'public' &&
+      feedContentTypes.contains(c.type.name) &&
+      c.mediaUrl.isNotEmpty &&
+      !c.mediaUrl.contains('picsum');
+
+  /// Maps a `content` query snapshot to feed items, newest first. Malformed
+  /// docs are skipped so one bad write can't empty everyone's feed.
+  static List<Content> mapFeedDocs(Iterable<DocumentSnapshot> docs) {
+    final items = <Content>[];
+    for (final doc in docs) {
+      try {
+        final c = Content.fromFirestore(doc);
+        if (isFeedEligible(c)) items.add(c);
+      } catch (e) {
+        debugPrint('[RecommendationService] skipping malformed content ${doc.id}: $e');
+      }
+    }
+    items.sort((a, b) => b.createdAt.compareTo(a.createdAt));
+    return items;
+  }
+
+  /// Real-time feed candidates: emits again whenever anyone publishes,
+  /// edits or removes content (For You), or when the people the user follows
+  /// post or the follow graph itself changes (Following / Friends).
+  Stream<List<Content>> watchFeedCandidates(String currentUserId, FeedMode mode, {int limit = 60}) {
+    switch (mode) {
+      case FeedMode.following:
+      case FeedMode.followingCreators:
+      case FeedMode.friends:
+        return _watchFollowingCandidates(currentUserId, limit: limit);
+      default:
+        return _firestore
+            .collection('content')
+            .where('type', whereIn: feedContentTypes)
+            .orderBy('createdAt', descending: true)
+            .limit(limit)
+            .snapshots()
+            .map((s) => mapFeedDocs(s.docs));
+    }
+  }
+
+  /// Follow graph (`relationships`, accepted) → one live `content` query per
+  /// 30 followed authors, merged newest first.
+  Stream<List<Content>> _watchFollowingCandidates(String currentUserId, {required int limit}) {
+    late StreamController<List<Content>> controller;
+    StreamSubscription? graphSub;
+    final chunkSubs = <StreamSubscription>[];
+    var chunkResults = <List<Content>>[];
+
+    void cancelChunks() {
+      for (final s in chunkSubs) {
+        s.cancel();
+      }
+      chunkSubs.clear();
+    }
+
+    void emit() {
+      final merged = chunkResults.expand((l) => l).toList()
+        ..sort((a, b) => b.createdAt.compareTo(a.createdAt));
+      controller.add(merged.length > limit ? merged.sublist(0, limit) : merged);
+    }
+
+    controller = StreamController<List<Content>>(
+      onListen: () {
+        graphSub = _firestore
+            .collection('relationships')
+            .where('followerId', isEqualTo: currentUserId)
+            .where('status', isEqualTo: 'accepted')
+            .snapshots()
+            .listen((graph) {
+          final ids = graph.docs
+              .map((d) => d.data()['followingId'])
+              .whereType<String>()
+              .where((id) => id.isNotEmpty)
+              .toSet()
+              .toList();
+          cancelChunks();
+          if (ids.isEmpty) {
+            chunkResults = [];
+            controller.add(const []);
+            return;
+          }
+          final chunks = <List<String>>[
+            for (var i = 0; i < ids.length; i += 30) ids.sublist(i, i + 30 > ids.length ? ids.length : i + 30),
+          ];
+          chunkResults = List.generate(chunks.length, (_) => <Content>[]);
+          for (var i = 0; i < chunks.length; i++) {
+            chunkSubs.add(_firestore
+                .collection('content')
+                .where('authorId', whereIn: chunks[i])
+                .orderBy('createdAt', descending: true)
+                .limit(limit)
+                .snapshots()
+                .listen((s) {
+              chunkResults[i] = mapFeedDocs(s.docs);
+              emit();
+            }, onError: controller.addError));
+          }
+        }, onError: controller.addError);
+      },
+      onCancel: () async {
+        cancelChunks();
+        await graphSub?.cancel();
+      },
+    );
+    return controller.stream;
+  }
+
+  /// Pipeline steps 2–5 (policy, safety, feedback signals, ranking) over
+  /// already generated candidates. Shared by [getFeed] and the live feed.
+  Future<List<Content>> rankCandidates(String currentUserId, FeedMode mode, List<Content> candidates) async {
+    return _rank(currentUserId, mode, await _filterWithFeedback(currentUserId, candidates));
+  }
+
+  /// Pipeline steps 2–4 only: what a newly published item must pass before
+  /// it is slotted into a feed that is already on screen.
+  Future<List<Content>> filterCandidates(String currentUserId, List<Content> candidates) async {
+    final feedback = await _filterWithFeedback(currentUserId, candidates);
+    return feedback.candidates;
+  }
+
+  Future<_FeedbackFilterResult> _filterWithFeedback(String currentUserId, List<Content> candidates) async {
     // Pipeline Step 2: Policy Filtering (Authorization, Visibility, Blocks)
     final filtered = await _applyPolicyFiltering(currentUserId, candidates);
 
@@ -86,7 +218,10 @@ class RecommendationService {
     final safeCandidates = _applySafetyFiltering(filtered);
 
     // Pipeline Step 4: Feedback Signals (Removed muted creators, "not interested" topics)
-    final feedbackResult = await _applyFeedbackSignals(currentUserId, safeCandidates);
+    return _applyFeedbackSignals(currentUserId, safeCandidates);
+  }
+
+  List<Content> _rank(String currentUserId, FeedMode mode, _FeedbackFilterResult feedbackResult) {
     final acceptableCandidates = feedbackResult.candidates;
 
     // Pipeline Step 5: Advanced Ranking & Diversity
@@ -108,7 +243,7 @@ class RecommendationService {
       ranked = _rankAndDiversify(acceptableCandidates);
     }
 
-    return ranked.take(limit).toList();
+    return ranked;
   }
 
   Future<List<Content>> _generateCandidates(String currentUserId, FeedMode mode, {String? topic, int limit = 60}) async {

@@ -17,6 +17,7 @@ import '../../../auth/widgets/auth_interaction_gate.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:go_router/go_router.dart';
 import 'package:oneova/shared/widgets/animated_loading_indicator.dart';
+import '../../../shared/services/draft_store.dart';
 
 final _commentAuthorProvider = StreamProvider.autoDispose
     .family<AppUser?, String>((ref, uid) {
@@ -125,6 +126,10 @@ class _CommentBottomSheetState extends ConsumerState<CommentBottomSheet> {
   @override
   void initState() {
     super.initState();
+    final savedDraft = DraftStore.instance.getDraft(DraftStore.commentKey(widget.content.id));
+    if (savedDraft != null && savedDraft.isNotEmpty) {
+      _commentController.text = savedDraft;
+    }
     _commentController.addListener(_onTextChanged);
     if (widget.autoFocus) {
       Future.delayed(const Duration(milliseconds: 300), () {
@@ -134,6 +139,7 @@ class _CommentBottomSheetState extends ConsumerState<CommentBottomSheet> {
   }
 
   void _onTextChanged() {
+    DraftStore.instance.setDraft(DraftStore.commentKey(widget.content.id), _commentController.text);
     if (mounted) setState(() {});
   }
 
@@ -185,6 +191,7 @@ class _CommentBottomSheetState extends ConsumerState<CommentBottomSheet> {
 
       if (mounted) {
         _commentController.clear();
+        DraftStore.instance.clearDraft(DraftStore.commentKey(widget.content.id));
         setState(() {
           _replyToId = null;
           _replyToName = null;

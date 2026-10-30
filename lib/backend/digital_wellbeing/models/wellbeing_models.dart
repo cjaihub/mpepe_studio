@@ -40,9 +40,13 @@ class DigitalWellbeingPreferences {
     if (!doc.exists) {
       return DigitalWellbeingPreferences(userId: doc.id);
     }
-    final data = doc.data() as Map<String, dynamic>;
+    return DigitalWellbeingPreferences.fromMap(doc.id, doc.data() as Map<String, dynamic>);
+  }
+
+  /// From the `wellbeing` category of `user_settings/{uid}`.
+  factory DigitalWellbeingPreferences.fromMap(String userId, Map<String, dynamic> data) {
     return DigitalWellbeingPreferences(
-      userId: doc.id,
+      userId: userId,
       screenTimeRemindersEnabled: data['screenTimeRemindersEnabled'] ?? false,
       screenTimeLimitMinutes: data['screenTimeLimitMinutes'] ?? 120,
       breakRemindersEnabled: data['breakRemindersEnabled'] ?? true,

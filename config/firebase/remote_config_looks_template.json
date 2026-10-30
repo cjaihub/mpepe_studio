@@ -1,0 +1,28 @@
+{
+  "parameters": {
+    "thermal_governor_ladder": {
+      "defaultValue": {
+        "value": "{\"nominal\":{\"maxFps\":60,\"lutResolution\":65,\"boostBeautyMax\":1.0,\"allowedEffectTiers\":[\"all\"]},\"light\":{\"maxFps\":60,\"lutResolution\":65,\"boostBeautyMax\":0.85,\"allowedEffectTiers\":[\"all\"]},\"moderate\":{\"maxFps\":48,\"lutResolution\":33,\"boostBeautyMax\":0.70,\"allowedEffectTiers\":[\"standard\",\"pro\"]},\"severe\":{\"maxFps\":30,\"lutResolution\":33,\"boostBeautyMax\":0.50,\"allowedEffectTiers\":[\"standard\"]},\"critical\":{\"maxFps\":24,\"lutResolution\":17,\"boostBeautyMax\":0.0,\"allowedEffectTiers\":[\"essential\"]},\"emergency\":{\"maxFps\":15,\"lutResolution\":17,\"boostBeautyMax\":0.0,\"allowedEffectTiers\":[\"passthrough\"]}}"
+      },
+      "description": "Six-tier thermal governance ladder dynamically throttled based on device ADPF and thermalState"
+    },
+    "model_registry_manifest": {
+      "defaultValue": {
+        "value": "{\"version\":\"2026.10\",\"models\":{\"face_mesh\":{\"id\":\"oneova_face_mesh_v2\",\"version\":\"2.1.0\",\"url\":\"https://storage.googleapis.com/oneova-models-prod/vision/face_mesh_v2.tflite\",\"sha256\":\"9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08\",\"sizeBytes\":4194304},\"segmentation\":{\"id\":\"oneova_person_seg_v2\",\"version\":\"2.0.4\",\"url\":\"https://storage.googleapis.com/oneova-models-prod/vision/person_seg_v2.tflite\",\"sha256\":\"5e884898da28047151d0e56f8dc6292773603d0d6aabbdd62a11ef721d1542d8\",\"sizeBytes\":8388608},\"hands\":{\"id\":\"oneova_hands_v2\",\"version\":\"2.0.1\",\"url\":\"https://storage.googleapis.com/oneova-models-prod/vision/hands_v2.tflite\",\"sha256\":\"4b227777d4dd1fc61c6f884f48641d02b4d121d3fd328cb08b5531fcacdabf8a\",\"sizeBytes\":3145728},\"depth\":{\"id\":\"oneova_depth_v1\",\"version\":\"1.2.0\",\"url\":\"https://storage.googleapis.com/oneova-models-prod/vision/depth_v1.tflite\",\"sha256\":\"ef2d127de37b942baad06145e54b0c619a1f22327b2ebbcfbec78f5564afe39d\",\"sizeBytes\":12582912}}}"
+      },
+      "description": "Download and staged swap-in manifest for on-device Oneova Vision LiteRT neural models"
+    },
+    "compute_router_policy": {
+      "defaultValue": {
+        "value": "{\"cloudGpuEndpoint\":\"https://cloud-vision-gpu-oneova-prod.a.run.app\",\"cloudGpuEnabled\":true,\"fallbackSpendPercentTrigger\":100,\"cloudMaxDurationSec\":180,\"minOnDeviceRamBytes\":4294967296,\"allowProOverride\":true}"
+      },
+      "description": "Compute Router decision policies governing on-device vs Cloud Run GPU offload"
+    },
+    "looks_feature_flags": {
+      "defaultValue": {
+        "value": "{\"liveApiVoiceGrading\":true,\"scopeSentinelRealtime\":true,\"arLensesRealtime\":true,\"bizMarketplacePacks\":true,\"cloudRenderInteractive\":true,\"hardwareExportZeroCopy\":true}"
+      },
+      "description": "Global feature rollout gates for Looks program modules"
+    }
+  }
+}

@@ -3,8 +3,10 @@ import '../render_node.dart';
 import '../../models/render_frame.dart';
 import '../../models/render_context.dart';
 import '../../../projects/models/pro_project_models.dart';
+import '../../../../looks/engine/look_shader_view.dart';
+import '../../../../looks/models/oneova_look.dart';
 
-/// Applies 1D or 3D Lookup Tables (LUTs) to a frame.
+/// Applies 1D or 3D Lookup Tables (LUTs) to a frame using the GPU Look Engine.
 class LutNode extends RenderNode {
   final LutStage lutStage;
   final RenderFrame? matte;
@@ -17,30 +19,43 @@ class LutNode extends RenderNode {
 
   @override
   Future<RenderFrame> execute(RenderContext context, {RenderFrame? inputFrame}) async {
-    if (inputFrame == null) return throw Exception("LutNode requires an input frame");
-    if (!lutStage.isEnabled) return inputFrame;
+    if (inputFrame == null) throw Exception("LutNode requires an input frame");
+    if (!lutStage.isEnabled || lutStage.path.isEmpty) return inputFrame;
 
-    // 1. Parsing (.CUBE file)
-    // Parse dimensions (e.g. 33x33x33), domain min/max, and RGB entries.
-    // Verify file validity and surface diagnostic if malformed.
+    final image = inputFrame.image;
+    if (image == null) return inputFrame;
 
-    // 2. Interpolation
-    // Map input RGB to LUT domain.
-    // Use trilinear interpolation to sample the 3D LUT output.
+    final look = OneovaLook(
+      id: 'node_lut_${lutStage.id}',
+      name: lutStage.name.isNotEmpty ? lutStage.name : 'LUT',
+      intensity: lutStage.intensity.clamp(0.0, 1.0),
+      lutStack: [
+        LutItem(
+          id: lutStage.id,
+          name: lutStage.name,
+          pathOrUrl: lutStage.path,
+          intensity: lutStage.intensity.clamp(0.0, 1.0),
+        ),
+      ],
+      createdAt: DateTime.now(),
+      updatedAt: DateTime.now(),
+    );
 
-    // 3. Intensity Mapping
-    // Interpolate between original color and LUT color based on lutStage.intensity
-    // result = mix(original, lutColor, intensity)
+    final gradedImage = await LookImageRenderer.renderGradedImage(
+      inputImage: image,
+      look: look,
+    );
 
-    // 4. Masking
-    // If matte is provided, mix the original and processed result using matte alpha.
-
-    // Mocking actual pixel mutation for architecture validation
-    return inputFrame;
+    return RenderFrame(
+      image: gradedImage,
+      width: inputFrame.width,
+      height: inputFrame.height,
+      timestamp: inputFrame.timestamp,
+    );
   }
 
   @override
   void dispose() {
-    // Free parsed LUT data in memory/VRAM
+    // Resources freed
   }
 }

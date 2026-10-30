@@ -291,14 +291,28 @@ class LiveService {
         .map((s) => s.exists ? LiveStream.fromJson(s.data()!) : null);
   }
 
+  /// Single-field query (no composite index needed, so a missing index can't
+  /// silently hide every live badge); ranked by viewers on the client.
   Stream<List<LiveStream>> watchActiveLiveStreams() {
     return _db
         .collection(_col)
         .where('status', isEqualTo: 'live')
-        .orderBy('viewerCount', descending: true)
-        .limit(50)
+        .limit(100)
         .snapshots()
-        .map((s) => s.docs.map((d) => LiveStream.fromJson(d.data())).toList());
+        .map((s) => mapActiveLiveStreams(s.docs.map((d) => {...d.data(), 'id': d.id})));
+  }
+
+  /// Live sessions from raw stream docs, most watched first, capped at 50.
+  static List<LiveStream> mapActiveLiveStreams(Iterable<Map<String, dynamic>> docs) {
+    final streams = <LiveStream>[];
+    for (final data in docs) {
+      try {
+        final s = LiveStream.fromJson(data);
+        if (s.id.isNotEmpty && s.status == LiveStreamStatus.live) streams.add(s);
+      } catch (_) {}
+    }
+    streams.sort((a, b) => b.viewerCount.compareTo(a.viewerCount));
+    return streams.length > 50 ? streams.sublist(0, 50) : streams;
   }
 
   Stream<List<LiveComment>> watchComments(String streamId) {

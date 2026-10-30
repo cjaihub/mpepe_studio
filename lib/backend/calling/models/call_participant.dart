@@ -16,6 +16,10 @@ class CallParticipant {
   final bool isScreenSharing;
   final DateTime? joinedAt;
 
+  /// Set by the callee's phone when it actually starts ringing, so the
+  /// caller can show "Ringing…" instead of "Calling…".
+  final DateTime? deliveredAt;
+
   const CallParticipant({
     required this.userId,
     this.status = ParticipantStatus.ringing,
@@ -25,6 +29,7 @@ class CallParticipant {
     this.isVideoMuted = false,
     this.isScreenSharing = false,
     this.joinedAt,
+    this.deliveredAt,
   });
 
   bool get isActive => status == ParticipantStatus.joined;
@@ -43,6 +48,7 @@ class CallParticipant {
       isVideoMuted: data['isVideoMuted'] ?? false,
       isScreenSharing: data['isScreenSharing'] ?? false,
       joinedAt: (data['joinedAt'] as Timestamp?)?.toDate(),
+      deliveredAt: (data['deliveredAt'] as Timestamp?)?.toDate(),
     );
   }
 

@@ -5,7 +5,7 @@
  * See docs/live-studio/ARCHITECTURE.md §4–§6. Keep both files in sync.
  */
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.shareUrl = exports.emptyStage = exports.TABLE_SCREEN_TRACK = exports.Topics = exports.defaultSettings = exports.ACCENT_PALETTE = exports.FRAME_COLOR_OPTIONS = exports.canPublish = exports.isManager = exports.Limits = exports.Paths = exports.SCHEMA_VERSION = void 0;
+exports.shareUrl = exports.emptyStage = exports.TABLE_SCREEN_TRACK = exports.Topics = exports.defaultSettings = exports.ACCENT_PALETTE = exports.FRAME_COLOR_OPTIONS = exports.canPublish = exports.isManager = exports.GAME_TITLE_MAX_LENGTH = exports.LAYOUT_PRESETS = exports.Limits = exports.Paths = exports.SCHEMA_VERSION = void 0;
 exports.SCHEMA_VERSION = 1;
 exports.Paths = {
     streams: 'live_streams',
@@ -41,6 +41,8 @@ exports.Limits = {
     studioDimMin: 0,
     studioDimMax: 0.6,
 };
+exports.LAYOUT_PRESETS = ['studio', 'gaming'];
+exports.GAME_TITLE_MAX_LENGTH = 60;
 const isManager = (r) => r === 'host' || r === 'coHost';
 exports.isManager = isManager;
 const canPublish = (r) => r !== 'viewer';
@@ -59,6 +61,7 @@ const defaultSettings = (theme = 'dark') => ({
     showNames: true,
     studioDim: theme === 'light' ? 0 : 0.15,
     speakerMode: 'hostPinned',
+    layoutPreset: 'studio',
 });
 exports.defaultSettings = defaultSettings;
 exports.Topics = {

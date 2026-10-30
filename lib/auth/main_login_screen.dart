@@ -7,7 +7,9 @@ import 'services/oneova_biometrics_service.dart';
 import 'services/oneova_username_service.dart';
 import 'services/oneova_smart_phone_engine.dart';
 import 'services/otp_autofill.dart';
+import 'services/account_link_service.dart';
 import 'screens/oneova_pin_screen.dart';
+import 'widgets/onboarding_identity_fields.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter_animate/flutter_animate.dart';
 import 'package:flutter_svg/flutter_svg.dart';
@@ -375,6 +377,8 @@ class _MainLoginScreenState extends ConsumerState<MainLoginScreen> {
 
       // Silent worldwide country detection & last used account memory
       await _detectCountryAndLoadRememberedAccount();
+      // Sent here by the signup wizard to sign in to an existing account.
+      _applyPendingLinkHint();
     });
   }
 
@@ -661,6 +665,8 @@ class _MainLoginScreenState extends ConsumerState<MainLoginScreen> {
       await _continueAfterPrimary();
       return;
     }
+
+    await _linkPendingSignIn(user);
 
     try {
       final doc = await FirebaseFirestore.instance.collection('users').doc(user.uid).get();
@@ -1212,12 +1218,44 @@ class _MainLoginScreenState extends ConsumerState<MainLoginScreen> {
   // ── Social & Guest Logins ──────────────────────────────────────────────────
 
   /// Social sign-in counts as one check; existing accounts continue to the
-  /// second check, new ones go to the signup wizard.
-  Future<void> _afterFederatedSignIn(User user, Map<String, Object?> wizardExtra) async {
+  /// second check. A uid without a profile is either a new person (signup
+  /// wizard) or someone whose Oneova account was made with another method:
+  /// then the empty uid is released and the credential is linked to the real
+  /// account once they sign in to it.
+  Future<void> _afterFederatedSignIn(
+    User user,
+    Map<String, Object?> wizardExtra, {
+    AuthCredential? credential,
+  }) async {
     final doc = await FirebaseFirestore.instance.collection('users').doc(user.uid).get();
     if (!mounted) return;
     LoginSecurity.instance.recordFactor(user.uid, AuthFactor.federated);
     if (!doc.exists) {
+      final link = ref.read(accountLinkServiceProvider);
+      final label = AccountLinkService.labelFor(credential?.providerId ?? 'google.com');
+      final match = await link.findProfileFor(email: user.email, exceptUid: user.uid);
+      if (!mounted) return;
+      final hasAccount = await _askHasExistingAccount(label, match);
+      if (!mounted) return;
+      if (hasAccount == null) {
+        await link.releaseEmptyUser(user);
+        link.clearPending();
+        if (mounted) setState(() => _isLoading = false);
+        return;
+      }
+      if (credential != null) link.holdForLinking(credential);
+      if (hasAccount) {
+        link.setPhoneHint(match?.phone);
+        await link.releaseEmptyUser(user);
+        if (!mounted) return;
+        _factors.clear();
+        setState(() {
+          _isLoading = false;
+          _currentStep = AuthScreenStep.phoneInput;
+        });
+        _applyPendingLinkHint();
+        return;
+      }
       setState(() => _isLoading = false);
       context.go('/auth/signup_wizard', extra: {...wizardExtra, 'uid': user.uid});
       return;
@@ -1227,6 +1265,121 @@ class _MainLoginScreenState extends ConsumerState<MainLoginScreen> {
       ..add(AuthFactor.federated);
     _deviceScan = null;
     await _continueAfterPrimary();
+  }
+
+  /// `account-exists-with-different-credential`: the email already has an
+  /// Oneova sign-in with another method ("One account per email address").
+  /// Keep the new credential and link it after the person signs in.
+  Future<bool> _holdCredentialOfExistingEmail(FirebaseAuthException e) async {
+    if (e.code != 'account-exists-with-different-credential' || e.credential == null) return false;
+    final link = ref.read(accountLinkServiceProvider);
+    link.holdForLinking(e.credential!);
+    if (e.email != null) {
+      final match = await link.findProfileFor(email: e.email, exceptUid: '');
+      link.setPhoneHint(match?.phone);
+    }
+    if (!mounted) return true;
+    setState(() {
+      _isLoading = false;
+      _currentStep = AuthScreenStep.phoneInput;
+    });
+    _applyPendingLinkHint();
+    return true;
+  }
+
+  /// "Do you already have an Oneova account?" after a social sign-in that has
+  /// no profile. Returns true (existing), false (new) or null (cancel).
+  Future<bool?> _askHasExistingAccount(String label, ExistingAccountMatch? match) {
+    final known = match?.username != null ? '@${match!.username}' : null;
+    return showModalBottomSheet<bool>(
+      context: context,
+      backgroundColor: context.surface,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(AppRadius.xl)),
+      ),
+      builder: (ctx) => SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(20, 18, 20, 16),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                known != null ? 'Is $known your account?' : 'Already on Oneova?',
+                style: GoogleFonts.inter(fontSize: 17, fontWeight: FontWeight.w700, color: ctx.textPrimary),
+              ),
+              const SizedBox(height: 6),
+              Text(
+                known != null
+                    ? 'This $label matches $known. Sign in to it once with your phone number and we\'ll link $label, so both open the same account.'
+                    : 'If you already made an Oneova account with your phone number, sign in to it once and we\'ll link $label. You won\'t need to register again.',
+                style: GoogleFonts.inter(fontSize: 12.5, height: 1.35, color: ctx.textSecondary),
+              ),
+              const SizedBox(height: 16),
+              SizedBox(
+                width: double.infinity,
+                height: 40,
+                child: ElevatedButton(
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: AppColors.brandBlue,
+                    foregroundColor: Colors.white,
+                    elevation: 0,
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(AppRadius.sm)),
+                  ),
+                  onPressed: () => Navigator.of(ctx).pop(true),
+                  child: Text('I have an account – link $label',
+                      style: GoogleFonts.inter(fontSize: 13, fontWeight: FontWeight.w700)),
+                ),
+              ),
+              const SizedBox(height: 8),
+              SizedBox(
+                width: double.infinity,
+                height: 40,
+                child: OutlinedButton(
+                  style: OutlinedButton.styleFrom(
+                    foregroundColor: ctx.textPrimary,
+                    side: BorderSide(color: ctx.border),
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(AppRadius.sm)),
+                  ),
+                  onPressed: () => Navigator.of(ctx).pop(false),
+                  child: Text('I\'m new to Oneova', style: GoogleFonts.inter(fontSize: 13, fontWeight: FontWeight.w600)),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  /// Prefills the phone of the account a held credential will be linked to.
+  void _applyPendingLinkHint() {
+    final link = ref.read(accountLinkServiceProvider);
+    if (link.pendingCredential == null || !mounted) return;
+    final phone = link.pendingPhoneHint;
+    if (phone != null && phone.startsWith('+')) {
+      _phoneController.text = phone;
+    }
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+      behavior: SnackBarBehavior.floating,
+      backgroundColor: AppColors.brandBlue,
+      content: Text('Sign in to your Oneova account to link ${link.pendingLabel ?? 'it'}.'),
+    ));
+  }
+
+  /// After a verified sign-in: link a held credential and keep the profile's
+  /// list of sign-in methods current.
+  Future<void> _linkPendingSignIn(User user) async {
+    final link = ref.read(accountLinkServiceProvider);
+    final message = await link.linkPending(user);
+    await link.recordProviders(FirebaseAuth.instance.currentUser ?? user);
+    if (message != null && mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+        behavior: SnackBarBehavior.floating,
+        backgroundColor: AppColors.brandBlue,
+        content: Text(message),
+      ));
+    }
   }
 
   Future<void> _signInWithGoogle() async {
@@ -1247,8 +1400,9 @@ class _MainLoginScreenState extends ConsumerState<MainLoginScreen> {
         'email': user.email ?? '',
         'name': user.displayName ?? '',
         'photoUrl': user.photoURL ?? '',
-      });
+      }, credential: ref.read(authRepositoryProvider).lastGoogleCredential ?? userCred?.credential);
     } catch (e) {
+      if (e is FirebaseAuthException && await _holdCredentialOfExistingEmail(e)) return;
       debugPrint('[MainLoginScreen] Google sign-in error: $e');
       if (mounted) {
         setState(() {
@@ -1289,8 +1443,9 @@ class _MainLoginScreenState extends ConsumerState<MainLoginScreen> {
         'fromTikTok': true,
         'name': user.displayName ?? '',
         'photoUrl': user.photoURL ?? '',
-      });
+      }, credential: userCred.credential);
     } catch (e) {
+      if (e is FirebaseAuthException && await _holdCredentialOfExistingEmail(e)) return;
       debugPrint('[MainLoginScreen] TikTok sign-in error: $e');
       if (mounted) {
         setState(() {
@@ -1327,8 +1482,9 @@ class _MainLoginScreenState extends ConsumerState<MainLoginScreen> {
         'email': user.email ?? '',
         'name': user.displayName ?? '',
         'photoUrl': user.photoURL ?? '',
-      });
+      }, credential: userCred.credential);
     } catch (e) {
+      if (e is FirebaseAuthException && await _holdCredentialOfExistingEmail(e)) return;
       debugPrint('[MainLoginScreen] Facebook sign-in error: $e');
       if (mounted) {
         setState(() {
@@ -1596,7 +1752,19 @@ class _MainLoginScreenState extends ConsumerState<MainLoginScreen> {
       if (_hasProvider(user, 'phone')) {
         await user.reauthenticateWithCredential(credential);
       } else {
-        await user.linkWithCredential(credential);
+        try {
+          await user.linkWithCredential(credential);
+        } on FirebaseAuthException catch (e) {
+          // The code was right, but this number is still its own Firebase
+          // user (a duplicate made before linking existed). The code proves
+          // the number, so it counts as the check; merging the two users
+          // needs an admin step (see account_link_service.dart).
+          if (e.code != 'credential-already-in-use') rethrow;
+          debugPrint('[MainLoginScreen] phone belongs to another uid; flagged for merge');
+          await FirebaseFirestore.instance.collection('users').doc(user.uid).update({
+            'duplicatePhoneAccount': _secondFactorPhone,
+          }).catchError((_) {});
+        }
       }
       _factors.add(AuthFactor.smsOtp);
       _otpIsSecondFactor = false;
@@ -4343,64 +4511,12 @@ class _MainLoginScreenState extends ConsumerState<MainLoginScreen> {
           ),
           const SizedBox(height: 12),
 
-          // INPUT 1: Full Name Field
-          TextField(
-            controller: _regNameController,
-            cursorColor: AppColors.brandBlue,
-            style: TextStyle(color: context.textPrimary, fontWeight: FontWeight.w600, fontSize: 13),
-            decoration: InputDecoration(
-              hintText: 'Full Name (e.g. Maya Lin)',
-              hintStyle: TextStyle(color: context.textMuted, fontSize: 12),
-              filled: true,
-              fillColor: context.surfaceMid,
-              isDense: true,
-              contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 9),
-              border: OutlineInputBorder(borderRadius: BorderRadius.circular(AppRadius.sm), borderSide: BorderSide(color: context.border, width: 1.0)),
-              enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(AppRadius.sm), borderSide: BorderSide(color: context.border, width: 1.0)),
-              focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(AppRadius.sm), borderSide: const BorderSide(color: AppColors.brandBlue, width: 1.5)),
-              prefixIcon: Icon(Icons.person_outline_rounded, color: context.textSecondary, size: 16),
-            ),
+          OnboardingIdentityFields(
+            nameController: _regNameController,
+            usernameController: _regUsernameController,
+            checking: _isCheckingUsername,
+            result: _usernameCheckResult,
           ),
-          const SizedBox(height: 10),
-
-          // INPUT 2: Username Field (debounced check)
-          TextField(
-            controller: _regUsernameController,
-            cursorColor: AppColors.brandBlue,
-            style: TextStyle(color: context.textPrimary, fontWeight: FontWeight.w800, fontSize: 13),
-            decoration: InputDecoration(
-              hintText: 'Unique handle (e.g. mayacreates)',
-              hintStyle: TextStyle(color: context.textMuted, fontSize: 12),
-              filled: true,
-              fillColor: context.surfaceMid,
-              isDense: true,
-              contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 9),
-              border: OutlineInputBorder(borderRadius: BorderRadius.circular(AppRadius.sm), borderSide: BorderSide(color: context.border, width: 1.0)),
-              enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(AppRadius.sm), borderSide: BorderSide(color: context.border, width: 1.0)),
-              focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(AppRadius.sm), borderSide: const BorderSide(color: AppColors.brandBlue, width: 1.5)),
-              prefixIcon: Icon(Icons.alternate_email_rounded, color: context.textSecondary, size: 16),
-              suffixIcon: _isCheckingUsername
-                  ? const Padding(
-                      padding: EdgeInsets.all(10),
-                      child: SizedBox(width: 12, height: 12, child: CircularProgressIndicator(strokeWidth: 1.5, color: AppColors.brandBlue)),
-                    )
-                  : (_usernameCheckResult != null && _usernameCheckResult!.isValidAndAvailable)
-                      ? const Icon(Icons.check_circle_rounded, color: Colors.green, size: 18)
-                      : null,
-            ),
-          ),
-          if (_usernameCheckResult != null)
-            Padding(
-              padding: const EdgeInsets.only(top: 3, left: 4),
-              child: Text(
-                _usernameCheckResult!.message ?? '',
-                style: TextStyle(
-                  color: _usernameCheckResult!.isValidAndAvailable ? Colors.green : Colors.amber,
-                  fontSize: 10.5,
-                  fontWeight: FontWeight.w700,
-                ),
-              ),
-            ),
           const SizedBox(height: 14),
 
           // Next Button (Step 1 of 2 -> Step 2)
@@ -4440,24 +4556,6 @@ class _MainLoginScreenState extends ConsumerState<MainLoginScreen> {
                   Text('Continue to Security (1 step left) →', style: TextStyle(fontSize: 13, fontWeight: FontWeight.w700)),
                 ],
               ),
-            ),
-          ),
-          const SizedBox(height: 10),
-
-          // Fast Link to 5-Step Creator Wizard
-          Center(
-            child: TextButton.icon(
-              icon: const Icon(Icons.auto_awesome_rounded, size: 14, color: AppColors.brandPink),
-              label: const Text(
-                'Open Full 5-Step Studio Setup Wizard →',
-                style: TextStyle(fontSize: 11.5, fontWeight: FontWeight.w700, color: AppColors.brandPink),
-              ),
-              onPressed: () {
-                context.push('/auth/signup_wizard', extra: {
-                  'phone': _completePhoneNumber,
-                  'phoneVerified': true,
-                });
-              },
             ),
           ),
         ],

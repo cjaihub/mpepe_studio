@@ -4,11 +4,12 @@
   "description": "",
   "main": "lib/index.js",
   "engines": {
-    "node": "20"
+    "node": "22"
   },
   "scripts": {
     "build": "tsc",
-    "test": "echo \"Error: no test specified\" && exit 1",
+    "test": "node --test \"lib/looks/__tests__/**/*.test.js\"",
+    "test:looks": "node --test \"lib/looks/__tests__/**/*.test.js\"",
     "test:livestudio": "tsc -p tsconfig.livestudio.json && node --test \".ls-build/liveStudio/**/*.test.js\""
   },
   "keywords": [],

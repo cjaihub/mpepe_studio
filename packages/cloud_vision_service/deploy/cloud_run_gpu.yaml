@@ -1,0 +1,71 @@
+apiVersion: serving.knative.dev/v1
+kind: Service
+metadata:
+  name: oneova-cloud-vision-gpu
+  namespace: oneova-production
+  labels:
+    app: oneova-cloud-vision
+    component: gpu-inference
+    environment: production
+    managed-by: release-deployer
+  annotations:
+    run.googleapis.com/launch-stage: BETA
+    run.googleapis.com/ingress: all
+    run.googleapis.com/cpu-throttling: "false"
+spec:
+  template:
+    metadata:
+      annotations:
+        autoscaling.knative.dev/minScale: "0"
+        autoscaling.knative.dev/maxScale: "100"
+        run.googleapis.com/cpu: "8"
+        run.googleapis.com/memory: "32Gi"
+        run.googleapis.com/accelerator: "nvidia-l4"
+        run.googleapis.com/gpu-count: "1"
+        run.googleapis.com/execution-environment: gen2
+        run.googleapis.com/startup-cpu-boost: "true"
+    spec:
+      containerConcurrency: 4
+      timeoutSeconds: 600
+      containers:
+        - image: gcr.io/oneova-prod/oneova-cloud-vision-gpu:v1.0.0
+          name: cloud-vision-engine
+          ports:
+            - containerPort: 8080
+          resources:
+            limits:
+              cpu: "8000m"
+              memory: "32Gi"
+              nvidia.com/gpu: "1"
+            requests:
+              cpu: "4000m"
+              memory: "16Gi"
+              nvidia.com/gpu: "1"
+          env:
+            - name: ENVIRONMENT
+              value: "production"
+            - name: PORT
+              value: "8080"
+            - name: SCALE_TO_ZERO_SECONDS
+              value: "300"
+            - name: MODEL_CACHE_DIR
+              value: "/tmp/models"
+            - name: GCS_MODEL_BUCKET
+              value: "oneova-vision-models-prod"
+            - name: MAX_CONCURRENT_JOBS
+              value: "4"
+            - name: LOG_LEVEL
+              value: "INFO"
+          startupProbe:
+            httpGet:
+              path: /healthz
+              port: 8080
+            initialDelaySeconds: 15
+            periodSeconds: 10
+            failureThreshold: 10
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: 8080
+            periodSeconds: 15
+            failureThreshold: 3

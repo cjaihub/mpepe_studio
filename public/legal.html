@@ -1,0 +1,461 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Trust, Safety &amp; Legal Center — Oneova</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
+    <style>
+:root {
+    --brand-blue: #0C4FA8;
+    --brand-blue-soft: rgba(12, 79, 168, 0.10);
+    --brand-pink: #FF2D87;
+    --brand-pink-soft: rgba(255, 45, 135, 0.12);
+    --bg: #FFFFFF;
+    --surface: #F8FAFC;
+    --surface-mid: #F1F5F9;
+    --border: #E2E8F0;
+    --text-primary: #0F172A;
+    --text-secondary: #334155;
+    --text-muted: #64748B;
+}
+html[data-theme="dark"] {
+    --bg: #0A0A0A;
+    --surface: #141414;
+    --surface-mid: #1F1F1F;
+    --border: #262626;
+    --text-primary: #F3F4F6;
+    --text-secondary: #CBD5E1;
+    --text-muted: #9CA3AF;
+    --brand-blue-soft: rgba(12, 79, 168, 0.24);
+}
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body {
+    font-family: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    background: var(--bg);
+    color: var(--text-primary);
+    line-height: 1.62;
+    font-size: 14.5px;
+    -webkit-font-smoothing: antialiased;
+}
+.top-bar {
+    position: sticky;
+    top: 0;
+    z-index: 40;
+    background: var(--bg);
+    border-bottom: 1px solid var(--border);
+    padding: 12px 24px;
+}
+.top-bar-inner {
+    max-width: 960px;
+    margin: 0 auto;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    flex-wrap: wrap;
+}
+.brand-mark {
+    display: inline-flex;
+    align-items: center;
+    gap: 10px;
+    text-decoration: none;
+    color: var(--text-primary);
+    font-weight: 900;
+    font-size: 16px;
+    letter-spacing: -0.3px;
+}
+.brand-dot {
+    width: 26px;
+    height: 26px;
+    border-radius: 7px;
+    background: var(--brand-blue);
+    color: #FFFFFF;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 13px;
+    font-weight: 900;
+}
+.actions-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+.btn-chip {
+    appearance: none;
+    border: 1px solid var(--border);
+    background: var(--surface);
+    color: var(--text-primary);
+    font-family: inherit;
+    font-size: 12px;
+    font-weight: 700;
+    padding: 7px 12px;
+    border-radius: 8px;
+    cursor: pointer;
+    text-decoration: none;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+}
+.btn-chip.primary {
+    background: var(--brand-blue);
+    border-color: var(--brand-blue);
+    color: #FFFFFF;
+}
+.sub-nav {
+    max-width: 960px;
+    margin: 14px auto 0;
+    padding: 0 24px;
+    display: flex;
+    gap: 6px;
+    overflow-x: auto;
+    padding-bottom: 6px;
+}
+.nav-pill {
+    text-decoration: none;
+    font-size: 12px;
+    font-weight: 600;
+    padding: 6px 11px;
+    border-radius: 8px;
+    border: 1px solid var(--border);
+    background: var(--surface);
+    color: var(--text-secondary);
+    white-space: nowrap;
+}
+.nav-pill.active {
+    background: var(--brand-blue);
+    border-color: var(--brand-blue);
+    color: #FFFFFF;
+    font-weight: 700;
+}
+.doc-shell {
+    max-width: 960px;
+    margin: 0 auto;
+    padding: 26px 24px 72px;
+}
+.doc-badge {
+    display: inline-block;
+    font-size: 10px;
+    font-weight: 800;
+    letter-spacing: 0.7px;
+    text-transform: uppercase;
+    padding: 4px 10px;
+    border-radius: 6px;
+    background: var(--brand-pink-soft);
+    color: var(--brand-pink);
+    border: 1px solid rgba(255, 45, 135, 0.32);
+    margin-bottom: 10px;
+}
+h1 {
+    font-size: 26px;
+    font-weight: 850;
+    letter-spacing: -0.5px;
+    line-height: 1.2;
+    color: var(--text-primary);
+    margin-bottom: 14px;
+}
+h2 {
+    font-size: 17.5px;
+    font-weight: 800;
+    letter-spacing: -0.25px;
+    color: var(--text-primary);
+    margin-top: 28px;
+    margin-bottom: 10px;
+    padding-bottom: 6px;
+    border-bottom: 1px solid var(--border);
+}
+h3 {
+    font-size: 14.5px;
+    font-weight: 700;
+    color: var(--text-primary);
+    margin-top: 18px;
+    margin-bottom: 8px;
+}
+p {
+    color: var(--text-secondary);
+    margin-bottom: 11px;
+}
+p strong, li strong {
+    color: var(--text-primary);
+}
+ul, ol {
+    margin: 8px 0 14px 22px;
+    color: var(--text-secondary);
+}
+li {
+    margin-bottom: 6px;
+}
+a {
+    color: var(--brand-blue);
+    font-weight: 600;
+    text-decoration: none;
+}
+html[data-theme="dark"] a {
+    color: #60A5FA;
+}
+a:hover { text-decoration: underline; }
+code {
+    font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+    font-size: 12.5px;
+    background: var(--surface-mid);
+    border: 1px solid var(--border);
+    padding: 1px 6px;
+    border-radius: 5px;
+    color: var(--text-primary);
+}
+.sig-blank {
+    font-family: inherit;
+    font-weight: 500;
+    color: var(--text-primary);
+    background: transparent;
+    border: none;
+    padding: 0 2px;
+}
+h2, h3 {
+    break-after: avoid;
+    page-break-after: avoid;
+}
+.exec-callout {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-left: 4px solid var(--brand-blue);
+    border-radius: 10px;
+    padding: 14px 16px;
+    margin: 14px 0 18px;
+    color: var(--text-secondary);
+    font-size: 13.5px;
+}
+.rule-divider {
+    border: none;
+    border-top: 1px solid var(--border);
+    margin: 20px 0;
+}
+.table-wrap {
+    width: 100%;
+    overflow-x: auto;
+    margin: 14px 0 18px;
+    border: 1px solid var(--border);
+    border-radius: 10px;
+}
+table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 12.8px;
+}
+th {
+    background: var(--surface-mid);
+    color: var(--text-primary);
+    font-weight: 700;
+    text-align: left;
+    padding: 10px 12px;
+    border-bottom: 1px solid var(--border);
+}
+td {
+    padding: 9px 12px;
+    border-bottom: 1px solid var(--border);
+    color: var(--text-secondary);
+    vertical-align: top;
+}
+tr:last-child td { border-bottom: none; }
+.doc-footer {
+    margin-top: 44px;
+    padding-top: 18px;
+    border-top: 1px solid var(--border);
+    display: flex;
+    justify-content: space-between;
+    flex-wrap: wrap;
+    gap: 10px;
+    font-size: 12px;
+    color: var(--text-muted);
+}
+.hub-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+    gap: 14px;
+    margin-top: 18px;
+}
+.hub-card {
+    display: block;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 16px;
+    text-decoration: none;
+    transition: border-color 0.15s ease, transform 0.15s ease;
+}
+.hub-card:hover {
+    border-color: var(--brand-blue);
+    transform: translateY(-1px);
+    text-decoration: none;
+}
+.hub-card h3 {
+    margin-top: 6px;
+    margin-bottom: 6px;
+    color: var(--text-primary);
+}
+.hub-card p {
+    font-size: 12.8px;
+    color: var(--text-secondary);
+    margin: 0;
+}
+
+@page {
+    size: A4;
+    margin: 16mm 15mm 16mm 15mm;
+}
+@media print {
+    html, body {
+        background: #FFFFFF !important;
+        color: #0F172A !important;
+        font-size: 10.5pt;
+        line-height: 1.48;
+    }
+    .no-print { display: none !important; }
+    .doc-shell { max-width: 100%; padding: 0; margin: 0; }
+    .print-letterhead {
+        display: flex !important;
+        justify-content: space-between;
+        align-items: center;
+        padding-bottom: 10px;
+        margin-bottom: 14px;
+        border-bottom: 2px solid #0C4FA8;
+    }
+    h1 { font-size: 18pt; margin-bottom: 8px; }
+    h2 { font-size: 12.5pt; margin-top: 16px; page-break-after: avoid; }
+    h3 { font-size: 10.8pt; page-break-after: avoid; }
+    .exec-callout, tr { page-break-inside: avoid; }
+    .table-wrap { overflow: visible; }
+    table { font-size: 9pt; }
+    th, td { padding: 6px 8px; }
+    a { color: #0C4FA8 !important; text-decoration: none !important; }
+}
+.print-letterhead { display: none; }
+</style>
+    
+<script>
+(function() {
+    const saved = localStorage.getItem('oneova_legal_theme');
+    if (saved === 'dark' || saved === 'light') {
+        document.documentElement.setAttribute('data-theme', saved);
+    } else if (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches) {
+        document.documentElement.setAttribute('data-theme', 'dark');
+    }
+})();
+function toggleTheme() {
+    const cur = document.documentElement.getAttribute('data-theme') === 'dark' ? 'light' : 'dark';
+    document.documentElement.setAttribute('data-theme', cur);
+    localStorage.setItem('oneova_legal_theme', cur);
+}
+</script>
+
+</head>
+<body>
+    <header class="top-bar no-print">
+        <div class="top-bar-inner">
+            <a href="/" class="brand-mark">
+                <span class="brand-dot">O</span>
+                <span>Oneova Trust &amp; Legal Center</span>
+            </a>
+            <div class="actions-row">
+                <a class="btn-chip" href="/">← Back to Oneova</a>
+                <a class="btn-chip" href="/?admin=1">✎ Admin Live CMS</a>
+                <button class="btn-chip" onclick="toggleTheme()" type="button">Light / Dark</button>
+                <button class="btn-chip primary" onclick="window.print()" type="button">Print / Save PDF</button>
+            </div>
+        </div>
+    </header>
+    <nav class="sub-nav no-print"><a class="nav-pill active" href="/legal.html">All Policies</a><a class="nav-pill" href="/terms.html">Terms of Service</a><a class="nav-pill" href="/privacy.html">Privacy Policy</a><a class="nav-pill" href="/guidelines.html">Community Guidelines</a><a class="nav-pill" href="/child-safety.html">Child &amp; Teen Safety</a><a class="nav-pill" href="/biz-policy.html">Biz &amp; Monetization</a><a class="nav-pill" href="/deletion.html">Data Deletion</a><a class="nav-pill" href="/law-enforcement.html">Law Enforcement</a></nav>
+    <main class="doc-shell">
+        <span class="doc-badge">AFRICA-FIRST · GLOBALLY COMPLIANT</span>
+        <h1>Oneova Trust, Safety &amp; Legal Center</h1>
+        <div class="exec-callout">
+            <strong>Our 7 Promises to Every Oneova User:</strong><br>
+            1. <strong>Your content is 100% yours</strong> — we only license it to run Oneova.<br>
+            2. <strong>We never sell your personal data</strong> or store mobile-money PINs.<br>
+            3. <strong>Zero tolerance for scams, hate, violence &amp; child exploitation</strong> — report anything in 2 taps.<br>
+            4. <strong>Transparent rules &amp; human appeals</strong> whenever content is moderated.<br>
+            5. <strong>Safe Wallet, Coins &amp; Biz commerce</strong> via licensed mobile-money, card, and bank partners.<br>
+            6. <strong>Built for Africa &amp; the world</strong> — low-data friendly and aligned with national data &amp; consumer laws.<br>
+            7. <strong>Full self-service control</strong> — export or delete your account anytime.
+        </div>
+
+        <h2>Official Public Policies &amp; User Guides</h2>
+        <div class="hub-grid">
+            
+        <a class="hub-card" href="/terms.html">
+            <span class="doc-badge" style="margin-bottom:4px;">LEGAL AGREEMENT</span>
+            <h3>Terms of Service</h3>
+            <p>Account rules, 100% creator content ownership, SIM-recycle protection, Wallet/Coins, Biz &amp; local consumer rights.</p>
+        </a>
+        
+        <a class="hub-card" href="/privacy.html">
+            <span class="doc-badge" style="margin-bottom:4px;">DATA PROTECTION</span>
+            <h3>Privacy Policy</h3>
+            <p>Zero personal-data sales, zero mobile-money PIN storage, AI privacy firewall, retention &amp; African/GDPR data rights.</p>
+        </a>
+        
+        <a class="hub-card" href="/guidelines.html">
+            <span class="doc-badge" style="margin-bottom:4px;">TRUST &amp; SAFETY</span>
+            <h3>Community Guidelines</h3>
+            <p>Anti-scam &amp; mobile-money fraud shields, dignity &amp; anti-hate rules, AI labels, 3-strike ladder &amp; human appeals.</p>
+        </a>
+        
+        <a class="hub-card" href="/child-safety.html">
+            <span class="doc-badge" style="margin-bottom:4px;">ZERO TOLERANCE CSAE</span>
+            <h3>Child &amp; Teen Safety</h3>
+            <p>CSAM/CSAE zero tolerance, teen privacy-by-default matrix (13–17), and free Pan-African 116 &amp; global helplines.</p>
+        </a>
+        
+        <a class="hub-card" href="/biz-policy.html">
+            <span class="doc-badge" style="margin-bottom:4px;">COMMERCE &amp; PAYOUTS</span>
+            <h3>Biz &amp; Monetization</h3>
+            <p>Coins, Live Gifts, Creator KYC/AML payouts via licensed mobile-money/bank rails, and Biz merchant standards.</p>
+        </a>
+        
+        <a class="hub-card" href="/deletion.html">
+            <span class="doc-badge" style="margin-bottom:4px;">SELF-SERVICE RIGHTS</span>
+            <h3>Data Deletion</h3>
+            <p>Step-by-step 2-tap in-app deletion, data export, OAuth revocation (TikTok/Meta/YouTube), and email erasure.</p>
+        </a>
+        
+        <a class="hub-card" href="/law-enforcement.html">
+            <span class="doc-badge" style="margin-bottom:4px;">DUE PROCESS</span>
+            <h3>Law Enforcement</h3>
+            <p>Valid court-order/warrant requirements, human-rights review, 90-day preservation, emergency requests &amp; user notice.</p>
+        </a>
+        
+        </div>
+
+        <h2>Direct Trust, Safety &amp; Legal Contacts</h2>
+        <div class="table-wrap">
+            <table>
+                <thead>
+                    <tr>
+                        <th>Department</th>
+                        <th>Official Email</th>
+                        <th>Response Target</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr><td><strong>Privacy &amp; Data Protection Officer (DPO)</strong></td><td><code>dpo@oneova.app</code> · <code>privacy@oneova.app</code></td><td>48h triage · ≤ 21 days resolution</td></tr>
+                    <tr><td><strong>24/7 Child &amp; Teen Safety</strong></td><td><code>childsafety@oneova.app</code></td><td>Immediate 24/7 priority queue</td></tr>
+                    <tr><td><strong>Content &amp; Account Appeals</strong></td><td><code>appeals@oneova.app</code></td><td>24h (Live/Wallet) · ≤ 7 days (Posts)</td></tr>
+                    <tr><td><strong>Copyright &amp; Trademark Agent</strong></td><td><code>copyright@oneova.app</code></td><td>24–48h takedown review</td></tr>
+                    <tr><td><strong>Biz Commerce &amp; Creator Payouts</strong></td><td><code>commerce@oneova.app</code></td><td>48h merchant/creator review</td></tr>
+                    <tr><td><strong>Law Enforcement &amp; Court Process</strong></td><td><code>lawenforcement@oneova.app</code></td><td>Verified legal process review</td></tr>
+                    <tr><td><strong>Security &amp; Responsible Disclosure</strong></td><td><code>security@oneova.app</code></td><td>Immediate security triage</td></tr>
+                </tbody>
+            </table>
+        </div>
+
+        <footer class="doc-footer">
+            <span>© 2026 Oneova Technologies Inc. All rights reserved.</span>
+            <span>Built to world-class African &amp; international trust standards.</span>
+        </footer>
+    </main>
+    <script src="/js/live-legal-sync.js" data-cms-doc="regulation-african-global-compliance" defer></script>
+</body>
+</html>

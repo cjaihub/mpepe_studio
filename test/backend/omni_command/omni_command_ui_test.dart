@@ -100,7 +100,12 @@ class FakeAuditLedgerService implements AuditLedgerService {
 
 class FakeOpenRouterAgentService extends OpenRouterAgentService {
   @override
-  Future<String?> queryAgent(String systemPrompt, String userMessage) async {
+  Future<String?> queryAgent(
+    String systemPrompt,
+    String userMessage, {
+    String? model,
+    Duration timeout = const Duration(seconds: 25),
+  }) async {
     await Future.delayed(const Duration(milliseconds: 10));
     return 'Generated response to: $userMessage';
   }

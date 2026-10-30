@@ -36,6 +36,7 @@ class StudioStage extends ConsumerWidget {
     this.popoutContentBuilder,
     this.showFades = true,
     this.showPopout = true,
+    this.showTable = true,
   });
 
   final StudioGeometry geometry;
@@ -61,6 +62,9 @@ class StudioStage extends ConsumerWidget {
   final PopoutContentBuilder? popoutContentBuilder;
   final bool showFades;
   final bool showPopout;
+
+  /// False hides the table frame (Game Live has no table).
+  final bool showTable;
 
   bool get _phone => orientation == StudioOrientation.phone;
 
@@ -147,18 +151,19 @@ class StudioStage extends ConsumerWidget {
 
         final ui = Stack(clipBehavior: Clip.none, children: [
           Positioned.fill(child: StudioStand(spec: g.stand, tokens: tokens, phone: _phone)),
-          Positioned.fromRect(
-            rect: g.table,
-            child: TableFrame(
-              radius: g.tableRadius,
-              border: settings.frameWidth.toDouble(),
-              frameColor: frameColor,
-              phone: _phone,
-              popped: popped?.isTable ?? false,
-              content: tableContent,
-              onExpand: () => expand(const PopoutTarget.table()),
+          if (showTable)
+            Positioned.fromRect(
+              rect: g.table,
+              child: TableFrame(
+                radius: g.tableRadius,
+                border: settings.frameWidth.toDouble(),
+                frameColor: frameColor,
+                phone: _phone,
+                popped: popped?.isTable ?? false,
+                content: tableContent,
+                onExpand: () => expand(const PopoutTarget.table()),
+              ),
             ),
-          ),
         ]);
 
         return ClipRect(

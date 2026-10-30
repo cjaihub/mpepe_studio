@@ -1,0 +1,53 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: oneova-render-batch-worker
+  namespace: oneova-batch
+  labels:
+    app: oneova-render-worker
+    tier: spot-batch
+    managed-by: release-deployer
+spec:
+  replicas: 10
+  selector:
+    matchLabels:
+      app: oneova-render-worker
+  template:
+    metadata:
+      labels:
+        app: oneova-render-worker
+        tier: spot-batch
+    spec:
+      nodeSelector:
+        cloud.google.com/gke-spot: "true"
+        cloud.google.com/gke-accelerator: "nvidia-l4"
+      tolerations:
+        - key: "cloud.google.com/gke-spot"
+          operator: "Equal"
+          value: "true"
+          effect: "NoSchedule"
+        - key: "nvidia.com/gpu"
+          operator: "Exists"
+          effect: "NoSchedule"
+      containers:
+        - name: render-worker
+          image: gcr.io/oneova-prod/oneova-cloud-vision-gpu:v1.0.0
+          command: ["python3", "-m", "worker.batch_consumer"]
+          resources:
+            limits:
+              cpu: "16"
+              memory: "64Gi"
+              nvidia.com/gpu: "1"
+            requests:
+              cpu: "8"
+              memory: "32Gi"
+              nvidia.com/gpu: "1"
+          env:
+            - name: WORKER_QUEUE
+              value: "oneova-render-queue"
+            - name: GCS_OUTPUT_BUCKET
+              value: "oneova-render-exports-prod"
+            - name: PREEMPTION_CHECKPOINT_DIR
+              value: "/tmp/checkpoints"
+            - name: LOG_LEVEL
+              value: "INFO"

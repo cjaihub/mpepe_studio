@@ -21,7 +21,8 @@ import { getAuth } from 'firebase-admin/auth';
 import { getFirestore, FieldValue, Timestamp } from 'firebase-admin/firestore';
 import { secureAccount } from './security';
 import { alertEmail, Fact, page } from './mailTemplates';
-import { MAIL_SECRETS, sendMail } from './mailer';
+import { sendMail } from './mailer';
+import { readAccountSettings } from './accountSettings';
 
 const db = () => getFirestore();
 export const LINK_MINUTES = 60;
@@ -83,7 +84,7 @@ function place(geo: Record<string, unknown> | null | undefined): string {
 }
 
 export const guardEmailOnEvent = onDocumentCreated(
-  { document: 'security_events/{uid}/events/{eventId}', secrets: MAIL_SECRETS },
+  'security_events/{uid}/events/{eventId}',
   async (event) => {
     const e = event.data?.data();
     if (!e) return;
@@ -95,8 +96,8 @@ export const guardEmailOnEvent = onDocumentCreated(
     // An ordinary sign-in on a known device does not need an email.
     if (type === 'sign_in' && risk === 'low') return;
 
-    const prefs = await db().collection('users').doc(uid).collection('settings').doc('notifications').get();
-    if (prefs.get('emailSecurityAlerts') === false && risk !== 'high') return;
+    const prefs = await readAccountSettings(uid, 'notifications', 'settings/notifications');
+    if (prefs.emailSecurityAlerts === false && risk !== 'high') return;
 
     let email: string | undefined;
     try {

@@ -11,10 +11,12 @@ var __rest = (this && this.__rest) || function (s, e) {
     return t;
 };
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.PUBLISH_SOURCES = exports.ROOM_EMPTY_TIMEOUT_SECONDS = exports.TOKEN_TTL_SECONDS = void 0;
+exports.StartValidationError = exports.PUBLISH_SOURCES = exports.ROOM_EMPTY_TIMEOUT_SECONDS = exports.TOKEN_TTL_SECONDS = void 0;
 exports.grantForRole = grantForRole;
 exports.tokenDecision = tokenDecision;
 exports.mergeStartSettings = mergeStartSettings;
+exports.parseStartKind = parseStartKind;
+exports.applyStartKind = applyStartKind;
 exports.buildInitialState = buildInitialState;
 exports.profileFrom = profileFrom;
 exports.buildHostMember = buildHostMember;
@@ -69,20 +71,51 @@ function mergeStartSettings(saved, arg) {
     const obj = (v) => (v && typeof v === 'object' && !Array.isArray(v) ? v : {});
     return Object.assign(Object.assign({}, obj(saved)), obj(arg));
 }
+/** Thrown for a bad lsStart `kind` / `gameTitle`; the callable maps it to `invalid-argument`. */
+class StartValidationError extends Error {
+    constructor(message) {
+        super(message);
+        this.name = 'StartValidationError';
+    }
+}
+exports.StartValidationError = StartValidationError;
+// eslint-disable-next-line no-control-regex
+const CONTROL_CHARS = /[\u0000-\u001F\u007F-\u009F]/;
+/**
+ * Validates lsStart's optional `kind` and `gameTitle`.
+ * - `kind` absent/null → 'studio'; anything other than 'studio' | 'gaming' is rejected;
+ * - `gameTitle` (gaming only, optional) is trimmed; > 60 chars or control characters are rejected;
+ *   an empty title becomes null. Ignored for studio lives.
+ */
+function parseStartKind(data) {
+    const d = (data && typeof data === 'object' && !Array.isArray(data) ? data : {});
+    const k = d.kind;
+    if (k !== undefined && k !== null && k !== 'studio' && k !== 'gaming') {
+        throw new StartValidationError('kind must be studio or gaming.');
+    }
+    const kind = k === 'gaming' ? 'gaming' : 'studio';
+    if (kind !== 'gaming')
+        return { kind, gameTitle: null };
+    const g = d.gameTitle;
+    if (g === undefined || g === null)
+        return { kind, gameTitle: null };
+    if (typeof g !== 'string')
+        throw new StartValidationError('gameTitle must be a string.');
+    if (CONTROL_CHARS.test(g))
+        throw new StartValidationError('gameTitle contains invalid characters.');
+    const t = g.trim();
+    if (t.length > contracts_1.GAME_TITLE_MAX_LENGTH) {
+        throw new StartValidationError(`gameTitle must be at most ${contracts_1.GAME_TITLE_MAX_LENGTH} characters.`);
+    }
+    return { kind, gameTitle: t.length ? t : null };
+}
+/** The layout preset is decided by the kind of live, never by saved settings. */
+function applyStartKind(settings, kind) {
+    return Object.assign(Object.assign({}, settings), { layoutPreset: kind === 'gaming' ? 'gaming' : 'studio' });
+}
 /** Initial `studio/state` for a new live: host in the center, empty wall, goods table. */
 function buildInitialState(a) {
-    return {
-        schemaVersion: contracts_1.SCHEMA_VERSION,
-        streamId: a.streamId,
-        hostId: a.hostId,
-        title: a.title,
-        status: 'live',
-        seq: 0,
-        settings: a.settings,
-        stage: Object.assign(Object.assign({}, (0, contracts_1.emptyStage)(a.hostId)), { updatedAtMs: a.nowMs, updatedBy: a.hostId }),
-        table: { mode: 'goods', goods: null, screen: null, watch: null },
-        counts: { viewers: 0, participants: 1, loves: 0, sparkles: 0, shares: 0 },
-    };
+    return Object.assign({ schemaVersion: contracts_1.SCHEMA_VERSION, streamId: a.streamId, hostId: a.hostId, title: a.title, status: 'live', seq: 0, settings: a.settings, stage: Object.assign(Object.assign({}, (0, contracts_1.emptyStage)(a.hostId)), { updatedAtMs: a.nowMs, updatedBy: a.hostId }), table: { mode: 'goods', goods: null, screen: null, watch: null }, counts: { viewers: 0, participants: 1, loves: 0, sparkles: 0, shares: 0 } }, (a.gameTitle ? { gameTitle: a.gameTitle } : {}));
 }
 /** Display name / avatar from a `users/{uid}` doc, falling back to auth token claims. */
 function profileFrom(user, token) {
@@ -108,20 +141,9 @@ function buildHostMember(uid, p, nowMs) {
 }
 /** Fields of `live_streams/{id}` required by the v1 rules + the v2 markers. */
 function buildStreamDoc(a) {
-    return {
-        id: a.streamId,
-        hostId: a.hostId,
-        hostDisplayName: a.profile.displayName,
-        hostAvatarUrl: a.profile.avatarUrl,
-        title: a.title,
-        status: 'live',
-        layoutMode: 'studio',
-        studioVersion: 2,
-        audienceMode: 'public',
-        viewerCount: 0,
-        totalLikes: 0,
-        totalComments: 0,
-    };
+    const gaming = a.kind === 'gaming';
+    return Object.assign({ id: a.streamId, hostId: a.hostId, hostDisplayName: a.profile.displayName, hostAvatarUrl: a.profile.avatarUrl, title: a.title, status: 'live', layoutMode: 'studio', studioVersion: 2, audienceMode: 'public', viewerCount: 0, totalLikes: 0, totalComments: 0 }, (gaming
+        ? Object.assign({ liveKind: 'gaming', category: 'Gaming' }, (a.gameTitle ? { gameTitle: a.gameTitle } : {})) : {}));
 }
 /** Everyone on stage (center, wall, overflow). */
 function stagePublishers(s) {

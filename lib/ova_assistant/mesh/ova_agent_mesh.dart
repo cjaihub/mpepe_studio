@@ -438,16 +438,17 @@ class CustomerOperationsAgent implements OvaMeshAgent {
       packet.payload['vector_category'] = vectorMatches.first.category;
     }
 
-    // 2. Semantic Memory: Knowledge Graph Traversal
-    // CUSTOMER --[PREFERS]--> EMAIL
-    // CUSTOMER --[PLACED]--> ORDER 4471 --[CONTAINS]--> PHONE
-    final preferredChannels = memoryEngine.getConnectedNodes('customer_oneova', relation: 'PREFERS');
-    final placedOrders = memoryEngine.getConnectedNodes('customer_oneova', relation: 'PLACED');
-    final preferredChannelName = preferredChannels.isNotEmpty ? preferredChannels.first.label : 'Email';
-    final orderLabel = placedOrders.isNotEmpty ? placedOrders.first.label : 'Order 4471';
-    
-    packet.payload['preferred_channel'] = preferredChannelName;
-    packet.payload['knowledge_graph_path'] = 'CUSTOMER ➔ PREFERS ➔ $preferredChannelName | CUSTOMER ➔ PLACED ➔ $orderLabel ➔ CONTAINS ➔ Phone';
+    // 2. Semantic Memory: Knowledge Graph Traversal for real creator identity
+    final user = memoryEngine.currentUserProfile;
+    final userNodeId = user != null ? 'user_${user.id}' : 'user_${packet.userId}';
+    final niches = memoryEngine.getConnectedNodes(userNodeId, relation: 'SPECIALIZES_IN');
+    final links = memoryEngine.getConnectedNodes(userNodeId, relation: 'PUBLISHES');
+    final creatorName = user?.fullName.isNotEmpty == true ? user!.fullName : (user?.username ?? 'Creator');
+    final nicheName = niches.isNotEmpty ? niches.first.label : (user?.category ?? 'Digital Studio');
+
+    packet.payload['creator_name'] = creatorName;
+    packet.payload['creator_niche'] = nicheName;
+    packet.payload['knowledge_graph_path'] = 'CREATOR ($creatorName) ➔ SPECIALIZES_IN ➔ $nicheName | PUBLISHES ➔ ${links.length} Links';
 
     // 3. Episodic Memory: Mistake Avoidance ("Avoid repeating past mistake: closing ticket before refund settled")
     final pastMistakes = memoryEngine.findMistakeAvoidance('ticket_refund_workflow', ['close_ticket']);

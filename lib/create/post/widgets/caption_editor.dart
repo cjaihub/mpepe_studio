@@ -178,16 +178,20 @@ class _CaptionEditorState extends State<CaptionEditor> {
             children: [
               Icon(Icons.title_rounded, size: 16, color: AppColors.brandBlue),
               const SizedBox(width: 6),
-              Text(
-                'TITLE (OPTIONAL)',
-                style: GoogleFonts.inter(
-                  fontSize: 10.5,
-                  fontWeight: FontWeight.w700,
-                  letterSpacing: 0.8,
-                  color: context.textMuted,
+              Expanded(
+                child: Text(
+                  'TITLE (OPTIONAL)',
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: GoogleFonts.inter(
+                    fontSize: 10.5,
+                    fontWeight: FontWeight.w700,
+                    letterSpacing: 0.8,
+                    color: context.textMuted,
+                  ),
                 ),
               ),
-              const Spacer(),
+              const SizedBox(width: 6),
               ValueListenableBuilder<TextEditingValue>(
                 valueListenable: widget.titleController,
                 builder: (context, value, _) {
@@ -228,16 +232,20 @@ class _CaptionEditorState extends State<CaptionEditor> {
             children: [
               Icon(Icons.notes_rounded, size: 16, color: AppColors.brandPink),
               const SizedBox(width: 6),
-              Text(
-                'DESCRIPTION & HASHTAGS',
-                style: GoogleFonts.inter(
-                  fontSize: 10.5,
-                  fontWeight: FontWeight.w700,
-                  letterSpacing: 0.8,
-                  color: context.textMuted,
+              Expanded(
+                child: Text(
+                  'DESCRIPTION & HASHTAGS',
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: GoogleFonts.inter(
+                    fontSize: 10.5,
+                    fontWeight: FontWeight.w700,
+                    letterSpacing: 0.8,
+                    color: context.textMuted,
+                  ),
                 ),
               ),
-              const Spacer(),
+              const SizedBox(width: 6),
               ValueListenableBuilder<TextEditingValue>(
                 valueListenable: widget.captionController,
                 builder: (context, value, _) {

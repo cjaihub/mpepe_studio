@@ -1,0 +1,417 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ONEOVA CHILD &amp; TEEN SAFETY POLICY — Oneova</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
+    <style>
+:root {
+    --brand-blue: #0C4FA8;
+    --brand-blue-soft: rgba(12, 79, 168, 0.10);
+    --brand-pink: #FF2D87;
+    --brand-pink-soft: rgba(255, 45, 135, 0.12);
+    --bg: #FFFFFF;
+    --surface: #F8FAFC;
+    --surface-mid: #F1F5F9;
+    --border: #E2E8F0;
+    --text-primary: #0F172A;
+    --text-secondary: #334155;
+    --text-muted: #64748B;
+}
+html[data-theme="dark"] {
+    --bg: #0A0A0A;
+    --surface: #141414;
+    --surface-mid: #1F1F1F;
+    --border: #262626;
+    --text-primary: #F3F4F6;
+    --text-secondary: #CBD5E1;
+    --text-muted: #9CA3AF;
+    --brand-blue-soft: rgba(12, 79, 168, 0.24);
+}
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body {
+    font-family: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    background: var(--bg);
+    color: var(--text-primary);
+    line-height: 1.62;
+    font-size: 14.5px;
+    -webkit-font-smoothing: antialiased;
+}
+.top-bar {
+    position: sticky;
+    top: 0;
+    z-index: 40;
+    background: var(--bg);
+    border-bottom: 1px solid var(--border);
+    padding: 12px 24px;
+}
+.top-bar-inner {
+    max-width: 960px;
+    margin: 0 auto;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    flex-wrap: wrap;
+}
+.brand-mark {
+    display: inline-flex;
+    align-items: center;
+    gap: 10px;
+    text-decoration: none;
+    color: var(--text-primary);
+    font-weight: 900;
+    font-size: 16px;
+    letter-spacing: -0.3px;
+}
+.brand-dot {
+    width: 26px;
+    height: 26px;
+    border-radius: 7px;
+    background: var(--brand-blue);
+    color: #FFFFFF;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 13px;
+    font-weight: 900;
+}
+.actions-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+.btn-chip {
+    appearance: none;
+    border: 1px solid var(--border);
+    background: var(--surface);
+    color: var(--text-primary);
+    font-family: inherit;
+    font-size: 12px;
+    font-weight: 700;
+    padding: 7px 12px;
+    border-radius: 8px;
+    cursor: pointer;
+    text-decoration: none;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+}
+.btn-chip.primary {
+    background: var(--brand-blue);
+    border-color: var(--brand-blue);
+    color: #FFFFFF;
+}
+.sub-nav {
+    max-width: 960px;
+    margin: 14px auto 0;
+    padding: 0 24px;
+    display: flex;
+    gap: 6px;
+    overflow-x: auto;
+    padding-bottom: 6px;
+}
+.nav-pill {
+    text-decoration: none;
+    font-size: 12px;
+    font-weight: 600;
+    padding: 6px 11px;
+    border-radius: 8px;
+    border: 1px solid var(--border);
+    background: var(--surface);
+    color: var(--text-secondary);
+    white-space: nowrap;
+}
+.nav-pill.active {
+    background: var(--brand-blue);
+    border-color: var(--brand-blue);
+    color: #FFFFFF;
+    font-weight: 700;
+}
+.doc-shell {
+    max-width: 960px;
+    margin: 0 auto;
+    padding: 26px 24px 72px;
+}
+.doc-badge {
+    display: inline-block;
+    font-size: 10px;
+    font-weight: 800;
+    letter-spacing: 0.7px;
+    text-transform: uppercase;
+    padding: 4px 10px;
+    border-radius: 6px;
+    background: var(--brand-pink-soft);
+    color: var(--brand-pink);
+    border: 1px solid rgba(255, 45, 135, 0.32);
+    margin-bottom: 10px;
+}
+h1 {
+    font-size: 26px;
+    font-weight: 850;
+    letter-spacing: -0.5px;
+    line-height: 1.2;
+    color: var(--text-primary);
+    margin-bottom: 14px;
+}
+h2 {
+    font-size: 17.5px;
+    font-weight: 800;
+    letter-spacing: -0.25px;
+    color: var(--text-primary);
+    margin-top: 28px;
+    margin-bottom: 10px;
+    padding-bottom: 6px;
+    border-bottom: 1px solid var(--border);
+}
+h3 {
+    font-size: 14.5px;
+    font-weight: 700;
+    color: var(--text-primary);
+    margin-top: 18px;
+    margin-bottom: 8px;
+}
+p {
+    color: var(--text-secondary);
+    margin-bottom: 11px;
+}
+p strong, li strong {
+    color: var(--text-primary);
+}
+ul, ol {
+    margin: 8px 0 14px 22px;
+    color: var(--text-secondary);
+}
+li {
+    margin-bottom: 6px;
+}
+a {
+    color: var(--brand-blue);
+    font-weight: 600;
+    text-decoration: none;
+}
+html[data-theme="dark"] a {
+    color: #60A5FA;
+}
+a:hover { text-decoration: underline; }
+code {
+    font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+    font-size: 12.5px;
+    background: var(--surface-mid);
+    border: 1px solid var(--border);
+    padding: 1px 6px;
+    border-radius: 5px;
+    color: var(--text-primary);
+}
+.sig-blank {
+    font-family: inherit;
+    font-weight: 500;
+    color: var(--text-primary);
+    background: transparent;
+    border: none;
+    padding: 0 2px;
+}
+h2, h3 {
+    break-after: avoid;
+    page-break-after: avoid;
+}
+.exec-callout {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-left: 4px solid var(--brand-blue);
+    border-radius: 10px;
+    padding: 14px 16px;
+    margin: 14px 0 18px;
+    color: var(--text-secondary);
+    font-size: 13.5px;
+}
+.rule-divider {
+    border: none;
+    border-top: 1px solid var(--border);
+    margin: 20px 0;
+}
+.table-wrap {
+    width: 100%;
+    overflow-x: auto;
+    margin: 14px 0 18px;
+    border: 1px solid var(--border);
+    border-radius: 10px;
+}
+table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 12.8px;
+}
+th {
+    background: var(--surface-mid);
+    color: var(--text-primary);
+    font-weight: 700;
+    text-align: left;
+    padding: 10px 12px;
+    border-bottom: 1px solid var(--border);
+}
+td {
+    padding: 9px 12px;
+    border-bottom: 1px solid var(--border);
+    color: var(--text-secondary);
+    vertical-align: top;
+}
+tr:last-child td { border-bottom: none; }
+.doc-footer {
+    margin-top: 44px;
+    padding-top: 18px;
+    border-top: 1px solid var(--border);
+    display: flex;
+    justify-content: space-between;
+    flex-wrap: wrap;
+    gap: 10px;
+    font-size: 12px;
+    color: var(--text-muted);
+}
+.hub-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+    gap: 14px;
+    margin-top: 18px;
+}
+.hub-card {
+    display: block;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 16px;
+    text-decoration: none;
+    transition: border-color 0.15s ease, transform 0.15s ease;
+}
+.hub-card:hover {
+    border-color: var(--brand-blue);
+    transform: translateY(-1px);
+    text-decoration: none;
+}
+.hub-card h3 {
+    margin-top: 6px;
+    margin-bottom: 6px;
+    color: var(--text-primary);
+}
+.hub-card p {
+    font-size: 12.8px;
+    color: var(--text-secondary);
+    margin: 0;
+}
+
+@page {
+    size: A4;
+    margin: 16mm 15mm 16mm 15mm;
+}
+@media print {
+    html, body {
+        background: #FFFFFF !important;
+        color: #0F172A !important;
+        font-size: 10.5pt;
+        line-height: 1.48;
+    }
+    .no-print { display: none !important; }
+    .doc-shell { max-width: 100%; padding: 0; margin: 0; }
+    .print-letterhead {
+        display: flex !important;
+        justify-content: space-between;
+        align-items: center;
+        padding-bottom: 10px;
+        margin-bottom: 14px;
+        border-bottom: 2px solid #0C4FA8;
+    }
+    h1 { font-size: 18pt; margin-bottom: 8px; }
+    h2 { font-size: 12.5pt; margin-top: 16px; page-break-after: avoid; }
+    h3 { font-size: 10.8pt; page-break-after: avoid; }
+    .exec-callout, tr { page-break-inside: avoid; }
+    .table-wrap { overflow: visible; }
+    table { font-size: 9pt; }
+    th, td { padding: 6px 8px; }
+    a { color: #0C4FA8 !important; text-decoration: none !important; }
+}
+.print-letterhead { display: none; }
+</style>
+    
+<script>
+(function() {
+    const saved = localStorage.getItem('oneova_legal_theme');
+    if (saved === 'dark' || saved === 'light') {
+        document.documentElement.setAttribute('data-theme', saved);
+    } else if (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches) {
+        document.documentElement.setAttribute('data-theme', 'dark');
+    }
+})();
+function toggleTheme() {
+    const cur = document.documentElement.getAttribute('data-theme') === 'dark' ? 'light' : 'dark';
+    document.documentElement.setAttribute('data-theme', cur);
+    localStorage.setItem('oneova_legal_theme', cur);
+}
+</script>
+
+</head>
+<body>
+    
+    <header class="top-bar no-print">
+        <div class="top-bar-inner">
+            <a href="/legal.html" class="brand-mark">
+                <span class="brand-dot">O</span>
+                <span>Oneova Trust &amp; Legal Center</span>
+            </a>
+            <div class="actions-row">
+                <a class="btn-chip" href="/">← Oneova Portal</a>
+                <a class="btn-chip" href="/docs/pdf/04_Oneova_Child_and_Teen_Safety_Policy.pdf" download>⬇ Official PDF</a>
+                <button class="btn-chip" onclick="toggleTheme()" type="button">Light / Dark</button>
+                <button class="btn-chip primary" onclick="window.print()" type="button">Print / Save PDF</button>
+            </div>
+        </div>
+    </header>
+    
+    <nav class="sub-nav no-print"><a class="nav-pill" href="/legal.html">All Policies</a><a class="nav-pill" href="/terms.html">Terms of Service</a><a class="nav-pill" href="/privacy.html">Privacy Policy</a><a class="nav-pill" href="/guidelines.html">Community Guidelines</a><a class="nav-pill active" href="/child-safety.html">Child &amp; Teen Safety</a><a class="nav-pill" href="/biz-policy.html">Biz &amp; Monetization</a><a class="nav-pill" href="/deletion.html">Data Deletion</a><a class="nav-pill" href="/law-enforcement.html">Law Enforcement</a></nav>
+    <main class="doc-shell">
+        <div class="print-letterhead">
+            <div>
+                <strong style="font-size:13pt;color:#0C4FA8;font-weight:900;">ONEOVA TECHNOLOGIES INC.</strong><br>
+                <span style="font-size:8.5pt;color:#64748B;">OFFICIAL PUBLIC POLICY — ONEOVA.APP</span>
+            </div>
+            <div style="text-align:right;font-size:8.5pt;color:#64748B;">
+                <strong>Document #04</strong><br>
+                Effective: October 25, 2026
+            </div>
+        </div>
+        <span class="doc-badge">ZERO TOLERANCE CSAE</span>
+        <h1>ONEOVA CHILD &amp; TEEN SAFETY POLICY</h1>
+<p><strong>Document ID:</strong> <code>ONV-TRUST-CSAE-2026-V1</code><br><strong>Effective Date:</strong> October 25, 2026<br><strong>24/7 Designated Child Safety Officer:</strong> <code>childsafety@oneova.app</code><br><strong>Web Portal:</strong> <code>https://oneova.app/child-safety</code></p>
+<hr class="rule-divider">
+<div class="exec-callout"><strong>Executive Summary ("In Short"):</strong><br>Protecting children and teenagers takes absolute priority over user growth or commercial revenue at Oneova.<br>1. <strong>Zero Tolerance for CSAE / CSAM:</strong> Instant permanent account and device ban, forensic preservation, and mandatory statutory reporting to NCMEC, INTERPOL, and national child-protection authorities.<br>2. <strong>No Under-13 Accounts:</strong> Children under 13 are strictly prohibited from holding Oneova accounts.<br>3. <strong>Built-In Teen Safeguards (13–17):</strong> Private-by-default accounts for ages 13–15, blocked unconnected-adult DMs, zero targeted ad profiling, nighttime quiet hours, and strict 18+ gates on Live hosting, Wallet/Coins, and Biz selling.</div>
+<hr class="rule-divider">
+<h2 id="1-zero-tolerance-standard-against-child-sexual-exploitation-abuse-csae">1. Zero-Tolerance Standard Against Child Sexual Exploitation &amp; Abuse (CSAE)</h2>
+<p>Oneova enforces an uncompromising, global <strong>zero-tolerance policy</strong> against Child Sexual Abuse Material (<strong>CSAM</strong>) and Child Sexual Exploitation and Abuse (<strong>CSAE</strong>), in full alignment with the <strong>African Charter on the Rights and Welfare of the Child (ACRWC)</strong>, national child-protection statutes (including Kenya's Children Act &amp; Computer Misuse Act, Nigeria's Child's Rights Act &amp; Cybercrimes Act, South Africa's Children's Act &amp; Cybercrimes Act, Ghana's Cybersecurity Act ss. 62–66), the <strong>UK Online Safety Act &amp; Children's Code</strong>, <strong>18 U.S.C. § 2258A</strong>, <strong>Apple App Store § 1.2</strong>, and <strong>Google Play Child Safety Standards</strong>.</p>
+<h3 id="1-1-strictly-prohibited-conduct-immediate-permanent-ban">1.1 Strictly Prohibited Conduct (Immediate Permanent Ban)</h3>
+<ol><li><strong>CSAM in Any Format:</strong> Real, altered, illustrated, or <strong>AI-generated</strong> nude, sexually explicit, or sexually suggestive imagery, video, or audio involving any person under <strong>18 years of age</strong>.</li><li><strong>Online Grooming &amp; Enticement:</strong> Adults cultivating romantic/sexual trust with minors, requesting private images, offering mobile money, airtime, Oneova Coins, gifts, or favours for sexual interaction, or attempting to move minors to off-platform encrypted chats or physical meetings.</li><li><strong>Youth Sextortion:</strong> Coercing or blackmailing a young person with real or fabricated intimate images. <strong>Teen victims of sextortion are protected, supported, and never penalized.</strong></li><li><strong>Child Trafficking &amp; Exploitative Recruitment:</strong> Fake scholarships, sports academies, domestic-work placements, or modelling/influencer offers used to traffic or exploit minors.</li><li><strong>Harmful Practices Against Children:</strong> Promoting child marriage, female genital mutilation (FGM), or physical cruelty against minors.</li></ol>
+<h3 id="1-2-detection-preservation-mandatory-reporting">1.2 Detection, Preservation &amp; Mandatory Reporting</h3>
+<ul><li><strong>Technical Safeguards:</strong> Cryptographic hash-matching against known CSAM repositories, strict AI Lab prompt-level blocks, and anti-grooming behavioral signals.</li><li><strong>Enforcement &amp; Reporting:</strong> Upon confirmation, content is quarantined immediately, offending accounts and associated device identifiers are permanently terminated, forensic records are preserved in an isolated encrypted vault, and statutory reports are filed with the <strong>National Center for Missing &amp; Exploited Children (NCMEC CyberTipline)</strong>, <strong>INTERPOL</strong>, and competent national cybercrime/child-protection agencies.</li></ul>
+<hr class="rule-divider">
+<h2 id="2-age-appropriate-design-matrix-privacy-safety-by-default">2. Age-Appropriate Design Matrix (Privacy &amp; Safety by Default)</h2>
+<div class="table-wrap"><table><thead><tr><th>Feature / Protection Control</th><th>Under 13</th><th>Younger Teens (13–15)</th><th>Older Teens (16–17)</th><th>Adults (18+)</th></tr></thead><tbody><tr><td><strong>Account Permitted?</strong></td><td><strong>No (Removed)</strong></td><td>Yes (subject to local parental-consent law)</td><td>Yes (subject to local parental-consent law)</td><td>Yes</td></tr><tr><td><strong>Default Profile Visibility</strong></td><td>—</td><td><strong>Private by Default</strong></td><td>Prompted choice (Safety nudge)</td><td>User choice</td></tr><tr><td><strong>Direct Messaging (Chat)</strong></td><td>—</td><td><strong>Mutual Followers Only</strong> (Unconnected adults blocked)</td><td>Followers by default; stranger safety banner</td><td>Configurable</td></tr><tr><td><strong>Download / Save Teen Reels</strong></td><td>—</td><td><strong>Disabled</strong></td><td>Disabled by default</td><td>Configurable</td></tr><tr><td><strong>Remix / Duet Permissions</strong></td><td>—</td><td><strong>Mutual Friends Only</strong></td><td>Friends by default</td><td>Configurable</td></tr><tr><td><strong>Sensitive &amp; Mature Feed Filter</strong></td><td>—</td><td><strong>Locked ON (Strict)</strong></td><td>ON by default</td><td>Configurable</td></tr><tr><td><strong>Host Live Streams / PK Battles</strong></td><td>—</td><td><strong>Blocked (18+ Only)</strong></td><td><strong>Blocked (18+ Only)</strong></td><td>Permitted</td></tr><tr><td><strong>Purchase Coins / Send Gifts / Wallet</strong></td><td>—</td><td><strong>Blocked (18+ Only)</strong></td><td><strong>Blocked (18+ Only)</strong></td><td>Permitted</td></tr><tr><td><strong>Sell on Biz Marketplace</strong></td><td>—</td><td><strong>Blocked (18+ Only)</strong></td><td><strong>Blocked (18+ Only)</strong></td><td>Permitted</td></tr><tr><td><strong>Behavioral Ad Profiling</strong></td><td>—</td><td><strong>Permanently Disabled</strong></td><td><strong>Permanently Disabled</strong></td><td>Configurable</td></tr><tr><td><strong>Precise Location Sharing</strong></td><td>—</td><td><strong>Disabled by Default</strong></td><td><strong>Disabled by Default</strong></td><td>Opt-in only</td></tr><tr><td><strong>Nighttime Push Quiet Hours</strong></td><td>—</td><td><strong>Muted 21:00 – 06:00</strong></td><td><strong>Muted 22:00 – 06:00</strong></td><td>Optional</td></tr></tbody></table></div>
+<h3 id="underage-account-handling">Underage Account Handling</h3>
+<p>Accounts identified as belonging to children under <strong>13</strong> are promptly locked and queued for erasure unless government-ID verification confirms an adult creator entered an incorrect birth year by mistake.</p>
+<hr class="rule-divider">
+<h2 id="3-regional-youth-scam-wellbeing-protections">3. Regional Youth-Scam &amp; Wellbeing Protections</h2>
+<ul><li><strong>Scholarship, Visa &amp; Job-Scam Shields:</strong> Links or DMs soliciting upfront mobile-money fees for "guaranteed scholarships/visas" trigger fraud warnings and priority moderator review.</li><li><strong>Academic Integrity:</strong> Selling leaked national examination papers or impersonating examination councils is prohibited.</li><li><strong>Restricted Youth Commercial Categories:</strong> Gambling, sports betting, alcohol, tobacco/nicotine vapes, prescription pharmaceuticals, cosmetic surgery, weight-loss supplements, and hazardous skin-lightening products may never target minors.</li></ul>
+<hr class="rule-divider">
+<h2 id="4-in-app-reporting-free-child-helplines-directory">4. In-App Reporting &amp; Free Child Helplines Directory</h2>
+<h3 id="4-1-2-tap-priority-reporting">4.1 2-Tap Priority Reporting</h3>
+<p>Tap <strong>⋯ → Report → Child or Teen Safety</strong> on any profile, Reel, Live stream, comment, or Chat message, or email <strong><code>childsafety@oneova.app</code></strong> (monitored 24/7).</p>
+<h3 id="4-2-free-confidential-african-global-helplines">4.2 Free, Confidential African &amp; Global Helplines</h3>
+<ul><li><strong>Pan-African Toll-Free Child Helpline (<code>116</code>):</strong> Active free of charge across <strong>Kenya, South Africa, Tanzania, Uganda, Rwanda, Ghana, Zambia, Malawi, Zimbabwe, Lesotho, Eswatini, and Mozambique</strong>.</li><li><strong>Nigeria:</strong> Cece Yara Child Advocacy Helpline <strong><code>0800 800 8001</code></strong> (Toll-free) · NAPTIP <strong><code>0800 2255 627847</code></strong></li><li><strong>Rwanda:</strong> Isange One Stop Centre <strong><code>3029</code></strong> / <strong><code>116</code></strong></li><li><strong>Egypt:</strong> National Child Helpline <strong><code>16000</code></strong></li><li><strong>United Kingdom:</strong> Childline <strong><code>0800 1111</code></strong> · <strong>European Union:</strong> <strong><code>116 111</code></strong></li><li><strong>United States &amp; Canada:</strong> <strong><code>988</code></strong> Crisis Lifeline · NCMEC <code>https://report.cybertip.org</code></li><li><strong>Worldwide Directory (140+ Countries):</strong> Child Helpline International — <code>https://childhelplineinternational.org</code></li></ul>
+        <footer class="doc-footer">
+            <span>© 2026 Oneova Technologies Inc. All rights reserved.</span>
+            <span>Official Trust &amp; Legal Office: legal@oneova.app · dpo@oneova.app</span>
+        </footer>
+    </main>
+    <script src="/js/live-legal-sync.js" data-cms-doc="policy-child-safety" defer></script>
+</body>
+</html>

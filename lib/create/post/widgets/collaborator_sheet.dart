@@ -3,7 +3,6 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:google_fonts/google_fonts.dart';
 import '../../../backend/social/models/social_profile.dart';
-import '../../../backend/social/services/collab_service.dart';
 import '../../../shared/theme/app_theme.dart';
 import '../services/post_search_service.dart';
 

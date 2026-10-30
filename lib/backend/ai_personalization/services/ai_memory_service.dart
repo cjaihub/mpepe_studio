@@ -2,6 +2,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../models/ai_memory_models.dart';
+import '../../settings_service.dart';
 
 final aiMemoryServiceProvider = Provider<AiMemoryService>((ref) {
   return AiMemoryService();
@@ -20,20 +21,19 @@ class AiMemoryService {
   CollectionReference get _memoryCollection => 
       _firestore.collection('users').doc(_uid).collection('ai_memory');
 
-  DocumentReference get _settingsRef =>
-      _firestore.collection('users').doc(_uid).collection('settings').doc('ai_personalization');
+  // The learning switch is the `aiPersonalization` category of the one
+  // settings store, user_settings/{uid}.
+  SettingsService get _settings => SettingsService(firestore: _firestore);
 
   /// Fetches the user's explicit learning authorization.
   Future<bool> isLearningEnabled() async {
-    final doc = await _settingsRef.get();
-    if (!doc.exists) return false;
-    final data = doc.data() as Map<String, dynamic>?;
-    return data?['learningEnabled'] ?? false;
+    final settings = await _settings.getSettings(_uid);
+    return (settings['aiPersonalization'] as Map?)?['learningEnabled'] == true;
   }
 
   /// Sets whether the AI is allowed to write to the memory graph.
   Future<void> setLearningEnabled(bool enabled) async {
-    await _settingsRef.set({'learningEnabled': enabled}, SetOptions(merge: true));
+    await _settings.updateSettingsCategory(_uid, 'aiPersonalization', {'learningEnabled': enabled});
   }
 
   /// The only permitted way for AI to write to memory.

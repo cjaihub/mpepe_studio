@@ -1,4 +1,5 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
+import '../../settings_service.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import '../models/app_notification.dart';
@@ -141,55 +142,37 @@ class NotificationService {
             .where((n) => !n.isRead));
   }
 
+  // Preferences live in the `notifications` category of the one settings
+  // store, user_settings/{uid}. SettingsService also mirrors them to
+  // users/{uid}/settings/notifications, which the deployed functions read.
+  SettingsService get _settings => SettingsService(firestore: _firestore);
+
   /// Toggle one category (AppNotificationCategory.name) on or off.
   Future<void> setCategoryEnabled(String category, bool enabled) async {
     final uid = _currentUserId;
     if (uid == null) return;
-    await _firestore
-        .collection('users')
-        .doc(uid)
-        .collection('settings')
-        .doc('notifications')
-        .set({
+    await _settings.updateSettingsCategory(uid, 'notifications', {
       'categoryOverrides': {category: enabled},
-    }, SetOptions(merge: true));
+    });
   }
 
   /// Merge a few preference fields without rewriting the whole document.
   Future<void> updatePreferenceFields(Map<String, dynamic> fields) async {
     final uid = _currentUserId;
     if (uid == null) return;
-    await _firestore
-        .collection('users')
-        .doc(uid)
-        .collection('settings')
-        .doc('notifications')
-        .set(fields, SetOptions(merge: true));
+    await _settings.updateSettingsCategory(uid, 'notifications', fields);
   }
 
   Stream<NotificationPreferences> streamPreferences() {
     final uid = _currentUserId;
     if (uid == null) return const Stream.empty();
-
-    return _firestore
-        .collection('users')
-        .doc(uid)
-        .collection('settings')
-        .doc('notifications')
-        .snapshots()
-        .map((doc) => NotificationPreferences.fromFirestore(doc));
+    return _settings.watchCategory(uid, 'notifications').map(NotificationPreferences.fromMap);
   }
 
   Future<void> updatePreferences(NotificationPreferences prefs) async {
     final uid = _currentUserId;
     if (uid == null) return;
-
-    await _firestore
-        .collection('users')
-        .doc(uid)
-        .collection('settings')
-        .doc('notifications')
-        .set(prefs.toMap(), SetOptions(merge: true));
+    await _settings.updateSettingsCategory(uid, 'notifications', prefs.toMap());
   }
 
   Stream<int> streamUnreadCount() {
@@ -263,16 +246,7 @@ class NotificationService {
   Future<NotificationPreferences> getPreferences() async {
     final uid = _currentUserId;
     if (uid == null) return NotificationPreferences();
-
-    final doc = await _firestore
-        .collection('users')
-        .doc(uid)
-        .collection('settings')
-        .doc('notifications')
-        .get();
-    if (!doc.exists) {
-      return NotificationPreferences();
-    }
-    return NotificationPreferences.fromFirestore(doc);
+    final settings = await _settings.getSettings(uid);
+    return NotificationPreferences.fromMap(Map<String, dynamic>.from(settings['notifications'] as Map? ?? const {}));
   }
 }

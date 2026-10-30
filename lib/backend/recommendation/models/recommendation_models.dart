@@ -84,9 +84,13 @@ class RecommendationPreferences {
         lastResetTime: DateTime.now(),
       );
     }
-    final data = doc.data() as Map<String, dynamic>;
+    return RecommendationPreferences.fromMap(doc.id, doc.data() as Map<String, dynamic>);
+  }
+
+  /// From the `recommendations` category of `user_settings/{uid}`.
+  factory RecommendationPreferences.fromMap(String userId, Map<String, dynamic> data) {
     return RecommendationPreferences(
-      userId: doc.id,
+      userId: userId,
       hiddenTopics: List<String>.from(data['hiddenTopics'] ?? []),
       hiddenCreators: List<String>.from(data['hiddenCreators'] ?? []),
       explicitInterests: Map<String, double>.from(data['explicitInterests'] ?? {}),

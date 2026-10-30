@@ -235,7 +235,29 @@ Future<bool> handleCallPushInBackground(RemoteMessage message) async {
     return true;
   }
   await CallKitService.showIncoming(p);
+  await _ackDelivered(data['callId'] as String);
   return true;
+}
+
+Future<User?> _signedInUser() async {
+  if (Firebase.apps.isEmpty) {
+    await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
+  }
+  return FirebaseAuth.instance.currentUser ??
+      await FirebaseAuth.instance
+          .authStateChanges()
+          .firstWhere((u) => u != null)
+          .timeout(const Duration(seconds: 5));
+}
+
+/// Lets the caller see "Ringing…" once this phone is actually ringing.
+Future<void> _ackDelivered(String callId) async {
+  try {
+    if (await _signedInUser() == null) return;
+    await CallSignalingService().markDelivered(callId);
+  } catch (e) {
+    debugPrint('[CallKit] delivery ack failed: $e');
+  }
 }
 
 /// Runs when the user declines from the native UI while the app is not
@@ -246,15 +268,7 @@ Future<void> callKitBackgroundEventHandler(CallEvent event) async {
   final callId = event.callKitParams.extra?['callId'] as String?;
   if (callId == null) return;
   try {
-    if (Firebase.apps.isEmpty) {
-      await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
-    }
-    final user = FirebaseAuth.instance.currentUser ??
-        await FirebaseAuth.instance
-            .authStateChanges()
-            .firstWhere((u) => u != null)
-            .timeout(const Duration(seconds: 5));
-    if (user == null) return;
+    if (await _signedInUser() == null) return;
     final signaling = CallSignalingService();
     if (await signaling.myStatus(callId) == ParticipantStatus.ringing) {
       await signaling.declineCall(callId);

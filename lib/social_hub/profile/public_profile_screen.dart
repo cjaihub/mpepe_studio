@@ -22,6 +22,8 @@ import '../../backend/social/profile_stats_provider.dart';
 import '../../auth/widgets/profile_completion_reminder_card.dart';
 import '../../inbox/calling/call_launcher.dart';
 import 'owner_profile_menu.dart';
+import '../../settings/widgets/oneova_profile_qr_sheet.dart';
+import '../../settings/widgets/oneova_about_account_sheet.dart';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Providers
@@ -229,6 +231,30 @@ class _PublicProfileScreenState extends ConsumerState<PublicProfileScreen>
                 ));
               },
             ),
+            ListTile(
+              leading: const Icon(Icons.qr_code_2_rounded, color: AppColors.brandBlue),
+              title: Text('Profile QR Code',
+                  style: TextStyle(color: context.textPrimary)),
+              onTap: () {
+                Navigator.pop(context);
+                final targetUser = ref.read(_profileUserProvider(_resolvedTargetUserId)).value;
+                if (targetUser != null) {
+                  OneovaProfileQrSheet.show(context, targetUser);
+                }
+              },
+            ),
+            ListTile(
+              leading: Icon(Icons.info_outline_rounded, color: context.textPrimary),
+              title: Text('About this account',
+                  style: TextStyle(color: context.textPrimary)),
+              onTap: () {
+                Navigator.pop(context);
+                final targetUser = ref.read(_profileUserProvider(_resolvedTargetUserId)).value;
+                if (targetUser != null) {
+                  OneovaAboutAccountSheet.show(context, targetUser);
+                }
+              },
+            ),
             if (!_isOwnProfile) ...[
               ListTile(
                 leading: Icon(
@@ -367,6 +393,7 @@ class _PublicProfileScreenState extends ConsumerState<PublicProfileScreen>
         final isBlocked = rel?.status == RelationshipStatus.blocked;
         final isFollowing = rel?.status == RelationshipStatus.accepted;
         final isPending = rel?.status == RelationshipStatus.pending;
+        final isPrivateLocked = !_isOwnProfile && (user.isPrivate == true) && !isFollowing;
 
         return Scaffold(
           backgroundColor: context.bg,
@@ -433,14 +460,16 @@ class _PublicProfileScreenState extends ConsumerState<PublicProfileScreen>
               // ── Content Tabs ─────────────────────────────────────────
               body: isBlocked
                   ? _buildBlocked(context)
-                  : TabBarView(
-                      controller: _tabController,
-                      children: [
-                        _ContentGrid(authorId: _resolvedTargetUserId),
-                        _RepostGrid(userId: _resolvedTargetUserId),
-                        _LikedGrid(userId: _resolvedTargetUserId, isOwnProfile: _isOwnProfile),
-                      ],
-                    ),
+                  : (isPrivateLocked
+                      ? _buildPrivateLocked(context)
+                      : TabBarView(
+                          controller: _tabController,
+                          children: [
+                            _ContentGrid(authorId: _resolvedTargetUserId),
+                            _RepostGrid(userId: _resolvedTargetUserId),
+                            _LikedGrid(userId: _resolvedTargetUserId, isOwnProfile: _isOwnProfile),
+                          ],
+                        )),
             ),
           ),
         );
@@ -732,6 +761,48 @@ class _PublicProfileScreenState extends ConsumerState<PublicProfileScreen>
     );
   }
 
+  Widget _buildPrivateLocked(BuildContext context) {
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 32),
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Container(
+              width: 64,
+              height: 64,
+              decoration: BoxDecoration(
+                color: context.surfaceMid,
+                shape: BoxShape.circle,
+                border: Border.all(color: context.border, width: 1.2),
+              ),
+              child: Icon(Icons.lock_outline_rounded, size: 30, color: context.textPrimary),
+            ),
+            const SizedBox(height: 16),
+            Text(
+              'This Account is Private',
+              style: GoogleFonts.inter(
+                fontSize: 16,
+                fontWeight: FontWeight.w700,
+                color: context.textPrimary,
+              ),
+            ),
+            const SizedBox(height: 6),
+            Text(
+              'Follow this account to see their photos, reels, and stories.',
+              textAlign: TextAlign.center,
+              style: GoogleFonts.inter(
+                fontSize: 12.5,
+                color: context.textSecondary,
+                height: 1.4,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
 
 }
 
@@ -844,7 +915,7 @@ class _ContentTileGrid extends StatelessWidget {
             return GestureDetector(
               onTap: () {
                 HapticFeedback.selectionClick();
-                context.push('/hub/home?v=${item.id}');
+                context.push('/post/${item.id}');
               },
               child: Stack(
                 fit: StackFit.expand,

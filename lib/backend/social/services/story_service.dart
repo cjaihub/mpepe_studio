@@ -134,36 +134,50 @@ class StoryService {
         .collection('stories')
         .where('lifecycle', isEqualTo: StoryLifecycle.active.name)
         .snapshots()
-        .map((snapshot) {
-          final now = DateTime.now();
-          final stories = snapshot.docs
-              .map((doc) => Story.fromMap(doc.data()))
-              .where((s) => !s.isExpired && s.expiresAt.isAfter(now))
-              .toList();
+        .map((snapshot) => groupActiveStories(
+              snapshot.docs.map((d) => {...d.data(), 'id': d.data()['id'] ?? d.id}),
+              currentUserId: currentUserId,
+              now: DateTime.now(),
+            ));
+  }
 
-          // Sort stories by creation time
-          stories.sort((a, b) => a.createdAt.compareTo(b.createdAt));
+  /// Groups raw `stories` docs by author (oldest story first), dropping
+  /// expired and malformed ones so one bad doc can't blank the status row.
+  static List<UserStoryGroup> groupActiveStories(
+    Iterable<Map<String, dynamic>> docs, {
+    String? currentUserId,
+    required DateTime now,
+  }) {
+    final stories = <Story>[];
+    for (final data in docs) {
+      try {
+        final s = Story.fromMap(data);
+        if (s.authorId.isNotEmpty && s.lifecycle == StoryLifecycle.active && s.expiresAt.isAfter(now)) {
+          stories.add(s);
+        }
+      } catch (_) {}
+    }
+    stories.sort((a, b) => a.createdAt.compareTo(b.createdAt));
 
-          final Map<String, List<Story>> byAuthor = {};
-          for (final s in stories) {
-            byAuthor.putIfAbsent(s.authorId, () => []).add(s);
-          }
+    final Map<String, List<Story>> byAuthor = {};
+    for (final s in stories) {
+      byAuthor.putIfAbsent(s.authorId, () => []).add(s);
+    }
 
-          return byAuthor.entries.map((entry) {
-            final first = entry.value.first;
-            final hasUnviewed = (currentUserId != null && currentUserId.isNotEmpty)
-                ? entry.value.any((st) => !st.viewers.contains(currentUserId))
-                : true;
+    return byAuthor.entries.map((entry) {
+      final first = entry.value.first;
+      final hasUnviewed = (currentUserId != null && currentUserId.isNotEmpty)
+          ? entry.value.any((st) => !st.viewers.contains(currentUserId))
+          : true;
 
-            return UserStoryGroup(
-              authorId: entry.key,
-              authorName: first.authorName.isNotEmpty ? first.authorName : 'Creator',
-              authorAvatarUrl: first.authorAvatarUrl,
-              stories: entry.value,
-              hasUnviewed: hasUnviewed,
-            );
-          }).toList();
-        });
+      return UserStoryGroup(
+        authorId: entry.key,
+        authorName: first.authorName.isNotEmpty ? first.authorName : 'Creator',
+        authorAvatarUrl: first.authorAvatarUrl,
+        stories: entry.value,
+        hasUnviewed: hasUnviewed,
+      );
+    }).toList();
   }
 
   Future<List<UserStoryGroup>> getFeedStories({String? currentUserId}) async {

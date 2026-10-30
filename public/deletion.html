@@ -3,214 +3,415 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Data Deletion Instructions - ONEOVA</title>
-    <link rel="icon" type="image/jpeg" href="/assets/images/oneova_logo.jpg" />
+    <title>ONEOVA DATA DELETION, EXPORT &amp; PRIVACY RIGHTS GUIDE — Oneova</title>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
     <style>
-        :root {
-            --brand-blue: #007AFF;
-            --brand-pink: #FF2D87;
-            --dark-bg: #07080B;
-            --dark-surface: #0E1017;
-            --dark-card: rgba(14, 16, 23, 0.85);
-            --border-color: rgba(255, 255, 255, 0.08);
-            --text-primary: #F8FAFC;
-            --text-secondary: #CBD5E1;
-            --text-muted: #64748B;
-        }
-        * {
-            box-sizing: border-box;
-            margin: 0;
-            padding: 0;
-        }
-        body {
-            font-family: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-            line-height: 1.7;
-            color: var(--text-primary);
-            background-color: var(--dark-bg);
-            background-image: 
-                radial-gradient(circle at 15% 10%, rgba(0, 122, 255, 0.12) 0%, transparent 45%),
-                radial-gradient(circle at 85% 90%, rgba(255, 45, 135, 0.10) 0%, transparent 50%);
-            min-height: 100vh;
-            padding: 40px 24px 80px;
-        }
-        .container {
-            max-width: 860px;
-            margin: 0 auto;
-        }
-        .header-nav {
-            display: flex;
-            align-items: center;
-            justify-content: space-between;
-            margin-bottom: 40px;
-            padding-bottom: 20px;
-            border-bottom: 1px solid var(--border-color);
-        }
-        .back-link {
-            color: var(--brand-blue);
-            text-decoration: none;
-            font-weight: 700;
-            font-size: 0.92rem;
-            display: inline-flex;
-            align-items: center;
-            gap: 8px;
-            transition: color 0.18s ease;
-        }
-        .back-link:hover {
-            color: #60A5FA;
-        }
-        .badge-pill {
-            font-weight: 800;
-            color: var(--brand-pink);
-            font-size: 0.75rem;
-            background: rgba(255, 45, 135, 0.12);
-            border: 1px solid rgba(255, 45, 135, 0.3);
-            padding: 4px 12px;
-            border-radius: 9999px;
-            letter-spacing: 0.5px;
-        }
-        h1 {
-            color: #FFFFFF;
-            font-size: 2.8rem;
-            font-weight: 900;
-            letter-spacing: -1px;
-            margin-bottom: 8px;
-            line-height: 1.15;
-        }
-        .update-date {
-            color: var(--text-muted);
-            font-size: 0.9rem;
-            margin-bottom: 24px;
-        }
-        .highlight-card {
-            background: var(--dark-card);
-            border: 1px solid var(--border-color);
-            border-left: 4px solid var(--brand-pink);
-            border-radius: 14px;
-            padding: 24px;
-            margin: 24px 0 36px;
-            backdrop-filter: blur(16px);
-            box-shadow: 0 16px 40px rgba(0, 0, 0, 0.5);
-        }
-        .highlight-card p {
-            color: var(--text-secondary);
-            font-size: 1rem;
-            margin: 0;
-            line-height: 1.6;
-        }
-        h2 {
-            color: #FFFFFF;
-            font-size: 1.45rem;
-            font-weight: 800;
-            margin-top: 40px;
-            margin-bottom: 14px;
-            display: flex;
-            align-items: center;
-            gap: 10px;
-        }
-        h2::before {
-            content: '';
-            display: inline-block;
-            width: 4px;
-            height: 18px;
-            background: var(--brand-blue);
-            border-radius: 2px;
-        }
-        p, li {
-            color: var(--text-secondary);
-            font-size: 0.98rem;
-            line-height: 1.7;
-        }
-        ol {
-            margin: 14px 0 24px 24px;
-            display: flex;
-            flex-direction: column;
-            gap: 10px;
-        }
-        li strong {
-            color: #FFFFFF;
-        }
-        a {
-            color: var(--brand-pink);
-            text-decoration: none;
-            font-weight: 600;
-        }
-        a:hover {
-            text-decoration: underline;
-        }
-        .step-box {
-            background: var(--dark-surface);
-            border: 1px solid var(--border-color);
-            border-radius: 12px;
-            padding: 20px 24px;
-            margin: 20px 0;
-        }
-        .footer-note {
-            margin-top: 60px;
-            padding-top: 24px;
-            border-top: 1px solid var(--border-color);
-            font-size: 0.85rem;
-            color: var(--text-muted);
-            text-align: center;
-        }
-    </style>
+:root {
+    --brand-blue: #0C4FA8;
+    --brand-blue-soft: rgba(12, 79, 168, 0.10);
+    --brand-pink: #FF2D87;
+    --brand-pink-soft: rgba(255, 45, 135, 0.12);
+    --bg: #FFFFFF;
+    --surface: #F8FAFC;
+    --surface-mid: #F1F5F9;
+    --border: #E2E8F0;
+    --text-primary: #0F172A;
+    --text-secondary: #334155;
+    --text-muted: #64748B;
+}
+html[data-theme="dark"] {
+    --bg: #0A0A0A;
+    --surface: #141414;
+    --surface-mid: #1F1F1F;
+    --border: #262626;
+    --text-primary: #F3F4F6;
+    --text-secondary: #CBD5E1;
+    --text-muted: #9CA3AF;
+    --brand-blue-soft: rgba(12, 79, 168, 0.24);
+}
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body {
+    font-family: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    background: var(--bg);
+    color: var(--text-primary);
+    line-height: 1.62;
+    font-size: 14.5px;
+    -webkit-font-smoothing: antialiased;
+}
+.top-bar {
+    position: sticky;
+    top: 0;
+    z-index: 40;
+    background: var(--bg);
+    border-bottom: 1px solid var(--border);
+    padding: 12px 24px;
+}
+.top-bar-inner {
+    max-width: 960px;
+    margin: 0 auto;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    flex-wrap: wrap;
+}
+.brand-mark {
+    display: inline-flex;
+    align-items: center;
+    gap: 10px;
+    text-decoration: none;
+    color: var(--text-primary);
+    font-weight: 900;
+    font-size: 16px;
+    letter-spacing: -0.3px;
+}
+.brand-dot {
+    width: 26px;
+    height: 26px;
+    border-radius: 7px;
+    background: var(--brand-blue);
+    color: #FFFFFF;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 13px;
+    font-weight: 900;
+}
+.actions-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+.btn-chip {
+    appearance: none;
+    border: 1px solid var(--border);
+    background: var(--surface);
+    color: var(--text-primary);
+    font-family: inherit;
+    font-size: 12px;
+    font-weight: 700;
+    padding: 7px 12px;
+    border-radius: 8px;
+    cursor: pointer;
+    text-decoration: none;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+}
+.btn-chip.primary {
+    background: var(--brand-blue);
+    border-color: var(--brand-blue);
+    color: #FFFFFF;
+}
+.sub-nav {
+    max-width: 960px;
+    margin: 14px auto 0;
+    padding: 0 24px;
+    display: flex;
+    gap: 6px;
+    overflow-x: auto;
+    padding-bottom: 6px;
+}
+.nav-pill {
+    text-decoration: none;
+    font-size: 12px;
+    font-weight: 600;
+    padding: 6px 11px;
+    border-radius: 8px;
+    border: 1px solid var(--border);
+    background: var(--surface);
+    color: var(--text-secondary);
+    white-space: nowrap;
+}
+.nav-pill.active {
+    background: var(--brand-blue);
+    border-color: var(--brand-blue);
+    color: #FFFFFF;
+    font-weight: 700;
+}
+.doc-shell {
+    max-width: 960px;
+    margin: 0 auto;
+    padding: 26px 24px 72px;
+}
+.doc-badge {
+    display: inline-block;
+    font-size: 10px;
+    font-weight: 800;
+    letter-spacing: 0.7px;
+    text-transform: uppercase;
+    padding: 4px 10px;
+    border-radius: 6px;
+    background: var(--brand-pink-soft);
+    color: var(--brand-pink);
+    border: 1px solid rgba(255, 45, 135, 0.32);
+    margin-bottom: 10px;
+}
+h1 {
+    font-size: 26px;
+    font-weight: 850;
+    letter-spacing: -0.5px;
+    line-height: 1.2;
+    color: var(--text-primary);
+    margin-bottom: 14px;
+}
+h2 {
+    font-size: 17.5px;
+    font-weight: 800;
+    letter-spacing: -0.25px;
+    color: var(--text-primary);
+    margin-top: 28px;
+    margin-bottom: 10px;
+    padding-bottom: 6px;
+    border-bottom: 1px solid var(--border);
+}
+h3 {
+    font-size: 14.5px;
+    font-weight: 700;
+    color: var(--text-primary);
+    margin-top: 18px;
+    margin-bottom: 8px;
+}
+p {
+    color: var(--text-secondary);
+    margin-bottom: 11px;
+}
+p strong, li strong {
+    color: var(--text-primary);
+}
+ul, ol {
+    margin: 8px 0 14px 22px;
+    color: var(--text-secondary);
+}
+li {
+    margin-bottom: 6px;
+}
+a {
+    color: var(--brand-blue);
+    font-weight: 600;
+    text-decoration: none;
+}
+html[data-theme="dark"] a {
+    color: #60A5FA;
+}
+a:hover { text-decoration: underline; }
+code {
+    font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+    font-size: 12.5px;
+    background: var(--surface-mid);
+    border: 1px solid var(--border);
+    padding: 1px 6px;
+    border-radius: 5px;
+    color: var(--text-primary);
+}
+.sig-blank {
+    font-family: inherit;
+    font-weight: 500;
+    color: var(--text-primary);
+    background: transparent;
+    border: none;
+    padding: 0 2px;
+}
+h2, h3 {
+    break-after: avoid;
+    page-break-after: avoid;
+}
+.exec-callout {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-left: 4px solid var(--brand-blue);
+    border-radius: 10px;
+    padding: 14px 16px;
+    margin: 14px 0 18px;
+    color: var(--text-secondary);
+    font-size: 13.5px;
+}
+.rule-divider {
+    border: none;
+    border-top: 1px solid var(--border);
+    margin: 20px 0;
+}
+.table-wrap {
+    width: 100%;
+    overflow-x: auto;
+    margin: 14px 0 18px;
+    border: 1px solid var(--border);
+    border-radius: 10px;
+}
+table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 12.8px;
+}
+th {
+    background: var(--surface-mid);
+    color: var(--text-primary);
+    font-weight: 700;
+    text-align: left;
+    padding: 10px 12px;
+    border-bottom: 1px solid var(--border);
+}
+td {
+    padding: 9px 12px;
+    border-bottom: 1px solid var(--border);
+    color: var(--text-secondary);
+    vertical-align: top;
+}
+tr:last-child td { border-bottom: none; }
+.doc-footer {
+    margin-top: 44px;
+    padding-top: 18px;
+    border-top: 1px solid var(--border);
+    display: flex;
+    justify-content: space-between;
+    flex-wrap: wrap;
+    gap: 10px;
+    font-size: 12px;
+    color: var(--text-muted);
+}
+.hub-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+    gap: 14px;
+    margin-top: 18px;
+}
+.hub-card {
+    display: block;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 16px;
+    text-decoration: none;
+    transition: border-color 0.15s ease, transform 0.15s ease;
+}
+.hub-card:hover {
+    border-color: var(--brand-blue);
+    transform: translateY(-1px);
+    text-decoration: none;
+}
+.hub-card h3 {
+    margin-top: 6px;
+    margin-bottom: 6px;
+    color: var(--text-primary);
+}
+.hub-card p {
+    font-size: 12.8px;
+    color: var(--text-secondary);
+    margin: 0;
+}
+
+@page {
+    size: A4;
+    margin: 16mm 15mm 16mm 15mm;
+}
+@media print {
+    html, body {
+        background: #FFFFFF !important;
+        color: #0F172A !important;
+        font-size: 10.5pt;
+        line-height: 1.48;
+    }
+    .no-print { display: none !important; }
+    .doc-shell { max-width: 100%; padding: 0; margin: 0; }
+    .print-letterhead {
+        display: flex !important;
+        justify-content: space-between;
+        align-items: center;
+        padding-bottom: 10px;
+        margin-bottom: 14px;
+        border-bottom: 2px solid #0C4FA8;
+    }
+    h1 { font-size: 18pt; margin-bottom: 8px; }
+    h2 { font-size: 12.5pt; margin-top: 16px; page-break-after: avoid; }
+    h3 { font-size: 10.8pt; page-break-after: avoid; }
+    .exec-callout, tr { page-break-inside: avoid; }
+    .table-wrap { overflow: visible; }
+    table { font-size: 9pt; }
+    th, td { padding: 6px 8px; }
+    a { color: #0C4FA8 !important; text-decoration: none !important; }
+}
+.print-letterhead { display: none; }
+</style>
+    
+<script>
+(function() {
+    const saved = localStorage.getItem('oneova_legal_theme');
+    if (saved === 'dark' || saved === 'light') {
+        document.documentElement.setAttribute('data-theme', saved);
+    } else if (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches) {
+        document.documentElement.setAttribute('data-theme', 'dark');
+    }
+})();
+function toggleTheme() {
+    const cur = document.documentElement.getAttribute('data-theme') === 'dark' ? 'light' : 'dark';
+    document.documentElement.setAttribute('data-theme', cur);
+    localStorage.setItem('oneova_legal_theme', cur);
+}
+</script>
+
 </head>
 <body>
-    <div class="container">
-        <div class="header-nav">
-            <a href="/" class="back-link">← Back to Oneova Showcase</a>
-            <span class="badge-pill">SELF-SERVICE CONTROLS</span>
+    
+    <header class="top-bar no-print">
+        <div class="top-bar-inner">
+            <a href="/legal.html" class="brand-mark">
+                <span class="brand-dot">O</span>
+                <span>Oneova Trust &amp; Legal Center</span>
+            </a>
+            <div class="actions-row">
+                <a class="btn-chip" href="/">← Oneova Portal</a>
+                <a class="btn-chip" href="/docs/pdf/06_Oneova_Data_Deletion_and_Rights_Guide.pdf" download>⬇ Official PDF</a>
+                <button class="btn-chip" onclick="toggleTheme()" type="button">Light / Dark</button>
+                <button class="btn-chip primary" onclick="window.print()" type="button">Print / Save PDF</button>
+            </div>
         </div>
-
-        <h1>Data Deletion Instructions</h1>
-        <p class="update-date"><strong>Last Updated:</strong> October 2026 • GDPR, CCPA & TikTok Compliant</p>
-        
-        <div class="highlight-card">
-            <p>
-                <strong>Oneova</strong> provides complete autonomy over your creative assets and account data. If you wish to delete your account, remove uploaded video reels, or unlink third-party accounts (Meta/TikTok/Google), follow the methods below.
-            </p>
+    </header>
+    
+    <nav class="sub-nav no-print"><a class="nav-pill" href="/legal.html">All Policies</a><a class="nav-pill" href="/terms.html">Terms of Service</a><a class="nav-pill" href="/privacy.html">Privacy Policy</a><a class="nav-pill" href="/guidelines.html">Community Guidelines</a><a class="nav-pill" href="/child-safety.html">Child &amp; Teen Safety</a><a class="nav-pill" href="/biz-policy.html">Biz &amp; Monetization</a><a class="nav-pill active" href="/deletion.html">Data Deletion</a><a class="nav-pill" href="/law-enforcement.html">Law Enforcement</a></nav>
+    <main class="doc-shell">
+        <div class="print-letterhead">
+            <div>
+                <strong style="font-size:13pt;color:#0C4FA8;font-weight:900;">ONEOVA TECHNOLOGIES INC.</strong><br>
+                <span style="font-size:8.5pt;color:#64748B;">OFFICIAL PUBLIC POLICY — ONEOVA.APP</span>
+            </div>
+            <div style="text-align:right;font-size:8.5pt;color:#64748B;">
+                <strong>Document #06</strong><br>
+                Effective: October 25, 2026
+            </div>
         </div>
-
-        <h2>Method 1: Instant In-App Automated Deletion (Recommended)</h2>
-        <div class="step-box">
-            <p>The fastest way to purge your entire account and media history immediately:</p>
-            <ol>
-                <li>Open the <strong>Oneova</strong> app on your iOS or Android device.</li>
-                <li>Tap the <strong>Profile (Me)</strong> tab in the bottom navigation bar.</li>
-                <li>Tap the <strong>Settings & Privacy</strong> icon (top-right corner).</li>
-                <li>Select <strong>Account Security & Privacy Controls</strong>.</li>
-                <li>Tap <strong>Delete Account & Purge Media</strong> and confirm with your security PIN or biometric auth.</li>
-            </ol>
-            <p style="margin-top: 10px; font-size: 0.9rem; color: var(--text-muted);">
-                Your profile, followers, video reels, and audio tracks are permanently removed across all edge servers within 24 hours.
-            </p>
-        </div>
-
-        <h2>Method 2: Revoking Third-Party Publishing Permissions</h2>
-        <div class="step-box">
-            <p>If you linked TikTok, YouTube Shorts, Instagram, or Facebook for 1-Tap Universal Sharing:</p>
-            <ol>
-                <li>Navigate to your connected social platform's <strong>Settings & Privacy → Apps & Websites</strong>.</li>
-                <li>Locate <strong>Oneova</strong> in the active application permissions list.</li>
-                <li>Click <strong>Revoke Access</strong> or <strong>Remove</strong> to disconnect all token permissions instantly.</li>
-            </ol>
-        </div>
-
-        <h2>Method 3: Email Verification & Manual Deletion Request</h2>
-        <div class="step-box">
-            <p>To submit a manual data erasure request via our privacy officer:</p>
-            <ol>
-                <li>Send an email to: <a href="mailto:privacy@oneova.app">privacy@oneova.app</a></li>
-                <li>Subject Line: <code>Data Deletion Request - [Your Username or Phone]</code></li>
-                <li>Our trust team will verify your ownership and complete the total database purge within 48 hours.</li>
-            </ol>
-        </div>
-
-        <div class="footer-note">
-            © 2026 Oneova Technologies Inc. All rights reserved. Built to world-class creator trust standards.
-        </div>
-    </div>
+        <span class="doc-badge">SELF-SERVICE RIGHTS</span>
+        <h1>ONEOVA DATA DELETION, EXPORT &amp; PRIVACY RIGHTS GUIDE</h1>
+<p><strong>Document ID:</strong> <code>ONV-PRIV-DSR-2026-V1</code><br><strong>Effective Date:</strong> October 25, 2026<br><strong>Data Protection Officer:</strong> <code>dpo@oneova.app</code> · <code>privacy@oneova.app</code><br><strong>Web Portal:</strong> <code>https://oneova.app/deletion</code></p>
+<hr class="rule-divider">
+<div class="exec-callout"><strong>In Short:</strong> You are always in control of your Oneova account and personal data. You can export a copy of your data, revoke connected social accounts, or permanently delete your account in <strong>2 taps inside the app</strong>—or by email if you no longer have the app installed.</div>
+<hr class="rule-divider">
+<h2 id="1-method-1-instant-in-app-account-media-deletion-fastest">1. Method 1 — Instant In-App Account &amp; Media Deletion (Fastest)</h2>
+<ol><li>Open the <strong>Oneova</strong> app on Android, iOS, or Web.</li><li>Tap <strong>Me</strong> (bottom-right navigation bar) → open <strong>Settings</strong>.</li><li>Tap <strong>Privacy &amp; Security</strong> → scroll to <strong>Delete Account &amp; Purge Data</strong>.</li><li>Review the confirmation notice and verify ownership using your <strong>App PIN, Biometrics, Passkey, or 2FA code</strong>.</li></ol>
+<p><strong>What happens next:</strong></p>
+<ul><li>Your profile, Reels, Stories, comments, likes, and public visibility are <strong>disabled immediately</strong>.</li><li>Active production database records, media files, and connected OAuth tokens are permanently purged within <strong>24 hours to 30 days</strong> (with a brief 14-day accidental-deletion recovery grace period if selected by you, or immediate irreversible purge upon confirmation).</li><li>Encrypted disaster-recovery backups automatically overwrite within <strong>90 days</strong>.</li></ul>
+<hr class="rule-divider">
+<h2 id="2-method-2-deleting-your-account-without-the-app-low-data-web-email">2. Method 2 — Deleting Your Account Without the App (Low-Data Web / Email)</h2>
+<p>If you uninstalled Oneova, lost your phone, or are on a low-data connection:</p>
+<ol><li>Send an email from your registered email address (or referencing your registered phone number and <code>@username</code>) to <strong><code>privacy@oneova.app</code></strong>.</li><li>Use the subject line: <code>Account Deletion Request — @[YourUsername]</code>.</li><li>Our Trust &amp; Privacy team verifies ownership (to prevent malicious third-party deletion of your account) and completes full erasure within <strong>48 hours to 14 days</strong> (and strictly within statutory deadlines under Kenya DPA, Nigeria NDPA, South Africa POPIA, GDPR, and Google Play / Apple App Store rules).</li></ol>
+<hr class="rule-divider">
+<h2 id="3-method-3-downloading-exporting-your-data-data-portability">3. Method 3 — Downloading / Exporting Your Data (Data Portability)</h2>
+<p>To obtain a machine-readable archive of your profile information, account settings, and published post metadata:</p>
+<ul><li><strong>In-App:</strong> Navigate to <strong>Me → Settings → Privacy &amp; Security → Export My Data</strong>.</li><li><strong>By Email:</strong> Request a portability archive at <code>privacy@oneova.app</code>.</li></ul>
+<hr class="rule-divider">
+<h2 id="4-method-4-revoking-third-party-connected-accounts-tiktok-meta-youtube">4. Method 4 — Revoking Third-Party Connected Accounts (TikTok, Meta, YouTube)</h2>
+<p>If you connected external accounts in <strong>Oneova Social Hub</strong> for 1-tap cross-publishing:</p>
+<ol><li><strong>Inside Oneova:</strong> Go to <strong>Me → Settings → Social Accounts</strong> and tap <strong>Disconnect</strong> next to TikTok, Instagram, Facebook, or YouTube. Oneova deletes your stored OAuth tokens immediately.</li><li><strong>Directly on the External Platform:</strong> You may also revoke <strong>Oneova</strong> at any time from TikTok (<em>Settings and privacy → Security &amp; permissions → Apps and services permissions</em>), Meta/Instagram (<em>Accounts Center → Apps and websites</em>), or Google (<em>Google Account → Third-party apps &amp; services</em>).</li></ol>
+<hr class="rule-divider">
+<h2 id="5-limited-statutory-records-retained-after-account-deletion">5. Limited Statutory Records Retained After Account Deletion</h2>
+<p>Even after full account deletion, applicable financial and safety laws require Oneova to retain strictly isolated, non-public records solely for legal compliance:</p>
+<ul><li><strong>Tax, Payout &amp; Accounting Invoices:</strong> Retained for <strong>5 to 7 years</strong> as mandated by revenue authorities and central-bank payment regulations (only if you bought Coins, sold on Biz, or received Creator payouts);</li><li><strong>Fraud &amp; Safety Ban Hashes:</strong> Minimal cryptographic hashes where an account was terminated for CSAM, terrorism, or financial fraud, solely to block repeat abuse and comply with law-enforcement preservation duties.</li></ul>
+        <footer class="doc-footer">
+            <span>© 2026 Oneova Technologies Inc. All rights reserved.</span>
+            <span>Official Trust &amp; Legal Office: legal@oneova.app · dpo@oneova.app</span>
+        </footer>
+    </main>
+    <script src="/js/live-legal-sync.js" data-cms-doc="policy-data-deletion" defer></script>
 </body>
 </html>

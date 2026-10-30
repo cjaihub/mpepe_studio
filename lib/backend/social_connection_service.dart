@@ -43,7 +43,6 @@ class PlatformCapability {
 class PlatformIntegrationInfo {
   final String id;
   final String displayName;
-  final String handleHint;
   final String badgeCode;
   final int badgeColorHex;
   final IconData icon;
@@ -54,7 +53,6 @@ class PlatformIntegrationInfo {
   const PlatformIntegrationInfo({
     required this.id,
     required this.displayName,
-    required this.handleHint,
     required this.badgeCode,
     required this.badgeColorHex,
     required this.icon,
@@ -68,7 +66,6 @@ const List<PlatformIntegrationInfo> kSupportedPlatforms = [
   PlatformIntegrationInfo(
     id: 'whatsapp',
     displayName: 'WhatsApp Biz',
-    handleHint: '+254 719... Active',
     badgeCode: 'WA',
     badgeColorHex: 0xFF25D366,
     icon: Icons.chat_rounded,
@@ -84,7 +81,6 @@ const List<PlatformIntegrationInfo> kSupportedPlatforms = [
   PlatformIntegrationInfo(
     id: 'tiktok',
     displayName: 'TikTok Direct',
-    handleHint: '@oneova_official',
     badgeCode: 'TT',
     badgeColorHex: 0xFFFF2D87,
     icon: Icons.music_note_rounded,
@@ -100,7 +96,6 @@ const List<PlatformIntegrationInfo> kSupportedPlatforms = [
   PlatformIntegrationInfo(
     id: 'instagram',
     displayName: 'Instagram DMs',
-    handleHint: '@oneova_live',
     badgeCode: 'IG',
     badgeColorHex: 0xFFE1306C,
     icon: Icons.camera_alt_rounded,
@@ -116,7 +111,6 @@ const List<PlatformIntegrationInfo> kSupportedPlatforms = [
   PlatformIntegrationInfo(
     id: 'youtube',
     displayName: 'YouTube Studio',
-    handleHint: 'OneOva Studio Channel',
     badgeCode: 'YT',
     badgeColorHex: 0xFFFF0000,
     icon: Icons.smart_display_rounded,
@@ -128,24 +122,8 @@ const List<PlatformIntegrationInfo> kSupportedPlatforms = [
     ],
   ),
   PlatformIntegrationInfo(
-    id: 'x',
-    displayName: 'X (Twitter)',
-    handleHint: '@oneova_hq',
-    badgeCode: 'X',
-    badgeColorHex: 0xFF1DA1F2,
-    icon: Icons.alternate_email_rounded,
-    description: 'X API v2 for direct messages, mentions, quote-reposts, and media publishing.',
-    capabilities: [
-      PlatformCapability.directChats,
-      PlatformCapability.comments,
-      PlatformCapability.uploads,
-      PlatformCapability.analytics,
-    ],
-  ),
-  PlatformIntegrationInfo(
     id: 'facebook',
     displayName: 'Facebook Pages',
-    handleHint: 'Oneova Global Page',
     badgeCode: 'FB',
     badgeColorHex: 0xFF1877F2,
     icon: Icons.facebook_rounded,
@@ -155,20 +133,6 @@ const List<PlatformIntegrationInfo> kSupportedPlatforms = [
       PlatformCapability.comments,
       PlatformCapability.uploads,
       PlatformCapability.analytics,
-    ],
-  ),
-  PlatformIntegrationInfo(
-    id: 'telegram',
-    displayName: 'Telegram Channel',
-    handleHint: '@oneova_broadcast',
-    badgeCode: 'TG',
-    badgeColorHex: 0xFF0088CC,
-    icon: Icons.send_rounded,
-    description: 'Telegram Bot API for high-frequency channel audio drops and subscriber queries.',
-    capabilities: [
-      PlatformCapability.directChats,
-      PlatformCapability.comments,
-      PlatformCapability.uploads,
     ],
   ),
 ];
@@ -285,6 +249,9 @@ class SocialConnection {
   }
 }
 
+/// Raw `users/{uid}/social_connections` records. Connections are only
+/// created by the real OAuth flows (TikTokOAuthService, MetaOAuthService,
+/// LinkedAccountsController); use [linkedAccountsProvider] for status.
 class SocialConnectionService extends AsyncNotifier<List<SocialConnection>> {
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
   final FirebaseAuth _auth = FirebaseAuth.instance;
@@ -330,51 +297,6 @@ class SocialConnectionService extends AsyncNotifier<List<SocialConnection>> {
             .toList());
   }
 
-  Future<void> addConnection(
-    String platform,
-    String accountName, {
-    String? displayName,
-    int? unreadCount,
-    String? badgeCode,
-    int? badgeColorHex,
-    List<String>? capabilities,
-    String? status,
-  }) async {
-    final uid = _userId;
-    final conn = SocialConnection(
-      platform: platform.toLowerCase(),
-      accountName: accountName,
-      displayName: displayName,
-      unreadCount: unreadCount ?? 0,
-      badgeCode: badgeCode,
-      badgeColorHex: badgeColorHex,
-      capabilities: capabilities,
-      status: status ?? 'synced',
-      connectedAt: DateTime.now(),
-    );
-
-    if (uid != null) {
-      try {
-        await _firestore
-            .collection('users')
-            .doc(uid)
-            .collection('social_connections')
-            .doc(platform.toLowerCase())
-            .set(conn.toMap());
-      } catch (e) {
-        debugPrint('Error writing connection to Firestore: $e');
-      }
-    }
-
-    if (state.hasValue) {
-      final current = state.value!;
-      final filtered = current.where((c) => c.platform.toLowerCase() != platform.toLowerCase()).toList();
-      state = AsyncValue.data([...filtered, conn]);
-    } else {
-      state = AsyncValue.data([conn]);
-    }
-  }
-
   Future<void> disconnectPlatform(String platform) async {
     final uid = _userId;
     final pKey = platform.toLowerCase();
@@ -396,13 +318,6 @@ class SocialConnectionService extends AsyncNotifier<List<SocialConnection>> {
       final current = state.value!;
       state = AsyncValue.data(current.where((c) => c.platform.toLowerCase() != pKey).toList());
     }
-  }
-
-  Future<void> seedDefaultConnections() async {
-    // Conveniently seed the standard 3 omni platforms if the user chooses instant connect
-    await addConnection('whatsapp', '+254 719... Active', unreadCount: 24, badgeColorHex: 0xFF25D366, badgeCode: 'WA');
-    await addConnection('tiktok', '@oneova_official', unreadCount: 14, badgeColorHex: 0xFFFF2D87, badgeCode: 'TT');
-    await addConnection('instagram', '@oneova_live', unreadCount: 10, badgeColorHex: 0xFFE1306C, badgeCode: 'IG');
   }
 }
 

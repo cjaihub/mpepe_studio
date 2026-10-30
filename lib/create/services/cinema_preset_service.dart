@@ -200,6 +200,17 @@ class CinemaPresetService {
     }
   }
 
+  /// Retrieves user-created custom cinema presets.
+  Future<List<CinemaPreset>> getUserCustomPresets() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final customJson = prefs.getStringList(_storageKey) ?? [];
+      return customJson.map((str) => CinemaPreset.fromJson(str)).toList();
+    } catch (e) {
+      return [];
+    }
+  }
+
   /// Saves or updates a user-defined custom preset.
   Future<void> saveCustomPreset(CinemaPreset preset) async {
     final prefs = await SharedPreferences.getInstance();

@@ -13,7 +13,8 @@ import 'package:share_plus/share_plus.dart';
 import '../shared/theme/app_theme.dart';
 import '../services/upload_service.dart';
 import '../backend/publishing/models/publishing_destination.dart';
-import 'post/models/post_draft.dart';
+import '../backend/connections/linked_accounts.dart' show LinkedPlatform;
+import '../shared/widgets/linked_destinations_picker.dart';
 import 'post/providers/post_draft_provider.dart';
 import 'post/services/post_search_service.dart';
 import 'post/services/openrouter_post_optimizer.dart';
@@ -23,15 +24,22 @@ import 'post/widgets/cover_picker_sheet.dart';
 import 'post/widgets/collaborator_sheet.dart';
 import 'post/widgets/advanced_settings_sheet.dart';
 import 'post/widgets/draft_status_pill.dart';
+import 'studio/widgets/studio_progress_dialog.dart';
 
 class MediaPreviewScreen extends ConsumerStatefulWidget {
   final String mediaPath;
   final bool isVideo;
 
+  /// Cover frame picked in Studio (a JPEG next to the export) and its time.
+  final String? initialCoverPath;
+  final int initialCoverTimeMs;
+
   const MediaPreviewScreen({
     super.key,
     required this.mediaPath,
     required this.isVideo,
+    this.initialCoverPath,
+    this.initialCoverTimeMs = 0,
   });
 
   @override
@@ -58,10 +66,21 @@ class _MediaPreviewScreenState extends ConsumerState<MediaPreviewScreen> {
   // Advanced settings (Age, Privacy, Interactions, Disclosures, Geo)
   AdvancedPostSettings _advancedSettings = const AdvancedPostSettings();
 
-  // Multi-Channel Destinations (Oneova is permanently locked ON)
-  final Set<PlatformDestination> _selectedPlatforms = {
-    PlatformDestination.internal,
-  };
+  // Destinations: Oneova always, plus the linked platforms this account
+  // picked for posting (user_settings/{uid}.publishing.crossPostPlatforms).
+  Set<PlatformDestination> get _selectedPlatforms => {
+        PlatformDestination.internal,
+        for (final id in ref.read(activeDestinationsProvider(DestinationPurpose.post)))
+          ?_destinationFor(LinkedPlatform.fromId(id)),
+      };
+
+  static PlatformDestination? _destinationFor(LinkedPlatform? p) => switch (p) {
+        LinkedPlatform.youtube => PlatformDestination.youtube,
+        LinkedPlatform.tiktok => PlatformDestination.tiktok,
+        LinkedPlatform.instagram => PlatformDestination.instagram,
+        LinkedPlatform.facebook => PlatformDestination.facebook,
+        _ => null,
+      };
 
   // High-Fidelity & Fast-Trend settings
   bool _highQualityUploads = true;
@@ -77,6 +96,8 @@ class _MediaPreviewScreenState extends ConsumerState<MediaPreviewScreen> {
     super.initState();
     _titleController = TextEditingController();
     _captionController = TextEditingController();
+    _customCoverPath = widget.initialCoverPath;
+    _coverTimeMs = widget.initialCoverTimeMs;
 
     if (widget.isVideo) {
       _player = Player();
@@ -104,8 +125,10 @@ class _MediaPreviewScreenState extends ConsumerState<MediaPreviewScreen> {
       setState(() {
         if (restored.title.isNotEmpty) _titleController.text = restored.title;
         if (restored.caption.isNotEmpty) _captionController.text = restored.caption;
-        _coverTimeMs = restored.coverTimeMs;
-        _customCoverPath = restored.coverImagePath;
+        if (widget.initialCoverPath == null) {
+          _coverTimeMs = restored.coverTimeMs;
+          _customCoverPath = restored.coverImagePath;
+        }
         _collaborators = List.from(restored.collaborators);
         _taggedUsers = List.from(restored.taggedUsers);
         _advancedSettings = AdvancedPostSettings(
@@ -121,13 +144,6 @@ class _MediaPreviewScreenState extends ConsumerState<MediaPreviewScreen> {
           location: restored.location,
           link: restored.link,
         );
-        for (final destName in restored.destinations) {
-          final dest = PlatformDestination.values.firstWhere(
-            (d) => d.name == destName,
-            orElse: () => PlatformDestination.internal,
-          );
-          _selectedPlatforms.add(dest);
-        }
       });
     }
 
@@ -271,7 +287,7 @@ class _MediaPreviewScreenState extends ConsumerState<MediaPreviewScreen> {
     if (user == null) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
-          content: Text('Sign in to publish your reel on Oneova.'),
+          content: Text('Sign in to publish on Oneova.'),
           backgroundColor: AppColors.brandPink,
         ),
       );
@@ -280,107 +296,63 @@ class _MediaPreviewScreenState extends ConsumerState<MediaPreviewScreen> {
 
     HapticFeedback.mediumImpact();
     setState(() => _isPosting = true);
+    _syncStateToDraft();
 
-    final messenger = ScaffoldMessenger.of(context);
-    messenger.showSnackBar(
-      const SnackBar(
-        backgroundColor: AppColors.brandBlue,
-        behavior: SnackBarBehavior.floating,
-        duration: Duration(seconds: 4),
-        content: Row(
-          children: [
-            SizedBox(
-              width: 16,
-              height: 16,
-              child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
-            ),
-            SizedBox(width: 12),
-            Expanded(
-              child: Text(
-                'Publishing reel in high fidelity… Notifying collaborators & tagged creators.',
-                style: TextStyle(fontSize: 12.5),
-              ),
-            ),
-          ],
-        ),
+    // Stays on this screen until the upload lands: progress, then either
+    // home with the post live, or the error with Retry (nothing is lost).
+    final contentId = await runStudioTask<String>(
+      context,
+      title: widget.isVideo ? 'Posting reel' : 'Posting photo',
+      describeError: (e) => e is FirebaseException
+          ? 'Upload failed (${e.code}). Check your connection and try again.'
+          : (e is StateError ? e.message : 'Upload failed: $e'),
+      task: (onProgress) => UploadService.uploadPostInBackground(
+        mediaPath: widget.mediaPath,
+        isVideo: widget.isVideo,
+        title: _titleController.text.trim().isEmpty ? null : _titleController.text.trim(),
+        caption: _captionController.text.trim(),
+        privacy: _advancedSettings.privacy,
+        allowComments: _advancedSettings.allowComments,
+        allowDuet: _advancedSettings.allowDuet,
+        allowStitch: _advancedSettings.allowStitch,
+        allowDownload: _advancedSettings.allowDownload,
+        highQualityUploads: _highQualityUploads,
+        location: _advancedSettings.location,
+        link: _advancedSettings.link,
+        geoRadiusTier: _advancedSettings.geoRadiusTier,
+        coverTimeMs: _coverTimeMs,
+        customCoverPath: _customCoverPath,
+        ageRestriction: _advancedSettings.ageRestriction,
+        isAiGenerated: _advancedSettings.isAiGenerated,
+        isBrandedContent: _advancedSettings.isBrandedContent,
+        destinations: _selectedPlatforms.toList(),
+        collaborators: _collaborators,
+        taggedUserIds: _taggedUsers,
+        isFastTrendBoosted: _fastTrendAccelerator,
+        durationMs: widget.isVideo ? _player?.state.duration.inMilliseconds : null,
+        aspectRatio: widget.isVideo &&
+                _player?.state.width != null &&
+                _player?.state.height != null &&
+                _player!.state.height! > 0
+            ? (_player!.state.width! / _player!.state.height!)
+            : null,
+        onProgress: onProgress,
       ),
     );
 
-    // Save final state before firing upload
-    _syncStateToDraft();
+    if (!mounted) return;
+    setState(() => _isPosting = false);
+    if (contentId == null) return;
 
-    final upload = UploadService.uploadPostInBackground(
-      context: context,
-      mediaPath: widget.mediaPath,
-      isVideo: widget.isVideo,
-      title: _titleController.text.trim().isEmpty ? null : _titleController.text.trim(),
-      caption: _captionController.text.trim(),
-      privacy: _advancedSettings.privacy,
-      allowComments: _advancedSettings.allowComments,
-      allowDuet: _advancedSettings.allowDuet,
-      allowStitch: _advancedSettings.allowStitch,
-      allowDownload: _advancedSettings.allowDownload,
-      highQualityUploads: _highQualityUploads,
-      location: _advancedSettings.location,
-      link: _advancedSettings.link,
-      geoRadiusTier: _advancedSettings.geoRadiusTier,
-      coverTimeMs: _coverTimeMs,
-      customCoverPath: _customCoverPath,
-      ageRestriction: _advancedSettings.ageRestriction,
-      isAiGenerated: _advancedSettings.isAiGenerated,
-      isBrandedContent: _advancedSettings.isBrandedContent,
-      destinations: _selectedPlatforms.toList(),
-      collaborators: _collaborators,
-      taggedUserIds: _taggedUsers,
-      isFastTrendBoosted: _fastTrendAccelerator,
-      durationMs: widget.isVideo ? _player?.state.duration.inMilliseconds : null,
-      aspectRatio: widget.isVideo &&
-              _player?.state.width != null &&
-              _player?.state.height != null &&
-              _player!.state.height! > 0
-          ? (_player!.state.width! / _player!.state.height!)
-          : null,
-    );
-
-    // Clean up draft after upload starts
     unawaited(ref.read(postDraftProvider.notifier).discardCurrentDraft());
-
-    upload.then((contentId) {
-      messenger.showSnackBar(
-        const SnackBar(
-          backgroundColor: AppColors.brandBlue,
-          behavior: SnackBarBehavior.floating,
-          content: Text('Your reel is live on Oneova! 🎉'),
-        ),
-      );
-    }, onError: (Object e) {
-      messenger.showSnackBar(
-        SnackBar(
-          backgroundColor: AppColors.brandPink,
-          behavior: SnackBarBehavior.floating,
-          duration: const Duration(seconds: 6),
-          content: Text('Upload failed: $e'),
-        ),
-      );
-    });
-
-    if (mounted) context.go('/hub/home');
-  }
-
-  void _togglePlatform(PlatformDestination dest) {
-    if (dest == PlatformDestination.internal) {
-      // Oneova native is primary and permanently locked
-      return;
-    }
-    HapticFeedback.selectionClick();
-    setState(() {
-      if (_selectedPlatforms.contains(dest)) {
-        _selectedPlatforms.remove(dest);
-      } else {
-        _selectedPlatforms.add(dest);
-      }
-    });
-    _syncStateToDraft();
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        backgroundColor: AppColors.brandBlue,
+        behavior: SnackBarBehavior.floating,
+        content: Text(widget.isVideo ? 'Your reel is live on Oneova' : 'Your photo is live on Oneova'),
+      ),
+    );
+    context.go('/hub/home?v=$contentId');
   }
 
   void _openCoverPicker() {
@@ -528,7 +500,7 @@ class _MediaPreviewScreenState extends ConsumerState<MediaPreviewScreen> {
           ),
           backgroundColor: context.bg,
           title: Text(
-            'Publish Reel',
+            widget.isVideo ? 'Publish Reel' : 'Publish Photo',
             style: GoogleFonts.inter(color: context.textPrimary, fontWeight: FontWeight.bold, fontSize: 17),
           ),
           iconTheme: IconThemeData(color: context.textPrimary),
@@ -757,7 +729,7 @@ class _MediaPreviewScreenState extends ConsumerState<MediaPreviewScreen> {
                                 const Icon(Icons.rocket_launch, color: Colors.white, size: 17),
                                 const SizedBox(width: 8),
                                 Text(
-                                  'Post Reel Now',
+                                  widget.isVideo ? 'Post Reel' : 'Post Photo',
                                   style: GoogleFonts.inter(
                                     color: Colors.white,
                                     fontWeight: FontWeight.w800,
@@ -801,7 +773,7 @@ class _MediaPreviewScreenState extends ConsumerState<MediaPreviewScreen> {
                 ),
               ),
               Text(
-                '${_selectedPlatforms.length} Active',
+                '${ref.watch(activeDestinationsProvider(DestinationPurpose.post)).length + 1} Active',
                 style: GoogleFonts.inter(
                   color: AppColors.brandBlue,
                   fontSize: 11.5,
@@ -811,19 +783,10 @@ class _MediaPreviewScreenState extends ConsumerState<MediaPreviewScreen> {
             ],
           ),
           const SizedBox(height: 10),
-          SingleChildScrollView(
-            scrollDirection: Axis.horizontal,
-            child: Row(
-              children: [
-                _buildPlatformChip(PlatformDestination.internal, 'Oneova Reels', Icons.flash_on, isMandatory: true),
-                _buildPlatformChip(PlatformDestination.tiktok, 'TikTok Direct', Icons.music_note),
-                _buildPlatformChip(PlatformDestination.instagram, 'Instagram Reels', Icons.camera_alt),
-                _buildPlatformChip(PlatformDestination.youtube, 'YouTube Shorts', Icons.play_arrow),
-                _buildPlatformChip(PlatformDestination.whatsappBusiness, 'WhatsApp Biz API', Icons.chat_bubble_outline),
-                _buildPlatformChip(PlatformDestination.facebook, 'Facebook Reels', Icons.people),
-              ],
-            ),
-          ),
+          _buildPlatformChip(PlatformDestination.internal, 'Oneova Reels', Icons.flash_on, isMandatory: true),
+          const SizedBox(height: 8),
+          // Linked accounts only; the choice is saved for the account.
+          const LinkedDestinationsPicker(purpose: DestinationPurpose.post),
         ],
       ),
     );
@@ -862,7 +825,7 @@ class _MediaPreviewScreenState extends ConsumerState<MediaPreviewScreen> {
             width: 1.0,
           ),
         ),
-        onSelected: (val) => _togglePlatform(platform),
+        onSelected: (_) {},
       ),
     );
   }

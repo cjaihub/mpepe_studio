@@ -70,10 +70,17 @@ class _OvaGestureDetectorState extends State<OvaGestureDetector>
   Rect? _detectedCircleRect;
   Rect? _detectedStrokeRect;
 
-  // Animation controller for gesture success ripple
+  // "O" trail: shown only once a stroke curves like an O (never for taps,
+  // scrolls or swipes), repainted without rebuilding the tree.
+  final ValueNotifier<int> _trailTick = ValueNotifier<int>(0);
+  bool _trailVisible = false;
+  late AnimationController _trailFadeController;
+
+  // Summon animation once an "O" is recognised: the ring closes, pulses and
+  // morphs into the Ova orb, then Ova opens.
   late AnimationController _circleSuccessAnimController;
-  late Animation<double> _circleRippleScale;
-  late Animation<double> _circleRippleOpacity;
+  List<Offset> _summonStroke = const [];
+  bool _summonReduceMotion = false;
 
   // ─────────────────────────────────────────────────────────────────────────────
   // Hold / Double-Tap & Hold / Triple-Tap & Hold Tracking
@@ -107,16 +114,13 @@ class _OvaGestureDetectorState extends State<OvaGestureDetector>
     _hudScale = CurvedAnimation(parent: _hudAnimController, curve: Curves.easeOutBack);
     _hudOpacity = CurvedAnimation(parent: _hudAnimController, curve: Curves.easeIn);
 
-    // Gesture Success Ripple Animation
     _circleSuccessAnimController = AnimationController(
       vsync: this,
-      duration: const Duration(milliseconds: 400),
+      duration: const Duration(milliseconds: 720),
     );
-    _circleRippleScale = Tween<double>(begin: 0.6, end: 1.6).animate(
-      CurvedAnimation(parent: _circleSuccessAnimController, curve: Curves.easeOutCubic),
-    );
-    _circleRippleOpacity = Tween<double>(begin: 1.0, end: 0.0).animate(
-      CurvedAnimation(parent: _circleSuccessAnimController, curve: Curves.easeOut),
+    _trailFadeController = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 240),
     );
 
     // Wake screen & background capabilities
@@ -131,6 +135,8 @@ class _OvaGestureDetectorState extends State<OvaGestureDetector>
     _debounceTimer?.cancel();
     _hudAnimController.dispose();
     _circleSuccessAnimController.dispose();
+    _trailFadeController.dispose();
+    _trailTick.dispose();
     super.dispose();
   }
 
@@ -189,16 +195,15 @@ class _OvaGestureDetectorState extends State<OvaGestureDetector>
     }
 
     // 3. Start drawing path for 'O' or '1' gesture if enabled
-    if (widget.drawOGestureEnabled || widget.drawOneGestureEnabled) {
+    if ((widget.drawOGestureEnabled || widget.drawOneGestureEnabled) && !_isTriggering) {
+      _trailFadeController.stop();
+      _trailFadeController.value = 0;
       _strokePoints.clear();
       _strokePoints.add(event.position);
       _isDrawing = true;
+      if (_trailVisible) setState(() => _trailVisible = false);
     }
 
-    // 4. Single touch stationary hold (fallback if multi-tap holds are disabled)
-    if (!widget.doubleTapHoldEnabled && !widget.tripleTapHoldEnabled) {
-      _startHoldTimer(event.position);
-    }
   }
 
   void _onPointerMove(PointerMoveEvent event) {
@@ -212,9 +217,11 @@ class _OvaGestureDetectorState extends State<OvaGestureDetector>
 
     // Accumulate points for gesture recognition ('O' or '1') if not in onlyTripleTapHold mode
     if (_isDrawing && !widget.onlyTripleTapHold && (widget.drawOGestureEnabled || widget.drawOneGestureEnabled)) {
-      setState(() {
-        _strokePoints.add(event.position);
-      });
+      _strokePoints.add(event.position);
+      if (!_trailVisible && widget.drawOGestureEnabled && _looksLikeO(_strokePoints)) {
+        setState(() => _trailVisible = true);
+      }
+      if (_trailVisible) _trailTick.value++;
     }
   }
 
@@ -281,13 +288,53 @@ class _OvaGestureDetectorState extends State<OvaGestureDetector>
       }
     }
 
-    // Reset drawing state
+    // Not an "O": fade the trail out quietly, trigger nothing.
     if (_isDrawing) {
+      _isDrawing = false;
+      _fadeOutTrail();
+    }
+  }
+
+  void _fadeOutTrail() {
+    if (!_trailVisible) {
+      _strokePoints.clear();
+      return;
+    }
+    _trailFadeController.forward(from: 0).whenCompleteOrCancel(() {
+      if (!mounted || _isDrawing) return;
       setState(() {
-        _isDrawing = false;
+        _trailVisible = false;
         _strokePoints.clear();
       });
+    });
+  }
+
+  /// True once the stroke turns steadily one way (>~100 degrees) over a real
+  /// distance: an "O" being drawn, not a tap, scroll or swipe.
+  bool _looksLikeO(List<Offset> points) {
+    if (points.length < 6) return false;
+    double length = 0;
+    double turning = 0;
+    Offset? prevDir;
+    Offset last = points.first;
+    for (int i = 1; i < points.length; i++) {
+      final seg = points[i] - last;
+      if (seg.distance < 4) continue;
+      length += seg.distance;
+      if (prevDir != null) {
+        var d = math.atan2(seg.dy, seg.dx) - math.atan2(prevDir.dy, prevDir.dx);
+        while (d > math.pi) {
+          d -= 2 * math.pi;
+        }
+        while (d < -math.pi) {
+          d += 2 * math.pi;
+        }
+        turning += d;
+      }
+      prevDir = seg;
+      last = points[i];
     }
+    return length >= 48 && turning.abs() >= 1.75;
   }
 
   void _onPointerCancel(PointerCancelEvent event) {
@@ -295,10 +342,8 @@ class _OvaGestureDetectorState extends State<OvaGestureDetector>
     _tickTimer?.cancel();
     _cancelHoldSequence();
     if (_isDrawing) {
-      setState(() {
-        _isDrawing = false;
-        _strokePoints.clear();
-      });
+      _isDrawing = false;
+      _fadeOutTrail();
     }
   }
 
@@ -461,38 +506,46 @@ class _OvaGestureDetectorState extends State<OvaGestureDetector>
     if (_isTriggering) return;
     _isTriggering = true;
     _isDrawing = false;
-    _circleSuccessAnimController.forward(from: 0.0);
 
     HapticFeedback.heavyImpact();
     _nativeService.triggerHapticPulse(90);
 
     final circledRect = _detectedCircleRect;
+    final stroke = List<Offset>.of(_strokePoints);
 
-    // Capture screen context once before triggering
+    // Capture screen context once before triggering (the summon animation
+    // sits outside the captured boundary).
     Uint8List? screenBytes;
     try {
       screenBytes = await _captureCurrentScreen();
     } catch (e) {
       debugPrint('[OvaGestureDetector] Screen capture error: $e');
     }
+    if (!mounted) return;
+
+    // Settings > Accessibility > Reduce motion: a short fade instead.
+    _summonReduceMotion = MediaQuery.maybeDisableAnimationsOf(context) ?? false;
+    _circleSuccessAnimController.duration =
+        Duration(milliseconds: _summonReduceMotion ? 200 : 720);
+    setState(() {
+      _trailVisible = false;
+      _strokePoints.clear();
+      _summonStroke = stroke;
+    });
+    await _circleSuccessAnimController.forward(from: 0.0);
+    if (!mounted) return;
 
     // Trigger assistant overlay once with captured screen context
     _triggerAssistantWithContext(screenBytes, circledRect);
-
-    _clearStrokeTimer?.cancel();
-    _clearStrokeTimer = Timer(const Duration(milliseconds: 400), () {
-      if (mounted) {
-        setState(() {
-          _strokePoints.clear();
-          _detectedCircleCenter = null;
-          _detectedCircleRect = null;
-        });
-      }
+    setState(() {
+      _summonStroke = const [];
+      _detectedCircleCenter = null;
+      _detectedCircleRect = null;
     });
 
-    // Reset triggering debounce guard after 1500ms
+    // Reset triggering debounce guard
     _debounceTimer?.cancel();
-    _debounceTimer = Timer(const Duration(milliseconds: 1500), () {
+    _debounceTimer = Timer(const Duration(milliseconds: 900), () {
       _isTriggering = false;
     });
   }
@@ -552,16 +605,6 @@ class _OvaGestureDetectorState extends State<OvaGestureDetector>
   // ─────────────────────────────────────────────────────────────────────────────
   // Hold / Double-Tap & Hold / Triple-Tap & Hold HUD Sequence
   // ─────────────────────────────────────────────────────────────────────────────
-  void _startHoldTimer(Offset position) {
-    _holdTimer?.cancel();
-    _tickTimer?.cancel();
-
-    _holdTimer = Timer(const Duration(milliseconds: 350), () {
-      if (!mounted) return;
-      _startHoldSequence(position, isDoubleTap: false, isTripleTap: false);
-    });
-  }
-
   void _startHoldSequence(
     Offset position, {
     bool isDoubleTap = false,
@@ -672,32 +715,36 @@ class _OvaGestureDetectorState extends State<OvaGestureDetector>
             child: widget.child,
           ),
 
-          // Live glowing particle gesture trail when drawing 'O'
-          if (_isDrawing && _strokePoints.isNotEmpty)
+          // "O" trail, only while an O is being drawn.
+          if (_trailVisible)
             Positioned.fill(
               child: IgnorePointer(
-                child: CustomPaint(
-                  painter: _NeonGestureTrailPainter(points: _strokePoints),
+                child: RepaintBoundary(
+                  child: CustomPaint(
+                    painter: OvaTrailPainter(
+                      points: _strokePoints,
+                      fade: _trailFadeController,
+                      repaint: Listenable.merge([_trailTick, _trailFadeController]),
+                    ),
+                  ),
                 ),
               ),
             ),
 
-          // 'O' Success Glowing Ripple Animation over the circled area
-          if (_detectedCircleCenter != null)
+          // Summon: ring closes, pulses and becomes the Ova orb.
+          if (_detectedCircleCenter != null && _summonStroke.isNotEmpty)
             Positioned.fill(
               child: IgnorePointer(
-                child: AnimatedBuilder(
-                  animation: _circleSuccessAnimController,
-                  builder: (context, child) {
-                    return CustomPaint(
-                      painter: _CircleSuccessRipplePainter(
-                        center: _detectedCircleCenter!,
-                        radius: _detectedCircleRadius,
-                        scale: _circleRippleScale.value,
-                        opacity: _circleRippleOpacity.value,
-                      ),
-                    );
-                  },
+                child: RepaintBoundary(
+                  child: CustomPaint(
+                    painter: OvaSummonPainter(
+                      center: _detectedCircleCenter!,
+                      radius: _detectedCircleRadius,
+                      stroke: _summonStroke,
+                      progress: _circleSuccessAnimController,
+                      reduceMotion: _summonReduceMotion,
+                    ),
+                  ),
                 ),
               ),
             ),
@@ -829,92 +876,175 @@ class _OvaGestureDetectorState extends State<OvaGestureDetector>
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Neon Gesture Trail Painter for Real-time Finger Stroke
+// "O" trail: brand gradient, soft glow, tapered tail, fades out on release.
 // ─────────────────────────────────────────────────────────────────────────────
-class _NeonGestureTrailPainter extends CustomPainter {
+class OvaTrailPainter extends CustomPainter {
   final List<Offset> points;
-  _NeonGestureTrailPainter({required this.points});
+  final Animation<double> fade;
+
+  OvaTrailPainter({required this.points, required this.fade, required Listenable repaint})
+      : super(repaint: repaint);
 
   @override
   void paint(Canvas canvas, Size size) {
-    if (points.length < 2) return;
-
-    final glowPaint = Paint()
-      ..color = AppColors.brandBlue.withValues(alpha: 0.5)
-      ..strokeWidth = 10.0
-      ..strokeCap = StrokeCap.round
-      ..strokeJoin = StrokeJoin.round
-      ..style = PaintingStyle.stroke
-      ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 8);
-
-    final corePaint = Paint()
-      ..shader = const LinearGradient(
-        colors: [AppColors.brandBlue, AppColors.brandPink],
-      ).createShader(Rect.fromPoints(points.first, points.last))
-      ..strokeWidth = 4.0
-      ..strokeCap = StrokeCap.round
-      ..strokeJoin = StrokeJoin.round
-      ..style = PaintingStyle.stroke;
-
-    final path = Path()..moveTo(points.first.dx, points.first.dy);
-    for (int i = 1; i < points.length; i++) {
-      path.lineTo(points[i].dx, points[i].dy);
-    }
-
-    // Draw luminous outer glow
-    canvas.drawPath(path, glowPaint);
-    // Draw sharp inner gradient core
-    canvas.drawPath(path, corePaint);
-
-    // Tip glow
-    final tipPoint = points.last;
-    final tipPaint = Paint()
-      ..color = AppColors.brandPink
-      ..style = PaintingStyle.fill;
-    canvas.drawCircle(tipPoint, 4.0, tipPaint);
+    final opacity = 1.0 - fade.value;
+    if (points.length < 2 || opacity <= 0) return;
+    paintOvaStroke(canvas, points, opacity);
   }
 
   @override
-  bool shouldRepaint(covariant _NeonGestureTrailPainter oldDelegate) => true;
+  bool shouldRepaint(covariant OvaTrailPainter oldDelegate) => oldDelegate.points != points;
+}
+
+/// Shared by the trail and the first phase of the summon animation.
+void paintOvaStroke(Canvas canvas, List<Offset> points, double opacity) {
+  final path = Path()..moveTo(points.first.dx, points.first.dy);
+  for (int i = 1; i < points.length; i++) {
+    path.lineTo(points[i].dx, points[i].dy);
+  }
+  // Soft glow under the whole stroke.
+  canvas.drawPath(
+    path,
+    Paint()
+      ..color = AppColors.brandBlue.withValues(alpha: 0.30 * opacity)
+      ..strokeWidth = 18
+      ..strokeCap = StrokeCap.round
+      ..strokeJoin = StrokeJoin.round
+      ..style = PaintingStyle.stroke
+      ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 9),
+  );
+  // Tapered core: thin and faint at the tail, thick and bright at the finger.
+  final core = Paint()
+    ..strokeCap = StrokeCap.round
+    ..style = PaintingStyle.stroke;
+  final n = points.length - 1;
+  for (int i = 1; i <= n; i++) {
+    final t = i / n;
+    core
+      ..strokeWidth = 2.0 + 5.5 * t
+      ..color = Color.lerp(AppColors.brandBlue, AppColors.brandPink, t)!
+          .withValues(alpha: (0.30 + 0.70 * t) * opacity);
+    canvas.drawLine(points[i - 1], points[i], core);
+  }
+  // Bright tip.
+  canvas.drawCircle(
+    points.last,
+    9,
+    Paint()
+      ..color = AppColors.brandPink.withValues(alpha: 0.45 * opacity)
+      ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 6),
+  );
+  canvas.drawCircle(points.last, 3.5, Paint()..color = AppColors.brandWhite.withValues(alpha: 0.95 * opacity));
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Success Ripple Painter when 'O' is Recognized
+// Summon: the drawn ring closes into a perfect circle, pulses, then shrinks
+// into the glowing Ova orb. Reduce motion: the ring just fades.
 // ─────────────────────────────────────────────────────────────────────────────
-class _CircleSuccessRipplePainter extends CustomPainter {
+class OvaSummonPainter extends CustomPainter {
   final Offset center;
   final double radius;
-  final double scale;
-  final double opacity;
+  final List<Offset> stroke;
+  final Animation<double> progress;
+  final bool reduceMotion;
 
-  _CircleSuccessRipplePainter({
+  OvaSummonPainter({
     required this.center,
     required this.radius,
-    required this.scale,
-    required this.opacity,
-  });
+    required this.stroke,
+    required this.progress,
+    required this.reduceMotion,
+  }) : super(repaint: progress);
+
+  static double _interval(double t, double begin, double end, [Curve curve = Curves.linear]) =>
+      curve.transform(((t - begin) / (end - begin)).clamp(0.0, 1.0));
 
   @override
   void paint(Canvas canvas, Size size) {
-    if (opacity <= 0.0) return;
+    final t = progress.value;
+    if (reduceMotion) {
+      _ring(canvas, radius, 1.0 - t, 4, 0);
+      return;
+    }
 
-    final effectiveRadius = radius * scale;
+    // 1. The hand-drawn stroke fades while a perfect ring closes over it.
+    final close = _interval(t, 0.0, 0.35, Curves.easeOutCubic);
+    if (close < 1 && stroke.length > 1) paintOvaStroke(canvas, stroke, 1 - close);
+    final start = stroke.isEmpty ? -math.pi / 2 : math.atan2(stroke.first.dy - center.dy, stroke.first.dx - center.dx);
 
-    final ripplePaint = Paint()
-      ..shader = RadialGradient(
-        colors: [
-          AppColors.brandPink.withValues(alpha: 0.7 * opacity),
-          AppColors.brandBlue.withValues(alpha: 0.4 * opacity),
-          Colors.transparent,
-        ],
-      ).createShader(Rect.fromCircle(center: center, radius: effectiveRadius))
-      ..style = PaintingStyle.stroke
-      ..strokeWidth = 5.0 * opacity;
+    // 2. Pulse.
+    final pulse = math.sin(math.pi * _interval(t, 0.30, 0.58));
+    // 3. Morph into the orb.
+    final morph = _interval(t, 0.55, 1.0, Curves.easeInOutCubic);
+    const orbRadius = 26.0;
+    final r = ui.lerpDouble(radius * (1 + 0.12 * pulse), orbRadius, morph)!;
 
-    canvas.drawCircle(center, effectiveRadius, ripplePaint);
+    if (morph < 1) {
+      final sweep = 2 * math.pi * close;
+      _ring(canvas, r, 1.0 - morph * 0.4, 5 + 3 * pulse, t, start: start, sweep: sweep);
+    }
+    if (morph > 0) {
+      final rect = Rect.fromCircle(center: center, radius: r);
+      canvas.drawCircle(
+        center,
+        r * 1.8,
+        Paint()
+          ..color = AppColors.brandPink.withValues(alpha: 0.35 * morph)
+          ..maskFilter = MaskFilter.blur(BlurStyle.normal, 18 * morph + 1),
+      );
+      canvas.drawCircle(
+        center,
+        r,
+        Paint()
+          ..shader = RadialGradient(
+            center: const Alignment(-0.3, -0.35),
+            colors: [
+              AppColors.brandWhite.withValues(alpha: 0.95 * morph),
+              AppColors.brandPink.withValues(alpha: morph),
+              AppColors.brandBlue.withValues(alpha: morph),
+            ],
+            stops: const [0.0, 0.45, 1.0],
+          ).createShader(rect),
+      );
+    }
+  }
+
+  void _ring(Canvas canvas, double r, double opacity, double width, double spin,
+      {double start = -math.pi / 2, double sweep = 2 * math.pi}) {
+    if (opacity <= 0 || sweep <= 0) return;
+    final rect = Rect.fromCircle(center: center, radius: r);
+    canvas.drawArc(
+      rect,
+      start,
+      sweep,
+      false,
+      Paint()
+        ..color = AppColors.brandBlue.withValues(alpha: 0.4 * opacity)
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = width * 3
+        ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 10),
+    );
+    canvas.drawArc(
+      rect,
+      start,
+      sweep,
+      false,
+      Paint()
+        ..shader = SweepGradient(
+          colors: [
+            AppColors.brandBlue.withValues(alpha: opacity),
+            AppColors.brandPink.withValues(alpha: opacity),
+            AppColors.brandBlue.withValues(alpha: opacity),
+          ],
+          transform: GradientRotation(start + 2 * math.pi * spin),
+        ).createShader(rect)
+        ..style = PaintingStyle.stroke
+        ..strokeCap = StrokeCap.round
+        ..strokeWidth = width,
+    );
   }
 
   @override
-  bool shouldRepaint(covariant _CircleSuccessRipplePainter oldDelegate) =>
-      oldDelegate.scale != scale || oldDelegate.opacity != opacity;
+  bool shouldRepaint(covariant OvaSummonPainter oldDelegate) =>
+      oldDelegate.center != center || oldDelegate.reduceMotion != reduceMotion;
 }

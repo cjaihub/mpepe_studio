@@ -36,7 +36,7 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.moveLegacyPasswordHashesNow = exports.moveLegacyPasswordHashesDaily = exports.guardOnRelationship = exports.guardOnMessage = exports.guardExplainEvent = exports.guardRevokeDevice = exports.guardRespond = exports.checkLegacyPassword = exports.guardReportAuthFailure = exports.guardReportSession = void 0;
+exports.moveLegacyPasswordHashesNow = exports.moveLegacyPasswordHashesDaily = exports.guardOnRelationship = exports.guardOnMessage = exports.guardExplainEvent = exports.guardRevokeDevice = exports.guardRespond = exports.checkLegacyPassword = exports.guardReportAuthFailure = exports.guardReportSession = exports.loginContext = void 0;
 exports.score = score;
 exports.recordSecurityEvent = recordSecurityEvent;
 exports.secureAccount = secureAccount;
@@ -360,6 +360,23 @@ async function recentFailures(uid) {
  * entry and records new-device / location / session / account-change events.
  * Returns whether this device was logged out remotely.
  */
+/**
+ * Network context for the app's login history row: masked IP and the IP's
+ * region. Read-only; writes nothing.
+ */
+exports.loginContext = (0, https_1.onCall)(async (request) => {
+    var _a, _b, _c;
+    requireUser(request);
+    const data = ((_a = request.data) !== null && _a !== void 0 ? _a : {});
+    const ip = clientIp(request);
+    const geo = await geoFor(request, ip, str(data.networkCountry, 2));
+    return {
+        ipMasked: maskIp(ip),
+        country: geo.source === 'ip' ? (_b = geo.country) !== null && _b !== void 0 ? _b : null : null,
+        city: geo.source === 'ip' ? (_c = geo.city) !== null && _c !== void 0 ? _c : null : null,
+        region: null,
+    };
+});
 exports.guardReportSession = (0, https_1.onCall)(async (request) => {
     var _a, _b, _c, _d, _e, _f;
     var _g, _h, _j, _k, _l, _m, _o, _p, _q, _r, _s, _t, _u, _v, _w, _x, _y, _z, _0, _1, _2, _3;

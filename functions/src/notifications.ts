@@ -7,13 +7,15 @@
  * background or closed. While the app is open the in-app banner rings instead
  * (the foreground handler skips pushes that carry `notificationId`).
  *
- * Honours the recipient's `users/{uid}/settings/notifications` doc: push on/off,
+ * Honours the recipient's notification settings (`user_settings/{uid}.notifications`,
+ * falling back to `users/{uid}/settings/notifications`): push on/off,
  * per-category switches, quiet hours (urgent bypasses), sound and preview.
  */
 import { onDocumentCreated } from 'firebase-functions/v2/firestore';
 import * as logger from 'firebase-functions/logger';
 import { getFirestore } from 'firebase-admin/firestore';
 import { getMessaging } from 'firebase-admin/messaging';
+import { readAccountSettings } from './accountSettings';
 
 const db = () => getFirestore();
 
@@ -48,8 +50,7 @@ export const onNotificationCreated = onDocumentCreated('notifications/{id}', asy
   const category: string = n.category || 'system';
   if (!uid || SKIP.has(category) || n.isRead === true) return;
 
-  const prefsDoc = await db().collection('users').doc(uid).collection('settings').doc('notifications').get();
-  const prefs = (prefsDoc.data() ?? {}) as Prefs;
+  const prefs = (await readAccountSettings(uid, 'notifications', 'settings/notifications')) as Prefs;
   const urgent = n.priority === 'urgent';
   if (prefs.pushEnabled === false && !urgent) return;
   if (prefs.categoryOverrides?.[category] === false && !urgent) return;

@@ -18,6 +18,7 @@ import '../../../../backend/live_studio/settings/studio_settings_controller.dart
 import '../../../../backend/live_studio/social/studio_counts_controller.dart';
 import '../../../../backend/live_studio/social/studio_reactions_controller.dart';
 import '../../../../backend/live_studio/social/studio_share_service.dart';
+import '../gaming/gaming.dart';
 import '../geometry/geometry.dart';
 import '../join/join.dart';
 import '../security/live_health_sheet.dart';
@@ -46,8 +47,21 @@ class _LiveStudioV2ScreenState extends ConsumerState<LiveStudioV2Screen> {
   Timer? _presenceTimer;
   final List<StreamSubscription<Object?>> _mediaSubs = [];
   StudioRoomPort? _boundRoom;
+  bool _gameStarting = false;
 
   String get _id => widget.streamId;
+
+  /// Game Live: start the host's screen share (if needed). With [tip], also
+  /// shows "Your live keeps going…" (the "Switch to game" button).
+  Future<void> _startGame(StudioRoomPort room, {bool tip = false}) async {
+    if (_gameStarting) return;
+    setState(() => _gameStarting = true);
+    try {
+      await startGameStreamFlow(context, room, showTip: tip);
+    } finally {
+      if (mounted) setState(() => _gameStarting = false);
+    }
+  }
 
   @override
   void initState() {
@@ -165,8 +179,29 @@ class _LiveStudioV2ScreenState extends ConsumerState<LiveStudioV2Screen> {
           }
         },
         room: _boundRoom,
+        gaming: s.isGaming,
+        onSwitchToGame: s.isGaming && role == StudioRole.host && _boundRoom != null
+            ? () {
+                Navigator.of(ctx).pop();
+                _startGame(_boundRoom!, tip: true);
+              }
+            : null,
       ),
     );
+  }
+
+  /// Game Live camera bubble content: host camera, or the avatar when off.
+  Widget _hostPip(StudioRoomPort room, StageMember? host) {
+    final cam = host != null && host.camOn ? room.cameraOf(host.uid) : null;
+    final avatar = Center(
+      child: StudioAvatar(
+        name: host?.displayName ?? '',
+        url: host?.avatarUrl ?? '',
+        size: 72,
+        fill: LiveStudioWorld.surface3,
+      ),
+    );
+    return cam == null ? avatar : StudioVideoView(cam, placeholder: avatar);
   }
 
   @override
@@ -219,15 +254,30 @@ class _LiveStudioV2ScreenState extends ConsumerState<LiveStudioV2Screen> {
           final comments = studio.commentsRect(o, state.settings.guestSize, viewport);
           final phone = o == StudioOrientation.phone;
           final host = members[state.hostId];
+          final gaming = state.isGaming;
+          final isHost = role == StudioRole.host;
+          final VoidCallback? switchToGame = gaming && isHost ? () => _startGame(room, tip: true) : null;
 
           final stage = StudioStage(
             geometry: geometry,
             state: state,
-            members: members,
+            members: gaming ? gamingStageMembers(members, state.hostId) : members,
             orientation: o,
             isSpeaking: room.isSpeaking,
             isMuted: (uid) => !(members[uid]?.micOn ?? true) || room.isMicMuted(uid),
+            showTable: !gaming,
             videoBuilder: (uid, size) {
+              if (gaming) {
+                return gamingVideoFor(
+                  room: room,
+                  uid: uid,
+                  hostId: state.hostId,
+                  renderSize: size,
+                  viewerIsHost: isHost,
+                  onStartGame: () => _startGame(room),
+                  starting: _gameStarting,
+                );
+              }
               final h = room.cameraOf(uid);
               return h == null ? const SizedBox.shrink() : StudioVideoView(h);
             },
@@ -239,14 +289,20 @@ class _LiveStudioV2ScreenState extends ConsumerState<LiveStudioV2Screen> {
                     if (i >= 0) LayoutCommands(ref.read(studioCallPortProvider), _id).swap(i);
                   }
                 : null,
-            tableContent: StudioTableContent(
-              streamId: _id,
-              phone: phone,
-              onViewItem: (_) => setState(() => _tab = StudioRoomTab.goods),
-            ),
+            tableContent: gaming
+                ? null
+                : StudioTableContent(
+                    streamId: _id,
+                    phone: phone,
+                    onViewItem: (_) => setState(() => _tab = StudioRoomTab.goods),
+                  ),
             popoutContentBuilder: (context, target, size) {
               if (target.isTable) {
                 return StudioTableContent(streamId: _id, phone: phone);
+              }
+              if (gaming && target.uid == state.hostId) {
+                final screen = room.tableScreen();
+                if (screen != null) return StudioVideoView(screen, fit: BoxFit.contain);
               }
               final h = room.cameraOf(target.uid!);
               return h == null ? const SizedBox.shrink() : StudioVideoView(h, fit: BoxFit.contain);
@@ -266,6 +322,7 @@ class _LiveStudioV2ScreenState extends ConsumerState<LiveStudioV2Screen> {
                   onClose: () => _close(role, tokens),
                   onShare: () => _share(state),
                   onDrawer: () => _openDrawer(tokens, state, membersList, role),
+                  onSwitchToGame: switchToGame,
                 )
               : _LandscapeChrome(
                   streamId: _id,
@@ -283,11 +340,41 @@ class _LiveStudioV2ScreenState extends ConsumerState<LiveStudioV2Screen> {
                   onPeople: () => _openPeople(tokens, state, membersList, role),
                   onClose: () => _close(role, tokens),
                   onShare: () => _share(state),
+                  onSwitchToGame: switchToGame,
                 );
 
           return Stack(fit: StackFit.expand, children: [
             Positioned.fill(child: stage),
             Positioned.fill(child: SafeArea(child: chrome)),
+            if (gaming) ...[
+              if (state.gameTitle case final game?)
+                Positioned.fill(
+                  child: SafeArea(
+                    child: Stack(children: [
+                      Positioned(
+                        left: phone ? 8 : 24,
+                        top: phone ? 58 : 76,
+                        child: ConstrainedBox(
+                          constraints: BoxConstraints(maxWidth: phone ? 240 : 320),
+                          child: NowPlayingPill(tokens: tokens, gameTitle: game, phone: phone),
+                        ),
+                      ),
+                    ]),
+                  ),
+                ),
+              Positioned.fill(
+                child: SafeArea(
+                  child: GamingPipBubble(
+                    key: ValueKey('gaming-pip-${o.name}'),
+                    insets: phone
+                        ? const EdgeInsets.fromLTRB(10, 100, 10, 70)
+                        : const EdgeInsets.fromLTRB(24, 84, 24, 110),
+                    label: 'Host camera',
+                    child: _hostPip(room, host),
+                  ),
+                ),
+              ),
+            ],
           ]);
         }),
       ),
@@ -312,6 +399,7 @@ class _LandscapeChrome extends ConsumerWidget {
     required this.onPeople,
     required this.onClose,
     required this.onShare,
+    this.onSwitchToGame,
   });
 
   final String streamId;
@@ -327,6 +415,9 @@ class _LandscapeChrome extends ConsumerWidget {
   final VoidCallback onPeople;
   final VoidCallback onClose;
   final VoidCallback onShare;
+
+  /// Game Live host only.
+  final VoidCallback? onSwitchToGame;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -346,8 +437,10 @@ class _LandscapeChrome extends ConsumerWidget {
           child: Row(children: [
             Flexible(child: HostCard(tokens: t, streamId: streamId, title: state.title, host: host, phone: false)),
             const Spacer(),
-            TableModePicker(streamId: streamId, kind: TableModePickerKind.capsule, tokens: t),
-            const Spacer(),
+            if (!state.isGaming) ...[
+              TableModePicker(streamId: streamId, kind: TableModePickerKind.capsule, tokens: t),
+              const Spacer(),
+            ],
             ParticipantsStack(tokens: t, members: stageMembers, count: counts.participants, onTap: onPeople),
             const SizedBox(width: 8),
             if (role.isManager)
@@ -432,7 +525,7 @@ class _LandscapeChrome extends ConsumerWidget {
         child: SizedBox(
           height: 68,
           child: Row(children: [
-            _ControlsGroup(streamId: streamId, tokens: t, state: state, role: role, room: room),
+            _ControlsGroup(streamId: streamId, tokens: t, state: state, role: role, room: room, onSwitchToGame: onSwitchToGame),
             const SizedBox(width: 12),
             Flexible(
               child: GlassBox(
@@ -469,12 +562,13 @@ class _LandscapeChrome extends ConsumerWidget {
 
 /// Mic · camera · S/M/L · Share-to-table (+ host settings).
 class _ControlsGroup extends ConsumerWidget {
-  const _ControlsGroup({required this.streamId, required this.tokens, required this.state, required this.role, required this.room});
+  const _ControlsGroup({required this.streamId, required this.tokens, required this.state, required this.role, required this.room, this.onSwitchToGame});
   final String streamId;
   final LiveStudioTokens tokens;
   final StudioState state;
   final StudioRole role;
   final StudioRoomPort room;
+  final VoidCallback? onSwitchToGame;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -544,7 +638,10 @@ class _ControlsGroup extends ConsumerWidget {
             onTap: () => showLiveHealthSheet(context, streamId: streamId, tokens: t),
           ),
         const SizedBox(width: 6),
-        ShareToTableButton(streamId: streamId, tokens: t),
+        if (!state.isGaming)
+          ShareToTableButton(streamId: streamId, tokens: t)
+        else if (onSwitchToGame != null)
+          SwitchToGameButton(tokens: t, onTap: onSwitchToGame),
       ]),
     );
   }
@@ -637,6 +734,7 @@ class _PhoneChrome extends ConsumerWidget {
     required this.onClose,
     required this.onShare,
     required this.onDrawer,
+    this.onSwitchToGame,
   });
 
   final String streamId;
@@ -650,6 +748,9 @@ class _PhoneChrome extends ConsumerWidget {
   final VoidCallback onClose;
   final VoidCallback onShare;
   final VoidCallback onDrawer;
+
+  /// Game Live host only.
+  final VoidCallback? onSwitchToGame;
 
   /// Compact table rail anchor in the phone artboard (SPEC §2: left 32, top 377).
   static const Offset _railAnchor = Offset(32, 377);
@@ -725,12 +826,13 @@ class _PhoneChrome extends ConsumerWidget {
         right: 8,
         child: SecurityAdvisoryBanner(streamId: streamId, role: role, tokens: t),
       ),
-      // Compact table rail (also reachable in the drawer).
-      Positioned(
-        left: rail.dx,
-        top: rail.dy,
-        child: TableModePicker(streamId: streamId, kind: TableModePickerKind.rail, tokens: t),
-      ),
+      // Compact table rail (also reachable in the drawer). No table on Game Live.
+      if (!state.isGaming)
+        Positioned(
+          left: rail.dx,
+          top: rail.dy,
+          child: TableModePicker(streamId: streamId, kind: TableModePickerKind.rail, tokens: t),
+        ),
       Positioned.fromRect(rect: comments, child: CommentFeed(streamId: streamId, tokens: t)),
       Positioned(right: 10, bottom: 62, width: 40, height: 150, child: FloatingHearts(streamId: streamId, rise: 130)),
       // Slim bottom bar.
@@ -743,7 +845,10 @@ class _PhoneChrome extends ConsumerWidget {
           child: Row(children: [
             Expanded(child: CommentBar(streamId: streamId, tokens: t, phone: true)),
             const SizedBox(width: 5),
-            ShareToTableButton(streamId: streamId, tokens: t, variant: ShareToTableVariant.phone),
+            if (!state.isGaming)
+              ShareToTableButton(streamId: streamId, tokens: t, variant: ShareToTableVariant.phone)
+            else if (onSwitchToGame != null)
+              SwitchToGameButton(tokens: t, onTap: onSwitchToGame, compact: true),
             StudioRoundButton(
               tokens: t,
               icon: Icons.ios_share,
@@ -819,6 +924,8 @@ class _LiveFeaturesDrawer extends ConsumerWidget {
     required this.participants,
     required this.onTab,
     required this.room,
+    this.gaming = false,
+    this.onSwitchToGame,
   });
 
   final String streamId;
@@ -829,6 +936,10 @@ class _LiveFeaturesDrawer extends ConsumerWidget {
   final ValueChanged<StudioRoomTab> onTab;
   final StudioRoomPort? room;
 
+  /// Game Live: no table section; the host gets "Switch to game".
+  final bool gaming;
+  final VoidCallback? onSwitchToGame;
+
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final t = tokens;
@@ -836,10 +947,12 @@ class _LiveFeaturesDrawer extends ConsumerWidget {
       tokens: t,
       title: 'Live features',
       children: [
-        Text('On the table', style: LiveStudioType.s(12, FontWeight.w600, t.textMedium, height: 16)),
-        const SizedBox(height: 6),
-        TableModePicker(streamId: streamId, kind: TableModePickerKind.grid, tokens: t),
-        const SizedBox(height: 12),
+        if (!gaming) ...[
+          Text('On the table', style: LiveStudioType.s(12, FontWeight.w600, t.textMedium, height: 16)),
+          const SizedBox(height: 6),
+          TableModePicker(streamId: streamId, kind: TableModePickerKind.grid, tokens: t),
+          const SizedBox(height: 12),
+        ],
         Text('Room', style: LiveStudioType.s(12, FontWeight.w600, t.textMedium, height: 16)),
         const SizedBox(height: 6),
         Row(children: [
@@ -866,7 +979,10 @@ class _LiveFeaturesDrawer extends ConsumerWidget {
             StudioRoundButton(tokens: t, icon: Icons.videocam_outlined, label: 'Camera', fill: LiveStudioAccent.clear, border: LiveStudioAccent.clear, color: t.textMedium,
                 onTap: () => room!.setCameraEnabled(!(ref.read(studioMembersProvider(streamId)).value?.any((m) => m.uid == ref.read(studioMyUidProvider) && m.camOn) ?? false))),
           ],
-          ShareToTableButton(streamId: streamId, tokens: t, variant: ShareToTableVariant.drawer),
+          if (!gaming)
+            ShareToTableButton(streamId: streamId, tokens: t, variant: ShareToTableVariant.drawer)
+          else if (onSwitchToGame != null)
+            SwitchToGameButton(tokens: t, onTap: onSwitchToGame, compact: true),
           if (role.isManager)
             StudioRoundButton(tokens: t, icon: Icons.health_and_safety_outlined, label: 'Live health', fill: LiveStudioAccent.clear, border: LiveStudioAccent.clear, color: t.textMedium,
                 onTap: () {

@@ -281,6 +281,7 @@ __exportStar(require("./security"), exports);
 __exportStar(require("./securityMail"), exports);
 __exportStar(require("./emailCodes"), exports);
 __exportStar(require("./metaOAuth"), exports);
+__exportStar(require("./gmailUser"), exports);
 __exportStar(require("./inbox"), exports);
 var aiGateway_1 = require("./aiGateway");
 Object.defineProperty(exports, "aiGateway", { enumerable: true, get: function () { return aiGateway_1.aiGateway; } });
@@ -323,4 +324,6 @@ Object.defineProperty(exports, "lsMuteChat", { enumerable: true, get: function (
 Object.defineProperty(exports, "lsReact", { enumerable: true, get: function () { return social_1.lsReact; } });
 Object.defineProperty(exports, "lsShare", { enumerable: true, get: function () { return social_1.lsShare; } });
 Object.defineProperty(exports, "lsLivekitWebhook", { enumerable: true, get: function () { return social_1.lsLivekitWebhook; } });
+// Oneova Looks & Visual Intelligence (§4.5, §8, §10)
+__exportStar(require("./looks"), exports);
 //# sourceMappingURL=index.js.map

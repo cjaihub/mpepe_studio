@@ -62,7 +62,11 @@ class NotificationPreferences {
 
   factory NotificationPreferences.fromFirestore(DocumentSnapshot doc) {
     if (!doc.exists) return NotificationPreferences();
-    final data = doc.data() as Map<String, dynamic>? ?? {};
+    return NotificationPreferences.fromMap(doc.data() as Map<String, dynamic>? ?? {});
+  }
+
+  /// From the `notifications` category of `user_settings/{uid}`.
+  factory NotificationPreferences.fromMap(Map<String, dynamic> data) {
     final tone = data['ringtone'] as String?;
     return NotificationPreferences(
       pushEnabled: data['pushEnabled'] ?? true,
