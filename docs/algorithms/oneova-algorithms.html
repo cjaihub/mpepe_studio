@@ -1,0 +1,243 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Oneova Algorithms</title>
+<style>
+  :root { --blue:#0C4FA8; --pink:#FF2D87; --ink:#0F172A; --muted:#475569; --line:#E2E8F0; --soft:#F1F5F9; }
+  * { box-sizing: border-box; }
+  body { font-family: -apple-system, "Inter", "Segoe UI", Roboto, sans-serif; color: var(--ink); background:#fff; margin:0; line-height:1.55; font-size:13.5px; }
+  main { max-width: 860px; margin: 0 auto; padding: 40px 28px 60px; }
+  .cover { border-bottom: 4px solid var(--blue); padding-bottom: 22px; margin-bottom: 28px; }
+  .cover h1 { font-size: 34px; margin: 0 0 6px; color: var(--blue); letter-spacing:-.5px; }
+  .cover p { margin: 2px 0; color: var(--muted); }
+  .tag { display:inline-block; background: var(--pink); color:#fff; font-weight:800; font-size:11px; padding:2px 8px; border-radius:4px; letter-spacing:.6px; }
+  h2 { color: var(--blue); font-size: 22px; margin: 34px 0 8px; padding-top: 6px; border-top: 1px solid var(--line); page-break-after: avoid; }
+  h3 { font-size: 15.5px; margin: 20px 0 6px; page-break-after: avoid; }
+  code, pre { font-family: "SF Mono", Menlo, Consolas, monospace; font-size: 12px; }
+  pre { background: var(--soft); border-left: 3px solid var(--blue); padding: 12px 14px; border-radius: 6px; white-space: pre-wrap; page-break-inside: avoid; }
+  table { border-collapse: collapse; width: 100%; margin: 10px 0 14px; page-break-inside: avoid; }
+  th, td { text-align: left; border-bottom: 1px solid var(--line); padding: 7px 8px; vertical-align: top; }
+  th { background: var(--soft); font-size: 12px; text-transform: uppercase; letter-spacing: .4px; color: var(--muted); }
+  .note { background: #FFF1F7; border-left: 3px solid var(--pink); padding: 10px 14px; border-radius: 6px; margin: 12px 0; page-break-inside: avoid; }
+  .ok { background: #EEF4FC; border-left: 3px solid var(--blue); padding: 10px 14px; border-radius: 6px; margin: 12px 0; page-break-inside: avoid; }
+  .toc { columns: 2; padding-left: 18px; }
+  .status { font-size: 11px; font-weight: 800; padding: 1px 6px; border-radius: 4px; }
+  .built { background:#DCFCE7; color:#166534; } .partial { background:#FEF9C3; color:#854D0E; } .todo { background:#FEE2E2; color:#991B1B; }
+  @media print { main { padding: 0 6px; } h2 { page-break-before: auto; } a { color: inherit; text-decoration: none; } }
+</style>
+</head>
+<body>
+<main>
+
+<section class="cover">
+  <span class="tag">ONEOVA · INTERNAL</span>
+  <h1>Oneova Algorithms</h1>
+  <p><strong>Feed engine · Trending · Ads · Referrals · Ova assistant engagement</strong></p>
+  <p>Design reference, v1 · 30 October 2026 · Firebase project <code>mpepe-2b4bd</code></p>
+  <p>This is a design document: it says what each algorithm should do and how it connects to the code that already exists. The status labels show what is <span class="status built">BUILT</span>, <span class="status partial">PARTIAL</span> or <span class="status todo">TO BUILD</span>.</p>
+</section>
+
+<h3>Contents</h3>
+<ol class="toc">
+  <li>Principles</li>
+  <li>Feed engine (Shorts × TikTok hybrid)</li>
+  <li>Looping and session flow</li>
+  <li>Trending algorithm</li>
+  <li>Advertising algorithm</li>
+  <li>Referral program (5%)</li>
+  <li>Ova: engagement without annoyance</li>
+  <li>Notification memory, style and voice cloning</li>
+  <li>Data model and events</li>
+  <li>Roadmap and status</li>
+</ol>
+
+<h2>1. Principles</h2>
+<ul>
+  <li><strong>Satisfaction, not raw time.</strong> We optimize for watch time that people are glad they spent: completions, rewatches, follows and shares. Quick skips, "not interested" taps and hides count against a video. YouTube moved to this after watch-time-only ranking rewarded clickbait.</li>
+  <li><strong>The interest graph comes first and the social graph second.</strong> As on TikTok, anyone's video can reach anyone. As on YouTube Shorts, the people you follow and your watch history give the first strong signals.</li>
+  <li><strong>Every video gets a fair first audience.</strong> Staged audience pools (section 2.4) let new creators break out on merit.</li>
+  <li><strong>Explainable.</strong> Every score keeps its breakdown, so "Why am I seeing this" answers from real numbers. <code>ViralScoreBreakdown</code> already does this.</li>
+  <li><strong>Habit-forming, never manipulative.</strong> We want people to come back because the feed is good. We do not trap them: users get break reminders, a daily-limit setting and quiet hours, and we never send fake notifications. This also keeps us inside Google Play's policies and app-store reviews.</li>
+  <li><strong>Real data only.</strong> No seeded or fake content and no inflated counters. All counters are server-authoritative.</li>
+</ul>
+
+<h2>2. Feed engine</h2>
+<p>The feed engine is a four-stage funnel, run per request (one page is 10–20 videos), with prefetch of the next page while the user watches. Existing code: <code>RecommendationService</code> (<code>lib/backend/social/services/recommendation_service.dart</code>), <code>oneova_neural_ranker.dart</code>, <code>online_feature_store.dart</code>, <code>viral_velocity_score.dart</code>. <span class="status partial">PARTIAL</span></p>
+
+<pre>candidates (≈600) ─▶ filter (≈400) ─▶ rank (score) ─▶ re-rank (diversity/explore/ads) ─▶ page (10–20)</pre>
+
+<h3>2.1 Candidate sources (blended)</h3>
+<table>
+  <tr><th>Source</th><th>Share</th><th>Idea taken from</th></tr>
+  <tr><td>Interest neighbours: videos similar to what you finished or rewatched (embedding nearest-neighbours)</td><td>35%</td><td>TikTok interest graph</td></tr>
+  <tr><td>Following: new posts from creators you follow and interact with</td><td>15%</td><td>YouTube subscriptions</td></tr>
+  <tr><td>Collaborative: "people who finished X also finished Y"</td><td>15%</td><td>YouTube two-tower model</td></tr>
+  <tr><td>Trending in your region and language (section 4)</td><td>10%</td><td>Both</td></tr>
+  <tr><td>Audience-pool tests: fresh videos that need a first audience (section 2.4)</td><td>15%</td><td>TikTok staged distribution</td></tr>
+  <tr><td>Exploration: topics you have never seen</td><td>10%</td><td>Both (avoids filter bubbles)</td></tr>
+</table>
+
+<h3>2.2 Filters</h3>
+<p>Remove: already watched in the last 7 days (unless rewatched), blocked or hidden creators, hidden topics, "not interested" items, policy-flagged content, followers-only posts from creators you do not follow, and anything outside the user's age and region rules. <span class="status built">BUILT</span> in <code>_applyPolicyFiltering</code> / <code>_applyFeedbackSignals</code>.</p>
+
+<h3>2.3 Ranking score</h3>
+<p>Each candidate gets predicted probabilities from the ranker, with features from the online feature store. The final score is a weighted sum of expected value minus expected regret:</p>
+<pre>score = 1.0·P(complete) + 0.8·P(rewatch) + 0.6·E[watch fraction]
+      + 0.5·P(like) + 1.2·P(comment) + 1.5·P(share) + 1.2·P(save) + 2.0·P(follow)
+      − 1.5·P(skip &lt; 2s) − 3.0·P(not interested) − 5.0·P(report)
+      × creatorQuality(0.7–1.15) × freshness(age) × localeMatch(0.6–1.0)</pre>
+<ul>
+  <li><strong>Watch fraction</strong> is capped at 1.0 for a single view, and rewatches count separately. Short videos should not win just because they are short. This is the main lesson from YouTube Shorts.</li>
+  <li><strong>Completion and rewatch</strong> carry the most weight, as on TikTok. They are the strongest signal that a video is good.</li>
+  <li><strong>freshness(age)</strong> = 1.0 for the first 48 h, then falls to 0.6 by day 30. Evergreen videos can still rank on their probabilities.</li>
+  <li>Until the neural ranker is trained, the cold-start fallback is the viral-velocity score: <code>score = (ln(1 + points/hour) × quality + freshness) × decay</code>, already in code.</li>
+</ul>
+
+<h3>2.4 Staged audience pools (how videos go viral)</h3>
+<p>Every new video goes through pools. It is promoted when its engagement in the pool beats the creator's niche baseline:</p>
+<table>
+  <tr><th>Pool</th><th>Audience</th><th>Promote when (vs. niche median)</th></tr>
+  <tr><td>P0 Seed</td><td>~300 views: followers plus interest matches</td><td>completion ≥ 1.1× and skip rate ≤ 0.9×</td></tr>
+  <tr><td>P1 Test</td><td>~3,000</td><td>completion ≥ 1.2×, shares + saves per view ≥ 1.2×</td></tr>
+  <tr><td>P2 Grow</td><td>~30,000</td><td>the same, sustained for 6 h; no rise in reports</td></tr>
+  <tr><td>P3 Broad</td><td>100k+, cross-region</td><td>velocity still rising (section 4); human spot-check above 1M</td></tr>
+</table>
+<p>A video that stalls stays in its pool and keeps getting views from strong interest matches. It can be promoted again later if engagement improves (a "second wave"). Implemented as a server job that writes <code>content/{id}.pool</code>. <span class="status todo">TO BUILD</span></p>
+
+<h3>2.5 Re-ranking</h3>
+<ul>
+  <li>No more than 1 video per creator in any 5 consecutive slots, and no more than 2 per topic in a row.</li>
+  <li>An exploration slot about every 6th position.</li>
+  <li>Ad slots are placed by section 5. They never interrupt the first 3 videos of a session.</li>
+  <li>Live now: when someone you follow is live, their live card can appear once per session in slots 2–5.</li>
+</ul>
+
+<h3>2.6 Learning loop</h3>
+<p>Events (section 9) stream to <code>user_events</code>. User interest vectors update in near real time: an exponential moving average over the last 200 completions, with half-life ≈ 3 days. Topic affinities decay by 2% per day. The ranker is retrained nightly from BigQuery exports; <code>scheduledFeedbackBigQueryExport</code> already exists.</p>
+
+<h2>3. Looping and session flow</h2>
+<ul>
+  <li><strong>Seamless loop:</strong> short videos (≤ 60 s) loop by default, with no end card. Each loop counts as a rewatch signal, but only up to 3 per view so a forgotten phone does not inflate the count.</li>
+  <li><strong>Preload:</strong> keep the next 2 videos buffered and the previous 1 warm. Start playback at the first frame within 150 ms, so swiping never shows a spinner.</li>
+  <li><strong>Session memory:</strong> leaving the app and coming back within 30 minutes resumes the same feed position.</li>
+  <li><strong>Wellbeing:</strong> an optional "take a break" card after the user's chosen limit, plus a daily time setting. Both are off by default and easy to find in Feed controls.</li>
+</ul>
+
+<h2>4. Trending algorithm</h2>
+<p><span class="status partial">PARTIAL</span> <code>viral_trending_engine.dart</code>, <code>viral_velocity_score.dart</code>. Trending is about acceleration against a baseline, not total views, so a small niche can trend:</p>
+<pre>velocity_t   = weighted engagement points in the last hour
+trendScore   = (velocity_t − μ_topic,region) / σ_topic,region      (z-score vs. 14-day baseline)
+             × acceleration (velocity_t / velocity_t−1, capped 3.0)
+             × uniqueness (distinct engagers / total engagements)
+trending if trendScore ≥ 3 and ≥ 50 distinct engagers in the last hour</pre>
+<ul>
+  <li>The same formula runs for videos, hashtags, sounds and live streams, per region and language, every 10 minutes.</li>
+  <li><strong>Anti-manipulation:</strong> engagement from accounts younger than 24 h, from one device cluster, or in bursts with identical timing counts 0.1×. The uniqueness factor defeats like-farms.</li>
+  <li><strong>Trending surfaces:</strong> the Discover tab, the trending sounds picker in the camera, and 10% of feed candidates.</li>
+</ul>
+
+<h2>5. Advertising algorithm</h2>
+<p>Goal: the app should feel free and uncluttered while ads fund it. The rule is that an ad has to earn its slot against the organic video it replaces. <span class="status todo">TO BUILD</span></p>
+
+<h3>5.1 Ad load (how often)</h3>
+<pre>baseGap  = 8 organic videos between ads (new users: 12 for their first 7 days)
+gap      = baseGap × fatigue × tenureFactor
+fatigue  = 1 + 0.25 × (ads skipped &lt; 2s in last 10)        → more skips, fewer ads
+caps     : ≥ 60 s between ads · ≤ 6 ads per hour · never in first 3 videos
+           never during a live, a call or the first 30 s after an O-gesture to Ova</pre>
+
+<h3>5.2 Which ad (auction)</h3>
+<pre>adRank  = bid × P(click or conversion) × adQuality × userRelevance
+show the ad only if  adRank × valueToUser ≥ score of the organic video it displaces × λ
+                     (λ = 0.6 at launch; tune with revenue vs. retention tests)
+price   = second-price: next adRank / (winner's P × quality) + 0.01</pre>
+<ul>
+  <li><strong>Formats:</strong> full-screen native video ads that look like posts and are labeled <em>Sponsored</em>. They are skippable at once and loop like normal videos. The same formats serve Biz products ("Shop" chip) and sponsored lives.</li>
+  <li><strong>Frequency capping:</strong> the same creative at most twice a day per user, and the same advertiser at most 4 times.</li>
+  <li><strong>Rewarded ads (opt-in):</strong> watching a 15–30 s ad gives AI Lab credits. This makes premium AI feel free and earns more per view than in-feed ads.</li>
+  <li><strong>Creator share:</strong> 50% of the ad revenue earned next to a creator's videos goes to that creator, which motivates them to post more.</li>
+  <li><strong>Privacy:</strong> targeting uses on-platform interests only. No sensitive categories (health, religion, politics, sexuality) and no third-party tracking. This keeps the Play "Data safety" declaration simple.</li>
+</ul>
+
+<h2>6. Referral program (5%)</h2>
+<p>When you invite someone, you earn <strong>5% of what they earn</strong> on Oneova (creator ad share, live gifts, Biz sales payouts) for <strong>12 months</strong> after they join. The platform pays the 5% from its own share; it is never deducted from the invitee. Single level only: no earnings from your invitee's invitees. This keeps the program clear of pyramid-scheme rules and store policy. <span class="status todo">TO BUILD</span></p>
+<pre>on invitee payout event (amount A, type ∈ {adShare, gifts, bizPayout}):
+    if referral.active and now &lt; referral.joinedAt + 365d and invitee.qualified:
+        reward = round(A × 0.05, 2)
+        ledger.add(referrer, reward, source = invitee, event)   ← Cloud Function, transaction
+qualified = invitee verified phone + 7 days active + 1 post or 1 purchase</pre>
+<ul>
+  <li><strong>Links:</strong> <code>oneova.app/i/{code}</code>. Install attribution goes through Play Install Referrer, and the code is stored in <code>referrals/{inviteeUid}</code> at sign-up.</li>
+  <li><strong>Anti-fraud:</strong> no self-referral (same device or payment method). At most 50 qualified invitees a month without review. Rewards stay pending for 14 days so refunds and chargebacks can be reversed. Payouts above a threshold need KYC.</li>
+  <li><strong>Invitee welcome:</strong> new users get a starter credit pack for AI Lab, so joining through an invite feels like a gift.</li>
+  <li>All money movement is server-side only. Clients never write ledger documents (Firestore rules: deny writes).</li>
+</ul>
+
+<h2>7. Ova: engagement without annoyance</h2>
+<div class="ok"><strong>Shipped (this session):</strong> drawing an <strong>"O"</strong> is the only touch gesture that opens Ova. Double tap, double- and triple-tap holds, and the draw-"1" stroke were deleted from <code>OvaGestureDetector</code>, and tests check that they no longer open Ova. <span class="status built">BUILT</span></div>
+
+<h3>7.1 Live suggestion strip (Ella-style)</h3>
+<p>When Ova opens, a small floating panel shows 3–5 action chips that scroll upward like TikTok's floating comments, e.g. <em>"Reply to Amina"</em>, <em>"Go live (you usually do at 8 pm)"</em>, <em>"Continue the edit you left"</em>. Suggestions are not hard-coded: they are ranked from the user's own signals. <span class="status todo">TO BUILD</span></p>
+<pre>candidates = screen-context actions (what is on screen / circled)
+           ∪ habit actions (frequent sequences: screen A → action B, by hour/day)
+           ∪ pending items (unread messages, call-backs, drafts, notifications)
+rank       = P(tap | context) × recency × (1 − recentlyDismissed)
+show top 5, refresh as context changes; never repeat a dismissed chip for 24 h</pre>
+<ul>
+  <li><strong>Habit model:</strong> on-device n-gram counts over navigation events (<code>route → next route/action</code>) with time-of-day buckets. Cheap, private and quick to learn.</li>
+  <li><strong>Not annoying:</strong> Ova never pops up by itself. Suggestions appear only after the user draws O. At most 1 proactive notification a day, opt-in, with quiet hours respected. Each chip can be dismissed with one swipe.</li>
+</ul>
+
+<h2>8. Notification memory, style learning and voice cloning</h2>
+<div class="note"><strong>Consent and disclosure are requirements, not options.</strong> These features read private data and can speak as the user. Google Play allows them only with a prominent in-app disclosure, explicit opt-in, and a clear purpose. Impersonation must never be hidden from the people receiving it.</div>
+<h3>8.1 Notification memory <span class="status todo">TO BUILD</span></h3>
+<ul>
+  <li>Android <code>NotificationListenerService</code>, enabled only by the user in system settings after an in-app explanation. It is a per-app allow list (e.g. WhatsApp yes, banking no) and is off by default for sensitive categories.</li>
+  <li>Stores sender, app, time, a text summary and the category in <code>users/{uid}/notif_memory</code>, encrypted, with 30-day retention by default. The user can view, search and delete everything.</li>
+  <li>Ova can answer "what did Juma say this morning?" and draft replies from it. Nothing is sent without the user's tap.</li>
+</ul>
+<h3>8.2 Chat-style learning <span class="status partial">PARTIAL</span> (<code>chat_affinity_extractor.dart</code>)</h3>
+<ul>
+  <li>Learns per-contact tone (formality, emoji use, language mix, typical length) from Oneova chats only, unless the user opts in further.</li>
+  <li>The style profile is stored as features, not raw messages, and is used for suggested replies that the user edits or sends.</li>
+</ul>
+<h3>8.3 Voice clone <span class="status todo">TO BUILD</span></h3>
+<ul>
+  <li>Enrollment: the user records a consent sentence plus about 1 minute of samples. The voice model belongs to that account only and can be deleted at any time.</li>
+  <li>Generation runs through Vertex AI on the server, the same setup as the existing Gemini functions with no client API key. It can translate and speak in other languages.</li>
+  <li><strong>Labeling:</strong> every AI-voiced message carries a visible "AI voice" badge and an inaudible watermark. Recipients can always tell. The goal is to sound like the user, not to deceive the listener. Undisclosed cloning would breach Play's deceptive-behaviour policy and laws in several markets.</li>
+  <li>Never usable in calls without the user present, and never for anyone else's voice.</li>
+</ul>
+
+<h2>9. Data model and events</h2>
+<table>
+  <tr><th>Event</th><th>Key fields</th><th>Used by</th></tr>
+  <tr><td><code>view_start / view_end</code></td><td>contentId, watchMs, loops, position, source</td><td>ranking, pools, trending</td></tr>
+  <tr><td><code>like / comment / share / save / follow</code></td><td>contentId, creatorId</td><td>all</td></tr>
+  <tr><td><code>skip_fast / not_interested / hide / report</code></td><td>contentId, reason</td><td>ranking negatives</td></tr>
+  <tr><td><code>ad_impression / ad_skip / ad_click / ad_convert</code></td><td>adId, watchMs, slot</td><td>auction, fatigue</td></tr>
+  <tr><td><code>referral_signup / referral_reward</code></td><td>code, inviteeUid, amount</td><td>referral ledger</td></tr>
+  <tr><td><code>ova_open / ova_chip_shown / ova_chip_tap / ova_chip_dismiss</code></td><td>chipType, context</td><td>suggestion ranking</td></tr>
+</table>
+<p>Collections: <code>content/{id}</code> (counters, pool, embedding id), <code>user_events</code> (append-only), <code>users/{uid}/interests</code>, <code>trends/{region}_{lang}</code>, <code>ads/{id}</code>, <code>ad_ledger</code>, <code>referrals/{inviteeUid}</code>, <code>referral_ledger</code>. All counters and ledgers are written by Cloud Functions only.</p>
+
+<h2>10. Roadmap and status</h2>
+<table>
+  <tr><th>Item</th><th>Status</th><th>Next step</th></tr>
+  <tr><td>Candidate generation and filtering</td><td><span class="status built">BUILT</span></td><td>Add interest-neighbour source from embeddings</td></tr>
+  <tr><td>Viral-velocity score and "Why am I seeing this"</td><td><span class="status built">BUILT</span></td><td>Expose the breakdown in the UI</td></tr>
+  <tr><td>Multi-objective ranking (2.3)</td><td><span class="status partial">PARTIAL</span></td><td>Train the ranker on BigQuery exports</td></tr>
+  <tr><td>Staged audience pools (2.4)</td><td><span class="status todo">TO BUILD</span></td><td>Scheduled function <code>poolPromoter</code></td></tr>
+  <tr><td>Trending z-score (4)</td><td><span class="status partial">PARTIAL</span></td><td>Regional baselines and anti-manipulation</td></tr>
+  <tr><td>Ads (5)</td><td><span class="status todo">TO BUILD</span></td><td>Ad slot in feed and fatigue rule first, auction second</td></tr>
+  <tr><td>Referrals (6)</td><td><span class="status todo">TO BUILD</span></td><td>Invite links, ledger function and rules</td></tr>
+  <tr><td>Ova opens on O only (7)</td><td><span class="status built">BUILT</span></td><td>Decide on the remaining opt-in shortcuts</td></tr>
+  <tr><td>Live suggestion strip (7.1)</td><td><span class="status todo">TO BUILD</span></td><td>On-device habit model and chip panel</td></tr>
+  <tr><td>Notification memory / style / voice (8)</td><td><span class="status todo">TO BUILD</span></td><td>Consent flows first, then features</td></tr>
+</table>
+
+</main>
+</body>
+</html>
