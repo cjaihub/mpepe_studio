@@ -7,6 +7,7 @@ const ToolExecutionLayer_1 = require("./services/ToolExecutionLayer");
 const firestore_1 = require("firebase-admin/firestore");
 const accountSettings_1 = require("./accountSettings");
 const vertexAi_1 = require("./vertexAi");
+const protect_1 = require("./guard/protect");
 /**
  * Retired: voice mode now talks to the Gemini Live model on Vertex AI
  * directly through Firebase AI Logic (App Check + Auth, no API key), see
@@ -151,6 +152,7 @@ exports.aiGateway = (0, https_1.onCall)(async (request) => {
         throw new https_1.HttpsError('unauthenticated', 'User must be logged in.');
     }
     const userId = request.auth.uid;
+    await (0, protect_1.limit)(userId, 'ai_gateway', 60, 10 * 60000);
     const { operation = 'chat', data, prompt, history = [] } = request.data;
     // Check global AI agent kill switch
     const agentConfig = await (0, accountSettings_1.readAccountSettings)(userId, 'aiAgent', 'ai_settings/agent_config');

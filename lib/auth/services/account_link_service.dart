@@ -3,6 +3,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../security/account_lookup_service.dart';
 import '../auth_repository.dart';
 
 final accountLinkServiceProvider = Provider<AccountLinkService>((ref) {
@@ -78,29 +79,22 @@ class AccountLinkService {
   }
 
   /// Looks for a profile owned by another uid that matches [email] or
-  /// [phone]. Profiles are readable by signed-in users (firestore.rules).
+  /// [phone], through the server lookup (accountLookup). The phone number
+  /// comes back only when this session is signed in with that e-mail/phone.
   Future<ExistingAccountMatch?> findProfileFor({
     String? email,
     String? phone,
     required String exceptUid,
   }) async {
-    final queries = <Query<Map<String, dynamic>>>[
-      if (email != null && email.isNotEmpty) ...[
-        _users.where('email', isEqualTo: email.toLowerCase()),
-        _users.where('linkedEmails', arrayContains: email.toLowerCase()),
-        _users.where('recoveryEmail', isEqualTo: email),
-      ],
-      if (phone != null && phone.isNotEmpty) ...[
-        _users.where('phoneNumber', isEqualTo: phone),
-        _users.where('phone', isEqualTo: phone),
-      ],
+    final lookups = <Future<Map<String, dynamic>?> Function()>[
+      if (email != null && email.isNotEmpty) () => AccountLookupService.byEmail(email),
+      if (phone != null && phone.isNotEmpty) () => AccountLookupService.byPhone(phone),
     ];
-    for (final q in queries) {
+    for (final lookup in lookups) {
       try {
-        final snap = await q.limit(2).get();
-        for (final d in snap.docs) {
-          if (d.id != exceptUid) return ExistingAccountMatch(d.id, d.data());
-        }
+        final m = await lookup();
+        final uid = m?['uid'] as String?;
+        if (m != null && uid != null && uid != exceptUid) return ExistingAccountMatch(uid, m);
       } catch (e) {
         debugPrint('[AccountLink] profile lookup: $e');
       }

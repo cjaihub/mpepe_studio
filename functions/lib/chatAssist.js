@@ -11,6 +11,7 @@ exports.chatAssist = void 0;
  */
 const https_1 = require("firebase-functions/v2/https");
 const vertexAi_1 = require("./vertexAi");
+const protect_1 = require("./guard/protect");
 const MODEL = 'gemini-2.5-flash';
 const MAX_TEXT = 4000;
 const MAX_LINES = 60;
@@ -65,6 +66,7 @@ exports.chatAssist = (0, https_1.onCall)({ timeoutSeconds: 60, memory: '256MiB' 
     var _a, _b;
     if (!request.auth)
         throw new https_1.HttpsError('unauthenticated', 'Sign in to use AI in chat.');
+    await (0, protect_1.limit)(request.auth.uid, 'chat_assist', 120, 10 * 60000);
     const data = ((_a = request.data) !== null && _a !== void 0 ? _a : {});
     const op = data.op;
     const target = cleanLang(data.target);

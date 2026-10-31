@@ -25,6 +25,7 @@ import 'services/account_link_service.dart';
 import 'widgets/onboarding_identity_fields.dart';
 import 'widgets/oneova_auth_backdrop.dart';
 import 'security/login_security.dart';
+import '../security/account_lookup_service.dart';
 
 class SignupWizardScreen extends ConsumerStatefulWidget {
   const SignupWizardScreen({super.key});
@@ -373,14 +374,10 @@ class _SignupWizardScreenState extends ConsumerState<SignupWizardScreen> with On
 
     // 1. Check if phone is already registered
     try {
-      final existing = await FirebaseFirestore.instance
-          .collection('users')
-          .where('phoneNumber', isEqualTo: phone)
-          .limit(1)
-          .get();
+      final existing = await AccountLookupService.byPhone(phone);
 
       final me = FirebaseAuth.instance.currentUser?.uid;
-      if (existing.docs.any((d) => d.id != me)) {
+      if (existing != null && existing['uid'] != me) {
         setState(() => _isLoading = false);
         _showPhoneAlreadyRegisteredModal();
         return;

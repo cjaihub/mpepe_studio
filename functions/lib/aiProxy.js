@@ -12,6 +12,7 @@ exports.aiProxy = void 0;
 const https_1 = require("firebase-functions/v2/https");
 const params_1 = require("firebase-functions/params");
 const auth_1 = require("firebase-admin/auth");
+const app_check_1 = require("firebase-admin/app-check");
 const firestore_1 = require("firebase-admin/firestore");
 const stream_1 = require("stream");
 const openRouterSecret = (0, params_1.defineSecret)('OPENROUTER_API_KEY');
@@ -48,6 +49,23 @@ exports.aiProxy = (0, https_1.onRequest)({ secrets: [openRouterSecret], timeoutS
     }
     catch (_d) {
         res.status(401).json({ error: { message: 'Sign in to use Oneova AI.' } });
+        return;
+    }
+    // App Check: verified whenever the app sends it; required once
+    // APP_CHECK_ENFORCE=true (same switch as the callables, globalOptions.ts).
+    const appCheck = req.get('X-Firebase-AppCheck');
+    let appVerified = false;
+    if (appCheck) {
+        try {
+            await (0, app_check_1.getAppCheck)().verifyToken(appCheck);
+            appVerified = true;
+        }
+        catch (_e) {
+            appVerified = false;
+        }
+    }
+    if (!appVerified && process.env.APP_CHECK_ENFORCE === 'true') {
+        res.status(401).json({ error: { message: 'Update Oneova to keep using AI.' } });
         return;
     }
     if (isChat) {

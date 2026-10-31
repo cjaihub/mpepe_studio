@@ -48,6 +48,7 @@ exports.tiktokExchangeCode = void 0;
 const https_1 = require("firebase-functions/v2/https");
 const params_1 = require("firebase-functions/params");
 const logger = __importStar(require("firebase-functions/logger"));
+const protect_1 = require("./guard/protect");
 const tiktokClientSecret = (0, params_1.defineSecret)('TIKTOK_CLIENT_SECRET');
 const tiktokClientKey = (0, params_1.defineString)('TIKTOK_CLIENT_KEY');
 const tiktokRedirectUri = (0, params_1.defineString)('TIKTOK_REDIRECT_URI');
@@ -56,6 +57,7 @@ exports.tiktokExchangeCode = (0, https_1.onCall)({ secrets: [tiktokClientSecret]
     var _c, _d, _e;
     if (!((_a = request.auth) === null || _a === void 0 ? void 0 : _a.uid))
         throw new https_1.HttpsError('unauthenticated', 'Sign in first.');
+    await (0, protect_1.limit)(request.auth.uid, 'oauth_tiktok', 10, 10 * 60000);
     const code = String((_c = (_b = request.data) === null || _b === void 0 ? void 0 : _b.code) !== null && _c !== void 0 ? _c : '');
     if (!code || code.length > 2048)
         throw new https_1.HttpsError('invalid-argument', 'Missing authorization code.');

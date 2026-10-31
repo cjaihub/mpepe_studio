@@ -1144,6 +1144,10 @@ class MessageModel {
   /// Sent with "Forward" from another chat.
   final bool forwarded;
 
+  /// Ova Guard link/scam verdict, written only by the server
+  /// (verdict, reasons, blockedLinks). Null when nothing was found.
+  final Map<String, dynamic>? safety;
+
   MessageModel({
     required this.id,
     required this.senderId,
@@ -1164,6 +1168,7 @@ class MessageModel {
     this.mediaEncrypted = false,
     this.location,
     this.forwarded = false,
+    this.safety,
   });
 
   factory MessageModel.fromFirestore(DocumentSnapshot doc) {
@@ -1195,6 +1200,7 @@ class MessageModel {
       mediaEncrypted: (data['mediaEncrypted'] as bool?) ?? false,
       location: data['location'] is Map ? Map<String, dynamic>.from(data['location'] as Map) : null,
       forwarded: (data['forwarded'] as bool?) ?? false,
+      safety: data['safety'] is Map ? Map<String, dynamic>.from(data['safety'] as Map) : null,
     );
   }
 

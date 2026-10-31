@@ -49,6 +49,7 @@ const https_1 = require("firebase-functions/v2/https");
 const logger = __importStar(require("firebase-functions/logger"));
 const firestore_1 = require("firebase-admin/firestore");
 const vertexAi_1 = require("../vertexAi");
+const protect_1 = require("../guard/protect");
 const db = (0, firestore_1.getFirestore)();
 /**
  * Smart search: Gemini (Vertex AI, the function's service account) turns a
@@ -91,6 +92,7 @@ exports.globalSemanticSearch = (0, https_1.onCall)(async (request) => {
         throw new https_1.HttpsError('unauthenticated', 'You must be logged in to search.');
     }
     const userId = request.auth.uid;
+    await (0, protect_1.limit)(userId, 'search', 60, 60000);
     const { query, limit = 20, type } = (_a = request.data) !== null && _a !== void 0 ? _a : {};
     if (!query || typeof query !== 'string') {
         throw new https_1.HttpsError('invalid-argument', 'A valid query string is required.');

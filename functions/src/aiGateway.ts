@@ -4,6 +4,7 @@ import { ToolExecutionLayer } from './services/ToolExecutionLayer';
 import { getFirestore } from 'firebase-admin/firestore';
 import { readAccountSettings } from './accountSettings';
 import { vertexAi } from './vertexAi';
+import { limit } from './guard/protect';
 
 /**
  * Retired: voice mode now talks to the Gemini Live model on Vertex AI
@@ -155,6 +156,7 @@ export const aiGateway = onCall(async (request) => {
   }
 
   const userId = request.auth.uid;
+  await limit(userId, 'ai_gateway', 60, 10 * 60000);
   const { operation = 'chat', data, prompt, history = [] } = request.data;
   
   // Check global AI agent kill switch

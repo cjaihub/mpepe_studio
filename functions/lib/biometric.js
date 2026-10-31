@@ -54,6 +54,7 @@ const https_1 = require("firebase-functions/v2/https");
 const auth_1 = require("firebase-admin/auth");
 const firestore_1 = require("firebase-admin/firestore");
 const security_1 = require("./security");
+const protect_1 = require("./guard/protect");
 const KEYS = 'biometric_keys';
 const MAX_KEYS_PER_USER = 5;
 const KEY_TTL_DAYS = 90;
@@ -125,6 +126,7 @@ exports.biometricSignIn = (0, https_1.onCall)(async (request) => {
     if (!/^[A-Za-z0-9]{10,40}$/.test(keyId) || secret.length < 32 || secret.length > 256) {
         throw new https_1.HttpsError('invalid-argument', 'Bad key.');
     }
+    await (0, protect_1.limit)((0, protect_1.callerIp)(request), 'bio_signin', 30, 15 * 60000);
     const db = (0, firestore_1.getFirestore)();
     const ref = db.collection(KEYS).doc(keyId);
     const snap = await ref.get();

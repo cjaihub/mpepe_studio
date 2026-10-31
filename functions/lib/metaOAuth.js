@@ -63,6 +63,7 @@ const params_1 = require("firebase-functions/params");
 const logger = __importStar(require("firebase-functions/logger"));
 const firestore_1 = require("firebase-admin/firestore");
 const mailTemplates_1 = require("./mailTemplates");
+const protect_1 = require("./guard/protect");
 const metaAppSecret = (0, params_1.defineSecret)('META_APP_SECRET');
 const metaAppId = (0, params_1.defineString)('META_APP_ID');
 const metaRedirectUri = (0, params_1.defineString)('META_REDIRECT_URI');
@@ -89,6 +90,7 @@ exports.metaExchangeCode = (0, https_1.onCall)({ secrets: [metaAppSecret] }, asy
     const uid = (_a = request.auth) === null || _a === void 0 ? void 0 : _a.uid;
     if (!uid)
         throw new https_1.HttpsError('unauthenticated', 'Sign in first.');
+    await (0, protect_1.limit)(uid, 'oauth_meta', 10, 10 * 60000);
     const data = ((_j = request.data) !== null && _j !== void 0 ? _j : {});
     const code = String((_k = data.code) !== null && _k !== void 0 ? _k : '');
     const app = String((_l = data.app) !== null && _l !== void 0 ? _l : 'facebook');

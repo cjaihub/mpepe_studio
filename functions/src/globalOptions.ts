@@ -1,0 +1,13 @@
+/**
+ * Imported first by index.ts so it applies to every function defined after it.
+ *
+ * App Check: callables verify the app's App Check token whenever one is sent
+ * (the app activates Play Integrity / DeviceCheck in main.dart). Enforcing it
+ * rejects calls without a valid token, so it is switched on per project with
+ * APP_CHECK_ENFORCE=true in functions/.env.<project> once the App Check
+ * console shows (almost) all requests verified. Webhooks (onRequest) are not
+ * affected; they check their own signatures.
+ */
+import { setGlobalOptions } from 'firebase-functions/v2';
+
+setGlobalOptions({ enforceAppCheck: process.env.APP_CHECK_ENFORCE === 'true' });

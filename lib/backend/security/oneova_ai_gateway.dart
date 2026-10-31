@@ -1,3 +1,4 @@
+import 'package:firebase_app_check/firebase_app_check.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 
 /// Where OpenRouter-style AI calls go.
@@ -28,5 +29,17 @@ class OneovaAiGateway {
   static Future<String> bearer(String userKey) async {
     if (userKey.isNotEmpty) return userKey;
     return await FirebaseAuth.instance.currentUser?.getIdToken() ?? '';
+  }
+
+  /// App Check header for calls through `aiProxy` (empty for the user's own
+  /// key). The proxy rejects calls without it once App Check is enforced.
+  static Future<Map<String, String>> appCheckHeader(String userKey) async {
+    if (userKey.isNotEmpty) return const {};
+    try {
+      final token = await FirebaseAppCheck.instance.getToken();
+      return token == null ? const {} : {'X-Firebase-AppCheck': token};
+    } catch (_) {
+      return const {};
+    }
   }
 }

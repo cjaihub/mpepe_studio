@@ -9,6 +9,7 @@
 import { onRequest } from 'firebase-functions/v2/https';
 import { defineSecret } from 'firebase-functions/params';
 import { getAuth } from 'firebase-admin/auth';
+import { getAppCheck } from 'firebase-admin/app-check';
 import { getFirestore, FieldValue } from 'firebase-admin/firestore';
 import { Readable } from 'stream';
 
@@ -47,6 +48,23 @@ export const aiProxy = onRequest(
       uid = (await getAuth().verifyIdToken(token)).uid;
     } catch {
       res.status(401).json({ error: { message: 'Sign in to use Oneova AI.' } });
+      return;
+    }
+
+    // App Check: verified whenever the app sends it; required once
+    // APP_CHECK_ENFORCE=true (same switch as the callables, globalOptions.ts).
+    const appCheck = req.get('X-Firebase-AppCheck');
+    let appVerified = false;
+    if (appCheck) {
+      try {
+        await getAppCheck().verifyToken(appCheck);
+        appVerified = true;
+      } catch {
+        appVerified = false;
+      }
+    }
+    if (!appVerified && process.env.APP_CHECK_ENFORCE === 'true') {
+      res.status(401).json({ error: { message: 'Update Oneova to keep using AI.' } });
       return;
     }
 

@@ -113,6 +113,7 @@ class _SecurityCenterScreenState extends ConsumerState<SecurityCenterScreen> {
     final state = ref.watch(ovaGuardStateProvider).value ?? const <String, dynamic>{};
     final events = ref.watch(ovaGuardEventsProvider);
     final devices = ref.watch(ovaGuardDevicesProvider);
+    final actions = ref.watch(ovaGuardActionsProvider);
     final open = (events.value ?? const []).where((e) => e.data()['status'] == 'open').toList();
 
     return Scaffold(
@@ -142,6 +143,8 @@ class _SecurityCenterScreenState extends ConsumerState<SecurityCenterScreen> {
                 onSecure: () => _secure(eventId: e.id),
               ),
             ],
+            _section('Automatic protection'),
+            _ProtectionCard(state: state, actions: actions.value ?? const []),
             _section('Recent activity'),
             events.when(
               loading: () => const _Loading(),
@@ -284,6 +287,10 @@ IconData _eventIcon(String? type) => switch (type) {
       'session_reuse' => Icons.devices_other_rounded,
       'biometric_key_added' => Icons.fingerprint_rounded,
       'account_secured' => Icons.shield_rounded,
+      'phishing_sent' => Icons.link_off_rounded,
+      'profile_change_spike' => Icons.manage_accounts_rounded,
+      'guard_action' => Icons.health_and_safety_rounded,
+      'guard_action_reversed' => Icons.undo_rounded,
       _ => Icons.login_rounded,
     };
 
@@ -729,4 +736,99 @@ class _EmptyLine extends StatelessWidget {
         padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 2),
         child: Text(text, style: GoogleFonts.inter(fontSize: 12, color: context.textMuted)),
       );
+}
+
+// ───────────────────────── Automatic protection ─────────────────────────
+
+String _until(dynamic ts) {
+  if (ts is! Timestamp) return '';
+  final d = ts.toDate().difference(DateTime.now());
+  if (d.isNegative) return 'ended';
+  if (d.inHours >= 1) return 'for about ${d.inHours} h more';
+  return 'for ${d.inMinutes.clamp(1, 59)} min more';
+}
+
+bool _future(dynamic ts) => ts is Timestamp && ts.toDate().isAfter(DateTime.now());
+
+IconData _actionIcon(String? action) => switch (action) {
+      'rate_limit' => Icons.timer_rounded,
+      'hide_content' => Icons.visibility_off_rounded,
+      'force_reauth' => Icons.logout_rounded,
+      'freeze_withdrawals' => Icons.account_balance_wallet_rounded,
+      'escalate_admin' => Icons.support_agent_rounded,
+      _ => Icons.notifications_active_rounded,
+    };
+
+/// What Ova Guard does in the background, what it did on this account and
+/// what is paused right now — all in plain words.
+class _ProtectionCard extends StatelessWidget {
+  final Map<String, dynamic> state;
+  final List<QueryDocumentSnapshot<Map<String, dynamic>>> actions;
+  const _ProtectionCard({required this.state, required this.actions});
+
+  @override
+  Widget build(BuildContext context) {
+    final restrictions = Map<String, dynamic>.from(state['restrictions'] as Map? ?? const {});
+    final paused = <Widget>[
+      for (final e in restrictions.entries)
+        if (_future(e.value))
+          _InfoRow(
+            Icons.timer_rounded,
+            switch (e.key) {
+              'messaging' => 'Sending messages is paused',
+              'comments' => 'Commenting is paused',
+              'follows' => 'Following is paused',
+              _ => 'Some activity is paused',
+            },
+            'Unusual activity was detected, ${_until(e.value)}. It lifts by itself.',
+          ),
+      if (_future(state['withdrawalsFrozenUntil']))
+        _InfoRow(
+          Icons.account_balance_wallet_rounded,
+          'Withdrawals are paused ${_until(state['withdrawalsFrozenUntil'])}',
+          (state['withdrawalsFrozenReason'] as String?) ?? 'To keep your money safe after a risky sign-in.',
+        ),
+    ];
+    return _Card(children: [
+      const _InfoRow(Icons.link_rounded, 'Link & scam checks',
+          'Links in chats, comments and bios are checked against Google’s list of dangerous sites and for look-alike '
+              'addresses. Fake giveaways, payment requests and fake “Oneova support” messages are flagged. '
+              'In end-to-end encrypted chats only the links are checked, never your messages.'),
+      const _InfoRow(Icons.health_and_safety_rounded, 'Automatic safety steps',
+          'If something looks like a takeover or a scam, Ova Guard can pause sending for a while, hide a post until '
+              'it is reviewed, sign every device out, or pause withdrawals. It never bans anyone: a person on the '
+              'Oneova team reviews anything more serious, and can undo any step.'),
+      ...paused,
+      if (actions.isEmpty)
+        const _InfoRow(Icons.check_circle_rounded, 'No automatic steps on your account', 'Everything looks normal.')
+      else
+        for (final a in actions.take(6)) _ActionTile(action: a.data()),
+    ]);
+  }
+}
+
+class _ActionTile extends StatelessWidget {
+  final Map<String, dynamic> action;
+  const _ActionTile({required this.action});
+
+  @override
+  Widget build(BuildContext context) {
+    final status = action['status'] as String? ?? 'done';
+    final statusText = switch (status) {
+      'active' => 'Active ${_until(action['expiresAt'])}',
+      'reversed' => 'Removed by the Oneova team',
+      'expired' => 'Ended',
+      _ => 'Done',
+    };
+    return ListTile(
+      dense: true,
+      leading: Icon(_actionIcon(action['action'] as String?),
+          color: status == 'active' ? AppColors.brandPink : AppColors.brandBlue, size: 20),
+      title: Text(action['label'] as String? ?? 'Safety step',
+          style: GoogleFonts.inter(fontSize: 12.5, fontWeight: FontWeight.w700, color: context.textPrimary)),
+      subtitle: Text('${action['reason'] ?? ''}\n$statusText · ${_ago(action['createdAt'])}',
+          style: GoogleFonts.inter(fontSize: 11, height: 1.3, color: context.textMuted)),
+      isThreeLine: true,
+    );
+  }
 }

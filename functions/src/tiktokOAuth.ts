@@ -12,6 +12,7 @@
 import { onCall, HttpsError } from 'firebase-functions/v2/https';
 import { defineSecret, defineString } from 'firebase-functions/params';
 import * as logger from 'firebase-functions/logger';
+import { limit } from './guard/protect';
 
 const tiktokClientSecret = defineSecret('TIKTOK_CLIENT_SECRET');
 const tiktokClientKey = defineString('TIKTOK_CLIENT_KEY');
@@ -19,6 +20,7 @@ const tiktokRedirectUri = defineString('TIKTOK_REDIRECT_URI');
 
 export const tiktokExchangeCode = onCall({ secrets: [tiktokClientSecret] }, async (request) => {
   if (!request.auth?.uid) throw new HttpsError('unauthenticated', 'Sign in first.');
+  await limit(request.auth.uid, 'oauth_tiktok', 10, 10 * 60000);
   const code = String((request.data as Record<string, unknown> | undefined)?.code ?? '');
   if (!code || code.length > 2048) throw new HttpsError('invalid-argument', 'Missing authorization code.');
 

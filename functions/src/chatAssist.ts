@@ -8,6 +8,7 @@
  */
 import { onCall, HttpsError } from 'firebase-functions/v2/https';
 import { vertexAi } from './vertexAi';
+import { limit } from './guard/protect';
 
 const MODEL = 'gemini-2.5-flash';
 const MAX_TEXT = 4000;
@@ -63,6 +64,7 @@ async function generateJson(system: string, user: string, maxTokens: number): Pr
 
 export const chatAssist = onCall({ timeoutSeconds: 60, memory: '256MiB' }, async (request) => {
   if (!request.auth) throw new HttpsError('unauthenticated', 'Sign in to use AI in chat.');
+  await limit(request.auth.uid, 'chat_assist', 120, 10 * 60000);
   const data = (request.data ?? {}) as Record<string, unknown>;
   const op = data.op;
   const target = cleanLang(data.target);

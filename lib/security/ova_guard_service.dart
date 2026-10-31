@@ -55,6 +55,30 @@ final ovaGuardDevicesProvider = StreamProvider.autoDispose<List<QueryDocumentSna
       .map((s) => s.docs);
 });
 
+/// Automatic protective steps Ova Guard took on this account
+/// (functions/src/guard/actions.ts): what, why, and until when.
+final ovaGuardActionsProvider = StreamProvider.autoDispose<List<QueryDocumentSnapshot<Map<String, dynamic>>>>((ref) {
+  final uid = ref.watch(_guardUidProvider).value;
+  if (uid == null) return Stream.value(const []);
+  return FirebaseFirestore.instance
+      .collection('security_actions')
+      .where('uid', isEqualTo: uid)
+      .orderBy('createdAt', descending: true)
+      .limit(20)
+      .snapshots()
+      .map((s) => s.docs);
+});
+
+/// One link's safety, from `guardCheckLinks` (Web Risk + look-alike checks).
+class LinkSafety {
+  final String url;
+  final String verdict; // safe | suspicious | dangerous
+  final List<String> reasons;
+  const LinkSafety(this.url, this.verdict, this.reasons);
+  bool get dangerous => verdict == 'dangerous';
+  bool get suspicious => verdict == 'suspicious';
+}
+
 /// Client side of Ova Guard (functions/src/security.ts). The app only
 /// reports what it sees; all scoring and every write to `security_events`
 /// happen on the server.
@@ -176,6 +200,31 @@ class OvaGuardService {
   }
 
   /// Checks a password against an old pre-Firebase-Auth hash on the server.
+  static final Map<String, LinkSafety> _linkCache = {};
+
+  /// Checks links the server cannot see (end-to-end encrypted chats): only
+  /// the links are sent, never the message. Cached for this app session.
+  Future<List<LinkSafety>> checkLinks(List<String> urls) async {
+    final todo = urls.where((u) => !_linkCache.containsKey(u)).take(10).toList();
+    if (todo.isNotEmpty) {
+      try {
+        final res = await FirebaseFunctions.instance.httpsCallable('guardCheckLinks').call({'urls': todo});
+        final links = (res.data as Map?)?['links'] as List? ?? const [];
+        for (var i = 0; i < links.length && i < todo.length; i++) {
+          final m = Map<String, dynamic>.from(links[i] as Map);
+          _linkCache[todo[i]] = LinkSafety(
+            todo[i],
+            m['verdict'] as String? ?? 'safe',
+            List<String>.from(m['reasons'] as List? ?? const []),
+          );
+        }
+      } catch (e) {
+        debugPrint('[OvaGuard] link check: $e');
+      }
+    }
+    return [for (final u in urls) if (_linkCache[u] != null) _linkCache[u]!];
+  }
+
   Future<bool> checkLegacyPassword({required String password, String? phone}) async {
     final res = await _functions.httpsCallable('checkLegacyPassword').call({
       'password': password,

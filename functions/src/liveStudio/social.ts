@@ -48,6 +48,9 @@
  * for every join in rooms up to LARGE_ROOM_VIEWERS, and at most 1/s above.
  */
 import { onCall, onRequest, HttpsError } from 'firebase-functions/v2/https';
+import { analyzeText } from '../guard/linkSafety';
+import { checkLinks } from '../guard/reputation';
+import { restrictedUntil } from '../guard/monitor';
 import { FieldValue, DocumentReference } from 'firebase-admin/firestore';
 import { WebhookReceiver } from 'livekit-server-sdk';
 import { enforceChatMode } from './controls';
@@ -272,6 +275,12 @@ export const lsComment = onCall({ secrets: LIVEKIT_SECRETS }, async (req) => {
 
   const verdict = await moderateComment(norm.text, uid);
   if (!verdict.allow) throw new HttpsError('invalid-argument', verdict.reason ?? 'This comment was not allowed.');
+  // Ova Guard: paused accounts and known-dangerous links (heuristics + Web Risk, no AI).
+  if ((await restrictedUntil(uid, 'comments')) > now) throw new HttpsError('permission-denied', 'Commenting is paused on your account for a while. See Security in your profile.');
+  const found = analyzeText(norm.text);
+  if (found.links.length && (await checkLinks(found)).some((l) => l.verdict === 'dangerous')) {
+    throw new HttpsError('invalid-argument', 'That link is on a list of dangerous sites, so it can’t be posted.');
+  }
   const text = normalizeCommentText(verdict.text);
   if (!text.ok) throw new HttpsError('invalid-argument', text.reason);
 

@@ -39,14 +39,16 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.arEffectUse = exports.arEffectCreateFromUpload = exports.arEffectGenerate = exports.aiProxy = exports.cancelOrder = exports.confirmDelivery = exports.startJourney = exports.acceptDelivery = exports.stripeWebhook = exports.createOrderCheckout = exports.quoteDelivery = exports.stripePayoutStatus = exports.stripeConnectOnboard = exports.stripeConfig = exports.recordWatchTime = exports.insightsOnEarning = exports.insightsOnFollow = exports.insightsOnComment = exports.insightsOnShare = exports.insightsOnUnlike = exports.insightsOnLike = exports.insightsOnView = exports.playBillingNotifications = exports.verifySubscriptionPurchase = exports.creatorStripeWebhook = exports.kycRefresh = exports.kycStart = exports.paystackWebhook = exports.flutterwaveWebhook = exports.reviewWithdrawal = exports.cancelWithdrawal = exports.requestWithdrawal = exports.deletePayoutMethod = exports.savePayoutMethod = exports.payoutBanks = exports.payoutOptions = exports.walletSync = exports.sendUserGift = exports.verifyCoinPurchase = exports.connectorStatus = exports.shareToAudience = exports.onAppReleasePublished = exports.onFeedTuned = exports.suggestProfileDetails = exports.chatAssist = exports.generateLiveApiToken = exports.aiGateway = exports.generateAbTests = exports.publishToSocials = exports.processAiCommand = void 0;
-exports.lsGifSearch = exports.lsLivekitWebhook = exports.lsShare = exports.lsReact = exports.lsMuteChat = exports.lsDeleteComment = exports.lsComment = exports.lsSetJoinRequests = exports.lsSetChatMode = exports.lsSecOnMemberWrite = exports.lsSecOnBlock = exports.lsSecOnIncident = exports.lsMediaKey = exports.lsPlayback = exports.lsSetTable = exports.lsLeaveStage = exports.lsModerate = exports.lsRespondRequest = exports.lsCancelRequest = exports.lsRequestJoin = exports.lsSetLayout = exports.lsRecordingDecision = exports.lsBroadcast = exports.lsDestinations = exports.lsGift = exports.lsFun = exports.lsSweepOrphanLives = exports.lsHeartbeat = exports.lsSetSettings = exports.lsSetOwnMedia = exports.lsStateFull = exports.lsTime = exports.lsEnd = exports.lsToken = exports.lsStart = exports.globalSemanticSearch = exports.tiktokExchangeCode = exports.arEffectFavoriteRemoved = exports.arEffectFavoriteAdded = void 0;
+exports.stripeWebhook = exports.createOrderCheckout = exports.quoteDelivery = exports.stripePayoutStatus = exports.stripeConnectOnboard = exports.stripeConfig = exports.recordWatchTime = exports.insightsOnEarning = exports.insightsOnFollow = exports.insightsOnComment = exports.insightsOnShare = exports.insightsOnUnlike = exports.insightsOnLike = exports.insightsOnView = exports.playBillingNotifications = exports.verifySubscriptionPurchase = exports.creatorStripeWebhook = exports.kycRefresh = exports.kycStart = exports.paystackWebhook = exports.flutterwaveWebhook = exports.reviewWithdrawal = exports.cancelWithdrawal = exports.requestWithdrawal = exports.deletePayoutMethod = exports.savePayoutMethod = exports.payoutBanks = exports.payoutOptions = exports.walletSync = exports.sendUserGift = exports.verifyCoinPurchase = exports.connectorStatus = exports.shareToAudience = exports.onAppReleasePublished = exports.onFeedTuned = exports.suggestProfileDetails = exports.chatAssist = exports.generateLiveApiToken = exports.aiGateway = exports.guardBackfillContacts = exports.accountLookup = exports.guardSweep = exports.guardReverseAction = exports.guardCheckLinks = exports.guardOnProfileWrite = exports.guardScanContentComment = exports.guardScanPostComment = exports.generateAbTests = exports.publishToSocials = exports.processAiCommand = void 0;
+exports.lsGifSearch = exports.lsLivekitWebhook = exports.lsShare = exports.lsReact = exports.lsMuteChat = exports.lsDeleteComment = exports.lsComment = exports.lsSetJoinRequests = exports.lsSetChatMode = exports.lsSecOnMemberWrite = exports.lsSecOnBlock = exports.lsSecOnIncident = exports.lsMediaKey = exports.lsPlayback = exports.lsSetTable = exports.lsLeaveStage = exports.lsModerate = exports.lsRespondRequest = exports.lsCancelRequest = exports.lsRequestJoin = exports.lsSetLayout = exports.lsRecordingDecision = exports.lsBroadcast = exports.lsDestinations = exports.lsGift = exports.lsFun = exports.lsSweepOrphanLives = exports.lsHeartbeat = exports.lsSetSettings = exports.lsSetOwnMedia = exports.lsStateFull = exports.lsTime = exports.lsEnd = exports.lsToken = exports.lsStart = exports.globalSemanticSearch = exports.tiktokExchangeCode = exports.arEffectFavoriteRemoved = exports.arEffectFavoriteAdded = exports.arEffectUse = exports.arEffectCreateFromUpload = exports.arEffectGenerate = exports.aiProxy = exports.cancelOrder = exports.confirmDelivery = exports.startJourney = exports.acceptDelivery = void 0;
+require("./globalOptions");
 const https_1 = require("firebase-functions/v2/https");
 const params_1 = require("firebase-functions/params");
 const admin = __importStar(require("firebase-admin"));
 const firestore_1 = require("firebase-admin/firestore");
 const axios_1 = __importDefault(require("axios"));
 const googleapis_1 = require("googleapis");
+const protect_1 = require("./guard/protect");
 const openRouterSecret = (0, params_1.defineSecret)('OPENROUTER_API_KEY');
 admin.initializeApp();
 const db = (0, firestore_1.getFirestore)();
@@ -55,8 +57,9 @@ exports.processAiCommand = (0, https_1.onCall)({ secrets: [openRouterSecret] }, 
     if (!request.auth) {
         throw new https_1.HttpsError('unauthenticated', 'User must be logged in.');
     }
+    await (0, protect_1.limit)(request.auth.uid, 'ai_command', 30, 10 * 60000);
     const { transcript } = request.data;
-    if (!transcript) {
+    if (!transcript || typeof transcript !== 'string' || transcript.length > 4000) {
         throw new https_1.HttpsError('invalid-argument', 'Missing transcript.');
     }
     const openrouterKey = openRouterSecret.value();
@@ -121,6 +124,12 @@ exports.publishToSocials = (0, https_1.onCall)(async (request) => {
     if (!taskId || !destinations || !storageUrl || !platformTokens) {
         throw new https_1.HttpsError('invalid-argument', 'Missing required fields.');
     }
+    // Only our own Storage files may be fetched and re-uploaded (no SSRF).
+    if (typeof taskId !== 'string' || !/^[A-Za-z0-9_-]{1,80}$/.test(taskId) || !Array.isArray(destinations) || destinations.length > 5 ||
+        typeof storageUrl !== 'string' || !/^https:\/\/firebasestorage\.googleapis\.com\/v0\/b\/mpepe-2b4bd\./.test(storageUrl)) {
+        throw new https_1.HttpsError('invalid-argument', 'Invalid upload.');
+    }
+    await (0, protect_1.limit)(userId, 'publish_socials', 10, 3600000);
     const taskRef = db.collection(`users/${userId}/uploadTasks`).doc(taskId);
     await taskRef.set({
         taskId,
@@ -242,7 +251,11 @@ exports.generateAbTests = (0, https_1.onCall)({ secrets: [openRouterSecret] }, a
     var _a;
     if (!request.auth)
         throw new https_1.HttpsError('unauthenticated', 'User must be logged in.');
+    await (0, protect_1.limit)(request.auth.uid, 'ab_tests', 20, 10 * 60000);
     const { contextPrompt } = request.data;
+    if (typeof contextPrompt !== 'string' || !contextPrompt.trim() || contextPrompt.length > 2000) {
+        throw new https_1.HttpsError('invalid-argument', 'Describe the video in up to 2000 characters.');
+    }
     const openrouterKey = openRouterSecret.value();
     if (!openrouterKey) {
         throw new https_1.HttpsError('internal', 'API key not configured.');
@@ -279,6 +292,15 @@ __exportStar(require("./calls"), exports);
 __exportStar(require("./notifications"), exports);
 __exportStar(require("./biometric"), exports);
 __exportStar(require("./security"), exports);
+var monitor_1 = require("./guard/monitor");
+Object.defineProperty(exports, "guardScanPostComment", { enumerable: true, get: function () { return monitor_1.guardScanPostComment; } });
+Object.defineProperty(exports, "guardScanContentComment", { enumerable: true, get: function () { return monitor_1.guardScanContentComment; } });
+Object.defineProperty(exports, "guardOnProfileWrite", { enumerable: true, get: function () { return monitor_1.guardOnProfileWrite; } });
+Object.defineProperty(exports, "guardCheckLinks", { enumerable: true, get: function () { return monitor_1.guardCheckLinks; } });
+Object.defineProperty(exports, "guardReverseAction", { enumerable: true, get: function () { return monitor_1.guardReverseAction; } });
+Object.defineProperty(exports, "guardSweep", { enumerable: true, get: function () { return monitor_1.guardSweep; } });
+Object.defineProperty(exports, "accountLookup", { enumerable: true, get: function () { return monitor_1.accountLookup; } });
+Object.defineProperty(exports, "guardBackfillContacts", { enumerable: true, get: function () { return monitor_1.guardBackfillContacts; } });
 __exportStar(require("./securityMail"), exports);
 __exportStar(require("./emailCodes"), exports);
 __exportStar(require("./metaOAuth"), exports);

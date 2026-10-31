@@ -18,6 +18,7 @@ import { onCall, HttpsError } from 'firebase-functions/v2/https';
 import { getAuth } from 'firebase-admin/auth';
 import { getFirestore, FieldValue, Timestamp } from 'firebase-admin/firestore';
 import { recordSecurityEvent } from './security';
+import { callerIp, limit } from './guard/protect';
 
 const KEYS = 'biometric_keys';
 const MAX_KEYS_PER_USER = 5;
@@ -94,6 +95,7 @@ export const biometricSignIn = onCall(async (request) => {
   if (!/^[A-Za-z0-9]{10,40}$/.test(keyId) || secret.length < 32 || secret.length > 256) {
     throw new HttpsError('invalid-argument', 'Bad key.');
   }
+  await limit(callerIp(request), 'bio_signin', 30, 15 * 60000);
   const db = getFirestore();
   const ref = db.collection(KEYS).doc(keyId);
   const snap = await ref.get();

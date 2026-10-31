@@ -2,6 +2,7 @@ import { onCall, HttpsError } from 'firebase-functions/v2/https';
 import * as logger from 'firebase-functions/logger';
 import { getFirestore } from 'firebase-admin/firestore';
 import { vertexAi } from '../vertexAi';
+import { limit as rateLimit } from '../guard/protect';
 
 const db = getFirestore();
 
@@ -45,6 +46,7 @@ export const globalSemanticSearch = onCall(async (request) => {
   }
 
   const userId = request.auth.uid;
+  await rateLimit(userId, 'search', 60, 60000);
   const { query, limit = 20, type } = request.data ?? {};
 
   if (!query || typeof query !== 'string') {

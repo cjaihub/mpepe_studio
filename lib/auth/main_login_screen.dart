@@ -26,6 +26,7 @@ import '../ova_assistant/services/ova_auth_coach.dart';
 import '../ova_assistant/widgets/ova_inline_hint.dart';
 import 'security/login_history.dart';
 import 'security/login_security.dart';
+import '../security/account_lookup_service.dart';
 import '../security/ova_guard_service.dart';
 import 'package:google_fonts/google_fonts.dart';
 
@@ -527,54 +528,15 @@ class _MainLoginScreenState extends ConsumerState<MainLoginScreen> with OneovaIm
     }
 
     try {
-      // 1. Primary check on phoneNumber
-      var query = await FirebaseFirestore.instance
-          .collection('users')
-          .where('phoneNumber', isEqualTo: normalized)
-          .limit(1)
-          .get();
-
-      // 2. Fallback check on phone
-      if (query.docs.isEmpty) {
-        query = await FirebaseFirestore.instance
-            .collection('users')
-            .where('phone', isEqualTo: normalized)
-            .limit(1)
-            .get();
-      }
-
-      // 3. Alternate format check (e.g., 07xx or no plus)
-      if (query.docs.isEmpty && normalized.startsWith('+254')) {
-        final localFormat = '0${normalized.substring(4)}';
-        query = await FirebaseFirestore.instance
-            .collection('users')
-            .where('phoneNumber', isEqualTo: localFormat)
-            .limit(1)
-            .get();
-        if (query.docs.isEmpty) {
-          query = await FirebaseFirestore.instance
-              .collection('users')
-              .where('phone', isEqualTo: localFormat)
-              .limit(1)
-              .get();
-        }
-      }
-
-      if (query.docs.isEmpty && normalized.startsWith('+')) {
-        final noPlus = normalized.substring(1);
-        query = await FirebaseFirestore.instance
-            .collection('users')
-            .where('phoneNumber', isEqualTo: noPlus)
-            .limit(1)
-            .get();
-      }
+      // Server lookup (accountLookup): profiles are not searched by phone on
+      // the device, so other people's contact details stay private.
+      final found = await AccountLookupService.byPhone(normalized);
 
       if (mounted) {
-        if (query.docs.isNotEmpty) {
-          final doc = query.docs.first;
+        if (found != null) {
           setState(() {
-            _identifiedUser = doc.data();
-            _identifiedUserId = doc.id;
+            _identifiedUser = found;
+            _identifiedUserId = found['uid'] as String?;
             _userChecked = true;
             _isCheckingUser = false;
           });

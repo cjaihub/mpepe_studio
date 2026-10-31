@@ -24,6 +24,11 @@ class Comment {
   /// Length of a voice comment ([type] == [CommentType.voice]); [content] is its audio URL.
   final int? voiceDurationMs;
 
+  /// Ova Guard verdict ('suspicious' / 'dangerous') and its first reason,
+  /// set only by the server. Dangerous comments are also [isModerated].
+  final String? safetyVerdict;
+  final String? safetyReason;
+
   Comment({
     required this.id,
     required this.postId,
@@ -41,6 +46,8 @@ class Comment {
     this.videoReplyPostId,
     this.likerIds = const [],
     this.voiceDurationMs,
+    this.safetyVerdict,
+    this.safetyReason,
   });
 
   factory Comment.fromFirestore(DocumentSnapshot doc) {
@@ -68,6 +75,8 @@ class Comment {
       videoReplyPostId: data['videoReplyPostId'],
       likerIds: List<String>.from(data['likerIds'] ?? []),
       voiceDurationMs: (data['voiceDurationMs'] as num?)?.toInt(),
+      safetyVerdict: (data['safety'] as Map?)?['verdict'] as String?,
+      safetyReason: ((data['safety'] as Map?)?['reasons'] as List?)?.firstOrNull?.toString(),
     );
   }
 

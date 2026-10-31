@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../models/media_processing_models.dart';
 
@@ -34,6 +35,7 @@ class VideoEngineService {
     required PlatformExportPreset preset,
   }) async {
     final docRef = await _firestore.collection('video_jobs').add({
+      'ownerId': FirebaseAuth.instance.currentUser?.uid,
       'assetId': assetId,
       'format': format.name,
       'preset': preset.name,

@@ -226,7 +226,8 @@ service cloud.firestore {
 
     // Shared rule body for posts/{postId}/comments and content/{postId}/comments.
     function canCreateComment() {
-      return isSignedIn() && !isSuspended() &&
+      return isSignedIn() && !isSuspended() && !guardPaused('comments') &&
+             !request.resource.data.keys().hasAny(['safety']) &&
              request.resource.data.authorId == request.auth.uid &&
              request.resource.data.get('content', '') is string &&
              request.resource.data.get('content', '').size() <= 5000;
@@ -234,9 +235,11 @@ service cloud.firestore {
 
     function canUpdateComment(postId) {
       return isSignedIn() && !isSuspended() && (
-        // Author edits their own comment (authorship is immutable).
+        // Author edits their own comment (authorship is immutable; Ova Guard's
+        // hide/safety marks stay).
         (resource.data.authorId == request.auth.uid &&
-         request.resource.data.authorId == resource.data.authorId) ||
+         request.resource.data.authorId == resource.data.authorId &&
+         !request.resource.data.diff(resource.data).affectedKeys().hasAny(['safety', 'isModerated'])) ||
         // Anyone signed in may like / unlike, as themselves only.
         isOwnCommentLikeUpdate() ||
         // Post owner may pin or flag a creator reply.
@@ -342,12 +345,36 @@ service cloud.firestore {
                request.resource.data.deepLink.size() <= 300));
     }
 
+    // Ova Guard temporary pause (guard/actions.ts rate_limit), per scope:
+    // 'messaging', 'comments' or 'follows'. Lifted automatically when it ends.
+    function guardPaused(scope) {
+      let path = /databases/$(database)/documents/security_state/$(request.auth.uid);
+      return exists(path) &&
+             get(path).data.get('restrictions', {}).get(scope, null) is timestamp &&
+             get(path).data.get('restrictions', {}).get(scope, null) > request.time;
+    }
+
+    // Fields only Cloud Functions or admins set on a profile: the admin
+    // verification marker and Ova Guard's safety notes (an owner's full
+    // overwrite may drop `safety`, never write it).
+    function keepsGuardFieldsOnCreate() {
+      return !request.resource.data.keys().hasAny(['verifiedBy', 'safety']);
+    }
+    function keepsGuardFieldsOnUpdate() {
+      return request.resource.data.get('verifiedBy', null) == resource.data.get('verifiedBy', null) &&
+             (!('safety' in request.resource.data) ||
+              request.resource.data.get('safety', null) == resource.data.get('safety', null));
+    }
+
     // ─── Users ───────────────────────────────────────────────────────────────
     match /users/{uid} {
-      // Profiles hold email/phone, so they are visible to signed-in users only.
+      // Profiles are visible to signed-in users only. Contact details move to
+      // users/{uid}/private/contact (owner-only, via the {sub} rule below)
+      // once GUARD_SPLIT_PRIVATE_FIELDS is on; lookups by phone/e-mail go
+      // through the accountLookup function, never through this collection.
       allow read: if isSignedIn();
-      allow create: if isOwner(uid) && keepsPasswordFieldsOut() && keepsPrivilegesOnCreate();
-      allow update: if isOwner(uid) && keepsPasswordFieldsOut() && keepsPrivilegesOnUpdate();
+      allow create: if isOwner(uid) && keepsPasswordFieldsOut() && keepsPrivilegesOnCreate() && keepsGuardFieldsOnCreate();
+      allow update: if isOwner(uid) && keepsPasswordFieldsOut() && keepsPrivilegesOnUpdate() && keepsGuardFieldsOnUpdate();
       allow create, update: if isAdmin() && keepsPasswordFieldsOut();
       allow delete: if isOwner(uid) || isAdmin();
       // Follow / unfollow bumps the other user's follower counters by ±1.
@@ -466,7 +493,12 @@ service cloud.firestore {
 
     // ─── Telemetry Events ────────────────────────────────────────────────────
     match /telemetry_events/{eventId} {
-      allow read, write: if isSignedIn();
+      // Viewers write their own events; creators read events about their clips.
+      allow create: if isSignedIn() && request.resource.data.get('userId', '') == request.auth.uid;
+      allow read: if isSignedIn() && (resource.data.get('userId', '') == request.auth.uid ||
+                                      resource.data.get('creatorId', '') == request.auth.uid ||
+                                      resource.data.get('authorId', '') == request.auth.uid || isAdmin());
+      allow update, delete: if false;
     }
 
     // ─── Content & Engagement Collections ────────────────────────────────────
@@ -534,7 +566,10 @@ service cloud.firestore {
       allow update, delete: if isSignedIn() && resource.data.userId == request.auth.uid;
     }
     match /content_views/{viewId} {
-      allow read, write: if isSignedIn();
+      // One view per person (interaction_repository.recordView).
+      allow read: if isSignedIn() && (resource == null || resource.data.get('userId', '') == request.auth.uid);
+      allow create: if isSignedIn() && request.resource.data.get('userId', '') == request.auth.uid;
+      allow update, delete: if false;
     }
     match /reactions/{reactionId} {
       allow read: if isSignedIn();
@@ -619,14 +654,15 @@ service cloud.firestore {
 
     // ─── Interactions ────────────────────────────────────────────────────────
     match /interactions/{interactionId} {
-      allow read, write: if isSignedIn();
+      allow read, update, delete: if isSignedIn() && ownsData(resource.data);
+      allow create: if isSignedIn() && ownsData(request.resource.data);
     }
 
     // ─── Relationships ───────────────────────────────────────────────────────
     // Doc id '<followerId>_<followingId>'; only the two users involved may write.
     match /relationships/{relationshipId} {
       allow read: if isSignedIn();
-      allow create: if isSignedIn() && !isSuspended() &&
+      allow create: if isSignedIn() && !isSuspended() && !guardPaused('follows') &&
                        (request.resource.data.get('followerId', '') == request.auth.uid ||
                         request.resource.data.get('followingId', '') == request.auth.uid);
       allow update, delete: if isSignedIn() &&
@@ -660,7 +696,8 @@ service cloud.firestore {
     // ─── User Stories (Backwards compatibility) ──────────────────────────────
     match /user_stories/{storyId} {
       allow read: if true;
-      allow write: if isSignedIn();
+      allow create: if isSignedIn() && ownsData(request.resource.data);
+      allow update, delete: if isSignedIn() && (ownsData(resource.data) || isAdmin());
     }
 
     // ─── Projects ────────────────────────────────────────────────────────────
@@ -675,7 +712,8 @@ service cloud.firestore {
     match /tasks/{taskId} {
       allow read: if isSignedIn();
       allow create: if isSignedIn();
-      allow update: if isSignedIn();
+      allow update: if isSignedIn() && (resource.data.get('assignedUserId', '') == request.auth.uid ||
+                                        resource.data.get('createdBy', '') == request.auth.uid || isAdmin());
       allow delete: if isAdmin() || (isSignedIn() && resource.data.createdBy == request.auth.uid);
     }
 
@@ -861,7 +899,13 @@ service cloud.firestore {
       match /{sub}/{rest=**} {
         allow read: if sub != 'joinRequests' && isChatMember();
         allow write: if sub != 'joinRequests' && isChatMemberAfter() && !isSuspended() &&
-                        (sub != 'messages' || chatCategoryAfter() != 'channel' || isChatOwnerAfter());
+                        (sub != 'messages' || chatCategoryAfter() != 'channel' || isChatOwnerAfter()) &&
+                        // Ova Guard: paused senders can't post; link-safety marks are server-only.
+                        (sub != 'messages' || (
+                          (resource != null || !guardPaused('messaging')) &&
+                          (request.resource == null ||
+                           (resource == null && !request.resource.data.keys().hasAny(['safety'])) ||
+                           (resource != null && request.resource.data.get('safety', null) == resource.data.get('safety', null)))));
       }
     }
 
@@ -1162,8 +1206,16 @@ service cloud.firestore {
         allow write: if false;
       }
     }
-    // security_counters, security_rate, legacy_password_hashes and
-    // biometric_keys fall through to the deny-all rule at the bottom.
+    // Ova Guard automatic actions (guard/actions.ts): the user sees their own,
+    // admins see and reverse all (guardReverseAction). Function-written.
+    match /security_actions/{actionId} {
+      allow read: if isSignedIn() && (resource.data.get('uid', '') == request.auth.uid || isAdmin());
+      allow write: if false;
+    }
+    // security_counters, security_rate, legacy_password_hashes,
+    // biometric_keys, contact_index, link_reputation, guard_ai_cache,
+    // guard_budget and guard_verified_names fall through to the deny-all
+    // rule at the bottom.
     match /social_messages/{messageId} {
       allow read, update, delete: if isSignedIn() && resource.data.userId == request.auth.uid;
       allow create: if isSignedIn() && request.resource.data.userId == request.auth.uid;
@@ -1244,8 +1296,12 @@ service cloud.firestore {
       allow update, delete: if (isSignedIn() && ownsData(resource.data)) || isAdmin();
     }
     match /video_jobs/{jobId} {
-      allow read, create: if isSignedIn();
-      allow update: if isSignedIn();
+      allow read: if isSignedIn();
+      // New jobs carry ownerId (video_engine_service); jobs from app builds
+      // before it have none and stay editable as before.
+      allow create: if isSignedIn() && (!('ownerId' in request.resource.data) ||
+                                        request.resource.data.ownerId == request.auth.uid);
+      allow update: if isSignedIn() && (ownsData(resource.data) || !('ownerId' in resource.data) || isAdmin());
       allow delete: if isAdmin();
     }
     match /media_rights/{mediaId} {
@@ -1282,7 +1338,9 @@ service cloud.firestore {
       allow create: if isSignedIn() && request.resource.data.ownerId == request.auth.uid;
     }
     match /workflow_executions/{executionId} {
-      allow read, write: if isSignedIn();
+      // Written only by Cloud Functions (workflows.ts).
+      allow read: if isSignedIn();
+      allow write: if false;
     }
 
     // ─── Teams / workspaces ──────────────────────────────────────────────────

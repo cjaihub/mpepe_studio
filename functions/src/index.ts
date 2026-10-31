@@ -1,9 +1,11 @@
+import './globalOptions';
 import { onCall, HttpsError } from 'firebase-functions/v2/https';
 import { defineSecret } from 'firebase-functions/params';
 import * as admin from 'firebase-admin';
 import { getFirestore, FieldValue } from 'firebase-admin/firestore';
 import axios from 'axios';
 import { google } from 'googleapis';
+import { limit } from './guard/protect';
 
 const openRouterSecret = defineSecret('OPENROUTER_API_KEY');
 
@@ -15,8 +17,9 @@ export const processAiCommand = onCall({ secrets: [openRouterSecret] }, async (r
     throw new HttpsError('unauthenticated', 'User must be logged in.');
   }
 
+  await limit(request.auth.uid, 'ai_command', 30, 10 * 60000);
   const { transcript } = request.data;
-  if (!transcript) {
+  if (!transcript || typeof transcript !== 'string' || transcript.length > 4000) {
     throw new HttpsError('invalid-argument', 'Missing transcript.');
   }
 
@@ -90,6 +93,12 @@ export const publishToSocials = onCall(async (request) => {
   if (!taskId || !destinations || !storageUrl || !platformTokens) {
     throw new HttpsError('invalid-argument', 'Missing required fields.');
   }
+  // Only our own Storage files may be fetched and re-uploaded (no SSRF).
+  if (typeof taskId !== 'string' || !/^[A-Za-z0-9_-]{1,80}$/.test(taskId) || !Array.isArray(destinations) || destinations.length > 5 ||
+      typeof storageUrl !== 'string' || !/^https:\/\/firebasestorage\.googleapis\.com\/v0\/b\/mpepe-2b4bd\./.test(storageUrl)) {
+    throw new HttpsError('invalid-argument', 'Invalid upload.');
+  }
+  await limit(userId, 'publish_socials', 10, 3600000);
 
   const taskRef = db.collection(`users/${userId}/uploadTasks`).doc(taskId);
 
@@ -221,7 +230,11 @@ export const publishToSocials = onCall(async (request) => {
 export const generateAbTests = onCall({ secrets: [openRouterSecret] }, async (request) => {
   if (!request.auth) throw new HttpsError('unauthenticated', 'User must be logged in.');
   
+  await limit(request.auth.uid, 'ab_tests', 20, 10 * 60000);
   const { contextPrompt } = request.data;
+  if (typeof contextPrompt !== 'string' || !contextPrompt.trim() || contextPrompt.length > 2000) {
+    throw new HttpsError('invalid-argument', 'Describe the video in up to 2000 characters.');
+  }
   const openrouterKey = openRouterSecret.value();
   
   if (!openrouterKey) {
@@ -262,6 +275,7 @@ export * from './calls';
 export * from './notifications';
 export * from './biometric';
 export * from './security';
+export { guardScanPostComment, guardScanContentComment, guardOnProfileWrite, guardCheckLinks, guardReverseAction, guardSweep, accountLookup, guardBackfillContacts } from './guard/monitor';
 export * from './securityMail';
 export * from './emailCodes';
 export * from './metaOAuth';

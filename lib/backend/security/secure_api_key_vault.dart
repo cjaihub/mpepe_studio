@@ -167,6 +167,7 @@ class SecureKeyVault {
       'HTTP-Referer': 'https://oneova.app',
       'X-Title': 'Oneova',
       'User-Agent': 'Oneova-Mobile/1.0',
+      ...await OneovaAiGateway.appCheckHeader(key),
     };
   }
 

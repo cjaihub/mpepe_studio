@@ -42,6 +42,7 @@ import 'package:url_launcher/url_launcher.dart';
 import 'chat_assist_service.dart';
 import 'widgets/chat_compact_cards.dart';
 import 'widgets/chat_background.dart';
+import '../../security/widgets/link_safety_gate.dart';
 
 part 'chat_detail_upgrades.dart';
 
@@ -651,12 +652,18 @@ class _ChatDetailScreenState extends ConsumerState<ChatDetailScreen> with Single
     return const SizedBox.shrink();
   }
 
-  Widget _buildLinkPreview(String text, {bool isMe = false}) {
+  Widget _buildLinkPreview(String text, {bool isMe = false, Map<String, dynamic>? safety}) {
     final url = firstLinkIn(text);
     if (url == null) return const SizedBox.shrink();
     return Padding(
       padding: const EdgeInsets.only(top: 6),
-      child: ChatLinkCard(url: url, onBlue: isMe),
+      child: LinkSafetyGate(
+        key: ValueKey('link-$url'),
+        url: url,
+        serverSafety: safety,
+        onBlue: isMe,
+        child: ChatLinkCard(url: url, onBlue: isMe),
+      ),
     );
   }
 
@@ -3014,7 +3021,7 @@ class _ChatDetailScreenState extends ConsumerState<ChatDetailScreen> with Single
                                         ),
                                       ),
                                     if (!isMe) _buildTranslation(message, isMe),
-                                    _buildLinkPreview(displayText, isMe: isMe),
+                                    _buildLinkPreview(displayText, isMe: isMe, safety: message.safety),
                                     const SizedBox(height: 3),
                                     Row(
                                       mainAxisSize: MainAxisSize.min,

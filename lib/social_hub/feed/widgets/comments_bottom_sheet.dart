@@ -534,6 +534,20 @@ class _CommentsBottomSheetState extends ConsumerState<CommentsBottomSheet> {
                                height: 1.3,
                              ),
                            ),
+                         if (comment.safetyVerdict == 'suspicious')
+                           Padding(
+                             padding: const EdgeInsets.only(top: 4),
+                             child: Row(children: [
+                               const Icon(Icons.warning_amber_rounded, size: 14, color: AppColors.brandPink),
+                               const SizedBox(width: 4),
+                               Expanded(
+                                 child: Text(
+                                   'Ova Guard: be careful. ${comment.safetyReason ?? 'This may be a scam.'}',
+                                   style: GoogleFonts.inter(color: context.textMuted, fontSize: 11),
+                                 ),
+                               ),
+                             ]),
+                           ),
                          const SizedBox(height: 8),
 
                          // Comment Actions (Time, Reply)

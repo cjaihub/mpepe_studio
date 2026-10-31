@@ -102,6 +102,7 @@ class OvaLlmClient {
         'Authorization': 'Bearer $bearer',
         'HTTP-Referer': 'https://oneova.studio',
         'X-Title': 'Oneova',
+        ...await OneovaAiGateway.appCheckHeader(key),
       })
       ..body = jsonEncode({
         'model': _openRouterModel,

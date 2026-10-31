@@ -51,6 +51,9 @@ exports.lsGifSearch = exports.lsLivekitWebhook = exports.lsShare = exports.lsRea
  * for every join in rooms up to LARGE_ROOM_VIEWERS, and at most 1/s above.
  */
 const https_1 = require("firebase-functions/v2/https");
+const linkSafety_1 = require("../guard/linkSafety");
+const reputation_1 = require("../guard/reputation");
+const monitor_1 = require("../guard/monitor");
 const firestore_1 = require("firebase-admin/firestore");
 const livekit_server_sdk_1 = require("livekit-server-sdk");
 const controls_1 = require("./controls");
@@ -208,6 +211,13 @@ exports.lsComment = (0, https_1.onCall)({ secrets: shared_1.LIVEKIT_SECRETS }, a
     const verdict = await (0, social_logic_1.moderateComment)(norm.text, uid);
     if (!verdict.allow)
         throw new https_1.HttpsError('invalid-argument', (_b = verdict.reason) !== null && _b !== void 0 ? _b : 'This comment was not allowed.');
+    // Ova Guard: paused accounts and known-dangerous links (heuristics + Web Risk, no AI).
+    if ((await (0, monitor_1.restrictedUntil)(uid, 'comments')) > now)
+        throw new https_1.HttpsError('permission-denied', 'Commenting is paused on your account for a while. See Security in your profile.');
+    const found = (0, linkSafety_1.analyzeText)(norm.text);
+    if (found.links.length && (await (0, reputation_1.checkLinks)(found)).some((l) => l.verdict === 'dangerous')) {
+        throw new https_1.HttpsError('invalid-argument', 'That link is on a list of dangerous sites, so it can’t be posted.');
+    }
     const text = (0, social_logic_1.normalizeCommentText)(verdict.text);
     if (!text.ok)
         throw new https_1.HttpsError('invalid-argument', text.reason);

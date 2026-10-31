@@ -38,6 +38,9 @@ import * as logger from 'firebase-functions/logger';
 import { getAuth } from 'firebase-admin/auth';
 import { getFirestore, FieldValue, Timestamp, DocumentReference } from 'firebase-admin/firestore';
 import { vertexAi } from './vertexAi';
+import { applyEventPolicy } from './guard/actions';
+import { scanChatMessage } from './guard/monitor';
+import { limit, uidForPhone } from './guard/protect';
 
 const db = () => getFirestore();
 
@@ -56,7 +59,9 @@ export type SecurityEventType =
   | 'follow_spike'
   | 'session_reuse'
   | 'biometric_key_added'
-  | 'account_secured';
+  | 'account_secured'
+  | 'phishing_sent'
+  | 'profile_change_spike';
 
 interface Geo {
   country?: string | null;
@@ -150,6 +155,12 @@ export function score(type: SecurityEventType, d: Record<string, unknown> = {}):
       add(25, 'Fingerprint sign-in was turned on for a device');
       if (d.newDevice) add(30, 'The device was added in the last 24 hours');
       break;
+    case 'phishing_sent':
+      add(45, `A dangerous link was sent from your account in a ${d.where === 'comment' ? 'comment' : 'chat'}`);
+      break;
+    case 'profile_change_spike':
+      add(45, `${d.count ?? 'Several'} profile changes in under an hour`);
+      break;
     case 'account_secured':
       add(0, 'You secured your account: other sessions and fingerprint keys were removed');
       break;
@@ -172,6 +183,8 @@ const TITLES: Record<SecurityEventType, string> = {
   session_reuse: 'Session used from two places',
   biometric_key_added: 'Fingerprint sign-in turned on',
   account_secured: 'Account secured',
+  phishing_sent: 'Dangerous link blocked',
+  profile_change_spike: 'Many profile changes',
 };
 
 // ─────────────────────────── Recording ───────────────────────────
@@ -212,6 +225,8 @@ export async function recordSecurityEvent(
     { merge: true },
   );
   await refreshRiskLevel(uid);
+  // Automatic protective steps (fixed allow-list, see guard/actions.ts).
+  await applyEventPolicy(uid, type, scored.score, scored.reasons, ref.id, details);
 
   if (needsAnswer) {
     await db().collection('notifications').add({
@@ -524,9 +539,9 @@ export const guardReportAuthFailure = onCall(async (request) => {
   if (!/^\+[1-9]\d{6,14}$/.test(phone)) throw new HttpsError('invalid-argument', 'Bad number.');
   const ip = clientIp(request);
   if (!(await allowFromIp(ip, 'fail', 30))) return { ok: true };
-  const user = await db().collection('users').where('phoneNumber', '==', phone).limit(1).get();
-  if (user.empty) return { ok: true };
-  await countFailure(user.docs[0].id, kind, false, ip, str(data.deviceLabel));
+  const owner = await uidForPhone(phone);
+  if (!owner) return { ok: true };
+  await countFailure(owner, kind, false, ip, str(data.deviceLabel));
   return { ok: true };
 });
 
@@ -585,8 +600,7 @@ export const checkLegacyPassword = onCall(async (request) => {
 
   let uid: string | null = null;
   if (/^\+[1-9]\d{6,14}$/.test(phone)) {
-    const q = await db().collection('users').where('phoneNumber', '==', phone).limit(1).get();
-    uid = q.empty ? null : q.docs[0].id;
+    uid = await uidForPhone(phone);
   }
   if (!uid && request.auth && request.auth.token.firebase?.sign_in_provider !== 'anonymous') uid = request.auth.uid;
   if (!uid) return { match: false };
@@ -711,6 +725,7 @@ export const guardExplainEvent = onCall(async (request) => {
   if (!snap.exists) throw new HttpsError('not-found', 'Event not found.');
   const cached = snap.get('aiSummary');
   if (cached) return { summary: cached };
+  await limit(auth.uid, 'guard_explain', 20, 3600000);
 
   const e = snap.data() ?? {};
   const facts = {
@@ -779,6 +794,7 @@ async function markAlerted(ref: DocumentReference, prefix: string) {
 export const guardOnMessage = onDocumentCreated('chats/{chatId}/messages/{messageId}', async (event) => {
   const senderId = String(event.data?.get('senderId') ?? '');
   if (!senderId || senderId === 'guest') return;
+  if (event.data) await scanChatMessage(event.data.ref, event.data.data());
   const ref = db().collection('security_counters').doc(senderId);
   const w = await bumpWindow(ref, 'msg', 10 * 60000, event.params.chatId);
   const spike = w.count >= 80 || w.targets >= 25;

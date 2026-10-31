@@ -80,6 +80,9 @@ const logger = __importStar(require("firebase-functions/logger"));
 const auth_1 = require("firebase-admin/auth");
 const firestore_2 = require("firebase-admin/firestore");
 const vertexAi_1 = require("./vertexAi");
+const actions_1 = require("./guard/actions");
+const monitor_1 = require("./guard/monitor");
+const protect_1 = require("./guard/protect");
 const db = () => (0, firestore_2.getFirestore)();
 const HIGH = 70;
 const MEDIUM = 40;
@@ -89,7 +92,7 @@ const MEDIUM = 40;
  * >= 70 is high (push + "Was this you?"), >= 40 medium, otherwise low.
  */
 function score(type, d = {}) {
-    var _a, _b, _c, _d, _e, _f, _g, _h, _j;
+    var _a, _b, _c, _d, _e, _f, _g, _h, _j, _k;
     let s = 0;
     const reasons = [];
     const add = (points, reason) => {
@@ -170,6 +173,12 @@ function score(type, d = {}) {
             if (d.newDevice)
                 add(30, 'The device was added in the last 24 hours');
             break;
+        case 'phishing_sent':
+            add(45, `A dangerous link was sent from your account in a ${d.where === 'comment' ? 'comment' : 'chat'}`);
+            break;
+        case 'profile_change_spike':
+            add(45, `${(_k = d.count) !== null && _k !== void 0 ? _k : 'Several'} profile changes in under an hour`);
+            break;
         case 'account_secured':
             add(0, 'You secured your account: other sessions and fingerprint keys were removed');
             break;
@@ -191,6 +200,8 @@ const TITLES = {
     session_reuse: 'Session used from two places',
     biometric_key_added: 'Fingerprint sign-in turned on',
     account_secured: 'Account secured',
+    phishing_sent: 'Dangerous link blocked',
+    profile_change_spike: 'Many profile changes',
 };
 // ─────────────────────────── Recording ───────────────────────────
 /** Writes one scored event and raises an alert when it is high risk. */
@@ -219,6 +230,8 @@ async function recordSecurityEvent(uid, type, ctx = {}) {
     const stateRef = db().collection('security_state').doc(uid);
     await stateRef.set(Object.assign({ lastEventAt: firestore_2.FieldValue.serverTimestamp(), lastEventType: type }, (needsAnswer ? { openHighRisk: firestore_2.FieldValue.increment(1) } : {})), { merge: true });
     await refreshRiskLevel(uid);
+    // Automatic protective steps (fixed allow-list, see guard/actions.ts).
+    await (0, actions_1.applyEventPolicy)(uid, type, scored.score, scored.reasons, ref.id, details);
     if (needsAnswer) {
         await db().collection('notifications').add({
             userId: uid,
@@ -495,10 +508,10 @@ exports.guardReportAuthFailure = (0, https_1.onCall)(async (request) => {
     const ip = clientIp(request);
     if (!(await allowFromIp(ip, 'fail', 30)))
         return { ok: true };
-    const user = await db().collection('users').where('phoneNumber', '==', phone).limit(1).get();
-    if (user.empty)
+    const owner = await (0, protect_1.uidForPhone)(phone);
+    if (!owner)
         return { ok: true };
-    await countFailure(user.docs[0].id, kind, false, ip, str(data.deviceLabel));
+    await countFailure(owner, kind, false, ip, str(data.deviceLabel));
     return { ok: true };
 });
 /** Simple fixed-window limiter per IP (30 calls / 15 min by default). */
@@ -560,8 +573,7 @@ exports.checkLegacyPassword = (0, https_1.onCall)(async (request) => {
     }
     let uid = null;
     if (/^\+[1-9]\d{6,14}$/.test(phone)) {
-        const q = await db().collection('users').where('phoneNumber', '==', phone).limit(1).get();
-        uid = q.empty ? null : q.docs[0].id;
+        uid = await (0, protect_1.uidForPhone)(phone);
     }
     if (!uid && request.auth && ((_a = request.auth.token.firebase) === null || _a === void 0 ? void 0 : _a.sign_in_provider) !== 'anonymous')
         uid = request.auth.uid;
@@ -679,6 +691,7 @@ exports.guardExplainEvent = (0, https_1.onCall)(async (request) => {
     const cached = snap.get('aiSummary');
     if (cached)
         return { summary: cached };
+    await (0, protect_1.limit)(auth.uid, 'guard_explain', 20, 3600000);
     const e = (_d = snap.data()) !== null && _d !== void 0 ? _d : {};
     const facts = {
         event: e.title,
@@ -738,6 +751,8 @@ exports.guardOnMessage = (0, firestore_1.onDocumentCreated)('chats/{chatId}/mess
     const senderId = String((_b = (_a = event.data) === null || _a === void 0 ? void 0 : _a.get('senderId')) !== null && _b !== void 0 ? _b : '');
     if (!senderId || senderId === 'guest')
         return;
+    if (event.data)
+        await (0, monitor_1.scanChatMessage)(event.data.ref, event.data.data());
     const ref = db().collection('security_counters').doc(senderId);
     const w = await bumpWindow(ref, 'msg', 10 * 60000, event.params.chatId);
     const spike = w.count >= 80 || w.targets >= 25;

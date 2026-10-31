@@ -56,6 +56,36 @@ class _SocialProfileViewState extends ConsumerState<SocialProfileView> with Sing
     super.dispose();
   }
 
+  /// Ova Guard warning for visitors: a name copying a verified account, or
+  /// an unsafe link in the bio. Written by the server (guard/monitor.ts).
+  Widget _buildSafetyNotice(BuildContext context, AppUser user) {
+    final safety = user.safety;
+    if (safety == null) return const SizedBox.shrink();
+    final bio = safety['bio'] is Map ? Map<String, dynamic>.from(safety['bio'] as Map) : null;
+    final String? text = safety['impersonationOf'] != null
+        ? 'Not a verified account: this name looks like another, verified profile. Never send money or codes.'
+        : (bio != null && bio['verdict'] != 'safe')
+            ? 'Ova Guard: a link in this bio may be unsafe. ${(bio['reasons'] as List?)?.firstOrNull ?? ''}'
+            : null;
+    if (text == null) return const SizedBox.shrink();
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(24, 10, 24, 0),
+      child: Container(
+        padding: const EdgeInsets.all(10),
+        decoration: BoxDecoration(
+          color: AppColors.brandPink.withValues(alpha: 0.08),
+          borderRadius: BorderRadius.circular(AppRadius.md),
+          border: Border.all(color: AppColors.brandPink.withValues(alpha: 0.5)),
+        ),
+        child: Row(children: [
+          const Icon(Icons.gpp_maybe_rounded, size: 18, color: AppColors.brandPink),
+          const SizedBox(width: 8),
+          Expanded(child: Text(text, style: GoogleFonts.inter(fontSize: 12, height: 1.3, color: context.textPrimary))),
+        ]),
+      ),
+    );
+  }
+
   Widget _buildStatColumn(BuildContext context, String label, String value) {
     return Column(
       mainAxisSize: MainAxisSize.min,
@@ -270,6 +300,7 @@ class _SocialProfileViewState extends ConsumerState<SocialProfileView> with Sing
                           ),
                         ),
                       ),
+                    if (!widget.isCurrentUser) _buildSafetyNotice(context, user),
                     const SizedBox(height: 8),
                     // Business Action Buttons
                     if (user.accountType == 'business' && user.businessDetails != null) ...[

@@ -24,6 +24,7 @@ import { defineSecret, defineString } from 'firebase-functions/params';
 import * as logger from 'firebase-functions/logger';
 import { getFirestore, FieldValue } from 'firebase-admin/firestore';
 import { page } from './mailTemplates';
+import { limit } from './guard/protect';
 
 const metaAppSecret = defineSecret('META_APP_SECRET');
 const metaAppId = defineString('META_APP_ID');
@@ -51,6 +52,7 @@ function graphError(e: unknown): string {
 export const metaExchangeCode = onCall({ secrets: [metaAppSecret] }, async (request) => {
   const uid = request.auth?.uid;
   if (!uid) throw new HttpsError('unauthenticated', 'Sign in first.');
+  await limit(uid, 'oauth_meta', 10, 10 * 60000);
   const data = (request.data ?? {}) as Record<string, unknown>;
   const code = String(data.code ?? '');
   const app = String(data.app ?? 'facebook');

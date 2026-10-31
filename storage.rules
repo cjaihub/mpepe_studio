@@ -47,10 +47,18 @@ service firebase.storage {
     }
 
     // ─── Project assets: projects/{projectId}/** ─────────────────────────────
+    // Only the project's creator (projects/{id}.createdBy in Firestore) may
+    // add or remove files; before, any signed-in user could overwrite them.
     match /projects/{projectId}/{allPaths=**} {
       allow read: if isSignedIn();
-      allow write: if isSignedIn() && isUnder200MB();
-      allow delete: if isSignedIn();
+      allow write: if isProjectCreator(projectId) && isUnder200MB();
+      allow delete: if isProjectCreator(projectId);
+    }
+
+    function isProjectCreator(projectId) {
+      return isSignedIn() &&
+        firestore.exists(/databases/(default)/documents/projects/$(projectId)) &&
+        firestore.get(/databases/(default)/documents/projects/$(projectId)).data.get('createdBy', '') == request.auth.uid;
     }
 
     // ─── Audio productions: audio/{uid}/** ───────────────────────────────────

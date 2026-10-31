@@ -52,6 +52,11 @@ class AppUser {
   final String? bio;
   final String? coverPhotoUrl;
   final bool isVerified;
+
+  /// Ova Guard notes on this profile (server-written): `impersonationOf`
+  /// (uid of the verified account whose name it copies) and `bio`
+  /// (link/scam verdict for the bio and website).
+  final Map<String, dynamic>? safety;
   final bool isBusiness;
   final String? location;
   final DateTime createdAt;
@@ -85,6 +90,7 @@ class AppUser {
     this.bio,
     this.coverPhotoUrl,
     this.isVerified = false,
+    this.safety,
     this.isBusiness = false,
     this.location,
     required this.createdAt,
@@ -114,7 +120,11 @@ class AppUser {
               : (map['username'] as String?)?.isNotEmpty == true
                   ? map['username']
                   : (map['name'] as String?) ?? '',
-      email: map['email'] ?? '',
+      // Contact details may live in users/{uid}/private/contact; your own
+      // e-mail is always on your Firebase account.
+      email: (map['email'] as String?) ??
+          (FirebaseAuth.instance.currentUser?.uid == id ? FirebaseAuth.instance.currentUser?.email : null) ??
+          '',
       role: map['role'] ?? '',
       department: map['department'] ?? '',
       status: map['status'] ?? 'pending',
@@ -128,6 +138,7 @@ class AppUser {
       bio: map['bio'],
       coverPhotoUrl: map['coverPhotoUrl'],
       isVerified: map['isVerified'] ?? false,
+      safety: map['safety'] is Map ? Map<String, dynamic>.from(map['safety'] as Map) : null,
       isBusiness: map['isBusiness'] ?? false,
       location: map['location'],
       createdAt: (map['createdAt'] as Timestamp?)?.toDate() ?? DateTime.now(),

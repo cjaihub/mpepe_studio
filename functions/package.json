@@ -8,7 +8,7 @@
   },
   "scripts": {
     "build": "tsc",
-    "test": "node --test \"lib/looks/__tests__/**/*.test.js\"",
+    "test": "node --test \"lib/looks/__tests__/**/*.test.js\" \"lib/guard/__tests__/**/*.test.js\"",
     "test:looks": "node --test \"lib/looks/__tests__/**/*.test.js\"",
     "test:livestudio": "tsc -p tsconfig.livestudio.json && node --test \".ls-build/liveStudio/**/*.test.js\""
   },
