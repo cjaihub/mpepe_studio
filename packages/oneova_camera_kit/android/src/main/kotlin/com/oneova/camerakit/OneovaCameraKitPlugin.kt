@@ -3,6 +3,7 @@ package com.oneova.camerakit
 import android.content.Context
 import com.cloudwebrtc.webrtc.FlutterWebRTCPlugin
 import com.cloudwebrtc.webrtc.video.LocalVideoTrack
+import com.oneova.camerakit.ar.ArCameraChannel
 import io.flutter.embedding.engine.plugins.FlutterPlugin
 import io.flutter.plugin.common.MethodCall
 import io.flutter.plugin.common.MethodChannel
@@ -36,6 +37,7 @@ class OneovaCameraKitPlugin : FlutterPlugin, MethodChannel.MethodCallHandler {
     private var capabilityProbe: DeviceCapabilityProbe? = null
     private var thermalBridge: ThermalGovernorBridge? = null
     private val hooks = HashMap<String, TrackLookHook>()
+    private var arCamera: ArCameraChannel? = null
 
     override fun onAttachedToEngine(binding: FlutterPlugin.FlutterPluginBinding) {
         val context = binding.applicationContext
@@ -49,11 +51,15 @@ class OneovaCameraKitPlugin : FlutterPlugin, MethodChannel.MethodCallHandler {
         deviceChannel.setMethodCallHandler { call, result ->
             handleDeviceCall(call, result)
         }
+
+        arCamera = ArCameraChannel(context, binding.binaryMessenger, binding.textureRegistry)
     }
 
     override fun onDetachedFromEngine(binding: FlutterPlugin.FlutterPluginBinding) {
         channel.setMethodCallHandler(null)
         deviceChannel.setMethodCallHandler(null)
+        arCamera?.dispose()
+        arCamera = null
         thermalBridge?.closeHintSession()
         capabilityProbe = null
         thermalBridge = null

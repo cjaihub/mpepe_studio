@@ -2,6 +2,7 @@
 /// and thermal governor for Live and Camera.
 library;
 
+export 'src/ar_camera.dart';
 export 'src/ar_tracking.dart';
 export 'src/capability_probe.dart';
 export 'src/look_processor.dart';
