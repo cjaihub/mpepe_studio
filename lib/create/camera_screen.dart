@@ -17,6 +17,7 @@ import 'services/cinema_preset_service.dart';
 import 'models/host_shorts_session.dart';
 import 'services/host_shorts_multicam_service.dart';
 import 'package:flutter_webrtc/flutter_webrtc.dart';
+import 'package:oneova_camera_kit/oneova_camera_kit.dart';
 import 'studio/models/studio_project.dart';
 import 'studio/screens/studio_editor_screen.dart';
 import 'studio/services/studio_media.dart';
@@ -59,9 +60,18 @@ class _CameraScreenState extends ConsumerState<CameraScreen> with WidgetsBinding
   bool _showGrid = true;
   bool _isBeautyRetouchOn = true;
   int _timerSeconds = 0; // 0 (off), 3, 10
-  // Live AR effects run ML Kit on the preview stream; at 4K the frames are
-  // too heavy to track, so the camera drops to 720p while effects are on.
+  // Live AR effects. On Android they run on the native AR camera (CameraX:
+  // full-resolution preview + recording, small analysis stream tracked
+  // natively, effects baked into videos). Elsewhere, or if the native camera
+  // fails, ML Kit runs on the Flutter camera stream, which is too heavy at
+  // 4K, so that path drops to 720p while effects are on.
   bool _arResolution = false;
+  OneovaArCamera? _nativeCam;
+  ArCameraInfo? _nativeInfo;
+  bool _nativeFailed = false;
+  String? _nativeRecordingPath;
+  bool _releasedInBackground = false;
+  bool _switchingCamera = false;
   ProviderSubscription<LiveArState>? _arSub;
   late final LiveArController _ar;
   int _recordingSecondsElapsed = 0;
@@ -126,7 +136,13 @@ class _CameraScreenState extends ConsumerState<CameraScreen> with WidgetsBinding
       }
     });
     _arSub = ref.listenManual<LiveArState>(liveArControllerProvider, (prev, next) {
-      if (!next.needs.any || !mounted) return;
+      if (!mounted) return;
+      if (_nativeArAvailable) {
+        // Swap between the Flutter camera and the native AR camera.
+        if (next.hasAnything != (_nativeCam != null) && !_isRecording) _reinitCamera();
+        return;
+      }
+      if (!next.needs.any) return;
       if (!_arResolution) {
         _arResolution = true;
         _reinitCamera();
@@ -135,8 +151,48 @@ class _CameraScreenState extends ConsumerState<CameraScreen> with WidgetsBinding
       }
     });
     _ar = ref.read(liveArControllerProvider.notifier);
-    _arResolution = ref.read(liveArControllerProvider).needs.any;
+    _arResolution = !_nativeArAvailable && ref.read(liveArControllerProvider).needs.any;
     _initCamera();
+  }
+
+  bool get _nativeArAvailable => OneovaArCamera.isSupported && !_nativeFailed;
+
+  /// Releases whichever camera is open (Flutter or native AR).
+  Future<void> _releaseCamera() async {
+    _ar.detachCamera();
+    final native = _nativeCam;
+    if (native != null) {
+      _ar.detachNativeCamera();
+      _nativeCam = null;
+      _nativeInfo = null;
+      await native.close();
+    }
+    final old = _cameraController;
+    _cameraController = null;
+    await old?.dispose();
+  }
+
+  Future<void> _openNativeCamera(CameraDescription camera) async {
+    final cam = OneovaArCamera.instance;
+    try {
+      final info = await cam.open(front: camera.lensDirection == CameraLensDirection.front);
+      if (!mounted) {
+        await cam.close();
+        return;
+      }
+      _nativeCam = cam;
+      _nativeInfo = info;
+      setState(() => _isInitialized = true);
+      await _ar.attachNativeCamera(cam, mirror: info.mirrored);
+      if (_flashMode == FlashMode.torch) await cam.setTorch(true);
+    } catch (e) {
+      debugPrint('Native AR camera failed, using the Flutter camera: $e');
+      _nativeFailed = true;
+      _nativeCam = null;
+      _nativeInfo = null;
+      _arResolution = ref.read(liveArControllerProvider).needs.any;
+      await _initCamera();
+    }
   }
 
   void _attachAr() {
@@ -148,13 +204,19 @@ class _CameraScreenState extends ConsumerState<CameraScreen> with WidgetsBinding
   }
 
   Future<void> _reinitCamera() async {
-    if (_isRecording) return;
-    ref.read(liveArControllerProvider.notifier).detachCamera();
-    final old = _cameraController;
-    _cameraController = null;
-    if (mounted) setState(() => _isInitialized = false);
-    await old?.dispose();
-    await _initCamera();
+    if (_isRecording || _switchingCamera) return;
+    _switchingCamera = true;
+    try {
+      if (mounted) setState(() => _isInitialized = false);
+      await _releaseCamera();
+      await _initCamera();
+    } finally {
+      _switchingCamera = false;
+    }
+    // Effects may have been toggled while the camera was switching.
+    if (mounted && _nativeArAvailable && ref.read(liveArControllerProvider).hasAnything != (_nativeCam != null)) {
+      unawaited(_reinitCamera());
+    }
   }
 
   Future<void> _initCamera() async {
@@ -166,6 +228,10 @@ class _CameraScreenState extends ConsumerState<CameraScreen> with WidgetsBinding
       }
 
       final camera = _cameras[_selectedCameraIndex.clamp(0, _cameras.length - 1)];
+      if (_nativeArAvailable && ref.read(liveArControllerProvider).hasAnything) {
+        await _openNativeCamera(camera);
+        return;
+      }
       _cameraController = CameraController(
         camera,
         _arResolution ? ResolutionPreset.high : ResolutionPreset.ultraHigh,
@@ -193,8 +259,7 @@ class _CameraScreenState extends ConsumerState<CameraScreen> with WidgetsBinding
     _quickAccessSub?.cancel();
     _recordingTimer?.cancel();
     _arSub?.close();
-    _ar.detachCamera();
-    _cameraController?.dispose();
+    unawaited(_releaseCamera());
     _pairCodeController.dispose();
     super.dispose();
   }
@@ -202,12 +267,14 @@ class _CameraScreenState extends ConsumerState<CameraScreen> with WidgetsBinding
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     final cameraController = _cameraController;
-    if (cameraController == null || !cameraController.value.isInitialized) return;
-
+    final open = _nativeCam != null || (cameraController != null && cameraController.value.isInitialized);
     if (state == AppLifecycleState.inactive) {
-      _ar.detachCamera();
-      cameraController.dispose();
-    } else if (state == AppLifecycleState.resumed) {
+      if (!open) return;
+      if (_isRecording && _nativeCam != null) _stopVideoRecording();
+      _releasedInBackground = true;
+      _releaseCamera();
+    } else if (state == AppLifecycleState.resumed && _releasedInBackground) {
+      _releasedInBackground = false;
       _initCamera();
     }
   }
@@ -221,13 +288,15 @@ class _CameraScreenState extends ConsumerState<CameraScreen> with WidgetsBinding
       await _runCountdownTimer();
     }
 
-    if (_cameraController != null && _cameraController!.value.isInitialized && !_isRecording) {
+    final nativeCam = _nativeCam;
+    if ((nativeCam != null || (_cameraController != null && _cameraController!.value.isInitialized)) &&
+        !_isRecording) {
       try {
-        final XFile photo = await _cameraController!.takePicture();
-        var path = photo.path;
+        final shot = nativeCam != null ? await nativeCam.takePicture() : (await _cameraController!.takePicture()).path;
+        var path = shot;
         if (ref.read(liveArControllerProvider).hasAnything) {
           try {
-            path = await ref.read(liveArControllerProvider.notifier).bakePhoto(photo.path) ?? path;
+            path = await ref.read(liveArControllerProvider.notifier).bakePhoto(shot) ?? path;
           } catch (e) {
             debugPrint('AR photo bake failed: $e');
           }
@@ -261,10 +330,18 @@ class _CameraScreenState extends ConsumerState<CameraScreen> with WidgetsBinding
       ref.read(hostShortsServiceProvider.notifier).triggerSyncRecord(true);
     }
 
-    if (_cameraController != null && _cameraController!.value.isInitialized) {
+    final nativeCam = _nativeCam;
+    if (nativeCam != null) {
+      // The native AR camera bakes the live effects into the video.
+      try {
+        _nativeRecordingPath = await nativeCam.startRecording();
+      } catch (e) {
+        debugPrint('Start recording error: $e');
+      }
+    } else if (_cameraController != null && _cameraController!.value.isInitialized) {
       if (ref.read(liveArControllerProvider).hasAnything && mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Effects are saved into photos. Videos record without them for now.')),
+          const SnackBar(content: Text('Effects are saved into photos. Videos record without them on this device.')),
         );
       }
       try {
@@ -298,7 +375,21 @@ class _CameraScreenState extends ConsumerState<CameraScreen> with WidgetsBinding
       ref.read(hostShortsServiceProvider.notifier).triggerSyncRecord(false);
     }
 
-    if (_cameraController != null && _cameraController!.value.isRecordingVideo) {
+    final nativeCam = _nativeCam;
+    final nativePath = _nativeRecordingPath;
+    _nativeRecordingPath = null;
+    if (nativeCam != null && nativePath != null) {
+      try {
+        await nativeCam.stopRecording();
+        setState(() => _isRecording = false);
+        if (mounted) {
+          _navigateToPreview(nativePath, isVideo: true);
+        }
+        return;
+      } catch (e) {
+        debugPrint('Stop recording error: $e');
+      }
+    } else if (_cameraController != null && _cameraController!.value.isRecordingVideo) {
       try {
         final XFile video = await _cameraController!.stopVideoRecording();
         setState(() => _isRecording = false);
@@ -351,16 +442,16 @@ class _CameraScreenState extends ConsumerState<CameraScreen> with WidgetsBinding
       );
       return;
     }
+    if (_isRecording) return;
     _selectedCameraIndex = (_selectedCameraIndex + 1) % _cameras.length;
-    ref.read(liveArControllerProvider.notifier).detachCamera();
-    await _cameraController?.dispose();
     setState(() => _isInitialized = false);
+    await _releaseCamera();
     await _initCamera();
   }
 
   Future<void> _toggleFlash() async {
     HapticFeedback.lightImpact();
-    if (_cameraController == null) return;
+    if (_cameraController == null && _nativeCam == null) return;
     FlashMode nextMode;
     switch (_flashMode) {
       case FlashMode.off:
@@ -374,7 +465,13 @@ class _CameraScreenState extends ConsumerState<CameraScreen> with WidgetsBinding
         break;
     }
     try {
-      await _cameraController!.setFlashMode(nextMode);
+      final native = _nativeCam;
+      if (native != null) {
+        await native.setTorch(nextMode == FlashMode.torch);
+        await native.setFlashMode(nextMode == FlashMode.auto ? 'auto' : 'off');
+      } else {
+        await _cameraController!.setFlashMode(nextMode);
+      }
       setState(() => _flashMode = nextMode);
     } catch (e) {
       debugPrint('Set flash mode error: $e');
@@ -793,6 +890,24 @@ class _CameraScreenState extends ConsumerState<CameraScreen> with WidgetsBinding
       _activePreset,
       falseColorActive: _showFalseColor,
     );
+
+    final nativeInfo = _nativeInfo;
+    if (_isInitialized && _nativeCam != null && nativeInfo != null) {
+      // Native AR camera: already upright and mirrored at full resolution.
+      Widget preview = Texture(textureId: nativeInfo.textureId);
+      preview = ColorFiltered(colorFilter: colorFilter, child: preview);
+      preview = ArViewfinder(preview: preview);
+      return SizedBox.expand(
+        child: FittedBox(
+          fit: BoxFit.cover,
+          child: SizedBox(
+            width: nativeInfo.width.toDouble(),
+            height: nativeInfo.height.toDouble(),
+            child: preview,
+          ),
+        ),
+      );
+    }
 
     if (_isInitialized && _cameraController != null && _cameraController!.value.isInitialized) {
       Widget preview = CameraPreview(_cameraController!);

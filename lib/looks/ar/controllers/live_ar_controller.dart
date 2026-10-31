@@ -5,8 +5,10 @@ import 'dart:ui' as ui;
 
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:camera/camera.dart';
+import 'package:flutter/foundation.dart' show kDebugMode;
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:oneova_camera_kit/oneova_camera_kit.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:sensors_plus/sensors_plus.dart';
 
@@ -15,6 +17,7 @@ import '../render/ar_effect_painter.dart';
 import '../services/ar_effect_repository.dart';
 import '../tracking/ar_tracking_models.dart';
 import '../tracking/ar_tracking_service.dart';
+import '../tracking/native_ar_frames.dart';
 
 enum ArBackgroundMode { none, blur, replace }
 
@@ -93,6 +96,11 @@ class LiveArState {
 /// Runs live AR effects for the camera: owns the frame stream into ML Kit,
 /// the active effects and their decoded images, background modes and the
 /// gyro-locked world stickers.
+///
+/// Two camera sources: the Flutter `camera` image stream (tracked here in
+/// Dart; iOS and fallback), or the native AR camera on Android
+/// ([attachNativeCamera]), which tracks natively and bakes the same scene
+/// into recorded video — this controller then only mirrors its state there.
 class LiveArController extends Notifier<LiveArState> {
   final ArTrackingService _tracker = ArTrackingService();
 
@@ -111,10 +119,28 @@ class LiveArController extends Notifier<LiveArState> {
   DateTime? _lastGyro;
   ArFrame? _previous;
 
+  // Native AR camera (Android).
+  OneovaArCamera? _native;
+  bool _nativeMirror = false;
+  StreamSubscription<Map<Object?, Object?>>? _nativeSub;
+  bool _decoding = false;
+  int _nativeFrames = 0;
+  final Set<String> _sentImages = {};
+  ui.Image? _sentBackground;
+  bool _syncingNative = false;
+  bool _nativeDirty = false;
+  Timer? _worldTimer;
+
   @override
   LiveArState build() {
+    listenSelf((_, _) {
+      if (_native != null) unawaited(_syncNative());
+    });
+    world.addListener(_onWorldChanged);
     ref.onDispose(() {
       _gyro?.cancel();
+      _worldTimer?.cancel();
+      _nativeSub?.cancel();
       _stopStream();
       _previous?.mask?.dispose();
       frame.value?.mask?.dispose();
@@ -141,6 +167,159 @@ class LiveArController extends Notifier<LiveArState> {
   void detachCamera() {
     _stopStream();
     _camera = null;
+  }
+
+  // ── Native AR camera (Android) ──────────────────────────────────────────
+
+  bool get usesNativeCamera => _native != null;
+
+  /// Switches tracking to the native camera; tracking results come back on
+  /// its event stream and the active scene is mirrored to it for recording.
+  Future<void> attachNativeCamera(OneovaArCamera camera, {required bool mirror}) async {
+    detachCamera();
+    await _nativeSub?.cancel();
+    _native = camera;
+    _nativeMirror = mirror;
+    _sentImages.clear();
+    _sentBackground = null;
+    _nativeFrames = 0;
+    _nativeSub = camera.frames.listen(_onNativeEvent);
+    await _syncNative();
+    _pushWorld();
+  }
+
+  void detachNativeCamera() {
+    _nativeSub?.cancel();
+    _nativeSub = null;
+    _native = null;
+    _sentImages.clear();
+    _sentBackground = null;
+    _setFrame(null);
+  }
+
+  Future<void> _onNativeEvent(Map<Object?, Object?> e) async {
+    if (e['type'] != 'frame' || _native == null) return;
+    // Drop frames while the previous mask image is still being built.
+    if (_decoding) return;
+    _decoding = true;
+    try {
+      final f = await decodeNativeArFrame(e);
+      if (_native != null && state.needs.any) {
+        _setFrame(f);
+      } else {
+        f.mask?.dispose();
+      }
+      if (kDebugMode && ++_nativeFrames % 90 == 0) {
+        debugPrint('[AR native] track ${(e['trackFps'] as num?)?.toStringAsFixed(1)} fps '
+            '(${(e['trackMs'] as num?)?.toStringAsFixed(1)} ms), '
+            'preview ${(e['previewFps'] as num?)?.toStringAsFixed(1)} fps');
+      }
+    } catch (err) {
+      debugPrint('AR native frame decode failed: $err');
+    } finally {
+      _decoding = false;
+    }
+  }
+
+  /// Sends needs, the effect scene, new sprite pixels and the background
+  /// image to the native camera. Coalesces bursts of state changes.
+  Future<void> _syncNative() async {
+    if (_syncingNative) {
+      _nativeDirty = true;
+      return;
+    }
+    _syncingNative = true;
+    try {
+      do {
+        _nativeDirty = false;
+        final cam = _native;
+        if (cam == null) return;
+        final s = state;
+        final n = s.needs;
+        await cam.setNeeds(ArCameraNeeds(face: n.face, mask: n.mask, body: n.body));
+        if (!n.any) _setFrame(null);
+
+        for (final e in s.effects) {
+          final img = s.images[e.id];
+          if (e.kind != ArEffectKind.sprite || img == null || _sentImages.contains(e.id)) continue;
+          final bytes = await img.toByteData(format: ui.ImageByteFormat.rawRgba);
+          if (bytes == null || _native != cam) continue;
+          await cam.putImage(e.id, img.width, img.height, bytes.buffer.asUint8List());
+          _sentImages.add(e.id);
+        }
+        _sentImages.removeWhere((id) => !s.effects.any((e) => e.id == id));
+
+        final bg = s.backgroundMode == ArBackgroundMode.replace ? s.backgroundImage : null;
+        if (bg != _sentBackground) {
+          if (bg == null) {
+            await cam.setBackground(null, null, null);
+          } else {
+            final bytes = await bg.toByteData(format: ui.ImageByteFormat.rawRgba);
+            if (bytes != null) await cam.setBackground(bg.width, bg.height, bytes.buffer.asUint8List());
+          }
+          _sentBackground = bg;
+        }
+
+        await cam.setScene({
+          'effects': [
+            for (final e in s.effects)
+              if (e.kind != ArEffectKind.background)
+                {
+                  'id': e.id,
+                  'kind': e.kind.name,
+                  'anchor': e.anchor.name,
+                  'scale': e.scale,
+                  'offsetX': e.offsetX,
+                  'offsetY': e.offsetY,
+                  if (e.kind == ArEffectKind.makeup) 'makeup': _makeupMap(e.makeup),
+                },
+          ],
+          'backgroundMode': s.backgroundMode.index,
+          'blurSigma': s.blurSigma,
+          'addYourself': s.addYourself,
+          'personOffsetX': s.personOffset.dx,
+          'personOffsetY': s.personOffset.dy,
+          'personScale': s.personScale,
+        });
+      } while (_nativeDirty);
+    } catch (e) {
+      debugPrint('AR native sync failed: $e');
+    } finally {
+      _syncingNative = false;
+    }
+  }
+
+  static Map<String, Object> _makeupMap(ArMakeup m) => {
+        'lipColor': m.lipColor.toARGB32(),
+        'lipOpacity': m.lipOpacity,
+        'blushColor': m.blushColor.toARGB32(),
+        'blushOpacity': m.blushOpacity,
+        'eyeColor': m.eyeColor.toARGB32(),
+        'eyeOpacity': m.eyeOpacity,
+        'eyeGlow': m.eyeGlow,
+        'linerColor': m.linerColor.toARGB32(),
+        'linerOpacity': m.linerOpacity,
+        'browColor': m.browColor.toARGB32(),
+        'browOpacity': m.browOpacity,
+      };
+
+  /// World stickers move with the gyro at up to 60 Hz; the recorder only
+  /// needs ~30 updates a second.
+  void _onWorldChanged() {
+    if (_native == null || _worldTimer != null) return;
+    _worldTimer = Timer(const Duration(milliseconds: 33), () {
+      _worldTimer = null;
+      _pushWorld();
+    });
+  }
+
+  void _pushWorld() {
+    final cam = _native;
+    if (cam == null) return;
+    unawaited(cam.setWorld({
+      for (final e in world.value.entries)
+        e.key: [e.value.position.dx, e.value.position.dy, e.value.scale, e.value.rotation],
+    }).catchError((Object _) {}));
   }
 
   Future<void> _syncStream() async {
@@ -380,7 +559,8 @@ class LiveArController extends Notifier<LiveArState> {
     // (z axis) spins it. Focal lengths are for a ~55° portrait field of view.
     const fx = 1.0;
     const fy = 0.56;
-    final mirror = _description?.lensDirection == CameraLensDirection.front ? -1.0 : 1.0;
+    final front = _native != null ? _nativeMirror : _description?.lensDirection == CameraLensDirection.front;
+    final mirror = front ? -1.0 : 1.0;
     final dx = e.y * dt * fx * mirror;
     final dy = e.x * dt * fy;
     final dr = -e.z * dt;
