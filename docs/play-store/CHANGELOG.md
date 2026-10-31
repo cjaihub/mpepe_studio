@@ -1,5 +1,37 @@
 # Oneova release notes
 
+## 1.0.0 (5) — 2026-10-31 · Internal testing
+
+**Wallet and money**
+- New wallet with coins (Play credit, can't be cashed out) and Diamonds earned from gifts. Diamonds become withdrawable 7 days after you earn them. The wallet also shows milestones, encouraging messages and your history.
+- Coin checkout with Play packs and a celebration screen.
+- Free / Plus / Pro / Biz plans as Google Play subscriptions (monthly or yearly).
+- Withdrawals for verified creators:
+  - an identity check (Stripe Identity) comes first;
+  - the country is detected from your location;
+  - Africa: mobile money (M-Pesa, MTN, Airtel, Orange, Wave) and banks; other countries: Stripe Connect;
+  - you confirm with fingerprint or PIN, then follow the payout on a live tracker;
+  - fraud checks run first, and Ova Guard can pause withdrawals after a suspicious sign-in.
+- Creator Insights: views, followers, watch time, likes, comments, shares and gift earnings over time, a page for each clip, and tips in plain language.
+
+**Security (Ova Guard)**
+- Links in chats, comments and bios are checked (Google Web Risk and look-alike domains). Dangerous links are blocked, and suspicious messages get a warning.
+- Scam detection: fake giveaways, payment and code requests, fake "Oneova support", impersonation.
+- Automatic protection: when Ova Guard detects a threat it can, by itself:
+  - pause sending;
+  - hide content until it's reviewed;
+  - sign out every device;
+  - pause withdrawals;
+  - alert an admin.
+
+  Every action is shown in Security Center with its reason, and none of them ban anyone.
+- Every server endpoint checks sign-in, rate limits and signed webhooks; App Check is ready to switch on. Collections and storage paths that were open to any signed-in user are now closed.
+
+### Needs setup before these work
+- Run the deploy steps in `tools/play/guard_deploy.sh`, and the wallet deploy list in the money hand-over note.
+- Provide the secrets for Flutterwave or Paystack, Stripe and Maps.
+- In Play Console, create the `oneova_plus` / `oneova_pro` / `oneova_biz` subscriptions.
+
 ## 1.0.0 (4) — 2026-10-31 · Internal testing
 
 Everything the work sessions finished, in one build.

@@ -440,6 +440,12 @@ export const requestWithdrawal = onCall({ timeoutSeconds: 60 }, async (req) => {
   ]);
   const locAt = profile.get('locationAt') as Timestamp | undefined;
   const locationCountry = locAt && Date.now() - locAt.toMillis() < 3 * 86400_000 ? (profile.get('locationCountry') as string) : null;
+  // Ova Guard can pause withdrawals after a suspicious sign-in (security_state).
+  const guard = await db().doc(`security_state/${uid}`).get();
+  const frozen = (guard.get('withdrawalsFrozenUntil') as Timestamp | undefined)?.toMillis() ?? 0;
+  if (frozen > Date.now()) {
+    throw new HttpsError('failed-precondition', `Withdrawals are paused for your safety: ${guard.get('withdrawalsFrozenReason') ?? 'unusual sign-in'}. See Security in your profile.`);
+  }
   const reasons = fraudReasons({
     amountUsd,
     accountAgeDays: (Date.now() - new Date(user.metadata.creationTime).getTime()) / 86400_000,
