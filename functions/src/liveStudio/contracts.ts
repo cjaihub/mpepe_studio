@@ -201,4 +201,4 @@ export const emptyStage = (centerUid: string): StageLayout => ({
   updatedBy: '',
 });
 
-export const shareUrl = (streamId: string) => `https://mpepe-2b4bd.web.app/live/${streamId}`;
+export const shareUrl = (streamId: string) => `https://oneova.web.app/live/${streamId}`;

@@ -19,7 +19,7 @@ import { optionalSecret } from '../optionalSecrets';
 import { settleWithdrawal } from './payouts';
 
 const db = () => getFirestore();
-const RETURN_URL = 'https://mpepe-2b4bd.web.app/';
+const RETURN_URL = 'https://oneova.web.app/';
 
 async function stripe(): Promise<Stripe> {
   const key = await optionalSecret('STRIPE_SECRET_KEY');

@@ -986,4 +986,4 @@ class LayoutOps {
 }
 
 /// Share link format (ARCHITECTURE Q6).
-String studioShareUrl(String streamId) => 'https://mpepe-2b4bd.web.app/live/$streamId';
+String studioShareUrl(String streamId) => 'https://oneova.web.app/live/$streamId';

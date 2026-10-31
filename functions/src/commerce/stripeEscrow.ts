@@ -26,7 +26,7 @@ import { getFirestore, FieldValue, Timestamp } from 'firebase-admin/firestore';
 import { optionalSecret } from '../optionalSecrets';
 
 const db = () => getFirestore();
-const RETURN_URL = 'https://mpepe-2b4bd.web.app/';
+const RETURN_URL = 'https://oneova.web.app/';
 
 /** Currencies Stripe charges without minor units. */
 const ZERO_DECIMAL = new Set(['bif', 'clp', 'djf', 'gnf', 'jpy', 'kmf', 'krw', 'mga', 'pyg', 'rwf', 'ugx', 'vnd', 'vuv', 'xaf', 'xof', 'xpf']);
