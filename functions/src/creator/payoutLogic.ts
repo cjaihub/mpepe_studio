@@ -17,7 +17,8 @@
 
 export const DIAMOND_USD = 0.01;
 export const HOLD_DAYS = 7;
-export const MIN_WITHDRAW_USD = 10;
+/** One Diamond; the real floor is 1 unit of the payout currency after fees (see requestWithdrawal). */
+export const MIN_WITHDRAW_USD = 0.01;
 export const MAX_WITHDRAW_USD = 2000;
 export const MAX_REQUESTS_PER_DAY = 3;
 

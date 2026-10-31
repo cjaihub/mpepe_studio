@@ -28,10 +28,11 @@ int? coinsToNextLevel(num lifetimeCoins) {
 
 /// Play product ids of the coin packs (consumable). Coins credited per pack
 /// are decided on the server (COIN_PACKS); these labels only order the list.
-const coinPackIds = <String>{'coins_70', 'coins_350', 'coins_700', 'coins_1400', 'coins_3500', 'coins_7000', 'coins_17500'};
+const coinPackIds = <String>{'coins_10', 'coins_70', 'coins_350', 'coins_700', 'coins_1400', 'coins_3500', 'coins_7000', 'coins_17500'};
 
 /// Coins shown per pack, bonus included (must match COIN_PACKS on the server).
 const coinPackCoins = <String, int>{
+  'coins_10': 10,
   'coins_70': 70,
   'coins_350': 350,
   'coins_700': 720,

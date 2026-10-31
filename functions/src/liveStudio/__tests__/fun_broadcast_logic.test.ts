@@ -56,8 +56,8 @@ test('gifts: catalog prices, quantity limits, host share, recent list', () => {
   assert.throws(() => parseGift({ giftId: 'not_a_gift' }), GiftError);
   assert.throws(() => parseGift({ giftId: 'rose', qty: 0 }), GiftError);
   assert.throws(() => parseGift({ giftId: 'rose', qty: 1.5 }), GiftError);
-  assert.deepEqual(giftPrice('crown', 3), { total: 150, hostCoins: 75 });
-  assert.deepEqual(giftPrice('rose', 1), { total: 1, hostCoins: 0 });
+  assert.deepEqual(giftPrice('crown', 3), { total: 150, hostCoins: 120 });
+  assert.deepEqual(giftPrice('rose', 1), { total: 1, hostCoins: 1 });
   const g = { id: 'x', uid: 'u', name: 'n', avatarUrl: '', giftId: 'rose' as const, qty: 1, coins: 1, atMs: 0 };
   let list = undefined as ReturnType<typeof pushRecent> | undefined;
   for (let i = 0; i < 20; i++) list = pushRecent(list, { ...g, id: `g${i}` });

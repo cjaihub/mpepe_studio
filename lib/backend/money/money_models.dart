@@ -3,7 +3,8 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 /// What 1 Diamond (an earned coin) pays out, in USD. Same as DIAMOND_USD in
 /// functions/src/creator/payoutLogic.ts.
 const diamondUsd = 0.01;
-const minWithdrawUsd = 10.0;
+/// One Diamond. The server's real floor is 1 unit of the payout currency after fees.
+const minWithdrawUsd = 0.01;
 const holdDays = 7;
 
 int _i(Object? v) => (v as num?)?.toInt() ?? 0;

@@ -3,6 +3,7 @@
 // slow-motion centre reveal for big ones).
 
 import 'dart:async';
+import 'dart:math' as math;
 
 import 'package:cloud_functions/cloud_functions.dart';
 import 'package:flutter/material.dart';
@@ -199,6 +200,7 @@ class _StudioGiftOverlayState extends ConsumerState<StudioGiftOverlay> {
   bool _primed = false;
   StudioRecentGift? _big;
   Timer? _bigTimer;
+  final List<(String, int)> _bursts = [];
 
   @override
   void dispose() {
@@ -222,6 +224,13 @@ class _StudioGiftOverlayState extends ConsumerState<StudioGiftOverlay> {
       Timer(const Duration(seconds: 4), () {
         if (mounted) setState(() => _banners.remove(g));
       });
+      if (ref.read(studioViewPrefsProvider).showEffects) {
+        final burst = (g.id, g.gift.coins * g.qty);
+        setState(() => _bursts.add(burst));
+        Timer(const Duration(milliseconds: 1700), () {
+          if (mounted) setState(() => _bursts.remove(burst));
+        });
+      }
       if (g.gift.coins * g.qty >= 50 && ref.read(studioViewPrefsProvider).showEffects) {
         HapticFeedback.mediumImpact();
         setState(() => _big = g);
@@ -242,6 +251,7 @@ class _StudioGiftOverlayState extends ConsumerState<StudioGiftOverlay> {
     ref.watch(studioGiftFeedProvider(widget.streamId));
     return IgnorePointer(
       child: Stack(children: [
+        for (final (id, coins) in _bursts) Positioned.fill(key: ValueKey('burst_$id'), child: _CoinBurst(seed: id.hashCode, coins: coins)),
         Positioned(
           left: 10,
           bottom: widget.phone ? 300 : 220,
@@ -282,6 +292,60 @@ class _StudioGiftOverlayState extends ConsumerState<StudioGiftOverlay> {
       ]),
     );
   }
+}
+
+/// Coins that fly up from the bottom and spin out when a gift lands; bigger
+/// gifts throw more coins (4–24).
+class _CoinBurst extends StatefulWidget {
+  const _CoinBurst({required this.seed, required this.coins});
+  final int seed;
+  final int coins;
+
+  @override
+  State<_CoinBurst> createState() => _CoinBurstState();
+}
+
+class _CoinBurstState extends State<_CoinBurst> with SingleTickerProviderStateMixin {
+  late final AnimationController _c = AnimationController(vsync: this, duration: const Duration(milliseconds: 1600))..forward();
+  late final List<(double, double, double, double)> _coins = () {
+    final r = math.Random(widget.seed);
+    final n = (4 + widget.coins ~/ 5).clamp(4, 24);
+    // (start x 0..1, sideways drift, height 0..1, delay 0..0.35)
+    return [for (var i = 0; i < n; i++) (0.25 + r.nextDouble() * 0.5, (r.nextDouble() - 0.5) * 0.5, 0.45 + r.nextDouble() * 0.4, r.nextDouble() * 0.35)];
+  }();
+
+  @override
+  void dispose() {
+    _c.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) => LayoutBuilder(
+        builder: (_, box) => AnimatedBuilder(
+          animation: _c,
+          builder: (_, _) => Stack(children: [
+            for (final (x, drift, height, delay) in _coins)
+              Builder(builder: (_) {
+                final t = ((_c.value - delay) / (1 - delay)).clamp(0.0, 1.0);
+                if (t <= 0) return const SizedBox.shrink();
+                final rise = Curves.easeOutCubic.transform(t);
+                return Positioned(
+                  left: box.maxWidth * (x + drift * rise) - 11,
+                  top: box.maxHeight * (1 - height * rise),
+                  child: Opacity(
+                    opacity: t < 0.75 ? 1 : (1 - t) / 0.25,
+                    child: Transform(
+                      alignment: Alignment.center,
+                      transform: Matrix4.identity()..rotateY(t * math.pi * 4),
+                      child: const Icon(Icons.monetization_on_rounded, size: 22, color: LiveStudioAccent.pinkLight),
+                    ),
+                  ),
+                );
+              }),
+          ]),
+        ),
+      );
 }
 
 class _GiftBanner extends StatelessWidget {

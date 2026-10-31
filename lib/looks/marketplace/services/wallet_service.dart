@@ -38,39 +38,6 @@ class WalletService {
     );
   }
 
-  /// Tops up coins via mobile money or card payment.
-  Future<WalletLedgerEntry> topUpCoins({
-    required String userId,
-    required int coins,
-    required double fiatAmount,
-    required PaymentProvider provider,
-    String currency = 'USD',
-  }) async {
-    final wallet = getWallet(userId);
-    final txId = 'tx_topup_${DateTime.now().millisecondsSinceEpoch}';
-
-    final entry = WalletLedgerEntry(
-      id: txId,
-      userId: userId,
-      type: LedgerTransactionType.coinPurchase,
-      coinsDelta: coins,
-      fiatDelta: fiatAmount,
-      currency: currency,
-      description: 'Top up $coins Coins via ${provider.label}',
-      referenceId: 'pay_${provider.name}_$txId',
-      status: 'completed',
-      createdAt: DateTime.now(),
-    );
-
-    final updatedTx = List<WalletLedgerEntry>.from(wallet.transactions)..insert(0, entry);
-    _wallets[userId] = wallet.copyWith(
-      coinBalance: wallet.coinBalance + coins,
-      transactions: updatedTx,
-    );
-
-    return entry;
-  }
-
   /// Deducts coins for marketplace purchases, tips, or vision credits.
   Future<WalletLedgerEntry> deductCoins({
     required String userId,

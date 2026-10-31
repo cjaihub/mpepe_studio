@@ -422,7 +422,7 @@ export const requestWithdrawal = onCall({ timeoutSeconds: 60 }, async (req) => {
 
   const diamonds = Math.floor(Number(req.data?.diamonds));
   const amountUsd = Math.round(diamondsToUsd(diamonds) * 100) / 100;
-  if (!Number.isFinite(diamonds) || amountUsd < MIN_WITHDRAW_USD) throw new HttpsError('invalid-argument', `The minimum withdrawal is $${MIN_WITHDRAW_USD}.`);
+  if (!Number.isFinite(diamonds) || amountUsd < MIN_WITHDRAW_USD) throw new HttpsError('invalid-argument', 'Choose an amount to withdraw.');
   if (amountUsd > MAX_WITHDRAW_USD) throw new HttpsError('invalid-argument', `You can withdraw up to $${MAX_WITHDRAW_USD} at a time.`);
 
   // Velocity: one open withdrawal at a time and a few per day.
@@ -461,6 +461,10 @@ export const requestWithdrawal = onCall({ timeoutSeconds: 60 }, async (req) => {
   const rate = method.provider === 'stripe' ? 1 : await usdRate(method.currency);
   const currency = method.provider === 'stripe' ? 'USD' : method.currency;
   const localAmount = roundLocal(netUsd * rate, currency);
+  // Any amount works as long as at least 1 unit of the payout currency arrives after the fee.
+  if (localAmount < 1) {
+    throw new HttpsError('invalid-argument', `After the ${currency} ${roundLocal(feeUsd * rate, currency)} payout fee nothing would arrive. Withdraw a little more.`);
+  }
   const wallet = db().doc(`wallets/${uid}`);
 
   await db().runTransaction(async (tx) => {

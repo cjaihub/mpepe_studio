@@ -26,7 +26,8 @@ export const GIFT_CATALOG = {
 } as const;
 
 export type GiftId = keyof typeof GIFT_CATALOG;
-export const HOST_SHARE = 0.5;
+/** Creator keeps 80% of every gift; Oneova keeps 20%. */
+export const HOST_SHARE = 0.8;
 export const MAX_QTY = 99;
 export const RECENT_GIFTS = 15;
 
@@ -44,7 +45,7 @@ export function parseGift(data: unknown): { giftId: GiftId; qty: number } {
 
 export function giftPrice(giftId: GiftId, qty: number): { total: number; hostCoins: number } {
   const total = GIFT_CATALOG[giftId].coins * qty;
-  return { total, hostCoins: Math.floor(total * HOST_SHARE) };
+  return { total, hostCoins: Math.ceil(total * HOST_SHARE) };
 }
 
 export interface RecentGift {

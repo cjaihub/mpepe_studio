@@ -48,40 +48,6 @@ class WalletController extends Notifier<WalletState> {
     state = state.copyWith(wallet: updated);
   }
 
-  Future<bool> topUpCoins({
-    required String userId,
-    required int coins,
-    required double fiatAmount,
-    required PaymentProvider provider,
-    String currency = 'USD',
-  }) async {
-    state = state.copyWith(isProcessing: true, errorMessage: null, successMessage: null);
-
-    try {
-      await _walletService.topUpCoins(
-        userId: userId,
-        coins: coins,
-        fiatAmount: fiatAmount,
-        provider: provider,
-        currency: currency,
-      );
-
-      final updated = _walletService.getWallet(userId);
-      state = state.copyWith(
-        wallet: updated,
-        isProcessing: false,
-        successMessage: 'Successfully added $coins Coins via ${provider.label}!',
-      );
-      return true;
-    } catch (e) {
-      state = state.copyWith(
-        isProcessing: false,
-        errorMessage: e.toString().replaceAll('Exception: ', ''),
-      );
-      return false;
-    }
-  }
-
   Future<bool> withdrawEarnings({
     required String userId,
     required double amount,

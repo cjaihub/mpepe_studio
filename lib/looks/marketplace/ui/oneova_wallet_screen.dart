@@ -119,7 +119,7 @@ class _OneovaWalletScreenState extends ConsumerState<OneovaWalletScreen> {
                 (Icons.toll_rounded, 'Coins', 'Bought with Google Play and used to send gifts. Coins are credit and can’t be cashed out.'),
                 (Icons.diamond_rounded, 'Diamonds', 'What you earn when people gift you. 100 Diamonds = ${money(100 * diamondUsd, 'USD')}.'),
                 (Icons.schedule_rounded, 'Held for $holdDays days', 'New Diamonds wait $holdDays days in case a payment is reversed, then become withdrawable.'),
-                (Icons.verified_user_rounded, 'Verified withdrawals', 'Verify your ID once, then withdraw to mobile money, a bank or Stripe from ${money(minWithdrawUsd, 'USD')}.'),
+                (Icons.verified_user_rounded, 'Verified withdrawals', 'Verify your ID once, then withdraw any amount to mobile money, a bank or Stripe, from as little as 1 in your own currency after the payout fee.'),
               ])
                 Padding(
                   padding: const EdgeInsets.only(bottom: 12),

@@ -29,6 +29,7 @@ const PACKAGE = 'com.oneova.app';
 
 /** Play product id → coins credited (bonus included). */
 export const COIN_PACKS: Record<string, number> = {
+  coins_10: 10,
   coins_70: 70,
   coins_350: 350,
   coins_700: 720,
