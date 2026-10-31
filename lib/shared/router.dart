@@ -98,7 +98,13 @@ import '../audio_production/audio_library_screen.dart';
 import '../audio_production/audio_artists_screen.dart';
 import '../hub/connect_screen.dart';
 import '../hub/qr_scanner_screen.dart';
-import '../social_hub/profile/earnings_screen.dart';
+import '../looks/marketplace/ui/oneova_wallet_screen.dart';
+import '../social_hub/money/clip_insights_screen.dart';
+import '../social_hub/money/coin_shop_screen.dart';
+import '../social_hub/money/creator_insights_screen.dart';
+import '../social_hub/money/payout_status_screens.dart';
+import '../social_hub/money/plans_screen.dart';
+import '../social_hub/money/withdraw_screen.dart';
 import '../security/screens/security_center_screen.dart';
 import '../auth/security/login_activity_screen.dart';
 import '../auth/security/sign_in_methods_screen.dart';
@@ -428,7 +434,16 @@ final routerProvider = Provider<GoRouter>((ref) {
       GoRoute(path: '/biz/orders/:id', redirect: _requireAuth, builder: (context, state) => OrderDetailScreen(orderId: state.pathParameters['id']!)),
       GoRoute(path: '/biz/payouts', redirect: _requireAuth, builder: (context, state) => const PayoutsScreen()),
       GoRoute(path: '/hub/discover', redirect: _requireAuth, builder: (context, state) => const GlobalSearchScreen()),
-      GoRoute(path: '/profile/earnings', redirect: _requireAuth, builder: (context, state) => const EarningsScreen()),
+      GoRoute(path: '/profile/earnings', redirect: _requireAuth, builder: (context, state) => const OneovaWalletScreen()),
+      GoRoute(path: '/wallet', redirect: _requireAuth, builder: (context, state) => const OneovaWalletScreen()),
+      GoRoute(path: '/wallet/coins', redirect: _requireAuth, builder: (context, state) => const CoinShopScreen()),
+      GoRoute(path: '/wallet/plans', redirect: _requireAuth, builder: (context, state) => const PlansScreen()),
+      GoRoute(path: '/wallet/withdraw', redirect: _requireAuth, builder: (context, state) => const WithdrawScreen()),
+      GoRoute(path: '/wallet/verify', redirect: _requireAuth, builder: (context, state) => const KycScreen()),
+      GoRoute(path: '/wallet/withdrawals', redirect: _requireAuth, builder: (context, state) => const WithdrawalsScreen()),
+      GoRoute(path: '/wallet/withdrawals/:id', redirect: _requireAuth, builder: (context, state) => WithdrawalDetailScreen(id: state.pathParameters['id']!)),
+      GoRoute(path: '/creator/insights', redirect: _requireAuth, builder: (context, state) => const CreatorInsightsScreen()),
+      GoRoute(path: '/creator/insights/clip/:id', redirect: _requireAuth, builder: (context, state) => ClipInsightsScreen(id: state.pathParameters['id']!)),
       GoRoute(path: '/profile/security', redirect: _requireAuth, builder: (context, state) => const SecurityCenterScreen()),
       GoRoute(path: '/social_hub/gmail', redirect: _requireAuth, builder: (context, state) => const GmailInboxScreen()),
       GoRoute(path: '/social_hub/gmail/:id', redirect: _requireAuth, builder: (context, state) => GmailMessageScreen(id: state.pathParameters['id']!)),

@@ -150,12 +150,12 @@ exports.verifyCoinPurchase = (0, https_1.onCall)({ timeoutSeconds: 60 }, async (
  * HOST_SHARE of the coins as pendingCoins, like live gifts.
  */
 exports.sendUserGift = (0, https_1.onCall)(async (req) => {
-    var _a, _b, _c;
-    var _d, _e, _f, _g;
+    var _a, _b, _c, _d;
+    var _e, _f, _g, _h;
     const uid = (_a = req.auth) === null || _a === void 0 ? void 0 : _a.uid;
     if (!uid)
         throw new https_1.HttpsError('unauthenticated', 'Sign in first.');
-    const toUid = String((_d = (_b = req.data) === null || _b === void 0 ? void 0 : _b.toUid) !== null && _d !== void 0 ? _d : '');
+    const toUid = String((_e = (_b = req.data) === null || _b === void 0 ? void 0 : _b.toUid) !== null && _e !== void 0 ? _e : '');
     if (!toUid || toUid === uid || toUid.includes('/'))
         throw new https_1.HttpsError('invalid-argument', 'Choose who to gift.');
     let gift;
@@ -179,8 +179,10 @@ exports.sendUserGift = (0, https_1.onCall)(async (req) => {
     // Person-to-person gifts round up, so even a 1-coin gift reaches them.
     const hostCoins = Math.ceil(total * gift_logic_1.HOST_SHARE);
     const message = typeof ((_c = req.data) === null || _c === void 0 ? void 0 : _c.message) === 'string' ? req.data.message.trim().slice(0, 120) : '';
-    const me = (_e = (await db().doc(`users/${uid}`).get()).data()) !== null && _e !== void 0 ? _e : {};
-    const myAvatar = (_f = [me.avatarUrl, me.photoUrl, me.photoURL].find((v) => typeof v === 'string' && v.startsWith('http'))) !== null && _f !== void 0 ? _f : '';
+    // Gifts sent from a clip count toward that clip's insights.
+    const contentId = typeof ((_d = req.data) === null || _d === void 0 ? void 0 : _d.contentId) === 'string' && /^[A-Za-z0-9_-]{1,128}$/.test(req.data.contentId) ? req.data.contentId : null;
+    const me = (_f = (await db().doc(`users/${uid}`).get()).data()) !== null && _f !== void 0 ? _f : {};
+    const myAvatar = (_g = [me.avatarUrl, me.photoUrl, me.photoURL].find((v) => typeof v === 'string' && v.startsWith('http'))) !== null && _g !== void 0 ? _g : '';
     const myName = String(me.fullName || me.displayName || me.username || 'Someone');
     const id = `${uid}_${Date.now().toString(36)}`;
     const senderWallet = db().doc(`wallets/${uid}`);
@@ -196,9 +198,7 @@ exports.sendUserGift = (0, https_1.onCall)(async (req) => {
             amount: -total, type: 'user_gift_sent', giftId: gift.giftId, qty: gift.qty, toUid, createdAt: firestore_1.FieldValue.serverTimestamp(),
         });
         tx.set(receiverWallet, { pendingCoins: firestore_1.FieldValue.increment(hostCoins), updatedAt: firestore_1.FieldValue.serverTimestamp() }, { merge: true });
-        tx.set(receiverWallet.collection('ledger').doc(`ugift_${id}`), {
-            amount: hostCoins, type: 'user_gift_received', status: 'pending', giftId: gift.giftId, qty: gift.qty, fromUid: uid, createdAt: firestore_1.FieldValue.serverTimestamp(),
-        });
+        tx.set(receiverWallet.collection('ledger').doc(`ugift_${id}`), Object.assign(Object.assign({ amount: hostCoins, type: 'user_gift_received', status: 'pending', giftId: gift.giftId, qty: gift.qty, fromUid: uid }, (contentId ? { contentId } : {})), { createdAt: firestore_1.FieldValue.serverTimestamp() }));
         tx.set(db().doc(`gifter_stats/${uid}`), { uid, lifetimeCoins: firestore_1.FieldValue.increment(total), giftsSent: firestore_1.FieldValue.increment(gift.qty), updatedAt: firestore_1.FieldValue.serverTimestamp() }, { merge: true });
         tx.set(db().doc(`gifter_stats/${toUid}`), { uid: toUid, receivedCoins: firestore_1.FieldValue.increment(total), updatedAt: firestore_1.FieldValue.serverTimestamp() }, { merge: true });
         // Live gift drop: the receiver's app animates it the moment it lands.
@@ -216,7 +216,7 @@ exports.sendUserGift = (0, https_1.onCall)(async (req) => {
         return have - total;
     });
     const stats = await db().doc(`gifter_stats/${uid}`).get();
-    const level = gifterLevel(Number((_g = stats.get('lifetimeCoins')) !== null && _g !== void 0 ? _g : 0));
+    const level = gifterLevel(Number((_h = stats.get('lifetimeCoins')) !== null && _h !== void 0 ? _h : 0));
     if (stats.get('level') !== level)
         await stats.ref.set({ level }, { merge: true });
     return { ok: true, balanceCoins: balance, coins: total, received: hostCoins, gifterLevel: level, share: gift_logic_1.HOST_SHARE };

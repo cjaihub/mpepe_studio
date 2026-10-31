@@ -108,6 +108,8 @@ class CoinStoreService {
 
   Future<void> _onPurchases(List<PurchaseDetails> list) async {
     for (final p in list) {
+      // Plan subscriptions are handled by PlanStoreService.
+      if (!coinPackIds.contains(p.productID)) continue;
       switch (p.status) {
         case PurchaseStatus.pending:
           _events.add('Payment pending. Coins arrive as soon as it completes.');

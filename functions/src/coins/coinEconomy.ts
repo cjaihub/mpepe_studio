@@ -135,6 +135,8 @@ export const sendUserGift = onCall(async (req) => {
   // Person-to-person gifts round up, so even a 1-coin gift reaches them.
   const hostCoins = Math.ceil(total * HOST_SHARE);
   const message = typeof req.data?.message === 'string' ? req.data.message.trim().slice(0, 120) : '';
+  // Gifts sent from a clip count toward that clip's insights.
+  const contentId = typeof req.data?.contentId === 'string' && /^[A-Za-z0-9_-]{1,128}$/.test(req.data.contentId) ? req.data.contentId : null;
   const me = (await db().doc(`users/${uid}`).get()).data() ?? {};
   const myAvatar = [me.avatarUrl, me.photoUrl, me.photoURL].find((v) => typeof v === 'string' && v.startsWith('http')) ?? '';
   const myName = String(me.fullName || me.displayName || me.username || 'Someone');
@@ -152,7 +154,8 @@ export const sendUserGift = onCall(async (req) => {
     });
     tx.set(receiverWallet, { pendingCoins: FieldValue.increment(hostCoins), updatedAt: FieldValue.serverTimestamp() }, { merge: true });
     tx.set(receiverWallet.collection('ledger').doc(`ugift_${id}`), {
-      amount: hostCoins, type: 'user_gift_received', status: 'pending', giftId: gift.giftId, qty: gift.qty, fromUid: uid, createdAt: FieldValue.serverTimestamp(),
+      amount: hostCoins, type: 'user_gift_received', status: 'pending', giftId: gift.giftId, qty: gift.qty, fromUid: uid,
+      ...(contentId ? { contentId } : {}), createdAt: FieldValue.serverTimestamp(),
     });
     tx.set(db().doc(`gifter_stats/${uid}`), { uid, lifetimeCoins: FieldValue.increment(total), giftsSent: FieldValue.increment(gift.qty), updatedAt: FieldValue.serverTimestamp() }, { merge: true });
     tx.set(db().doc(`gifter_stats/${toUid}`), { uid: toUid, receivedCoins: FieldValue.increment(total), updatedAt: FieldValue.serverTimestamp() }, { merge: true });

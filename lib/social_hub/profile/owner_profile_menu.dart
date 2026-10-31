@@ -38,8 +38,8 @@ Future<void> showOwnerProfileMenu(BuildContext context, WidgetRef ref, {required
       }
 
       final quick = <_MenuItem>[
-        _MenuItem(Icons.account_balance_wallet_rounded, 'Earnings', route: '/profile/earnings'),
-        _MenuItem(Icons.insights_rounded, 'Analytics', route: '/social_hub/analytics'),
+        _MenuItem(Icons.account_balance_wallet_rounded, 'Wallet', route: '/wallet'),
+        _MenuItem(Icons.insights_rounded, 'Insights', route: '/creator/insights'),
         _MenuItem(Icons.qr_code_2_rounded, 'Share', onTap: () {
           Navigator.of(sheetCtx).pop();
           SharePlus.instance.share(ShareParams(

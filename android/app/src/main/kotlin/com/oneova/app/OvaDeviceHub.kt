@@ -60,6 +60,7 @@ object OvaDeviceHub {
             try {
                 when (call.method) {
                     "status" -> result.success(status(app))
+                    "simCountry" -> result.success(simCountry(app))
                     "deviceState" -> result.success(deviceState(app))
                     "openNotificationAccess" -> {
                         startSettings(app, Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS)
@@ -101,6 +102,14 @@ object OvaDeviceHub {
 
     private fun startSettings(app: Context, action: String) {
         app.startActivity(Intent(action).apply { flags = Intent.FLAG_ACTIVITY_NEW_TASK })
+    }
+
+    /** ISO country of the SIM (or network), uppercase; no permission needed. */
+    private fun simCountry(app: Context): String? = try {
+        val tm = app.getSystemService(Context.TELEPHONY_SERVICE) as TelephonyManager
+        (tm.simCountryIso?.takeIf { it.length == 2 } ?: tm.networkCountryIso?.takeIf { it.length == 2 })?.uppercase()
+    } catch (e: Exception) {
+        null
     }
 
     private fun status(app: Context): Map<String, Any?> {

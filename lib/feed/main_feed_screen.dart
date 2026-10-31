@@ -52,6 +52,7 @@ import '../auth/widgets/auth_interaction_gate.dart';
 import '../social_hub/feed/widgets/share_sheet.dart';
 import '../shared/widgets/advanced_voice_interface.dart';
 import '../widgets/oneova_assistant_overlay.dart';
+import '../backend/money/money_service.dart' show WatchTimeRecorder;
 import 'dart:async';
 import 'dart:ui';
 
@@ -412,6 +413,10 @@ class _ShortVideoFeedScreenState extends ConsumerState<ShortVideoFeedScreen> {
         timestamp: now,
       );
       recommendationService.recordWatchTelemetry(telemetry);
+      // Real watch time for the creator's insights (only when the length is known).
+      if (prevVideo.mediaMetadata.duration != null) {
+        WatchTimeRecorder.instance.add(prevVideo.id, dwellMs, videoDurationMs);
+      }
     }
 
     setState(() {

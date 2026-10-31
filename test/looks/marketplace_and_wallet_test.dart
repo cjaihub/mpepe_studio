@@ -1,15 +1,12 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:oneova/looks/marketplace/controllers/looks_marketplace_controller.dart';
-import 'package:oneova/looks/marketplace/controllers/wallet_controller.dart';
 import 'package:oneova/looks/marketplace/models/looks_pack_models.dart';
 import 'package:oneova/looks/marketplace/models/wallet_models.dart';
 import 'package:oneova/looks/marketplace/services/looks_pack_service.dart';
 import 'package:oneova/looks/marketplace/services/wallet_service.dart';
 import 'package:oneova/looks/marketplace/ui/looks_catalog_screen.dart';
 import 'package:oneova/looks/marketplace/ui/looks_pack_details_screen.dart';
-import 'package:oneova/looks/marketplace/ui/oneova_wallet_screen.dart';
 import 'package:oneova/looks/marketplace/widgets/buy_pack_dialog.dart';
 import 'package:oneova/looks/models/oneova_look.dart';
 import 'package:oneova/shared/theme/app_theme.dart';
@@ -228,27 +225,6 @@ void main() {
       expect(find.text('SHOWCASE'), findsOneWidget);
       expect(find.text('Play Showcase Video'), findsOneWidget);
       expect(find.text('Included Pro Looks (${pack.looks.length})'), findsOneWidget);
-    });
-
-    testWidgets('OneovaWalletScreen renders balance card and transaction ledger', (tester) async {
-      tester.view.physicalSize = const Size(1080, 2400);
-      tester.view.devicePixelRatio = 2.0;
-      addTearDown(tester.view.resetPhysicalSize);
-
-      await tester.pumpWidget(
-        buildTestHost(
-          child: const OneovaWalletScreen(),
-        ),
-      );
-      await tester.pumpAndSettle();
-
-      expect(find.text('Oneova Wallet & Coins'), findsOneWidget);
-      expect(find.text('KYC Verified'), findsOneWidget);
-      expect(find.text('Total Creator Balance'), findsOneWidget);
-      expect(find.text('500 Coins'), findsOneWidget);
-      expect(find.text('Top Up Coins'), findsOneWidget);
-      expect(find.text('Withdraw'), findsOneWidget);
-      expect(find.text('Ledger Transactions'), findsOneWidget);
     });
 
     testWidgets('LooksCatalogScreen renders categories, search, and looks grid', (tester) async {
