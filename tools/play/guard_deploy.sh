@@ -15,9 +15,9 @@ ask() { read -r -p "$1 [y/N] " a; [[ "$a" == "y" || "$a" == "Y" ]]; }
 # 1) Google Web Risk (Safe Browsing for apps) for link checks, called as the
 #    functions' service account (no API key). First 100k lookups/month are free.
 if ask "Enable the Web Risk API and let the functions call it?"; then
+  # No extra IAM role: the runtime service account ($RUNTIME_SA) has Editor,
+  # which already allows calling Web Risk (there is no webrisk.* role).
   gcloud services enable webrisk.googleapis.com aiplatform.googleapis.com --project $P
-  gcloud projects add-iam-policy-binding $P \
-    --member "serviceAccount:$RUNTIME_SA" --role roles/webrisk.user --condition=None >/dev/null
 fi
 
 # 2) Self-cleaning caches and counters (Firestore TTL on expiresAt).
