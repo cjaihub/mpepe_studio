@@ -21,7 +21,7 @@ class YtAiScreen extends StatelessWidget {
               child: const Icon(Icons.auto_awesome),
             ),
             const SizedBox(width: 8),
-            Text('Gemini Engine', style: AppTheme.h1Style.copyWith(fontSize: 22, color: Theme.of(context).colorScheme.onSurface)),
+            Text('Ova for YouTube', style: AppTheme.h1Style.copyWith(fontSize: 22, color: Theme.of(context).colorScheme.onSurface)),
           ],
         ),
         centerTitle: false,
@@ -226,7 +226,7 @@ class YtAiScreen extends StatelessWidget {
                 child: TextField(
                   style: TextStyle(color: Theme.of(context).colorScheme.onSurface),
                   decoration: InputDecoration(
-                    hintText: 'Ask Gemini for video ideas or advice...',
+                    hintText: 'Ask Ova for video ideas or advice...',
                     hintStyle: TextStyle(color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.5), fontSize: 14),
                     border: InputBorder.none,
                     isDense: true,

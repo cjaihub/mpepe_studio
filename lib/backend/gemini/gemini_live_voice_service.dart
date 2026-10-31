@@ -4,9 +4,9 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_tts/flutter_tts.dart';
 import 'package:http/http.dart' as http;
+import 'package:firebase_ai/firebase_ai.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 
-import '../security/secure_api_key_vault.dart';
 import '../security/oneova_ai_gateway.dart';
 import '../repair/oneova_self_repair_engine.dart';
 import '../repair/oneova_auto_updater.dart';
@@ -57,19 +57,17 @@ final geminiLiveVoiceServiceProvider =
 /// High-Performance Gemini Live Voice & Spoken Reasoning Engine for Oneova.
 ///
 /// Features:
-/// - Direct integration with Gemini 2.5 Flash / Gemini 2.0 Flash REST multimodal pipeline.
-/// - Automatic fallback to OpenRouter Gemini 2.5 Flash when direct Google AI key is absent.
+/// - Gemini 2.5 Flash on Vertex AI through Firebase AI Logic (no key in the app).
+/// - Falls back to the signed-in server proxy when Vertex AI is unreachable.
 /// - Autonomous voice-activated self-repair and diagnostics execution.
 /// - Natural spoken TTS playback with waveform amplitude tracking.
 class GeminiLiveVoiceService extends Notifier<GeminiLiveVoiceState> {
   final FlutterTts _tts = FlutterTts();
-  late SecureKeyVault _vault;
   late OneOvaSelfRepairEngine _repairEngine;
   late OneOvaAutoUpdater _updater;
 
   @override
   GeminiLiveVoiceState build() {
-    _vault = ref.watch(secureKeyVaultProvider);
     _repairEngine = ref.watch(oneOvaSelfRepairEngineProvider);
     _updater = ref.watch(oneOvaAutoUpdaterProvider);
     _initTts();
@@ -116,7 +114,7 @@ class GeminiLiveVoiceService extends Notifier<GeminiLiveVoiceState> {
     state = state.copyWith(
       state: GeminiVoiceState.reasoning,
       currentTranscript: cleanInput,
-      statusMessage: 'Gemini reasoning…',
+      statusMessage: 'Thinking…',
     );
 
     // ─────────────────────────────────────────────────────────────────
@@ -140,8 +138,6 @@ class GeminiLiveVoiceService extends Notifier<GeminiLiveVoiceState> {
     // Query Gemini Live AI Core
     // ─────────────────────────────────────────────────────────────────
     try {
-      final geminiKey = await _vault.getGeminiApiKey();
-      final model = await _vault.getPreferredGeminiModel();
       final user = FirebaseAuth.instance.currentUser;
       final userName = user?.displayName ?? 'Creator';
 
@@ -156,81 +152,49 @@ Rules:
 
       String responseText = '';
 
-      if (geminiKey.isNotEmpty) {
-        // Direct Google AI Studio Gemini API Call
-        final uri = Uri.parse(
-          'https://generativelanguage.googleapis.com/v1beta/models/$model:generateContent?key=$geminiKey',
+      // Gemini on Vertex AI through Firebase AI Logic: authorized by
+      // Firebase (App Check + Auth), no API key in the app.
+      try {
+        final ai = FirebaseAI.agentPlatform(location: 'us-central1').generativeModel(
+          model: 'gemini-2.5-flash',
+          systemInstruction: Content.system(systemPrompt),
+          generationConfig: GenerationConfig(temperature: 0.7, maxOutputTokens: 256),
         );
+        final res = await ai.generateContent([Content.text(cleanInput)]).timeout(const Duration(seconds: 15));
+        responseText = res.text ?? '';
+      } catch (e) {
+        debugPrint('[GeminiLiveVoice] Vertex AI error: $e');
+      }
 
-        final payload = {
-          'system_instruction': {
-            'parts': [
-              {'text': systemPrompt}
-            ]
-          },
-          'contents': [
-            {
-              'role': 'user',
-              'parts': [
-                {'text': cleanInput}
-              ]
-            }
-          ],
-          'generationConfig': {
-            'temperature': 0.7,
-            'maxOutputTokens': 256,
-          }
-        };
-
+      // Second path: the signed-in server proxy (also keyless for the app).
+      if (responseText.isEmpty && OneovaAiGateway.canCall('')) {
         final res = await http
             .post(
-              uri,
-              headers: {'Content-Type': 'application/json'},
-              body: jsonEncode(payload),
+              OneovaAiGateway.chatUri(''),
+              headers: {
+                'Content-Type': 'application/json',
+                'Authorization': 'Bearer ${await OneovaAiGateway.bearer('')}',
+              },
+              body: jsonEncode({
+                'model': 'google/gemini-2.5-flash',
+                'messages': [
+                  {'role': 'system', 'content': systemPrompt},
+                  {'role': 'user', 'content': cleanInput},
+                ],
+                'max_tokens': 256,
+              }),
             )
             .timeout(const Duration(seconds: 12));
-
         if (res.statusCode == 200) {
           final data = jsonDecode(res.body);
-          responseText = data['candidates']?[0]?['content']?['parts']?[0]?['text'] ?? '';
+          responseText = data['choices']?[0]?['message']?['content'] ?? '';
         }
       }
 
-      // Fallback to OpenRouter if Gemini Key is not configured
       if (responseText.isEmpty) {
-        final openRouterKey = await _vault.getOpenRouterApiKey();
-        if (OneovaAiGateway.canCall(openRouterKey)) {
-          final uri = OneovaAiGateway.chatUri(openRouterKey);
-          final res = await http
-              .post(
-                uri,
-                headers: {
-                  'Content-Type': 'application/json',
-                  'Authorization': 'Bearer ${await OneovaAiGateway.bearer(openRouterKey)}',
-                  'HTTP-Referer': 'https://oneova.app',
-                  'X-Title': 'Oneova',
-                },
-                body: jsonEncode({
-                  'model': 'google/gemini-2.5-flash',
-                  'messages': [
-                    {'role': 'system', 'content': systemPrompt},
-                    {'role': 'user', 'content': cleanInput},
-                  ],
-                  'max_tokens': 256,
-                }),
-              )
-              .timeout(const Duration(seconds: 12));
-
-          if (res.statusCode == 200) {
-            final data = jsonDecode(res.body);
-            responseText = data['choices']?[0]?['message']?['content'] ?? '';
-          }
-        }
-      }
-
-      // If no keys configured, provide intelligent built-in fallback
-      if (responseText.isEmpty) {
-        responseText = _generateIntelligentSpokenFallback(cleanInput, userName);
+        responseText = user == null
+            ? 'Please sign in so I can help you.'
+            : 'Sorry, I could not reach Ova just now. Please try again in a moment.';
       }
 
       // Clean markdown tags for spoken audio
@@ -249,7 +213,7 @@ Rules:
       return cleanSpoken;
     } catch (e) {
       debugPrint('[GeminiLiveVoice] Process error: $e');
-      final fallback = "I encountered a transient network delay, but I've stabilized your live session.";
+      const fallback = 'Sorry, something went wrong. Please try again.';
       await speak(fallback);
       return fallback;
     }
@@ -258,7 +222,7 @@ Rules:
   Future<String> _handleSpokenSelfRepair(String userSpeech) async {
     state = state.copyWith(
       state: GeminiVoiceState.repairing,
-      statusMessage: 'Running Autonomous Self-Repair…',
+      statusMessage: 'Checking your account…',
     );
 
     final uid = FirebaseAuth.instance.currentUser?.uid;
@@ -315,19 +279,6 @@ Rules:
 
     await speak(spokenResponse);
     return spokenResponse;
-  }
-
-  String _generateIntelligentSpokenFallback(String input, String userName) {
-    final lower = input.toLowerCase();
-    if (lower.contains('reel') || lower.contains('post') || lower.contains('video')) {
-      return "Your public reels pipeline is active. LinUCB distribution algorithms are continuously analyzing viewer velocity to maximize your reach.";
-    } else if (lower.contains('safety') || lower.contains('rule') || lower.contains('burn')) {
-      return "Community safety safeguards and zero tolerance burn notice policies are actively protecting your account in real time.";
-    } else if (lower.contains('hello') || lower.contains('hi') || lower.contains('ova')) {
-      return "Hello $userName. I am standing in as your autonomous AI twin. What would you like to build, publish, or diagnose?";
-    } else {
-      return "Understood. I am maintaining your active session with full-screen neural pulse routing.";
-    }
   }
 
   Future<void> speak(String text) async {

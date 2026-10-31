@@ -42,7 +42,7 @@ class _LiveVoiceModeScreenState extends ConsumerState<LiveVoiceModeScreen> {
           onPressed: () => Navigator.of(context).pop(),
         ),
         title: Text(
-          'Gemini Live',
+          'Ova Voice',
           style: GoogleFonts.inter(
             color: context.textPrimary,
             fontWeight: FontWeight.w800,

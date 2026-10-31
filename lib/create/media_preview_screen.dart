@@ -886,7 +886,7 @@ class _MediaPreviewScreenState extends ConsumerState<MediaPreviewScreen> {
               style: GoogleFonts.inter(fontSize: 13.5, fontWeight: FontWeight.w600, color: context.textPrimary),
             ),
             subtitle: Text(
-              'Injects LinUCB viral incubator badge for 10x initial algorithmic reach',
+              'Gives your post an early boost so more people see it first',
               style: GoogleFonts.inter(fontSize: 11.5, color: context.textMuted),
             ),
             activeThumbColor: AppColors.brandPink,

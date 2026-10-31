@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -89,10 +90,13 @@ class _AiSettingsScreenState extends ConsumerState<AiSettingsScreen> {
             children: [
               _buildSettingsGroup(
                 context,
-                'Primary Gemini AI & Self-Repair Engine',
+                'Ova & account check',
                 [
-                  _buildGeminiKeyTile(context, vault),
-                  Divider(height: 1, indent: 20, endIndent: 20, color: Theme.of(context).colorScheme.outline.withValues(alpha: 0.1)),
+                  // Bring-your-own key is a developer option only.
+                  if (kDebugMode) ...[
+                    _buildGeminiKeyTile(context, vault),
+                    Divider(height: 1, indent: 20, endIndent: 20, color: Theme.of(context).colorScheme.outline.withValues(alpha: 0.1)),
+                  ],
                   _buildSelfRepairTile(context, repairEngine),
                   Divider(height: 1, indent: 20, endIndent: 20, color: Theme.of(context).colorScheme.outline.withValues(alpha: 0.1)),
                   _buildAutoUpdateTile(context, updater),

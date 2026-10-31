@@ -18,6 +18,11 @@ if (keystorePropertiesFile.exists()) {
     keystoreProperties.load(FileInputStream(keystorePropertiesFile))
 }
 
+// Google Maps Android key (restricted to com.oneova.app + its SHA-1s), kept
+// in the gitignored local.properties as MAPS_API_KEY.
+val localProperties = Properties()
+rootProject.file("local.properties").takeIf { it.exists() }?.let { localProperties.load(FileInputStream(it)) }
+
 android {
     namespace = "com.oneova.app"
     compileSdk = 37
@@ -38,6 +43,7 @@ android {
         targetSdk = flutter.targetSdkVersion
         versionCode = flutter.versionCode
         versionName = flutter.versionName
+        manifestPlaceholders["MAPS_API_KEY"] = localProperties.getProperty("MAPS_API_KEY") ?: ""
     }
 
     signingConfigs {

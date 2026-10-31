@@ -72,6 +72,8 @@ class _NotificationOverlayManagerState extends ConsumerState<NotificationOverlay
 
     final prefs = ref.read(notificationPreferencesProvider).value ?? NotificationPreferences();
     final urgent = n.priority == AppNotificationPriority.urgent;
+    // Tips and update notes wait quietly in the centre and the system tray.
+    if (n.priority == AppNotificationPriority.low) return;
     if (!prefs.inAppEnabled && !urgent) return;
     if (!prefs.isCategoryEnabled(n.category.name) && !urgent) return;
 

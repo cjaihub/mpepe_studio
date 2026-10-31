@@ -24,6 +24,7 @@ import '../../inbox/calling/call_launcher.dart';
 import 'owner_profile_menu.dart';
 import '../../settings/widgets/oneova_profile_qr_sheet.dart';
 import '../../settings/widgets/oneova_about_account_sheet.dart';
+import '../coins/coin_screens.dart';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Providers
@@ -543,6 +544,8 @@ class _PublicProfileScreenState extends ConsumerState<PublicProfileScreen>
                 const Icon(Icons.verified_rounded,
                     color: AppColors.brandBlue, size: 18),
               ],
+              const SizedBox(width: 6),
+              GifterLevelBadge(uid: _resolvedTargetUserId),
             ],
           ),
           const SizedBox(height: 4),
@@ -608,6 +611,11 @@ class _PublicProfileScreenState extends ConsumerState<PublicProfileScreen>
                       icon: Icons.videocam_rounded,
                       tooltip: 'Video call',
                       onTap: () => _call(isVideo: true)),
+                  const SizedBox(width: 8),
+                  _iconAction(context,
+                      icon: Icons.card_giftcard_rounded,
+                      tooltip: 'Send a gift',
+                      onTap: () => UserGiftSheet.show(context, toUid: _resolvedTargetUserId, toName: user.fullName)),
                 ] else ...[
                   _actionButton(
                     context,

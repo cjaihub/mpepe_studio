@@ -269,7 +269,13 @@ export * from './gmailUser';
 export * from './inbox';
 export { aiGateway, generateLiveApiToken } from './aiGateway';
 export { chatAssist } from './chatAssist';
+export { suggestProfileDetails, onFeedTuned, onAppReleasePublished } from './profileAssist';
+export { shareToAudience } from './shareAudience';
+export { connectorStatus } from './connectorStatus';
+export { verifyCoinPurchase, sendUserGift } from './coins/coinEconomy';
+export { stripeConfig, stripeConnectOnboard, stripePayoutStatus, quoteDelivery, createOrderCheckout, stripeWebhook, acceptDelivery, startJourney, confirmDelivery, cancelOrder } from './commerce/stripeEscrow';
 export { aiProxy } from './aiProxy';
+export { arEffectGenerate, arEffectCreateFromUpload, arEffectUse, arEffectFavoriteAdded, arEffectFavoriteRemoved } from './arEffects';
 export { tiktokExchangeCode } from './tiktokOAuth';
 export { globalSemanticSearch } from './search/searchQuery';
 

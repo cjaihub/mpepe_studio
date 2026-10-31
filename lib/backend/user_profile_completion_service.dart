@@ -8,6 +8,8 @@ import 'package:google_fonts/google_fonts.dart';
 import '../auth/services/oneova_biometrics_service.dart';
 import '../auth/services/oneova_username_service.dart';
 import '../shared/theme/app_theme.dart';
+import 'notifications/services/system_notices_service.dart';
+import '../auth/widgets/profile_ai_suggestions.dart';
 import '../widgets/oneova_assistant_overlay.dart';
 
 /// Single item needed for 100% profile completion.
@@ -207,6 +209,30 @@ class UserProfileCompletionService {
     });
   }
 
+  /// Sends a gentle weekly note when the profile still misses details people
+  /// see (photo, username, bio, interests, phone). Security extras such as a
+  /// fingerprint passkey are left out of the nudge.
+  Future<void> nudgeIfIncomplete() async {
+    try {
+      final state = await watchCompletionState().first;
+      const friendly = {
+        'photo': 'profile photo',
+        'username': 'username',
+        'bio': 'short bio',
+        'niches': 'interests',
+        'phone': 'phone number',
+      };
+      final missing = [
+        for (final m in state.missingItems)
+          if (friendly[m.id] != null) friendly[m.id]!,
+      ];
+      if (missing.isEmpty) return;
+      await SystemNoticesService.instance.profileIncomplete(missing, state.percentage);
+    } catch (e) {
+      debugPrint('[ProfileCompletion] nudge skipped: $e');
+    }
+  }
+
   /// Interactive executor that opens real sheets / dialogs and persists to Firestore.
   Future<void> executeAction(BuildContext context, String actionId) async {
     final user = FirebaseAuth.instance.currentUser;
@@ -402,7 +428,12 @@ class UserProfileCompletionService {
                       'Pick a distinct handle for your creator profile and universal share links.',
                       style: GoogleFonts.inter(fontSize: 12, color: AppColors.textSecondary),
                     ),
-                    const SizedBox(height: 16),
+                    const SizedBox(height: 10),
+                    ProfileAiSuggestions(
+                      kind: ProfileIdeaKind.usernames,
+                      onPick: (v) => controller.text = v,
+                    ),
+                    const SizedBox(height: 12),
                     TextField(
                       controller: controller,
                       autocorrect: false,
@@ -656,7 +687,12 @@ class UserProfileCompletionService {
                   'Describe your content style. The Ova AI assistant uses this to recommend your videos.',
                   style: GoogleFonts.inter(fontSize: 12, color: AppColors.textSecondary),
                 ),
-                const SizedBox(height: 16),
+                const SizedBox(height: 10),
+                ProfileAiSuggestions(
+                  kind: ProfileIdeaKind.bios,
+                  onPick: (v) => controller.text = v,
+                ),
+                const SizedBox(height: 12),
                 TextField(
                   controller: controller,
                   maxLines: 3,

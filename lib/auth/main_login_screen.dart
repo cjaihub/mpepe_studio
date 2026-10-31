@@ -10,6 +10,7 @@ import 'services/otp_autofill.dart';
 import 'services/account_link_service.dart';
 import 'screens/oneova_pin_screen.dart';
 import 'widgets/onboarding_identity_fields.dart';
+import 'widgets/oneova_auth_backdrop.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter_animate/flutter_animate.dart';
 import 'package:flutter_svg/flutter_svg.dart';
@@ -26,7 +27,6 @@ import '../ova_assistant/widgets/ova_inline_hint.dart';
 import 'security/login_history.dart';
 import 'security/login_security.dart';
 import '../security/ova_guard_service.dart';
-import 'package:font_awesome_flutter/font_awesome_flutter.dart';
 import 'package:google_fonts/google_fonts.dart';
 
 enum AuthScreenStep {
@@ -90,7 +90,7 @@ class MainLoginScreen extends ConsumerStatefulWidget {
   ConsumerState<MainLoginScreen> createState() => _MainLoginScreenState();
 }
 
-class _MainLoginScreenState extends ConsumerState<MainLoginScreen> {
+class _MainLoginScreenState extends ConsumerState<MainLoginScreen> with OneovaImmersiveAuth<MainLoginScreen> {
   // Navigation & Step State
   AuthScreenStep _currentStep = AuthScreenStep.phoneInput;
 
@@ -986,7 +986,7 @@ class _MainLoginScreenState extends ConsumerState<MainLoginScreen> {
     const names = {
       AuthFactor.password: 'password',
       AuthFactor.smsOtp: 'text code',
-      AuthFactor.federated: 'Google/Facebook',
+      AuthFactor.federated: 'Google',
       AuthFactor.biometric: 'fingerprint',
       AuthFactor.pin: 'PIN',
       AuthFactor.deviceKey: 'this phone\'s saved sign-in',
@@ -1419,81 +1419,6 @@ class _MainLoginScreenState extends ConsumerState<MainLoginScreen> {
             _errorMessage = 'Network connection issue. Please check your internet and try again.';
           } else {
             _errorMessage = 'Could not sign in with Google. Please try again or use phone number.';
-          }
-        });
-      }
-    }
-  }
-
-  Future<void> _signInWithTikTok() async {
-    HapticFeedback.lightImpact();
-    setState(() {
-      _isLoading = true;
-      _errorMessage = null;
-    });
-    try {
-      final provider = OAuthProvider('oidc.tiktok');
-      final userCred = await FirebaseAuth.instance.signInWithProvider(provider);
-      final user = userCred.user;
-      if (user == null || !mounted) {
-        if (mounted) setState(() => _isLoading = false);
-        return;
-      }
-      await _afterFederatedSignIn(user, {
-        'fromTikTok': true,
-        'name': user.displayName ?? '',
-        'photoUrl': user.photoURL ?? '',
-      }, credential: userCred.credential);
-    } catch (e) {
-      if (e is FirebaseAuthException && await _holdCredentialOfExistingEmail(e)) return;
-      debugPrint('[MainLoginScreen] TikTok sign-in error: $e');
-      if (mounted) {
-        setState(() {
-          _isLoading = false;
-          final errStr = e.toString();
-          if (errStr.contains('cancelled') || errStr.contains('canceled')) {
-            _errorMessage = null;
-          } else {
-            _errorMessage = 'TikTok sign-in failed. Please try another method.';
-          }
-        });
-      }
-    }
-  }
-
-  Future<void> _signInWithFacebook() async {
-    HapticFeedback.lightImpact();
-    setState(() {
-      _isLoading = true;
-      _errorMessage = null;
-    });
-    try {
-      final facebookProvider = FacebookAuthProvider();
-      facebookProvider.addScope('email');
-      facebookProvider.addScope('public_profile');
-      final userCred = await FirebaseAuth.instance.signInWithProvider(facebookProvider);
-      final user = userCred.user;
-      if (user == null || !mounted) {
-        if (mounted) setState(() => _isLoading = false);
-        return;
-      }
-      await _afterFederatedSignIn(user, {
-        'fromFacebook': true,
-        'email': user.email ?? '',
-        'name': user.displayName ?? '',
-        'photoUrl': user.photoURL ?? '',
-      }, credential: userCred.credential);
-    } catch (e) {
-      if (e is FirebaseAuthException && await _holdCredentialOfExistingEmail(e)) return;
-      debugPrint('[MainLoginScreen] Facebook sign-in error: $e');
-      if (mounted) {
-        setState(() {
-          _isLoading = false;
-          final errStr = e.toString();
-          if (errStr.contains('cancelled') || errStr.contains('canceled')) {
-            _errorMessage = null;
-          } else {
-            _errorMessage = 'Facebook sign-in failed. Please try another method.';
           }
         });
       }
@@ -2213,7 +2138,8 @@ class _MainLoginScreenState extends ConsumerState<MainLoginScreen> {
       },
       child: Scaffold(
         backgroundColor: bgColor,
-        body: SafeArea(
+        body: OneovaAuthBackdrop(
+          child: SafeArea(
           child: Column(
             children: [
               _buildTopNavBar(),
@@ -2274,7 +2200,7 @@ class _MainLoginScreenState extends ConsumerState<MainLoginScreen> {
                             constraints: const BoxConstraints(maxWidth: 360),
                             child: Container(
                               decoration: BoxDecoration(
-                                color: context.surface,
+                                color: context.surface.withValues(alpha: 0.92),
                                 borderRadius: BorderRadius.circular(AppRadius.lg),
                                 border: Border.all(color: context.border, width: 1.0),
                                 boxShadow: isDark
@@ -2341,17 +2267,7 @@ class _MainLoginScreenState extends ConsumerState<MainLoginScreen> {
 
                           const SizedBox(height: 12),
 
-                          // Brand Logos
-                          Row(
-                            mainAxisAlignment: MainAxisAlignment.center,
-                            children: [
-                              _buildBrandLogo(FontAwesomeIcons.youtube),
-                              const SizedBox(width: 20),
-                              _buildBrandLogo(FontAwesomeIcons.instagram),
-                              const SizedBox(width: 20),
-                              _buildBrandLogo(FontAwesomeIcons.tiktok),
-                            ],
-                          ).animate().fade(delay: 550.ms),
+                          const OneovaAuthPromises().animate().fade(delay: 550.ms),
                           ],
                         ],
                       ),
@@ -2360,6 +2276,7 @@ class _MainLoginScreenState extends ConsumerState<MainLoginScreen> {
                 ),
               ),
             ],
+          ),
           ),
         ),
       ),
@@ -3055,20 +2972,8 @@ class _MainLoginScreenState extends ConsumerState<MainLoginScreen> {
           children: [
             _buildSocialLoginButton(
               icon: SvgPicture.asset('assets/google_logo.svg', width: 16, height: 16),
-              label: 'Google',
+              label: 'Continue with Google',
               onTap: _signInWithGoogle,
-            ),
-            const SizedBox(width: 8),
-            _buildSocialLoginButton(
-              icon: const FaIcon(FontAwesomeIcons.tiktok, size: 15, color: Colors.white),
-              label: 'TikTok',
-              onTap: _signInWithTikTok,
-            ),
-            const SizedBox(width: 8),
-            _buildSocialLoginButton(
-              icon: SvgPicture.asset('assets/logos/facebook.svg', width: 16, height: 16),
-              label: 'Facebook',
-              onTap: _signInWithFacebook,
             ),
           ],
         ),
@@ -3503,7 +3408,7 @@ class _MainLoginScreenState extends ConsumerState<MainLoginScreen> {
   String _heroCaption() {
     switch (_currentStep) {
       case AuthScreenStep.phoneInput:
-        return _identifiedUser != null ? 'Good to see you again' : 'All you need in your Pocket as a creative';
+        return _identifiedUser != null ? 'Good to see you again' : 'Sign in or join with your phone or Google';
       case AuthScreenStep.existingUserAuth:
         return 'How do you want to sign in?';
       case AuthScreenStep.existingUserOtp:
@@ -3543,11 +3448,8 @@ class _MainLoginScreenState extends ConsumerState<MainLoginScreen> {
             borderRadius: BorderRadius.circular(12),
             child: Image.asset('assets/images/oneova_logo.jpg', width: 44, height: 44, fit: BoxFit.cover),
           ),
-          const SizedBox(height: 8),
-          Text(
-            'ONEOVA',
-            style: TextStyle(fontWeight: FontWeight.w900, fontSize: 18, letterSpacing: 2.0, color: context.textPrimary),
-          ),
+          const SizedBox(height: 10),
+          const OneovaAuthTagline(),
         ],
       );
     } else {
@@ -3781,7 +3683,7 @@ class _MainLoginScreenState extends ConsumerState<MainLoginScreen> {
             if (_factors.contains(AuthFactor.smsOtp) || required == AuthFactor.smsOtp)
               _factorChip('Text code', Icons.sms_rounded, _factors.contains(AuthFactor.smsOtp)),
             if (_factors.contains(AuthFactor.federated))
-              _factorChip('Google/Facebook', Icons.public_rounded, true),
+              _factorChip('Google', Icons.public_rounded, true),
             if (_factors.contains(AuthFactor.deviceKey))
               _factorChip('Saved on this phone', Icons.vpn_key_rounded, true),
             if (_factors.contains(AuthFactor.biometric) || required == AuthFactor.biometric)
@@ -4798,10 +4700,6 @@ class _MainLoginScreenState extends ConsumerState<MainLoginScreen> {
         ),
       ),
     );
-  }
-
-  Widget _buildBrandLogo(dynamic icon) {
-    return FaIcon(icon, size: 15, color: context.textMuted);
   }
 
   Widget _buildSocialProof() {

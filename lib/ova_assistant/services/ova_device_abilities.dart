@@ -22,6 +22,7 @@ import 'package:volume_controller/volume_controller.dart';
 import '../core/ova_tool_result.dart';
 import 'ova_native_service.dart';
 import 'ova_permissions.dart';
+import '../../backend/notifications/services/rich_notification_renderer.dart';
 
 /// Real phone abilities used by Ova. Each method asks for the permission it
 /// needs, explains why, and returns an [OvaToolResult] the sheet can render.
@@ -333,7 +334,7 @@ class OvaDeviceAbilities {
     );
   }
 
-  static final FlutterLocalNotificationsPlugin _notifs = FlutterLocalNotificationsPlugin();
+  static FlutterLocalNotificationsPlugin get _notifs => OneovaRichNotifications.plugin;
   static bool _notifsReady = false;
 
   Future<bool> _ensureNotifications(BuildContext? context) async {
@@ -346,12 +347,8 @@ class OvaDeviceAbilities {
     if (!granted) return false;
     if (!_notifsReady) {
       tzdata.initializeTimeZones();
-      await _notifs.initialize(
-        settings: const InitializationSettings(
-          android: AndroidInitializationSettings('@mipmap/ic_launcher'),
-          iOS: DarwinInitializationSettings(),
-        ),
-      );
+      // Shared plugin: initialising it here again would drop the push tap handlers.
+      await OneovaRichNotifications.ensureInitialized();
       _notifsReady = true;
     }
     return true;

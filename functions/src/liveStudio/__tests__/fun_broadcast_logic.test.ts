@@ -53,7 +53,7 @@ import { GiftError, giftPrice, parseGift, pushRecent } from '../gift_logic';
 
 test('gifts: catalog prices, quantity limits, host share, recent list', () => {
   assert.deepEqual(parseGift({ giftId: 'rose' }), { giftId: 'rose', qty: 1 });
-  assert.throws(() => parseGift({ giftId: 'car' }), GiftError);
+  assert.throws(() => parseGift({ giftId: 'not_a_gift' }), GiftError);
   assert.throws(() => parseGift({ giftId: 'rose', qty: 0 }), GiftError);
   assert.throws(() => parseGift({ giftId: 'rose', qty: 1.5 }), GiftError);
   assert.deepEqual(giftPrice('crown', 3), { total: 150, hostCoins: 75 });

@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../shared/theme/app_theme.dart';
 import '../controllers/wallet_controller.dart';
 import '../models/wallet_models.dart';
+import '../../../social_hub/coins/coin_screens.dart';
 
 /// Full-featured Oneova Wallet Screen.
 /// Supports:
@@ -128,7 +129,7 @@ class OneovaWalletScreen extends ConsumerWidget {
                     children: [
                       Expanded(
                         child: ElevatedButton.icon(
-                          onPressed: () => _showTopUpDialog(context, ref),
+                          onPressed: () => CoinStoreSheet.show(context),
                           icon: const Icon(Icons.add_circle_outline_rounded, size: 16),
                           label: const Text('Top Up Coins'),
                           style: ElevatedButton.styleFrom(
@@ -270,124 +271,6 @@ class OneovaWalletScreen extends ConsumerWidget {
               }),
           ],
         ),
-      ),
-    );
-  }
-
-  void _showTopUpDialog(BuildContext context, WidgetRef ref) {
-    showModalBottomSheet<void>(
-      context: context,
-      backgroundColor: context.surface,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
-      ),
-      builder: (context) {
-        return Padding(
-          padding: const EdgeInsets.all(18),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              Text(
-                'Top Up Oneova Coins',
-                style: TextStyle(fontSize: 15, fontWeight: FontWeight.w700, color: context.textPrimary),
-              ),
-              const SizedBox(height: 6),
-              Text(
-                'Instant mobile money & card checkout via Flutterwave & Stripe',
-                style: TextStyle(fontSize: 11.5, color: context.textMuted),
-              ),
-              const SizedBox(height: 14),
-              _buildTopUpOption(
-                context,
-                ref,
-                coins: 100,
-                fiat: 1.99,
-                provider: PaymentProvider.flutterwaveMpesa,
-              ),
-              _buildTopUpOption(
-                context,
-                ref,
-                coins: 500,
-                fiat: 9.99,
-                provider: PaymentProvider.stripeApplePay,
-              ),
-              _buildTopUpOption(
-                context,
-                ref,
-                coins: 1200,
-                fiat: 19.99,
-                provider: PaymentProvider.flutterwaveMtn,
-              ),
-            ],
-          ),
-        );
-      },
-    );
-  }
-
-  Widget _buildTopUpOption(
-    BuildContext context,
-    WidgetRef ref, {
-    required int coins,
-    required double fiat,
-    required PaymentProvider provider,
-  }) {
-    return Container(
-      margin: const EdgeInsets.only(bottom: 8),
-      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-      decoration: BoxDecoration(
-        color: context.surfaceMid,
-        borderRadius: BorderRadius.circular(10),
-        border: Border.all(color: context.border),
-      ),
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-        children: [
-          Row(
-            children: [
-              Text(provider.icon, style: const TextStyle(fontSize: 18)),
-              const SizedBox(width: 10),
-              Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    '$coins Coins',
-                    style: TextStyle(fontSize: 13, fontWeight: FontWeight.w700, color: context.textPrimary),
-                  ),
-                  Text(
-                    provider.label,
-                    style: TextStyle(fontSize: 10.5, color: context.textMuted),
-                  ),
-                ],
-              ),
-            ],
-          ),
-          ElevatedButton(
-            onPressed: () async {
-              Navigator.of(context).pop();
-              final success = await ref.read(walletControllerProvider.notifier).topUpCoins(
-                    userId: userId,
-                    coins: coins,
-                    fiatAmount: fiat,
-                    provider: provider,
-                  );
-              if (success && context.mounted) {
-                ScaffoldMessenger.of(context).showSnackBar(
-                  SnackBar(content: Text('Added $coins Coins to your wallet!')),
-                );
-              }
-            },
-            style: ElevatedButton.styleFrom(
-              backgroundColor: AppColors.brandBlue,
-              foregroundColor: Colors.white,
-              elevation: 0,
-              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(6)),
-            ),
-            child: Text('\$$fiat', style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w700)),
-          ),
-        ],
       ),
     );
   }

@@ -23,6 +23,9 @@ enum AppNotificationCategory {
   analyticsAlert,
   system,
   newPost,
+  appUpdate,
+  recommendation,
+  profileTip,
 }
 
 enum AppNotificationPriority { low, normal, high, urgent }

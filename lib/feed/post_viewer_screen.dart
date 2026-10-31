@@ -9,7 +9,7 @@ import 'package:google_fonts/google_fonts.dart';
 import 'package:media_kit/media_kit.dart';
 import 'package:media_kit_video/media_kit_video.dart';
 
-import '../backend/routing/oneova_share_engine.dart';
+import '../social_hub/feed/widgets/share_sheet.dart';
 import '../backend/social/models/content.dart';
 import '../backend/social/repositories/interaction_repository.dart';
 import '../backend/social/services/content_deletion_service.dart';
@@ -90,13 +90,7 @@ class _PostViewerScreenState extends ConsumerState<PostViewerScreen> {
   }
 
   Future<void> _share(Content c) async {
-    final repo = ref.read(interactionRepositoryProvider);
-    try {
-      await repo.repostContent(_uid, c.id);
-    } catch (_) {}
-    final url = OneovaShareEngine().generateWebShareUrl(c.id);
-    await Clipboard.setData(ClipboardData(text: url));
-    if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Link copied: $url')));
+    ShareSheet.show(context, postId: c.id, authorId: c.authorId);
   }
 
   @override

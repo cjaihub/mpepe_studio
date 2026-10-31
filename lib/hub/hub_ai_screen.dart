@@ -551,11 +551,11 @@ class _HubAiScreenState extends ConsumerState<HubAiScreen> {
               ),
               Semantics(
                 button: true,
-                label: 'Gemini Live Voice Assistant',
+                label: 'Talk to Ova',
                 child: IconButton(
                   icon: const Icon(Icons.mic, size: 22),
                   color: AppColors.brandPink,
-                  tooltip: 'Gemini Live Call & Self-Repair',
+                  tooltip: 'Start a voice chat with Ova',
                   onPressed: () {
                     HapticFeedback.selectionClick();
                     OvaLiveCallingOverlay.show(context);
@@ -787,7 +787,7 @@ class _HubAiScreenState extends ConsumerState<HubAiScreen> {
                               color: Theme.of(context).colorScheme.onSurface)),
                       const SizedBox(height: 6),
                       Text(
-                        "Autonomous creative agent with thermal-cooling protection and direct execution of Oneova Reels LinUCB distribution, community safety moderation, and workstation actuation.",
+                        "Your creative assistant: talk or type to plan posts, edit, grow your reach and keep your account safe.",
                         style: TextStyle(
                             color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.6),
                             fontSize: 11,

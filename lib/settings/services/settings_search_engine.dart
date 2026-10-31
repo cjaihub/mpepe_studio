@@ -188,7 +188,7 @@ class SettingsSearchEngine {
     const SettingsSearchItem(
       id: 'ai_model',
       title: 'AI Intelligence Engine & Model',
-      subtitle: 'Configure Gemini Pro multimodal reasoning engine and studio agent',
+      subtitle: 'Ova\'s voice, tone and smart features',
       category: 'AI Assistant',
       route: '/settings/ai',
       icon: Icons.psychology_rounded,

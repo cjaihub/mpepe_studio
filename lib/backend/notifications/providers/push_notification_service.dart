@@ -10,6 +10,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:go_router/go_router.dart';
 import '../../security/e2e_encryption_service.dart';
 import 'notification_service.dart';
+import '../services/rich_notification_renderer.dart';
 import '../../calling/services/callkit_service.dart';
 import '../../../shared/router.dart';
 import '../../../auth/services/app_lifecycle_observer.dart';
@@ -20,6 +21,13 @@ Future<void> _firebaseMessagingBackgroundHandler(RemoteMessage message) async {
   debugPrint("Handling a background message: ${message.messageId}");
   // Incoming/cancelled calls ring natively (full-screen on the lock screen).
   if (await handleCallPushInBackground(message)) return;
+  // Activity pushes arrive data-only so we can draw them with photos,
+  // grouping and action buttons, also on the lock screen.
+  try {
+    if (await OneovaRichNotifications.showFromData(message.data)) return;
+  } catch (e) {
+    debugPrint('Rich push render failed: $e');
+  }
   // Example of saving to highly partitioned subcollection for offline sync
   final uid = FirebaseAuth.instance.currentUser?.uid;
   if (uid != null) {
@@ -57,8 +65,7 @@ class PushNotificationService {
 
   PushNotificationService(this._e2eService, this._notificationService);
 
-  final FlutterLocalNotificationsPlugin _localNotificationsPlugin =
-      FlutterLocalNotificationsPlugin();
+  FlutterLocalNotificationsPlugin get _localNotificationsPlugin => OneovaRichNotifications.plugin;
 
   String get _currentUserId => _auth.currentUser?.uid ?? '';
 
@@ -89,36 +96,9 @@ class PushNotificationService {
       // Listen for token refreshes
       _messaging.onTokenRefresh.listen(_saveDeviceToken);
 
-      // 3. Initialize Local Notifications (for foreground alerts)
-      const androidInitialize = AndroidInitializationSettings('@mipmap/ic_launcher');
-      const darwinInitialize = DarwinInitializationSettings();
-      final initializationSettings = InitializationSettings(
-        android: androidInitialize,
-        iOS: darwinInitialize,
-      );
-
-      await _localNotificationsPlugin.initialize(
-        settings: initializationSettings,
-        onDidReceiveNotificationResponse: _onSelectNotification,
-      );
-
-      // Channels the server push targets (see functions/src/notifications.ts).
-      final android = _localNotificationsPlugin.resolvePlatformSpecificImplementation<
-          AndroidFlutterLocalNotificationsPlugin>();
-      await android?.createNotificationChannel(const AndroidNotificationChannel(
-        'oneova_high_importance_channel',
-        'OneOva Priority Alerts',
-        description: 'Likes, comments, follows and new posts from people you follow',
-        importance: Importance.max,
-        sound: RawResourceAndroidNotificationSound('oneova_notification'),
-      ));
-      await android?.createNotificationChannel(const AndroidNotificationChannel(
-        'oneova_live_channel',
-        'Live from people you follow',
-        description: 'Rings when a creator you follow goes live',
-        importance: Importance.max,
-        sound: RawResourceAndroidNotificationSound('oneova_notification'),
-      ));
+      // 3. Local notifications (shared plugin, channels, action buttons).
+      await OneovaRichNotifications.ensureInitialized();
+      await OneovaRichNotifications.openLaunchNotification();
 
       // 4. Listen to Foreground Messages
       FirebaseMessaging.onMessage.listen((RemoteMessage message) {
@@ -132,7 +112,12 @@ class PushNotificationService {
         }
         // Activity pushes mirror a notifications/ doc; the in-app banner
         // already rings for those while the app is open.
-        if (message.data['notificationId'] != null) return;
+        if (message.data['notificationId'] != null) {
+          // Low-priority notes (updates, tips) skip the banner, so the
+          // system tray shows them instead.
+          if (message.data['priority'] == 'low') OneovaRichNotifications.showFromData(message.data);
+          return;
+        }
         // Chat messages pop up in-app (NotificationOverlayManager watches
         // the user's chats), so skip the duplicate system notification.
         if (message.data['chatId'] != null) return;
@@ -204,6 +189,9 @@ class PushNotificationService {
         .set({
       'token': token,
       'platform': kIsWeb ? 'web' : defaultTargetPlatform.name,
+      // This build draws data-only activity pushes itself (photos, grouping,
+      // Reply / Like / Follow back buttons); see functions/src/notifications.ts.
+      'richPush': !kIsWeb && defaultTargetPlatform == TargetPlatform.android,
       'lastUpdated': FieldValue.serverTimestamp(),
     });
   }
@@ -290,13 +278,6 @@ class PushNotificationService {
         ),
         payload: message.data['route'],
       );
-    }
-  }
-
-  void _onSelectNotification(NotificationResponse response) {
-    if (response.payload != null) {
-      debugPrint('[PushNotificationService] Deep link triggered: ${response.payload}');
-      _navigateToRoute(response.payload!);
     }
   }
 

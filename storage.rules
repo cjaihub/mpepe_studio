@@ -123,6 +123,19 @@ service firebase.storage {
       allow read, write, delete: if isSignedIn() && fileName == request.auth.uid + '.m4a';
     }
 
+    // ─── AR effects: assets written by Cloud Functions, read by the app ─────
+    match /ar_effects/{effectId}/{fileName} {
+      allow read: if isSignedIn();
+      allow write: if false;
+    }
+
+    // ─── AR effect uploads: ar_effect_uploads/{uid}/{file}.png (staging) ────
+    match /ar_effect_uploads/{uid}/{fileName} {
+      allow read, delete: if isOwner(uid);
+      allow create: if isOwner(uid) && request.resource.contentType == 'image/png' &&
+                       request.resource.size < 8 * 1024 * 1024;
+    }
+
     // ─── Deny everything else ─────────────────────────────────────────────────
     match /{allPaths=**} {
       allow read, write: if false;

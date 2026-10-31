@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
@@ -20,7 +21,7 @@ class AiVoicePersonalizationScreen extends ConsumerWidget {
       backgroundColor: context.bg,
       appBar: AppBar(
         title: Text(
-          'AI Voice & Gemini Live',
+          'Ova Voice',
           style: GoogleFonts.inter(
             color: context.textPrimary,
             fontSize: 18,
@@ -43,17 +44,20 @@ class AiVoicePersonalizationScreen extends ConsumerWidget {
           return ListView(
             padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
             children: [
-              _buildSectionHeader(context, 'Gemini Live Voice Engine'),
-              _buildSwitch(context, ref, categoryData, 'voiceEnabled', 'Enable Gemini Voice Mode', 'High-speed two-way spoken conversation with Ova'),
+              _buildSectionHeader(context, 'Voice chat'),
+              _buildSwitch(context, ref, categoryData, 'voiceEnabled', 'Voice chat with Ova', 'High-speed two-way spoken conversation with Ova'),
               _buildSwitch(context, ref, categoryData, 'naturalSpeech', 'Natural Human Cadence', 'Subtle dynamic pauses, breath modulation, and emotional pitch'),
               _buildSwitch(context, ref, categoryData, 'backgroundMusic', 'Studio Atmosphere Music', 'Play subtle royalty-free lofi beats while speaking'),
               const SizedBox(height: 16),
-              _buildSectionHeader(context, 'Autonomous Diagnostics & Self-Repair'),
+              _buildSectionHeader(context, 'Account check'),
               _buildSwitch(context, ref, categoryData, 'voiceSelfRepair', 'Voice-Activated System Repair', 'Allows voice commands like "Repair my account" or "Fix feed" to auto-heal cache and indexes'),
-              _buildSwitch(context, ref, categoryData, 'backgroundSelfHeal', 'Background Auto-Upgrade', 'Permits Gemini agent to automatically patch state and upgrade in background'),
+              _buildSwitch(context, ref, categoryData, 'backgroundSelfHeal', 'Background Auto-Upgrade', 'Lets Ova fix small problems and update in the background'),
               const SizedBox(height: 16),
-              _buildSectionHeader(context, 'Active Gemini Voice Model'),
-              _buildModelSelector(context, ref, categoryData),
+              // Model choice is a developer setting; people just talk to Ova.
+              if (kDebugMode) ...[
+                _buildSectionHeader(context, 'AI model (developer)'),
+                _buildModelSelector(context, ref, categoryData),
+              ],
             ],
           );
         },

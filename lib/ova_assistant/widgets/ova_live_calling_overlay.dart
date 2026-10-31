@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'dart:async';
 import 'dart:ui';
 import 'package:flutter/material.dart';
@@ -579,7 +580,7 @@ class _OvaLiveCallingOverlayState extends ConsumerState<OvaLiveCallingOverlay>
                               crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
                                 Text(
-                                  'Gemini AI & Autonomous Repair',
+                                  'Ova voice & account check',
                                   style: GoogleFonts.inter(
                                     fontSize: 15,
                                     fontWeight: FontWeight.w800,
@@ -587,7 +588,7 @@ class _OvaLiveCallingOverlayState extends ConsumerState<OvaLiveCallingOverlay>
                                   ),
                                 ),
                                 Text(
-                                  'Primary engine: gemini-2.5-flash',
+                                  'Talk naturally. Ova answers out loud.',
                                   style: GoogleFonts.inter(
                                     fontSize: 11,
                                     color: ctx.textSecondary,
@@ -597,6 +598,8 @@ class _OvaLiveCallingOverlayState extends ConsumerState<OvaLiveCallingOverlay>
                             ),
                           ],
                         ),
+                        // Bring-your-own key is a developer option only.
+                        if (kDebugMode) ...[
                         const SizedBox(height: 14),
                         Container(
                           padding: const EdgeInsets.all(12),
@@ -659,6 +662,7 @@ class _OvaLiveCallingOverlayState extends ConsumerState<OvaLiveCallingOverlay>
                             ),
                           ),
                         ),
+                        ],
                         const SizedBox(height: 14),
                         SizedBox(
                           width: double.infinity,
@@ -671,7 +675,7 @@ class _OvaLiveCallingOverlayState extends ConsumerState<OvaLiveCallingOverlay>
                             ),
                             icon: const Icon(Icons.healing_rounded, size: 18),
                             label: Text(
-                              'Run Autonomous Self-Repair Now',
+                              'Check my account now',
                               style: GoogleFonts.inter(fontWeight: FontWeight.w700, fontSize: 13),
                             ),
                             onPressed: () async {

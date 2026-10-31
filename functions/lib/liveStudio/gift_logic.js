@@ -12,11 +12,22 @@ exports.giftPrice = giftPrice;
 exports.pushRecent = pushRecent;
 exports.GIFT_CATALOG = {
     rose: { label: 'Rose', coins: 1 },
+    thumbs: { label: 'Thumbs up', coins: 1 },
+    spark: { label: 'Spark', coins: 2 },
+    coffee: { label: 'Coffee', coins: 3 },
     heart: { label: 'Heart', coins: 5 },
+    icecream: { label: 'Ice cream', coins: 7 },
     star: { label: 'Star', coins: 10 },
+    fire: { label: 'Fire', coins: 15 },
+    balloon: { label: 'Balloons', coins: 20 },
+    music: { label: 'Mic drop', coins: 30 },
     crown: { label: 'Crown', coins: 50 },
     rocket: { label: 'Rocket', coins: 100 },
+    trophy: { label: 'Trophy', coins: 199 },
     diamond: { label: 'Diamond', coins: 500 },
+    car: { label: 'Sports car', coins: 1000 },
+    castle: { label: 'Castle', coins: 2500 },
+    galaxy: { label: 'Galaxy', coins: 5000 },
 };
 exports.HOST_SHARE = 0.5;
 exports.MAX_QTY = 99;

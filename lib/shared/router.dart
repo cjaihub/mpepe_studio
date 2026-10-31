@@ -33,6 +33,8 @@ import 'widgets/oneova_feature_tour_bubble.dart';
 import 'services/oneova_feature_tour_service.dart';
 import 'search/global_search_screen.dart';
 import '../feed/biz_feed_screen.dart';
+import '../social_hub/biz_commerce/checkout_screen.dart';
+import '../social_hub/biz_commerce/order_screens.dart';
 import '../social_hub/profile/public_profile_screen.dart';
 import 'dart:io' show Platform;
 
@@ -420,6 +422,11 @@ final routerProvider = Provider<GoRouter>((ref) {
         },
       ),
       GoRoute(path: '/biz_feed', redirect: _requireAuth, builder: (context, state) => const BizFeedScreen()),
+      // Biz payments (Stripe escrow): checkout, orders, payouts.
+      GoRoute(path: '/biz/checkout/:productId', redirect: _requireAuth, builder: (context, state) => CheckoutScreen(productId: state.pathParameters['productId']!)),
+      GoRoute(path: '/biz/orders', redirect: _requireAuth, builder: (context, state) => const OrdersScreen()),
+      GoRoute(path: '/biz/orders/:id', redirect: _requireAuth, builder: (context, state) => OrderDetailScreen(orderId: state.pathParameters['id']!)),
+      GoRoute(path: '/biz/payouts', redirect: _requireAuth, builder: (context, state) => const PayoutsScreen()),
       GoRoute(path: '/hub/discover', redirect: _requireAuth, builder: (context, state) => const GlobalSearchScreen()),
       GoRoute(path: '/profile/earnings', redirect: _requireAuth, builder: (context, state) => const EarningsScreen()),
       GoRoute(path: '/profile/security', redirect: _requireAuth, builder: (context, state) => const SecurityCenterScreen()),

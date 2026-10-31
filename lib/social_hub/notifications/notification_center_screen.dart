@@ -15,6 +15,7 @@ import '../../backend/notifications/providers/notification_service.dart';
 import '../../backend/notifications/services/follower_alert_service.dart';
 import '../../backend/social/repositories/relationship_repository.dart';
 import '../../shared/theme/app_theme.dart';
+import '../../shared/services/play_update_service.dart';
 
 /// Filter chips shown above the list. `null` categories means "no category
 /// filter" (All / Unread).
@@ -47,6 +48,11 @@ const _filters = <_Filter>[
     AppNotificationCategory.subscription,
     AppNotificationCategory.share,
     AppNotificationCategory.repost,
+  }),
+  _Filter('updates', 'Updates', Icons.system_update_rounded, {
+    AppNotificationCategory.appUpdate,
+    AppNotificationCategory.recommendation,
+    AppNotificationCategory.profileTip,
   }),
 ];
 
@@ -499,6 +505,12 @@ class _SectionHeader extends StatelessWidget {
     case AppNotificationCategory.aiSuggestion:
     case AppNotificationCategory.automation:
       return (icon: Icons.auto_awesome_rounded, color: AppColors.brandPink);
+    case AppNotificationCategory.appUpdate:
+      return (icon: Icons.system_update_rounded, color: AppColors.brandBlue);
+    case AppNotificationCategory.recommendation:
+      return (icon: Icons.tune_rounded, color: AppColors.brandPink);
+    case AppNotificationCategory.profileTip:
+      return (icon: Icons.person_outline_rounded, color: AppColors.brandBlue);
     default:
       return (icon: Icons.notifications_rounded, color: AppColors.brandBlue);
   }
@@ -511,6 +523,10 @@ class _NotificationTile extends ConsumerWidget {
   void _open(BuildContext context, WidgetRef ref) {
     HapticFeedback.lightImpact();
     if (!notification.isRead) ref.read(notificationServiceProvider).markAsRead(notification.id);
+    if (notification.category == AppNotificationCategory.appUpdate) {
+      PlayUpdateService.instance.updateNow();
+      return;
+    }
     final route = notification.route;
     if (route != null) context.push(route);
   }

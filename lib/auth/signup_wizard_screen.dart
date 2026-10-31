@@ -23,6 +23,7 @@ import 'services/oneova_username_service.dart';
 import 'services/oneova_smart_phone_engine.dart';
 import 'services/account_link_service.dart';
 import 'widgets/onboarding_identity_fields.dart';
+import 'widgets/oneova_auth_backdrop.dart';
 import 'security/login_security.dart';
 
 class SignupWizardScreen extends ConsumerStatefulWidget {
@@ -32,7 +33,7 @@ class SignupWizardScreen extends ConsumerStatefulWidget {
   ConsumerState<SignupWizardScreen> createState() => _SignupWizardScreenState();
 }
 
-class _SignupWizardScreenState extends ConsumerState<SignupWizardScreen> {
+class _SignupWizardScreenState extends ConsumerState<SignupWizardScreen> with OneovaImmersiveAuth<SignupWizardScreen> {
   final PageController _pageController = PageController();
   int _currentStep = 0;
   static const int _totalSteps = 4;
@@ -165,7 +166,7 @@ class _SignupWizardScreenState extends ConsumerState<SignupWizardScreen> {
           _usernameController.text = email.split('@').first.replaceAll(RegExp(r'[^a-zA-Z0-9_]'), '');
           _checkUsernameAvailability(_usernameController.text);
         }
-      } else if (!_googleDataApplied && (extra['fromTikTok'] == true || extra['fromFacebook'] == true)) {
+      } else if (!_googleDataApplied && (extra['name'] is String)) {
         _googleDataApplied = true;
         final name = extra['name'] as String? ?? '';
         if (name.isNotEmpty && _nameController.text.isEmpty) {
@@ -948,7 +949,6 @@ class _SignupWizardScreenState extends ConsumerState<SignupWizardScreen> {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final isDark = theme.brightness == Brightness.dark;
-    final bgColor = isDark ? AppColors.darkBackground : AppColors.lightBackground;
     final surfaceColor = isDark ? AppColors.darkSurface : AppColors.lightSurface;
     final borderColor = isDark ? AppColors.outline : AppColors.lightBorder;
     final textPrimary = isDark ? AppColors.textPrimary : AppColors.lightTextPrimary;
@@ -961,12 +961,14 @@ class _SignupWizardScreenState extends ConsumerState<SignupWizardScreen> {
       'VIP Creator Pass',
     ];
 
-    return Scaffold(
-      backgroundColor: bgColor,
+    return OneovaAuthBackdrop(
+      child: Scaffold(
+      backgroundColor: Colors.transparent,
       appBar: PreferredSize(
         preferredSize: const Size.fromHeight(56),
         child: AppBar(
-          backgroundColor: bgColor,
+          backgroundColor: Colors.transparent,
+          surfaceTintColor: Colors.transparent,
           elevation: 0,
           leading: IconButton(
             icon: Icon(Icons.arrow_back, color: textPrimary, size: 20),
@@ -982,6 +984,10 @@ class _SignupWizardScreenState extends ConsumerState<SignupWizardScreen> {
                   fontWeight: FontWeight.w700,
                   color: textPrimary,
                 ),
+              ),
+              Text(
+                'the reason you matter',
+                style: GoogleFonts.inter(fontSize: 9.5, fontWeight: FontWeight.w600, color: textSecondary),
               ),
               const SizedBox(height: 1),
               Text(
@@ -1061,6 +1067,7 @@ class _SignupWizardScreenState extends ConsumerState<SignupWizardScreen> {
           ),
         ),
       ),
+    ),
     );
   }
 
@@ -1560,7 +1567,7 @@ class _SignupWizardScreenState extends ConsumerState<SignupWizardScreen> {
                       ),
                       Text(
                         _isAnalyzingSafety
-                            ? 'Scanning credentials with OpenRouter model...'
+                            ? 'Checking your details...'
                             : 'Protection Score: ${_aiSafetyReport?.safetyScore ?? 98}/100 • Safe & Verified',
                         style: GoogleFonts.inter(
                           fontSize: 11,

@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 // ignore_for_file: avoid_print
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:cloud_functions/cloud_functions.dart';
@@ -260,12 +261,24 @@ class SearchService {
     }
   }
 
-  /// Semantic Search using the backend Cloud Function
+  /// Smart search: the server (`globalSemanticSearch`, Gemini on Vertex AI)
+  /// turns a natural-language query into a few search terms; each term then
+  /// runs through [exactSearch] here and the results are merged. Falls back
+  /// to a plain search when the server is unreachable.
   Future<List<SearchResult>> semanticSearch({
     required String query,
     SearchEntityType? type,
     int limit = 20,
   }) async {
+    final merged = <SearchResult>[];
+    final seen = <String>{};
+    void add(Iterable<SearchResult> list) {
+      for (final r in list) {
+        if (seen.add('${r.type.name}:${r.id}')) merged.add(r);
+      }
+    }
+
+    var terms = <String>[];
     try {
       final callable = _functions.httpsCallable('globalSemanticSearch');
       final response = await callable.call({
@@ -273,19 +286,22 @@ class SearchService {
         'limit': limit,
         if (type != null && type != SearchEntityType.unknown) 'type': type.name,
       });
-
-      final data = response.data as Map<String, dynamic>;
-      final resultsList = data['results'] as List<dynamic>;
-
-      return resultsList.map((item) {
-        return SearchResult.fromMap(
-          Map<String, dynamic>.from(item),
-          item['id'] ?? '',
-        );
-      }).toList();
+      final data = Map<String, dynamic>.from(response.data as Map);
+      terms = (data['terms'] as List? ?? const []).whereType<String>().toList();
+      add((data['results'] as List? ?? const []).map((item) {
+        final m = Map<String, dynamic>.from(item as Map);
+        return SearchResult.fromMap(m, (m['id'] ?? '') as String);
+      }));
     } catch (e) {
-      print('Semantic search error: \$e');
-      return [];
+      debugPrint('Smart search unavailable, using plain search: $e');
     }
+
+    add(await exactSearch(query: query, type: type, limit: limit));
+    for (final t in terms.take(3)) {
+      if (merged.length >= limit) break;
+      if (t == query.trim().toLowerCase()) continue;
+      add(await exactSearch(query: t, type: type, limit: limit ~/ 2));
+    }
+    return merged.length > limit ? merged.sublist(0, limit) : merged;
   }
 }

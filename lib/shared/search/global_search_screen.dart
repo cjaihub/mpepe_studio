@@ -133,8 +133,8 @@ class _GlobalSearchScreenState extends ConsumerState<GlobalSearchScreen> {
         actions: [
           Tooltip(
             message: searchState.isSemanticEnabled
-                ? 'AI Semantic Search Enabled'
-                : 'Enable AI Semantic Search',
+                ? 'Smart search is on'
+                : 'Turn on smart search',
             child: IconButton(
               icon: Icon(
                 searchState.isSemanticEnabled ? Icons.auto_awesome : Icons.auto_awesome_outlined,

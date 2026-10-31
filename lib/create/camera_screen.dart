@@ -29,6 +29,9 @@ import '../looks/camera/widgets/camera_smart_lock_hud.dart';
 import '../looks/camera/widgets/camera_pro_controls_deck.dart';
 import '../looks/camera/widgets/camera_looks_dock.dart';
 import '../looks/camera/services/camera_quick_access_service.dart';
+import '../looks/ar/controllers/live_ar_controller.dart';
+import '../looks/ar/render/ar_viewfinder.dart';
+import '../looks/ar/widgets/ar_effects_sheet.dart';
 
 /// OneOva Pro — Camera & Story Creator Studio
 /// Obsidian Telemetry Theme (#08080A, #FF2D75, #00F2FE)
@@ -56,7 +59,11 @@ class _CameraScreenState extends ConsumerState<CameraScreen> with WidgetsBinding
   bool _showGrid = true;
   bool _isBeautyRetouchOn = true;
   int _timerSeconds = 0; // 0 (off), 3, 10
-  bool _isGreenScreenOn = false;
+  // Live AR effects run ML Kit on the preview stream; at 4K the frames are
+  // too heavy to track, so the camera drops to 720p while effects are on.
+  bool _arResolution = false;
+  ProviderSubscription<LiveArState>? _arSub;
+  late final LiveArController _ar;
   int _recordingSecondsElapsed = 0;
   Timer? _recordingTimer;
 
@@ -118,7 +125,36 @@ class _CameraScreenState extends ConsumerState<CameraScreen> with WidgetsBinding
         _startVideoRecording();
       }
     });
+    _arSub = ref.listenManual<LiveArState>(liveArControllerProvider, (prev, next) {
+      if (!next.needs.any || !mounted) return;
+      if (!_arResolution) {
+        _arResolution = true;
+        _reinitCamera();
+      } else {
+        _attachAr();
+      }
+    });
+    _ar = ref.read(liveArControllerProvider.notifier);
+    _arResolution = ref.read(liveArControllerProvider).needs.any;
     _initCamera();
+  }
+
+  void _attachAr() {
+    final c = _cameraController;
+    if (c == null || !c.value.isInitialized || _cameras.isEmpty) return;
+    ref
+        .read(liveArControllerProvider.notifier)
+        .attachCamera(c, _cameras[_selectedCameraIndex.clamp(0, _cameras.length - 1)]);
+  }
+
+  Future<void> _reinitCamera() async {
+    if (_isRecording) return;
+    ref.read(liveArControllerProvider.notifier).detachCamera();
+    final old = _cameraController;
+    _cameraController = null;
+    if (mounted) setState(() => _isInitialized = false);
+    await old?.dispose();
+    await _initCamera();
   }
 
   Future<void> _initCamera() async {
@@ -132,9 +168,10 @@ class _CameraScreenState extends ConsumerState<CameraScreen> with WidgetsBinding
       final camera = _cameras[_selectedCameraIndex.clamp(0, _cameras.length - 1)];
       _cameraController = CameraController(
         camera,
-        ResolutionPreset.ultraHigh,
+        _arResolution ? ResolutionPreset.high : ResolutionPreset.ultraHigh,
         enableAudio: true,
-        imageFormatGroup: Platform.isIOS ? ImageFormatGroup.bgra8888 : ImageFormatGroup.yuv420,
+        // NV21 is what ML Kit reads on Android (only the AR frame stream uses it).
+        imageFormatGroup: Platform.isIOS ? ImageFormatGroup.bgra8888 : ImageFormatGroup.nv21,
       );
 
       await _cameraController!.initialize();
@@ -142,6 +179,7 @@ class _CameraScreenState extends ConsumerState<CameraScreen> with WidgetsBinding
         setState(() {
           _isInitialized = true;
         });
+        _attachAr();
       }
     } catch (e) {
       debugPrint('Camera initialization error: $e');
@@ -154,6 +192,8 @@ class _CameraScreenState extends ConsumerState<CameraScreen> with WidgetsBinding
     WidgetsBinding.instance.removeObserver(this);
     _quickAccessSub?.cancel();
     _recordingTimer?.cancel();
+    _arSub?.close();
+    _ar.detachCamera();
     _cameraController?.dispose();
     _pairCodeController.dispose();
     super.dispose();
@@ -165,6 +205,7 @@ class _CameraScreenState extends ConsumerState<CameraScreen> with WidgetsBinding
     if (cameraController == null || !cameraController.value.isInitialized) return;
 
     if (state == AppLifecycleState.inactive) {
+      _ar.detachCamera();
       cameraController.dispose();
     } else if (state == AppLifecycleState.resumed) {
       _initCamera();
@@ -183,8 +224,16 @@ class _CameraScreenState extends ConsumerState<CameraScreen> with WidgetsBinding
     if (_cameraController != null && _cameraController!.value.isInitialized && !_isRecording) {
       try {
         final XFile photo = await _cameraController!.takePicture();
+        var path = photo.path;
+        if (ref.read(liveArControllerProvider).hasAnything) {
+          try {
+            path = await ref.read(liveArControllerProvider.notifier).bakePhoto(photo.path) ?? path;
+          } catch (e) {
+            debugPrint('AR photo bake failed: $e');
+          }
+        }
         if (mounted) {
-          _navigateToPreview(photo.path, isVideo: false);
+          _navigateToPreview(path, isVideo: false);
         }
         return;
       } catch (e) {
@@ -213,6 +262,11 @@ class _CameraScreenState extends ConsumerState<CameraScreen> with WidgetsBinding
     }
 
     if (_cameraController != null && _cameraController!.value.isInitialized) {
+      if (ref.read(liveArControllerProvider).hasAnything && mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Effects are saved into photos. Videos record without them for now.')),
+        );
+      }
       try {
         await _cameraController!.startVideoRecording();
       } catch (e) {
@@ -298,6 +352,7 @@ class _CameraScreenState extends ConsumerState<CameraScreen> with WidgetsBinding
       return;
     }
     _selectedCameraIndex = (_selectedCameraIndex + 1) % _cameras.length;
+    ref.read(liveArControllerProvider.notifier).detachCamera();
     await _cameraController?.dispose();
     setState(() => _isInitialized = false);
     await _initCamera();
@@ -742,6 +797,7 @@ class _CameraScreenState extends ConsumerState<CameraScreen> with WidgetsBinding
     if (_isInitialized && _cameraController != null && _cameraController!.value.isInitialized) {
       Widget preview = CameraPreview(_cameraController!);
       preview = ColorFiltered(colorFilter: colorFilter, child: preview);
+      preview = ArViewfinder(preview: preview);
 
       return SizedBox.expand(
         child: FittedBox(
@@ -1228,6 +1284,9 @@ class _CameraScreenState extends ConsumerState<CameraScreen> with WidgetsBinding
   // ────────────────────────────────────────────────────────────────────────
   // 4. Right Creative Quick Tools Toolbar
   // ────────────────────────────────────────────────────────────────────────
+  bool get _isGreenScreenOn =>
+      ref.watch(liveArControllerProvider.select((s) => s.backgroundMode != ArBackgroundMode.none));
+
   Widget _buildRightCreativeToolbar() {
     return Container(
       padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 5),
@@ -1242,6 +1301,16 @@ class _CameraScreenState extends ConsumerState<CameraScreen> with WidgetsBinding
         children: [
           // 1. Flip Camera
           _buildToolbarButton(icon: Icons.flip_camera_ios_rounded, onTap: _toggleFlipCamera, tooltip: 'Flip Camera'),
+          const SizedBox(height: 10),
+
+          // AR face / body effects
+          _buildToolbarButton(
+            icon: Icons.face_retouching_natural,
+            color: ref.watch(liveArControllerProvider.select((s) => s.active.isNotEmpty)) ? brandPink : Colors.white,
+            hasCheckBadge: ref.watch(liveArControllerProvider.select((s) => s.active.isNotEmpty)),
+            onTap: () => showArEffectsSheet(context),
+            tooltip: 'Effects',
+          ),
           const SizedBox(height: 10),
 
           // 2. Preset Drawer ("PRESETS")
@@ -1319,7 +1388,13 @@ class _CameraScreenState extends ConsumerState<CameraScreen> with WidgetsBinding
             hasCheckBadge: _isGreenScreenOn,
             onTap: () {
               HapticFeedback.selectionClick();
-              setState(() => _isGreenScreenOn = !_isGreenScreenOn);
+              // Real person segmentation: off if a background is on, else
+              // open Effects where blur / scene / "add yourself" live.
+              if (_isGreenScreenOn) {
+                ref.read(liveArControllerProvider.notifier).clearBackground();
+              } else {
+                showArEffectsSheet(context);
+              }
             },
             tooltip: 'Green Screen',
           ),

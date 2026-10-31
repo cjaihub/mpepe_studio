@@ -578,7 +578,7 @@ class _ActivityScreenState extends ConsumerState<ActivityScreen> {
                 ),
                 const SizedBox(height: 3),
                 Text(
-                  'Autonomous Gemini self-repair engine is actively monitoring schemas and media pipelines.',
+                  'Ova keeps an eye on your account and uploads and fixes problems for you.',
                   style: GoogleFonts.inter(
                     fontSize: 11,
                     color: context.textSecondary,
@@ -1112,7 +1112,7 @@ class _ActivityScreenState extends ConsumerState<ActivityScreen> {
                     icon: Icons.smart_toy_rounded,
                     title: '4. AI & Synthetic Media Transparency',
                     body:
-                        'Media generated or substantially edited using Gemini Live or Mask Engine must carry an AI-generated disclosure label. Deceptive deepfakes or non-consensual synthetic likenesses are strictly prohibited.',
+                        'Media generated or substantially edited with Ova or AI effects must carry an AI-generated disclosure label. Deceptive deepfakes or non-consensual synthetic likenesses are strictly prohibited.',
                   ),
                   _buildPolicyCard(
                     icon: Icons.lock_person_rounded,

@@ -40,7 +40,7 @@ class HubActivityScreen extends StatelessWidget {
             ),
             _buildActivityRow(
               context: context,
-              title: 'Gemini suggests posting Thursday at 6 PM for peak reach',
+              title: 'Ova suggests posting Thursday at 6 PM for peak reach',
               meta: 'AI Assistant · 1 day ago',
               icon: Icons.auto_awesome,
               isAi: true,

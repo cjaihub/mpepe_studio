@@ -742,7 +742,7 @@ Top Audience Countries: ${jsonEncode(geoData)}
           "*Fast snap-zoom onto phone screen with sound effect.*\n"
           "> *\"Stop editing your reels manually in 2026—watch this.\"*\n\n"
           "**[1.8s – 8.0s] The Core Value:**\n"
-          "*Screen recording of Oneova Assistant executing an automated LinUCB algorithm boost and LUT color grading in Oneova Pro Studio.*\n"
+          "*Screen recording of Oneova Assistant boosting a reel and color grading it in Oneova Pro Studio.*\n"
           "> *\"Ova Assistant runs autonomous workflows across your desktop workstation and device without heating your hardware.\"*\n\n"
           "**[8.0s – 12.5s] The Proof / Result:**\n"
           "*Split-screen before/after showing instant render and trending analytics on Oneova Reels feed.*\n\n"
@@ -755,7 +755,7 @@ Top Audience Countries: ${jsonEncode(geoData)}
         return AiTextResponse(
           "Hello! I am **Ova Assistant**—your autonomous AI creative partner.\n\n"
           "I can run autonomous workflows for you right now:\n"
-          "- **Boost to Oneova Reels**: Fast-track distribution via LinUCB multi-armed bandit algorithm.\n"
+          "- **Boost to Oneova Reels**: Help more people discover your post.\n"
           "- **Safety & Burn Notice Audit**: Comprehensive policy & content validation.\n"
           "- **Live Stage Digital Twin**: Autonomous host persona for your live broadcast.\n"
           "- **Workstation Control**: Remote render, LUT match, or passkey unlock for Oneova Pro Workstation.\n\n"
@@ -767,7 +767,7 @@ Top Audience Countries: ${jsonEncode(geoData)}
         "### 🧠 Oneova AI • Creative Intelligence\n\n"
         "I've processed your request: **\"${lastUserMsg is String ? lastUserMsg : ''}\"**.\n\n"
         "You can run any autonomous procedure directly (e.g. *\"Boost to Oneova Reels\"*, *\"Safety audit\"*, *\"Live stage digital twin\"*).\n\n"
-        "*(To link cloud LLMs like Claude 3.5 Sonnet or GPT-4o, sign in to Oneova or add your own OpenRouter key in AI Settings.)*"
+        "*(Sign in to Oneova to get full answers from Ova.)*"
       );
     }
     

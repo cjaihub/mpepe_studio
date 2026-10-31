@@ -49,7 +49,7 @@ import 'package:oneova/backend/social/repositories/audio_track_repository.dart';
 import 'package:oneova/backend/recommendation/algorithm/oneova_algorithm_models.dart';
 import 'package:oneova/backend/recommendation/algorithm/online_feature_store.dart';
 import '../auth/widgets/auth_interaction_gate.dart';
-import '../backend/routing/oneova_share_engine.dart';
+import '../social_hub/feed/widgets/share_sheet.dart';
 import '../shared/widgets/advanced_voice_interface.dart';
 import '../widgets/oneova_assistant_overlay.dart';
 import 'dart:async';
@@ -1215,7 +1215,7 @@ class _ShortVideoItemState extends ConsumerState<_ShortVideoItem> with TickerPro
   bool? _optimisticIsSaved;
   int _optimisticSaveDelta = 0;
 
-  int _optimisticShareDelta = 0;
+  final int _optimisticShareDelta = 0;
 
   Offset? _lastTapPosition;
   Offset? _burstHeartPosition;
@@ -1872,45 +1872,9 @@ class _ShortVideoItemState extends ConsumerState<_ShortVideoItem> with TickerPro
                   AuthInteractionGate.requireAuth(
                     context,
                     actionTitle: 'share videos and generate links',
-                    onAuthenticated: () async {
-                      setState(() {
-                        _optimisticShareDelta += 1;
-                      });
-                      try {
-                        await interactionRepo.repostContent(uid, widget.content.id);
-                        ref.read(recommendationServiceProvider).trackEvent(uid, widget.content.id, ContentInteractionType.share, {});
-                        final shareUrl = OneovaShareEngine().generateWebShareUrl(widget.content.id);
-                        await Clipboard.setData(ClipboardData(text: shareUrl));
-                        if (context.mounted) {
-                          ScaffoldMessenger.of(context).showSnackBar(
-                            SnackBar(
-                              content: Text('Universal link copied: $shareUrl'),
-                              backgroundColor: AppColors.brandBlue,
-                              behavior: SnackBarBehavior.floating,
-                              duration: const Duration(seconds: 3),
-                            ),
-                          );
-                        }
-                      } catch (e) {
-                        if (mounted) {
-                          setState(() {
-                            _optimisticShareDelta -= 1;
-                          });
-                          if (context.mounted) {
-                            ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Failed to share content')));
-                          }
-                        }
-                      } finally {
-                        if (mounted) {
-                          Future.delayed(const Duration(milliseconds: 500), () {
-                            if (mounted) {
-                              setState(() {
-                                _optimisticShareDelta = 0;
-                              });
-                            }
-                          });
-                        }
-                      }
+                    onAuthenticated: () {
+                      ref.read(recommendationServiceProvider).trackEvent(uid, widget.content.id, ContentInteractionType.share, {});
+                      ShareSheet.show(context, postId: widget.content.id, authorId: widget.content.authorId);
                     },
                   );
                 },

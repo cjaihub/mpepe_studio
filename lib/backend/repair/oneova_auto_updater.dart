@@ -59,7 +59,7 @@ class OneOvaAutoUpdater {
           'latestBuildNumber': 1,
           'channel': updateChannel,
           'downloadUrl': 'https://oneova.app/download/latest.apk',
-          'releaseNotes': 'Initial stable release with Gemini AI and Autonomous Self-Repair.',
+          'releaseNotes': 'First stable release with Ova and automatic account checks.',
           'isMandatory': false,
           'updatedAt': FieldValue.serverTimestamp(),
         }, SetOptions(merge: true));

@@ -82,6 +82,7 @@ class _SocialIntegrationDashboardState extends ConsumerState<SocialIntegrationDa
     final accounts = accountsAsync.value ?? const <LinkedAccount>[];
     final unread = ref.watch(platformUnreadCountsProvider);
     final unreadTotal = unread.values.fold<int>(0, (a, b) => a + b);
+    final readiness = ref.watch(connectorReadinessProvider).value;
 
     return Scaffold(
       backgroundColor: context.bg,
@@ -122,6 +123,7 @@ class _SocialIntegrationDashboardState extends ConsumerState<SocialIntegrationDa
                           accounts: accounts.where((a) => a.platform == p).toList(),
                           loading: accountsAsync.isLoading && accounts.isEmpty,
                           busy: _busy.contains(p),
+                          readiness: readiness?[p],
                           onConnect: () => _connect(p),
                           onDisconnect: _disconnect,
                         ),
@@ -227,10 +229,13 @@ class _PlatformRow extends StatelessWidget {
   final List<LinkedAccount> accounts;
   final bool loading;
   final bool busy;
+  /// Null while the status check runs.
+  final ConnectorReadiness? readiness;
   final VoidCallback onConnect;
   final ValueChanged<LinkedAccount> onDisconnect;
 
   const _PlatformRow({
+    this.readiness,
     required this.platform,
     required this.accounts,
     required this.loading,
@@ -249,7 +254,8 @@ class _PlatformRow extends StatelessWidget {
     ];
     final account = accounts.firstOrNull;
     final usable = account?.isUsable ?? false;
-    final statusText = switch (account?.status) {
+    final waiting = readiness != null && !readiness!.ready && !usable;
+    final statusText = waiting ? (readiness!.note.isEmpty ? 'Waiting for setup' : readiness!.note) : switch (account?.status) {
       LinkStatus.connected => accounts.length > 1 ? '${account!.accountName} +${accounts.length - 1}' : account!.accountName,
       LinkStatus.expired => 'Sign-in expired',
       LinkStatus.needsReconnect => 'Not verified, reconnect',
@@ -257,8 +263,25 @@ class _PlatformRow extends StatelessWidget {
     };
 
     Widget action;
-    if (busy) {
+    if (busy || (readiness == null && !usable)) {
       action = const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2));
+    } else if (waiting) {
+      action = Container(
+        padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 5),
+        decoration: BoxDecoration(
+          color: context.surfaceMid,
+          borderRadius: BorderRadius.circular(AppRadius.full),
+          border: Border.all(color: context.border),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(Icons.hourglass_top_rounded, size: 12, color: context.textMuted),
+            const SizedBox(width: 4),
+            Text('Coming soon', style: GoogleFonts.inter(fontSize: 11, fontWeight: FontWeight.w600, color: context.textSecondary)),
+          ],
+        ),
+      );
     } else if (usable) {
       action = TextButton(
         onPressed: () => onDisconnect(account!),

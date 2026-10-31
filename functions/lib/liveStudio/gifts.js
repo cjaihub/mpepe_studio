@@ -80,6 +80,8 @@ exports.lsGift = (0, https_1.onCall)({ secrets: shared_1.LIVEKIT_SECRETS }, asyn
         tx.set(feed, { recent: (0, gift_logic_1.pushRecent)(f.get('recent'), recent), updatedAt: firestore_1.FieldValue.serverTimestamp() }, { merge: true });
         tx.set((0, shared_1.db)().doc(`${contracts_1.Paths.streams}/${streamId}/studio_gift_totals/${uid}`), { uid, name, avatarUrl, coins: firestore_1.FieldValue.increment(total), lastAtMs: now }, { merge: true });
         tx.set((0, shared_1.db)().doc(`${contracts_1.Paths.streams}/${streamId}`), { giftCoins: firestore_1.FieldValue.increment(total), giftCount: firestore_1.FieldValue.increment(gift.qty) }, { merge: true });
+        // Gifter level (coins/coinEconomy.ts GIFTER_LEVELS).
+        tx.set((0, shared_1.db)().doc(`gifter_stats/${uid}`), { uid, lifetimeCoins: firestore_1.FieldValue.increment(total), giftsSent: firestore_1.FieldValue.increment(gift.qty), updatedAt: firestore_1.FieldValue.serverTimestamp() }, { merge: true });
         return have - total;
     });
     await (0, shared_1.broadcast)(streamId, 'studio.gift', { v: 1, type: 'gift', uid, name, giftId: gift.giftId, qty: gift.qty, ts: now }, { lossy: true });

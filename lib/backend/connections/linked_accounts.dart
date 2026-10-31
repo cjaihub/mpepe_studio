@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:cloud_functions/cloud_functions.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -169,6 +170,35 @@ class LinkedAccount {
     return out;
   }
 }
+
+/// Whether a platform's connect flow can work right now (server callable
+/// `connectorStatus`). Platforms missing here are "waiting for setup".
+class ConnectorReadiness {
+  final bool ready;
+  final String note;
+  const ConnectorReadiness(this.ready, [this.note = '']);
+}
+
+const _waitingNote = 'This connection is being set up. Check back soon.';
+
+final connectorReadinessProvider = FutureProvider<Map<LinkedPlatform, ConnectorReadiness>>((ref) async {
+  try {
+    final res = await FirebaseFunctions.instance.httpsCallable('connectorStatus').call<Map<String, dynamic>>();
+    final raw = Map<String, dynamic>.from(res.data['platforms'] as Map? ?? const {});
+    return {
+      for (final p in LinkedPlatform.values)
+        p: raw[p.id] is Map
+            ? ConnectorReadiness((raw[p.id] as Map)['ready'] == true, ((raw[p.id] as Map)['note'] ?? '').toString())
+            : (p == LinkedPlatform.youtube ? const ConnectorReadiness(true) : const ConnectorReadiness(false, _waitingNote)),
+    };
+  } catch (_) {
+    // Status check not available yet: only the phone-side Google flow is safe.
+    return {
+      for (final p in LinkedPlatform.values)
+        p: p == LinkedPlatform.youtube ? const ConnectorReadiness(true) : const ConnectorReadiness(false, _waitingNote),
+    };
+  }
+});
 
 /// Live list of the signed-in user's linked accounts.
 final linkedAccountsProvider = StreamProvider<List<LinkedAccount>>((ref) {

@@ -335,7 +335,7 @@ class _MainSettingsScreenState extends ConsumerState<MainSettingsScreen> {
                         context,
                         icon: Icons.auto_awesome_rounded,
                         title: 'AI Assistant',
-                        subtitle: 'Gemini reasoning models & voice persona tone',
+                        subtitle: 'Ova\'s voice, tone and smart features',
                         route: '/settings/ai',
                         categoryKey: 'ai',
                         showDivider: false,

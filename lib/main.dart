@@ -16,6 +16,9 @@ import 'providers/settings_provider.dart';
 import 'shared/router.dart';
 import 'backend/native_plugin_server.dart';
 import 'backend/firebase_service.dart';
+import 'backend/notifications/services/rich_notification_renderer.dart';
+import 'backend/user_profile_completion_service.dart';
+import 'social_hub/coins/incoming_gift_overlay.dart';
 import 'package:media_kit/media_kit.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'shared/notifications/notification_overlay_manager.dart';
@@ -43,7 +46,9 @@ Future<void> _firebaseMessagingBackgroundHandler(RemoteMessage message) async {
   }
   debugPrint('FCM background message: ${message.messageId}');
   // Incoming/cancelled calls ring natively (full-screen on the lock screen).
-  await handleCallPushInBackground(message);
+  if (await handleCallPushInBackground(message)) return;
+  // Rich activity pushes (photo, grouping, Reply / Like / Follow back).
+  await OneovaRichNotifications.showFromData(message.data);
 }
 
 /// Entrypoint of the compact Ova overlay shown over other apps and the lock
@@ -154,6 +159,11 @@ class _OneOvaAppState extends ConsumerState<OneOvaApp> with WidgetsBindingObserv
     super.initState();
     WidgetsBinding.instance.addObserver(this);
     PlayUpdateService.instance.check();
+    // A gentle, at most weekly note about missing profile details, sent once
+    // the person has settled in rather than at launch.
+    Future.delayed(const Duration(minutes: 2), () {
+      if (mounted) ref.read(userProfileCompletionServiceProvider).nudgeIfIncomplete();
+    });
   }
 
   @override
@@ -249,7 +259,9 @@ class _OneOvaAppState extends ConsumerState<OneOvaApp> with WidgetsBindingObserv
       child: OvaAssistantGlobalWrapper(
         child: CallOverlayManager(
           child: NotificationOverlayManager(
-            child: OvaGuardWatcher(child: child ?? const SizedBox.shrink()),
+            child: IncomingGiftOverlay(
+              child: OvaGuardWatcher(child: child ?? const SizedBox.shrink()),
+            ),
           ),
         ),
       ),

@@ -83,6 +83,12 @@ export const lsGift = onCall({ secrets: LIVEKIT_SECRETS }, async (req) => {
       { giftCoins: FieldValue.increment(total), giftCount: FieldValue.increment(gift.qty) },
       { merge: true },
     );
+    // Gifter level (coins/coinEconomy.ts GIFTER_LEVELS).
+    tx.set(
+      db().doc(`gifter_stats/${uid}`),
+      { uid, lifetimeCoins: FieldValue.increment(total), giftsSent: FieldValue.increment(gift.qty), updatedAt: FieldValue.serverTimestamp() },
+      { merge: true },
+    );
     return have - total;
   });
 

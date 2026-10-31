@@ -18,7 +18,7 @@ enum AuthFactor {
   /// SMS code, verified by Firebase Phone Auth.
   smsOtp,
 
-  /// Google / Facebook / TikTok sign-in, verified by Firebase Auth.
+  /// Google sign-in, verified by Firebase Auth.
   federated,
 
   /// Fingerprint / face, verified by the OS (local_auth).
