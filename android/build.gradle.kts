@@ -26,6 +26,14 @@ subprojects {
         }
     }
 }
+// stripe_android's release lint classpath pulls Google's private tapandpay
+// artifact (push provisioning, unused here), which isn't on public Maven, so
+// its lintVital task can't resolve and fails every release build.
+subprojects {
+    if (project.name == "stripe_android") {
+        tasks.matching { it.name.startsWith("lintVital") }.configureEach { enabled = false }
+    }
+}
 subprojects {
     project.evaluationDependsOn(":app")
 }
