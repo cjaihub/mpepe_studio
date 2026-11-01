@@ -197,11 +197,18 @@ class _LiveVoiceModeScreenState extends ConsumerState<LiveVoiceModeScreen> {
       mainAxisAlignment: MainAxisAlignment.center,
       children: [
         _ControlBtn(
+          icon: state.voiceEnhanced ? Icons.graphic_eq_rounded : Icons.noise_aware_rounded,
+          isActive: state.voiceEnhanced,
+          activeColor: AppColors.brandBlue,
+          onTap: notifier.toggleVoiceEnhance,
+        ),
+        const SizedBox(width: 20),
+        _ControlBtn(
           icon: state.isMuted ? Icons.mic_off : Icons.mic,
           isActive: state.isMuted,
           onTap: notifier.toggleMute,
         ),
-        const SizedBox(width: 32),
+        const SizedBox(width: 24),
         _ControlBtn(
           icon: Icons.call_end,
           isActive: true,

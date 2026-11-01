@@ -1,5 +1,4 @@
 import 'dart:async';
-import 'dart:typed_data';
 
 import 'package:firebase_ai/firebase_ai.dart';
 import 'package:firebase_remote_config/firebase_remote_config.dart';
@@ -23,11 +22,16 @@ class GeminiLiveState {
   final String? currentError;
   final bool isMuted;
 
+  /// Clean up my voice: noise suppression, echo cancellation and auto gain
+  /// on the voice-call microphone source before audio reaches the model.
+  final bool voiceEnhanced;
+
   GeminiLiveState({
     this.state = LiveVoiceState.disconnected,
     this.transcript = const [],
     this.currentError,
     this.isMuted = false,
+    this.voiceEnhanced = true,
   });
 
   GeminiLiveState copyWith({
@@ -35,12 +39,14 @@ class GeminiLiveState {
     List<String>? transcript,
     String? currentError,
     bool? isMuted,
+    bool? voiceEnhanced,
   }) {
     return GeminiLiveState(
       state: state ?? this.state,
       transcript: transcript ?? this.transcript,
       currentError: currentError ?? this.currentError,
       isMuted: isMuted ?? this.isMuted,
+      voiceEnhanced: voiceEnhanced ?? this.voiceEnhanced,
     );
   }
 }
@@ -111,10 +117,17 @@ class GeminiLiveService extends Notifier<GeminiLiveState> {
       state = state.copyWith(currentError: 'Microphone permission denied.');
       return;
     }
-    final audioStream = await _audioRecorder.startStream(const RecordConfig(
+    final clean = state.voiceEnhanced;
+    final audioStream = await _audioRecorder.startStream(RecordConfig(
       encoder: AudioEncoder.pcm16bits,
       sampleRate: 16000,
       numChannels: 1,
+      noiseSuppress: clean,
+      echoCancel: clean,
+      autoGain: clean,
+      androidConfig: AndroidRecordConfig(
+        audioSource: clean ? AndroidAudioSource.voiceCommunication : AndroidAudioSource.defaultSource,
+      ),
     ));
     _recorderSubscription = audioStream.listen((data) {
       final session = _session;
@@ -193,6 +206,16 @@ class GeminiLiveService extends Notifier<GeminiLiveState> {
 
   void toggleMute() {
     state = state.copyWith(isMuted: !state.isMuted);
+  }
+
+  /// Turns voice clean-up on or off; restarts the microphone if it's running.
+  Future<void> toggleVoiceEnhance() async {
+    state = state.copyWith(voiceEnhanced: !state.voiceEnhanced);
+    if (_session == null || _recorderSubscription == null) return;
+    await _recorderSubscription?.cancel();
+    _recorderSubscription = null;
+    await _audioRecorder.stop();
+    await _startRecording();
   }
 
   void disconnect() {
