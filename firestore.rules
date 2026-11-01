@@ -504,9 +504,13 @@ service cloud.firestore {
     // ─── Content & Engagement Collections ────────────────────────────────────
     match /content/{contentId} {
       allow read: if canReadAuthorContent(resource.data.authorId);
-      allow create: if isSignedIn() && !isSuspended() && request.resource.data.authorId == request.auth.uid;
+      // destination / click counters are written only by contentSetDestination
+      // and contentOpenDestination (functions/src/feed/destinationLinks.ts).
+      allow create: if isSignedIn() && !isSuspended() && request.resource.data.authorId == request.auth.uid &&
+                       !request.resource.data.keys().hasAny(['destination', 'destinationClicks', 'destinationUniqueClicks']);
       allow update: if isSignedIn() && !isSuspended() && (
-        (resource.data.authorId == request.auth.uid && request.resource.data.authorId == resource.data.authorId) ||
+        (resource.data.authorId == request.auth.uid && request.resource.data.authorId == resource.data.authorId &&
+         !request.resource.data.diff(resource.data).affectedKeys().hasAny(['destination', 'destinationClicks', 'destinationUniqueClicks'])) ||
         isEngagementCounterUpdate() ||
         // A collaborator accepting/leaving adds or removes only themselves.
         (onlyChanges(['coAuthorIds']) &&

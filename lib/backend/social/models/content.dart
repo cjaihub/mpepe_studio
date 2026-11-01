@@ -75,6 +75,46 @@ class MediaMetadata {
   }
 }
 
+/// Validated destination link of a post (functions/src/feed/destinationLinks.ts).
+class ContentDestination {
+  final String kind; // product | shop | profile | live | web
+  final String? url;
+  final String? host;
+  final String? route; // in-app go_router path
+  final String? productId;
+  final String label;
+  final String verdict; // safe | suspicious | dangerous
+
+  const ContentDestination({
+    required this.kind,
+    this.url,
+    this.host,
+    this.route,
+    this.productId,
+    required this.label,
+    this.verdict = 'safe',
+  });
+
+  bool get isInApp => route != null && route!.startsWith('/');
+
+  static ContentDestination? fromMap(Object? raw) {
+    if (raw is! Map) return null;
+    if (raw['status'] != 'ok') return null;
+    final route = raw['route'] as String?;
+    final url = raw['url'] as String?;
+    if ((route == null || route.isEmpty) && (url == null || url.isEmpty)) return null;
+    return ContentDestination(
+      kind: raw['kind'] as String? ?? 'web',
+      url: url,
+      host: raw['host'] as String?,
+      route: route,
+      productId: raw['productId'] as String?,
+      label: (raw['label'] as String?)?.trim().isNotEmpty == true ? raw['label'] as String : 'Open link',
+      verdict: raw['verdict'] as String? ?? 'safe',
+    );
+  }
+}
+
 class Content {
   final String id;
   final String authorId;
@@ -111,6 +151,11 @@ class Content {
   final ContentAttribution? attribution;
   final DateTime createdAt;
 
+  /// Product / shop / web link on the post, written only by the server
+  /// (`contentSetDestination`); null when none or not validated yet.
+  final ContentDestination? destination;
+  final int destinationClicks;
+
   Content({
     required this.id,
     required this.authorId,
@@ -138,6 +183,8 @@ class Content {
     this.permissions = const CreatorPermissions(),
     this.attribution,
     required this.createdAt,
+    this.destination,
+    this.destinationClicks = 0,
   });
 
   factory Content.fromFirestore(DocumentSnapshot doc) {
@@ -170,6 +217,8 @@ class Content {
       followerConversions: (data['followerConversions'] as num?)?.toInt() ?? 0,
       downloadsPermitted: data['downloadsPermitted'] ?? true,
       createdAt: (data['createdAt'] as Timestamp?)?.toDate() ?? DateTime.now(),
+      destination: ContentDestination.fromMap(data['destination']),
+      destinationClicks: (data['destinationClicks'] as num?)?.toInt() ?? 0,
     );
   }
 

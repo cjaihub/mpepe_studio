@@ -158,6 +158,8 @@ class CommentService {
       isModerated: requiresModeration,
       videoReplyPostId: comment.videoReplyPostId,
       likerIds: comment.likerIds,
+      voiceDurationMs: comment.voiceDurationMs,
+      gif: comment.gif,
     );
 
     // Save to Firestore with atomic batch to update post comments, content comments, user profile, and counts

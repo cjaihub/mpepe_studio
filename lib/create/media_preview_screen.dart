@@ -11,11 +11,11 @@ import 'package:media_kit_video/media_kit_video.dart';
 import 'package:share_plus/share_plus.dart';
 
 import '../shared/theme/app_theme.dart';
-import '../services/upload_service.dart';
 import '../backend/publishing/models/publishing_destination.dart';
 import '../backend/connections/linked_accounts.dart' show LinkedPlatform;
 import '../shared/widgets/linked_destinations_picker.dart';
 import 'post/providers/post_draft_provider.dart';
+import '../services/pending_post_queue.dart';
 import 'post/services/post_search_service.dart';
 import 'post/services/openrouter_post_optimizer.dart';
 import 'post/widgets/caption_editor.dart';
@@ -24,7 +24,6 @@ import 'post/widgets/cover_picker_sheet.dart';
 import 'post/widgets/collaborator_sheet.dart';
 import 'post/widgets/advanced_settings_sheet.dart';
 import 'post/widgets/draft_status_pill.dart';
-import 'studio/widgets/studio_progress_dialog.dart';
 
 class MediaPreviewScreen extends ConsumerStatefulWidget {
   final String mediaPath;
@@ -298,61 +297,59 @@ class _MediaPreviewScreenState extends ConsumerState<MediaPreviewScreen> {
     setState(() => _isPosting = true);
     _syncStateToDraft();
 
-    // Stays on this screen until the upload lands: progress, then either
-    // home with the post live, or the error with Retry (nothing is lost).
-    final contentId = await runStudioTask<String>(
-      context,
-      title: widget.isVideo ? 'Posting reel' : 'Posting photo',
-      describeError: (e) => e is FirebaseException
-          ? 'Upload failed (${e.code}). Check your connection and try again.'
-          : (e is StateError ? e.message : 'Upload failed: $e'),
-      task: (onProgress) => UploadService.uploadPostInBackground(
+    // The post is stored on the phone first (media + settings), then uploads
+    // in the background: home opens right away with a progress pill, and a
+    // failed upload retries by itself instead of being lost.
+    final aspect = widget.isVideo &&
+            _player?.state.width != null &&
+            _player?.state.height != null &&
+            _player!.state.height! > 0
+        ? (_player!.state.width! / _player!.state.height!)
+        : null;
+    try {
+      await ref.read(pendingPostQueueProvider.notifier).enqueue(
         mediaPath: widget.mediaPath,
         isVideo: widget.isVideo,
-        title: _titleController.text.trim().isEmpty ? null : _titleController.text.trim(),
-        caption: _captionController.text.trim(),
-        privacy: _advancedSettings.privacy,
-        allowComments: _advancedSettings.allowComments,
-        allowDuet: _advancedSettings.allowDuet,
-        allowStitch: _advancedSettings.allowStitch,
-        allowDownload: _advancedSettings.allowDownload,
-        highQualityUploads: _highQualityUploads,
-        location: _advancedSettings.location,
+        coverPath: _customCoverPath,
         link: _advancedSettings.link,
-        geoRadiusTier: _advancedSettings.geoRadiusTier,
-        coverTimeMs: _coverTimeMs,
-        customCoverPath: _customCoverPath,
-        ageRestriction: _advancedSettings.ageRestriction,
-        isAiGenerated: _advancedSettings.isAiGenerated,
-        isBrandedContent: _advancedSettings.isBrandedContent,
-        destinations: _selectedPlatforms.toList(),
-        collaborators: _collaborators,
-        taggedUserIds: _taggedUsers,
-        isFastTrendBoosted: _fastTrendAccelerator,
-        durationMs: widget.isVideo ? _player?.state.duration.inMilliseconds : null,
-        aspectRatio: widget.isVideo &&
-                _player?.state.width != null &&
-                _player?.state.height != null &&
-                _player!.state.height! > 0
-            ? (_player!.state.width! / _player!.state.height!)
-            : null,
-        onProgress: onProgress,
-      ),
-    );
+        params: {
+          'title': _titleController.text.trim().isEmpty ? null : _titleController.text.trim(),
+          'caption': _captionController.text.trim(),
+          'privacy': _advancedSettings.privacy,
+          'allowComments': _advancedSettings.allowComments,
+          'allowDuet': _advancedSettings.allowDuet,
+          'allowStitch': _advancedSettings.allowStitch,
+          'allowDownload': _advancedSettings.allowDownload,
+          'highQualityUploads': _highQualityUploads,
+          'location': _advancedSettings.location,
+          'geoRadiusTier': _advancedSettings.geoRadiusTier,
+          'coverTimeMs': _coverTimeMs,
+          'ageRestriction': _advancedSettings.ageRestriction,
+          'isAiGenerated': _advancedSettings.isAiGenerated,
+          'isBrandedContent': _advancedSettings.isBrandedContent,
+          'destinations': _selectedPlatforms.map((d) => d.name).toList(),
+          'collaborators': _collaborators,
+          'taggedUserIds': _taggedUsers,
+          'isFastTrendBoosted': _fastTrendAccelerator,
+          'durationMs': widget.isVideo ? _player?.state.duration.inMilliseconds : null,
+          'aspectRatio': aspect,
+        },
+      );
+    } catch (e) {
+      if (!mounted) return;
+      setState(() => _isPosting = false);
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+        backgroundColor: AppColors.brandPink,
+        content: Text(e is StateError ? e.message : 'Couldn\'t save the post on this phone: $e'),
+      ));
+      return;
+    }
 
     if (!mounted) return;
     setState(() => _isPosting = false);
-    if (contentId == null) return;
-
+    // The draft is no longer needed: the queued post holds everything.
     unawaited(ref.read(postDraftProvider.notifier).discardCurrentDraft());
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        backgroundColor: AppColors.brandBlue,
-        behavior: SnackBarBehavior.floating,
-        content: Text(widget.isVideo ? 'Your reel is live on Oneova' : 'Your photo is live on Oneova'),
-      ),
-    );
-    context.go('/hub/home?v=$contentId');
+    context.go('/hub/home');
   }
 
   void _openCoverPicker() {

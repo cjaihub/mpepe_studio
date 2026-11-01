@@ -275,6 +275,7 @@ export * from './calls';
 export * from './notifications';
 export * from './biometric';
 export * from './security';
+export { contentSetDestination, contentOpenDestination } from './feed/destinationLinks';
 export { guardScanPostComment, guardScanContentComment, guardOnProfileWrite, guardCheckLinks, guardReverseAction, guardSweep, accountLookup, guardBackfillContacts } from './guard/monitor';
 export * from './securityMail';
 export * from './emailCodes';
@@ -310,6 +311,7 @@ export { lsSetTable, lsPlayback } from './liveStudio/table';
 export { lsMediaKey, lsSecOnIncident, lsSecOnBlock, lsSecOnMemberWrite } from './liveStudio/security';
 export { lsSetChatMode, lsSetJoinRequests } from './liveStudio/controls';
 export { lsComment, lsDeleteComment, lsMuteChat, lsReact, lsShare, lsLivekitWebhook, lsGifSearch } from './liveStudio/social';
+export { lsWatch, lsYouTubeSearch } from './liveStudio/watch';
 
 // Oneova Looks & Visual Intelligence (§4.5, §8, §10)
 export * from './looks';

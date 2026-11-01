@@ -44,6 +44,9 @@ class UploadService {
     int? durationMs,
     double? aspectRatio,
     void Function(double progress)? onProgress,
+    // Fixed id from PendingPostQueue: a retry reuses the same doc and
+    // Storage path, so a post is never published twice.
+    String? contentId,
   }) async {
     final Set<PlatformDestination> allDestinations = {
       PlatformDestination.internal, // Oneova native public reels engine is always guaranteed
@@ -62,6 +65,13 @@ class UploadService {
         throw StateError('Sign in to publish.');
       }
       final authorId = currentUser.uid;
+      if (contentId != null) {
+        final existing = await FirebaseFirestore.instance.collection('content').doc(contentId).get();
+        if (existing.exists) {
+          onProgress?.call(1);
+          return contentId;
+        }
+      }
 
       // 1. High-Fidelity Master Spec Generation
       final mediaEngine = HighFidelityMediaEngine();
@@ -71,7 +81,7 @@ class UploadService {
       );
 
       // 2. Upload to Firebase Storage
-      final timestamp = DateTime.now().millisecondsSinceEpoch;
+      final timestamp = contentId ?? DateTime.now().millisecondsSinceEpoch.toString();
       final extension = isVideo ? 'mp4' : 'jpg';
       final storagePath = 'content/$authorId/${timestamp}_post.$extension';
       final storageRef = FirebaseStorage.instance.ref(storagePath);
@@ -151,7 +161,7 @@ class UploadService {
       }
 
       // 5. Save Content to Firestore
-      final contentDoc = FirebaseFirestore.instance.collection('content').doc();
+      final contentDoc = FirebaseFirestore.instance.collection('content').doc(contentId);
       final allTagged = {...collaborators, ...taggedUserIds}.toList();
 
       await contentDoc.set({

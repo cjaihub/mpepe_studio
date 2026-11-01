@@ -130,6 +130,57 @@ class RecommendationService {
     }
   }
 
+  /// One page of feed candidates older than [before] (newest first), for
+  /// paging past the live window of [watchFeedCandidates]. One-shot reads:
+  /// only the head of the feed needs to stay live.
+  Future<List<Content>> fetchOlderCandidates(
+    String currentUserId,
+    FeedMode mode, {
+    required DateTime before,
+    int limit = 30,
+  }) async {
+    final cursor = Timestamp.fromDate(before);
+    switch (mode) {
+      case FeedMode.following:
+      case FeedMode.followingCreators:
+      case FeedMode.friends:
+        final graph = await _firestore
+            .collection('relationships')
+            .where('followerId', isEqualTo: currentUserId)
+            .where('status', isEqualTo: 'accepted')
+            .get();
+        final ids = graph.docs
+            .map((d) => d.data()['followingId'])
+            .whereType<String>()
+            .where((id) => id.isNotEmpty)
+            .toSet()
+            .toList();
+        if (ids.isEmpty) return const [];
+        final pages = await Future.wait([
+          for (var i = 0; i < ids.length; i += 30)
+            _firestore
+                .collection('content')
+                .where('authorId', whereIn: ids.sublist(i, i + 30 > ids.length ? ids.length : i + 30))
+                .orderBy('createdAt', descending: true)
+                .where('createdAt', isLessThan: cursor)
+                .limit(limit)
+                .get(),
+        ]);
+        final merged = pages.expand((p) => mapFeedDocs(p.docs)).toList()
+          ..sort((a, b) => b.createdAt.compareTo(a.createdAt));
+        return merged.length > limit ? merged.sublist(0, limit) : merged;
+      default:
+        final page = await _firestore
+            .collection('content')
+            .where('type', whereIn: feedContentTypes)
+            .orderBy('createdAt', descending: true)
+            .where('createdAt', isLessThan: cursor)
+            .limit(limit)
+            .get();
+        return mapFeedDocs(page.docs);
+    }
+  }
+
   /// Follow graph (`relationships`, accepted) → one live `content` query per
   /// 30 followed authors, merged newest first.
   Stream<List<Content>> _watchFollowingCandidates(String currentUserId, {required int limit}) {

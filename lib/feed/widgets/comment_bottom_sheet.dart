@@ -18,6 +18,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:go_router/go_router.dart';
 import 'package:oneova/shared/widgets/animated_loading_indicator.dart';
 import '../../../shared/services/draft_store.dart';
+import '../../social_hub/live/studio_v2/fun/gif_picker.dart';
 
 final _commentAuthorProvider = StreamProvider.autoDispose
     .family<AppUser?, String>((ref, uid) {
@@ -151,9 +152,17 @@ class _CommentBottomSheetState extends ConsumerState<CommentBottomSheet> {
     super.dispose();
   }
 
-  Future<void> _postComment() async {
+  /// GIF search shared with Live Studio comments (`lsGifSearch`).
+  Future<void> _pickGif() async {
+    if (_isPosting) return;
+    final g = await showGifPicker(context);
+    if (g == null || !mounted) return;
+    await _postComment(gif: CommentGif(id: g.id, url: g.url, w: g.w, h: g.h));
+  }
+
+  Future<void> _postComment({CommentGif? gif}) async {
     final text = _commentController.text.trim();
-    if (text.isEmpty || _isPosting) return;
+    if ((text.isEmpty && gif == null) || _isPosting) return;
 
     final user = FirebaseAuth.instance.currentUser;
     if (user == null || user.isAnonymous) {
@@ -178,6 +187,8 @@ class _CommentBottomSheetState extends ConsumerState<CommentBottomSheet> {
         postId: widget.content.id,
         authorId: currentUid,
         content: text,
+        type: gif != null ? CommentType.gif : CommentType.text,
+        gif: gif,
         replyToId: _replyToId,
         createdAt: DateTime.now(),
       );
@@ -517,6 +528,18 @@ class _CommentBottomSheetState extends ConsumerState<CommentBottomSheet> {
                                       onSubmitted: (_) => _postComment(),
                                     ),
                                   ),
+                                  GestureDetector(
+                                    behavior: HitTestBehavior.opaque,
+                                    onTap: _pickGif,
+                                    child: Padding(
+                                      padding: const EdgeInsets.only(left: 6),
+                                      child: Icon(
+                                        Icons.gif_box_outlined,
+                                        color: context.textSecondary,
+                                        size: 22,
+                                      ),
+                                    ),
+                                  ),
                                 ],
                               ),
                             ),
@@ -752,15 +775,38 @@ class _CommentTile extends ConsumerWidget {
                     ],
                   ),
                   const SizedBox(height: 3),
-                  Text(
-                    comment.content,
-                    style: GoogleFonts.inter(
-                      color: context.textPrimary,
-                      fontSize: 13,
-                      height: 1.35,
-                      fontWeight: FontWeight.w400,
+                  if (comment.content.isNotEmpty)
+                    Text(
+                      comment.content,
+                      style: GoogleFonts.inter(
+                        color: context.textPrimary,
+                        fontSize: 13,
+                        height: 1.35,
+                        fontWeight: FontWeight.w400,
+                      ),
                     ),
-                  ),
+                  if (comment.gif != null)
+                    Padding(
+                      padding: const EdgeInsets.only(top: 4),
+                      child: ConstrainedBox(
+                        constraints: const BoxConstraints(maxWidth: 170, maxHeight: 200),
+                        child: AspectRatio(
+                          aspectRatio: comment.gif!.aspectRatio,
+                          child: ClipRRect(
+                            borderRadius: BorderRadius.circular(AppRadius.md),
+                            child: ColoredBox(
+                              color: context.surfaceMid,
+                              child: Image.network(
+                                comment.gif!.url,
+                                fit: BoxFit.cover,
+                                gaplessPlayback: true,
+                                errorBuilder: (_, _, _) => const SizedBox.shrink(),
+                              ),
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
                   const SizedBox(height: 6),
                   Row(
                     children: [

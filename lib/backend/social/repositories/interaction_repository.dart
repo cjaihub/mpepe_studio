@@ -236,15 +236,16 @@ class InteractionRepository {
       final saveDoc = await tx.get(saveRef);
       final userSaveDoc = await tx.get(userSaveRef);
       if (!saveDoc.exists && !userSaveDoc.exists) return;
+      // Firestore transactions require every read before the first write.
+      final contentDoc = await tx.get(contentRef);
+      final postDoc = await tx.get(postRef);
 
       tx.delete(saveRef);
       tx.delete(userSaveRef);
 
-      final contentDoc = await tx.get(contentRef);
       if (contentDoc.exists) {
         tx.update(contentRef, {'saveCount': FieldValue.increment(-1)});
       }
-      final postDoc = await tx.get(postRef);
       if (postDoc.exists) {
         tx.update(postRef, {'saveCount': FieldValue.increment(-1)});
       }
@@ -326,18 +327,19 @@ class InteractionRepository {
     await _firestore.runTransaction((tx) async {
       final repostDoc = await tx.get(repostRef);
       if (!repostDoc.exists) return;
+      // Firestore transactions require every read before the first write.
+      final contentDoc = await tx.get(contentRef);
+      final postDoc = await tx.get(postRef);
 
       tx.delete(repostRef);
       tx.delete(userShareRef);
 
-      final contentDoc = await tx.get(contentRef);
       if (contentDoc.exists) {
         tx.update(contentRef, {
           'repostCount': FieldValue.increment(-1),
           'shareCount': FieldValue.increment(-1),
         });
       }
-      final postDoc = await tx.get(postRef);
       if (postDoc.exists) {
         tx.update(postRef, {
           'repostCount': FieldValue.increment(-1),

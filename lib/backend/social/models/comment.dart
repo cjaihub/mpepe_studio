@@ -3,6 +3,32 @@ import 'mention.dart';
 
 enum CommentType { text, emoji, gif, image, video, voice }
 
+/// A GIPHY GIF on a comment (from `lsGifSearch`; the server hides comments
+/// whose GIF is not a GIPHY media URL).
+class CommentGif {
+  final String id;
+  final String url;
+  final int w;
+  final int h;
+  const CommentGif({required this.id, required this.url, required this.w, required this.h});
+
+  double get aspectRatio => (w > 0 && h > 0) ? w / h : 1;
+
+  static CommentGif? fromMap(Object? raw) {
+    if (raw is! Map) return null;
+    final url = raw['url'] as String? ?? '';
+    if (!url.startsWith('https://')) return null;
+    return CommentGif(
+      id: raw['id'] as String? ?? '',
+      url: url,
+      w: (raw['w'] as num?)?.toInt() ?? 0,
+      h: (raw['h'] as num?)?.toInt() ?? 0,
+    );
+  }
+
+  Map<String, dynamic> toMap() => {'id': id, 'url': url, 'w': w, 'h': h};
+}
+
 class Comment {
   final String id;
   final String postId;
@@ -29,6 +55,9 @@ class Comment {
   final String? safetyVerdict;
   final String? safetyReason;
 
+  /// GIF attached to the comment ([type] == [CommentType.gif]).
+  final CommentGif? gif;
+
   Comment({
     required this.id,
     required this.postId,
@@ -48,6 +77,7 @@ class Comment {
     this.voiceDurationMs,
     this.safetyVerdict,
     this.safetyReason,
+    this.gif,
   });
 
   factory Comment.fromFirestore(DocumentSnapshot doc) {
@@ -77,6 +107,7 @@ class Comment {
       voiceDurationMs: (data['voiceDurationMs'] as num?)?.toInt(),
       safetyVerdict: (data['safety'] as Map?)?['verdict'] as String?,
       safetyReason: ((data['safety'] as Map?)?['reasons'] as List?)?.firstOrNull?.toString(),
+      gif: CommentGif.fromMap(data['gif']),
     );
   }
 
@@ -97,6 +128,7 @@ class Comment {
       if (videoReplyPostId != null) 'videoReplyPostId': videoReplyPostId,
       'likerIds': likerIds,
       if (voiceDurationMs != null) 'voiceDurationMs': voiceDurationMs,
+      if (gif != null) 'gif': gif!.toMap(),
     };
   }
 }

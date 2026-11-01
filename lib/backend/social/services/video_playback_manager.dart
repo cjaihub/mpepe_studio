@@ -1,12 +1,14 @@
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/widgets.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:media_kit/media_kit.dart';
 import 'package:media_kit_video/media_kit_video.dart';
 import '../models/content.dart';
 import 'recommendation_service.dart';
+import '../../../feed/services/reel_prefetcher.dart';
 
 final videoPlaybackManagerProvider = Provider<VideoPlaybackManager>((ref) {
-  return VideoPlaybackManager(ref.read(recommendationServiceProvider));
+  return VideoPlaybackManager(ref.read(recommendationServiceProvider), ref.read(reelPrefetcherProvider));
 });
 
 /// One reusable media_kit [Player] + [VideoController] pair.
@@ -33,15 +35,24 @@ class _PlayerSlot {
 /// scrolling or navigating is not.
 class VideoPlaybackManager {
   final RecommendationService _recommendationService;
+  final ReelPrefetcher _prefetcher;
 
   final List<_PlayerSlot> _slots = [];
 
+  /// Warm players: current, next, previous, next+1. Each holds at most
+  /// [playerBufferBytes] of demuxed video, so the pool stays under ~64 MB
+  /// of buffers on mid-range phones (media_kit's default is 32 MB each).
   static const int maxCachedPlayers = 4;
+  static const int playerBufferBytes = 16 * 1024 * 1024;
+
+  /// Bumped whenever a reel gains or loses its player, so feed pages that
+  /// were built before their player was ready swap the cover for video.
+  final ValueNotifier<int> slotsRevision = ValueNotifier(0);
 
   /// Slot that was playing when the app went to the background.
   _PlayerSlot? _pausedByLifecycle;
 
-  VideoPlaybackManager(this._recommendationService) {
+  VideoPlaybackManager(this._recommendationService, this._prefetcher) {
     // The Flutter engine outlives MainActivity on Android, so the feed can stay
     // mounted after the app is closed: keep it silent while hidden.
     AppLifecycleListener(
@@ -136,7 +147,7 @@ class VideoPlaybackManager {
         }
       }
     }
-    _trackPlaybackEvent(currentId, ContentInteractionType.impression);
+    // The impression itself is tracked by the feed (_onPageChanged).
   }
 
   /// Returns a free slot, creating a new player while under the pool limit.
@@ -146,7 +157,7 @@ class VideoPlaybackManager {
     }
     if (_slots.length >= maxCachedPlayers) return null;
 
-    final player = Player();
+    final player = Player(configuration: const PlayerConfiguration(bufferSize: playerBufferBytes));
     final slot = _PlayerSlot(player, VideoController(player));
 
     // Track real playback events for whichever content the slot currently holds
@@ -173,7 +184,10 @@ class VideoPlaybackManager {
     final player = slot.player;
     player.setVolume(100.0);
     player.setPlaylistMode(PlaylistMode.single);
-    player.open(Media(content.mediaUrl), play: autoPlay);
+    // A prefetched file plays instantly and without network.
+    final source = _prefetcher.localVideoFor(content.mediaUrl) ?? content.mediaUrl;
+    player.open(Media(source), play: autoPlay);
+    slotsRevision.value++;
   }
 
   void _releaseSlot(_PlayerSlot slot) {
@@ -187,6 +201,7 @@ class VideoPlaybackManager {
     slot.watchTime = Duration.zero;
     // stop() unloads the media and frees its buffers; the mpv handle is kept for reuse.
     slot.player.stop();
+    slotsRevision.value++;
   }
 
   void togglePlayPause(String contentId) {
@@ -209,7 +224,8 @@ class VideoPlaybackManager {
   }
 
   void _trackPlaybackEvent(String contentId, ContentInteractionType type, [Map<String, dynamic>? extraData]) {
-    // In a real app we need currentUserId from Auth state, using a placeholder for now
-    _recommendationService.trackEvent('currentUser', contentId, type, extraData ?? {});
+    final uid = FirebaseAuth.instance.currentUser?.uid;
+    if (uid == null) return;
+    _recommendationService.trackEvent(uid, contentId, type, extraData ?? {});
   }
 }

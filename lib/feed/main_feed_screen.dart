@@ -41,6 +41,11 @@ import 'widgets/live_feed_card.dart';
 import 'widgets/reel_palette.dart';
 import 'widgets/rolling_count.dart';
 import 'widgets/reel_comment_bar.dart';
+import 'widgets/reel_destination_chip.dart';
+import 'services/reel_prefetcher.dart';
+import 'widgets/pending_post_pill.dart';
+import '../services/pending_post_queue.dart';
+import 'package:cached_network_image/cached_network_image.dart';
 import 'widgets/circle_gesture_detector.dart';
 import '../providers/settings_provider.dart';
 
@@ -155,6 +160,10 @@ class _ShortVideoFeedScreenState extends ConsumerState<ShortVideoFeedScreen> {
       _isLoopModeEnabled = playback['loopVideos'] as bool? ?? _isLoopModeEnabled;
     }
     _loadFeed();
+    // Posts that didn't finish uploading last time pick up where they left off.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) ref.read(pendingPostQueueProvider.notifier).resumeAll();
+    });
   }
 
   /// Counts continuous playback of the current reel; at 3s enters focus mode
@@ -210,12 +219,86 @@ class _ShortVideoFeedScreenState extends ConsumerState<ShortVideoFeedScreen> {
   bool _feedRanking = false;
   List<Content>? _pendingFeedSnapshot;
 
+  // Paging past the live head of the feed: older pages are fetched once the
+  // viewer is within [_pageAheadTrigger] reels of the end, so the prefetch
+  // window (ReelPrefetcher.windowSize) always has reels to work on.
+  static const int _pageSize = 30;
+  static const int _pageAheadTrigger = ReelPrefetcher.windowSize;
+  DateTime? _oldestLoaded;
+  bool _loadingOlder = false;
+  bool _noOlder = false;
+
+  void _noteOldest(Iterable<Content> items) {
+    for (final c in items) {
+      final o = _oldestLoaded;
+      if (o == null || c.createdAt.isBefore(o)) _oldestLoaded = c.createdAt;
+    }
+  }
+
+  /// Keeps the rolling window warm around reel [index]: player pool,
+  /// disk prefetch, decoded covers for the next two, and the next page.
+  void _warmAround(int index) {
+    if (_feed.isEmpty) return;
+    ref.read(videoPlaybackManagerProvider).initializeAndPreload(_feed, index);
+    ref.read(reelPrefetcherProvider).update(_feed, index);
+    for (var i = index + 1; i <= index + 2 && i < _feed.length; i++) {
+      final c = _feed[i];
+      final url = c.type == ContentType.photo ? c.mediaUrl : c.mediaMetadata.thumbnailUrl;
+      if (url == null || url.isEmpty || !mounted) continue;
+      final mq = MediaQuery.of(context);
+      precacheImage(
+        ResizeImage.resizeIfNeeded(
+          (mq.size.width * mq.devicePixelRatio).round(),
+          null,
+          CachedNetworkImageProvider(url, cacheManager: ReelPrefetcher.thumbCache),
+        ),
+        context,
+        onError: (_, _) {},
+      );
+    }
+    if (_feed.length - index <= _pageAheadTrigger) _loadOlder();
+  }
+
+  Future<void> _loadOlder() async {
+    final before = _oldestLoaded;
+    if (_loadingOlder || _noOlder || before == null) return;
+    _loadingOlder = true;
+    final generation = _feedGeneration;
+    final uid = FirebaseAuth.instance.currentUser?.uid ?? 'unknown';
+    try {
+      final service = ref.read(recommendationServiceProvider);
+      final page = await service.fetchOlderCandidates(uid, _currentMode, before: before, limit: _pageSize);
+      if (!mounted || generation != _feedGeneration) return;
+      if (page.isEmpty) {
+        _noOlder = true;
+        return;
+      }
+      _noteOldest(page);
+      final present = _feed.map((c) => c.id).toSet();
+      final unseen = page.where((c) => !present.contains(c.id)).toList();
+      final ranked = unseen.isEmpty ? const <Content>[] : await service.rankCandidates(uid, _currentMode, unseen);
+      if (!mounted || generation != _feedGeneration || ranked.isEmpty) return;
+      setState(() {
+        _feed.addAll(ranked);
+        _pages.addAll(ranked);
+      });
+      ref.read(reelPrefetcherProvider).update(_feed, _currentIndex);
+    } catch (e) {
+      debugPrint('[ShortVideoFeedScreen] older page failed: $e');
+    } finally {
+      _loadingOlder = false;
+    }
+  }
+
   void _loadFeed() {
     debugPrint('[ShortVideoFeedScreen] subscribing to live feed ($_currentMode)');
     final generation = ++_feedGeneration;
     _feedPrimed = false;
     _feedRanking = false;
     _pendingFeedSnapshot = null;
+    _oldestLoaded = null;
+    _noOlder = false;
+    _loadingOlder = false;
     _feedSub?.cancel();
 
     final uid = FirebaseAuth.instance.currentUser?.uid ?? 'unknown';
@@ -263,6 +346,7 @@ class _ShortVideoFeedScreenState extends ConsumerState<ShortVideoFeedScreen> {
 
   Future<void> _primeFeed(int generation, String uid, List<Content> items) async {
     final perfMonitor = ref.read(performanceMonitorProvider);
+    _noteOldest(items);
     final recommendations = await perfMonitor.measureApiLatency(
       'feed.fetchRecommendations',
       () => ref.read(recommendationServiceProvider).rankCandidates(uid, _currentMode, items),
@@ -292,7 +376,7 @@ class _ShortVideoFeedScreenState extends ConsumerState<ShortVideoFeedScreen> {
     _mergeLiveStreams(ref.read(activeLiveStreamsProvider).value ?? const []);
 
     if (_feed.isNotEmpty) {
-      ref.read(videoPlaybackManagerProvider).initializeAndPreload(_feed, 0);
+      _warmAround(0);
       _attachAutoScrollListener();
       _scheduleAutoFocus();
     }
@@ -319,7 +403,7 @@ class _ShortVideoFeedScreenState extends ConsumerState<ShortVideoFeedScreen> {
     });
 
     if (wasEmpty) {
-      ref.read(videoPlaybackManagerProvider).initializeAndPreload(_feed, 0);
+      _warmAround(0);
       _attachAutoScrollListener();
       _scheduleAutoFocus();
     }
@@ -423,7 +507,7 @@ class _ShortVideoFeedScreenState extends ConsumerState<ShortVideoFeedScreen> {
       _currentIndex = index;
     });
 
-    ref.read(videoPlaybackManagerProvider).initializeAndPreload(_feed, index);
+    _warmAround(index);
     _attachAutoScrollListener();
     _scheduleAutoFocus();
     if (_feed.isNotEmpty && index < _feed.length) {
@@ -487,6 +571,9 @@ class _ShortVideoFeedScreenState extends ConsumerState<ShortVideoFeedScreen> {
             PageView.builder(
               controller: _pageController,
               scrollDirection: Axis.vertical,
+              // Builds the reel above and below too, so a swipe lands on a
+              // page whose cover (and warm player) is already laid out.
+              allowImplicitScrolling: true,
               onPageChanged: _onPageChanged,
               itemCount: _pages.length,
               itemBuilder: (context, index) {
@@ -503,14 +590,16 @@ class _ShortVideoFeedScreenState extends ConsumerState<ShortVideoFeedScreen> {
                   );
                 }
                 final content = item as Content;
-                return _buildCinemaFrame(
-                  index: index,
-                  cinema: isFocusMode,
-                  child: _ShortVideoItem(
-                    key: ValueKey(content.id),
-                    content: content,
-                    isActive: index == _currentPage,
-                    isFullScreen: isFocusMode,
+                return RepaintBoundary(
+                  child: _buildCinemaFrame(
+                    index: index,
+                    cinema: isFocusMode,
+                    child: _ShortVideoItem(
+                      key: ValueKey(content.id),
+                      content: content,
+                      isActive: index == _currentPage,
+                      isFullScreen: isFocusMode,
+                    ),
                   ),
                 );
               },
@@ -553,6 +642,14 @@ class _ShortVideoFeedScreenState extends ConsumerState<ShortVideoFeedScreen> {
               ),
             ),
           ),
+
+          // Posting progress / one-tap retry, under the stories row.
+          if (!isFocusMode)
+            Positioned(
+              top: MediaQuery.paddingOf(context).top + 128,
+              left: 12,
+              child: const PendingPostPill(),
+            ),
 
         ],
       ),
@@ -1230,13 +1327,34 @@ class _ShortVideoItemState extends ConsumerState<_ShortVideoItem> with TickerPro
 
   ReelPalette get _p => ReelPalette.of(context);
 
+  /// Live copies of this reel's doc and of the viewer's like/save marks.
+  /// Subscribed once per page (not per build), so rebuilds never resubscribe.
+  late final ValueNotifier<Content> _live = ValueNotifier(widget.content);
+  final ValueNotifier<bool> _liked = ValueNotifier(false);
+  final ValueNotifier<bool> _saved = ValueNotifier(false);
+  final List<StreamSubscription> _subs = [];
+
+  void _subscribeLive() {
+    final uid = FirebaseAuth.instance.currentUser?.uid ?? '';
+    final repo = ref.read(interactionRepositoryProvider);
+    _subs.add(FirebaseFirestore.instance.collection('content').doc(widget.content.id).snapshots().listen((d) {
+      if (d.exists) _live.value = Content.fromFirestore(d);
+    }, onError: (Object e) => debugPrint('[Reel] doc: $e')));
+    if (uid.isEmpty) return;
+    _subs.add(repo.watchIsLiked(uid, widget.content.id).listen((v) => _liked.value = v, onError: (_) {}));
+    _subs.add(repo.watchIsSaved(uid, widget.content.id).listen((v) => _saved.value = v, onError: (_) {}));
+  }
+
   @override
   void initState() {
     super.initState();
+    _subscribeLive();
+    // The record only spins on the reel that is on screen.
     _vinylController = AnimationController(
       vsync: this,
       duration: const Duration(seconds: 4),
-    )..repeat();
+    );
+    if (widget.isActive) _vinylController.repeat();
     _likePulseController = AnimationController(
       vsync: this,
       duration: const Duration(milliseconds: 300),
@@ -1262,6 +1380,12 @@ class _ShortVideoItemState extends ConsumerState<_ShortVideoItem> with TickerPro
 
   @override
   void dispose() {
+    for (final s in _subs) {
+      s.cancel();
+    }
+    _live.dispose();
+    _liked.dispose();
+    _saved.dispose();
     _burstHeartController.dispose();
     _likePulseController.dispose();
     _vinylController.dispose();
@@ -1370,16 +1494,23 @@ class _ShortVideoItemState extends ConsumerState<_ShortVideoItem> with TickerPro
     super.didUpdateWidget(oldWidget);
     if (widget.isActive && !oldWidget.isActive) {
       ref.read(videoPlaybackManagerProvider).ensureCurrentPlaying(widget.content.id);
+      _vinylController.repeat();
     } else if (!widget.isActive && oldWidget.isActive) {
       ref.read(videoPlaybackManagerProvider).getPlayer(widget.content.id)?.pause();
+      _vinylController.stop();
     }
   }
 
   @override
   Widget build(BuildContext context) {
     final playbackManager = ref.watch(videoPlaybackManagerProvider);
-    final controller = playbackManager.getController(widget.content.id);
+    return ValueListenableBuilder<int>(
+      valueListenable: playbackManager.slotsRevision,
+      builder: (context, _, _) => _buildItem(context, playbackManager.getController(widget.content.id)),
+    );
+  }
 
+  Widget _buildItem(BuildContext context, VideoController? controller) {
     return GestureDetector(
       behavior: HitTestBehavior.opaque,
       onTap: () {
@@ -1411,14 +1542,19 @@ class _ShortVideoItemState extends ConsumerState<_ShortVideoItem> with TickerPro
         fit: StackFit.expand,
         children: [
           // ── Video Player ──────────────────────────────────
+          // Cover first (from the prefetch disk cache), video on top: the
+          // texture is transparent until its first frame, so there is never
+          // a black flash while a reel starts.
+          _buildThumbnail(),
           if (controller != null)
-            Video(
-              controller: controller,
-              fit: _landscape ? BoxFit.contain : BoxFit.cover,
-              controls: NoVideoControls,
-            )
-          else
-            _buildThumbnail(),
+            RepaintBoundary(
+              child: Video(
+                controller: controller,
+                fit: _landscape ? BoxFit.contain : BoxFit.cover,
+                fill: Colors.transparent,
+                controls: NoVideoControls,
+              ),
+            ),
 
           // ── Floating Bursting Heart Animation on Double Tap ──────
           if (_showBurstHeart && _burstHeartPosition != null)
@@ -1578,20 +1714,22 @@ class _ShortVideoItemState extends ConsumerState<_ShortVideoItem> with TickerPro
   }
 
   Widget _buildThumbnail() {
-    if (widget.content.type == ContentType.photo) {
-      return Image.network(
-        widget.content.mediaUrl,
-        fit: _landscape ? BoxFit.contain : BoxFit.cover,
-        errorBuilder: (_, _, _) => Container(color: _p.placeholder),
-      );
-    }
-    if (widget.content.mediaMetadata.thumbnailUrl != null) {
-      return Image.network(
-        widget.content.mediaMetadata.thumbnailUrl!,
-        fit: _landscape ? BoxFit.contain : BoxFit.cover,
-      );
-    }
-    return Container(color: _p.placeholder);
+    final url = widget.content.type == ContentType.photo
+        ? widget.content.mediaUrl
+        : widget.content.mediaMetadata.thumbnailUrl;
+    if (url == null || url.isEmpty) return Container(color: _p.placeholder);
+    // Decoded at screen width only (not the source size) to keep image memory low.
+    final mq = MediaQuery.of(context);
+    return Image(
+      image: ResizeImage.resizeIfNeeded(
+        (mq.size.width * mq.devicePixelRatio).round(),
+        null,
+        CachedNetworkImageProvider(url, cacheManager: ReelPrefetcher.thumbCache),
+      ),
+      fit: _landscape ? BoxFit.contain : BoxFit.cover,
+      gaplessPlayback: true,
+      errorBuilder: (_, _, _) => Container(color: _p.placeholder),
+    );
   }
 
 
@@ -1605,12 +1743,9 @@ class _ShortVideoItemState extends ConsumerState<_ShortVideoItem> with TickerPro
         ? author!.username![0].toUpperCase() 
         : (widget.content.authorId.isNotEmpty ? widget.content.authorId[0].toUpperCase() : 'M');
 
-    return StreamBuilder<DocumentSnapshot>(
-      stream: FirebaseFirestore.instance.collection('content').doc(widget.content.id).snapshots(),
-      builder: (context, contentSnap) {
-        final content = contentSnap.hasData && contentSnap.data!.exists
-            ? Content.fromFirestore(contentSnap.data!)
-            : widget.content;
+    return ValueListenableBuilder<Content>(
+      valueListenable: _live,
+      builder: (context, content, _) {
 
         return Column(
           mainAxisSize: MainAxisSize.min,
@@ -1742,10 +1877,9 @@ class _ShortVideoItemState extends ConsumerState<_ShortVideoItem> with TickerPro
                 ],
               ),
               const SizedBox(height: 14),
-              StreamBuilder<bool>(
-                stream: interactionRepo.watchIsLiked(uid, widget.content.id),
-                builder: (context, snap) {
-                  final serverLiked = snap.data ?? false;
+              ValueListenableBuilder<bool>(
+                valueListenable: _liked,
+                builder: (context, serverLiked, _) {
                   _serverLiked = serverLiked;
                   _serverLikeCount = content.likeCount;
                   // Firestore caught up with the tap: stop overriding it.
@@ -1810,10 +1944,9 @@ class _ShortVideoItemState extends ConsumerState<_ShortVideoItem> with TickerPro
                   );
                 },
               ),
-              StreamBuilder<bool>(
-                stream: interactionRepo.watchIsSaved(uid, widget.content.id),
-                builder: (context, snap) {
-                  final actualIsSaved = snap.data ?? false;
+              ValueListenableBuilder<bool>(
+                valueListenable: _saved,
+                builder: (context, actualIsSaved, _) {
                   final isSaved = _optimisticIsSaved ?? actualIsSaved;
                   final displaySaveCount = content.saveCount + _optimisticSaveDelta;
 
@@ -1871,7 +2004,7 @@ class _ShortVideoItemState extends ConsumerState<_ShortVideoItem> with TickerPro
               ),
               _buildRailAction(
                 Icons.share_rounded,
-                content.repostCount + _optimisticShareDelta,
+                content.shareCount + _optimisticShareDelta,
                 accentColor: AppColors.brandBlue,
                 onTap: () {
                   AuthInteractionGate.requireAuth(
@@ -2225,6 +2358,14 @@ class _ShortVideoItemState extends ConsumerState<_ShortVideoItem> with TickerPro
               }).toList(),
             ),
           ],
+
+          // ── Destination link (server-validated) ─────────────
+          ValueListenableBuilder<Content>(
+            valueListenable: _live,
+            builder: (context, live, _) => live.destination == null
+                ? const SizedBox.shrink()
+                : ReelDestinationChip(contentId: live.id, destination: live.destination!),
+          ),
 
           // ── Shop chip (real Biz products only) ──────────────
           _ShopChip(authorId: widget.content.authorId, username: username),

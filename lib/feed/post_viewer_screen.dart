@@ -15,6 +15,8 @@ import '../backend/social/repositories/interaction_repository.dart';
 import '../backend/social/services/content_deletion_service.dart';
 import '../shared/theme/app_theme.dart';
 import 'widgets/comment_bottom_sheet.dart';
+import 'widgets/reel_destination_chip.dart';
+import 'widgets/reel_palette.dart';
 
 /// One post on its own (opened from a profile grid): plays it, with like,
 /// comment, save, share, and Delete for the author.
@@ -147,21 +149,32 @@ class _PostViewerScreenState extends ConsumerState<PostViewerScreen> {
                 bottom: 90,
                 child: _Rail(content: c, uid: _uid, onComment: () => CommentBottomSheet.show(context, c), onShare: () => _share(c)),
               ),
-              if (c.description.isNotEmpty)
+              if (c.description.isNotEmpty || c.destination != null)
                 Positioned(
                   left: 14,
                   right: 80,
                   bottom: 28,
                   child: SafeArea(
-                    child: Text(
-                      c.description,
-                      maxLines: 3,
-                      overflow: TextOverflow.ellipsis,
-                      style: GoogleFonts.inter(
-                        color: AppColors.brandWhite,
-                        fontSize: 13,
-                        height: 1.35,
-                        shadows: const [Shadow(blurRadius: 6)],
+                    child: ReelTheme(
+                      palette: const ReelPalette(dark: true),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          if (c.description.isNotEmpty)
+                            Text(
+                              c.description,
+                              maxLines: 3,
+                              overflow: TextOverflow.ellipsis,
+                              style: GoogleFonts.inter(
+                                color: AppColors.brandWhite,
+                                fontSize: 13,
+                                height: 1.35,
+                                shadows: const [Shadow(blurRadius: 6)],
+                              ),
+                            ),
+                          if (c.destination != null) ReelDestinationChip(contentId: c.id, destination: c.destination!),
+                        ],
                       ),
                     ),
                   ),
@@ -252,7 +265,7 @@ class _Rail extends ConsumerWidget {
             );
           },
         ),
-        action(Icons.share_rounded, content.repostCount, onShare),
+        action(Icons.share_rounded, content.shareCount, onShare),
       ],
     );
   }

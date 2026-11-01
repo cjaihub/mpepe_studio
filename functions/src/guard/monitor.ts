@@ -32,6 +32,7 @@ import { TextVerdict, checkLinks, checkText } from './reputation';
 import { recentActions, reverseAction, takeAction } from './actions';
 import { callerIp, contactKey, limit, requireAccount, requireAdmin, uidForEmail, uidForPhone } from './protect';
 import { recordSecurityEvent } from '../security';
+import { parseCommentGif } from '../liveStudio/gif_logic';
 
 const db = () => getFirestore();
 
@@ -77,7 +78,15 @@ export async function scanChatMessage(ref: DocumentReference, data: Record<strin
 // ─────────────── Comments ───────────────
 
 async function scanComment(ref: DocumentReference, data: Record<string, unknown> | undefined) {
-  if (!data || data.type === 'gif') return;
+  if (!data) return;
+  // GIF comments may only carry a GIPHY image (from lsGifSearch); anything
+  // else is hidden so the GIF slot can't be used to post arbitrary links.
+  if (data.type === 'gif' || data.gif !== undefined) {
+    if (parseCommentGif(data.gif ?? null) === 'invalid' || (data.type === 'gif' && !data.gif)) {
+      await ref.set({ isModerated: true, safety: { verdict: 'dangerous', reasons: ['This GIF is not from the GIF picker'], blockedLinks: [], categories: [], by: 'ova_guard', checkedAt: FieldValue.serverTimestamp() } }, { merge: true });
+      return;
+    }
+  }
   const text = typeof data.content === 'string' ? data.content : '';
   const authorId = String(data.authorId ?? '');
   if (!text || !authorId) return;
