@@ -12,6 +12,7 @@ import '../../../../backend/live_studio/social/studio_counts_controller.dart';
 import '../../../../backend/live_studio/social/studio_follow_controller.dart';
 import '../../../../backend/live_studio/fun/studio_fun.dart';
 import '../../../../backend/live_studio/social/studio_reactions_controller.dart';
+import '../../../../backend/live_studio/session/studio_session_controller.dart';
 import '../fun/gif_picker.dart';
 import '../fun/gifts_ui.dart';
 import '../theme/live_studio_tokens.dart';
@@ -644,10 +645,13 @@ class _CommentRow extends StatelessWidget {
                 TextSpan(children: [
                   TextSpan(text: '${c.name}  ', style: LiveStudioType.s(12, FontWeight.w600, tokens.textMedium, height: 18)),
                   if (!(c.hasGif && c.text == 'GIF'))
-                    TextSpan(
-                      text: c.isSystem ? _systemText(c) : c.text,
-                      style: LiveStudioType.s(13, FontWeight.w400, c.isSystem ? tokens.systemText : tokens.textHigh, height: 18),
-                    ),
+                    if (c.isSystem)
+                      TextSpan(
+                        text: _systemText(c),
+                        style: LiveStudioType.s(13, FontWeight.w400, tokens.systemText, height: 18),
+                      )
+                    else
+                      ..._withMentions(c.text, LiveStudioType.s(13, FontWeight.w400, tokens.textHigh, height: 18)),
                   if (c.hasGif)
                     WidgetSpan(
                       child: Padding(
@@ -669,6 +673,19 @@ class _CommentRow extends StatelessWidget {
         ]),
       ),
     );
+  }
+
+  /// Comment text with @mentions in the accent color.
+  static List<InlineSpan> _withMentions(String text, TextStyle style) {
+    final spans = <InlineSpan>[];
+    var i = 0;
+    for (final m in kLiveMentionRe.allMatches(text)) {
+      if (m.start > i) spans.add(TextSpan(text: text.substring(i, m.start), style: style));
+      spans.add(TextSpan(text: m.group(0), style: style.copyWith(color: LiveStudioAccent.blueHover, fontWeight: FontWeight.w700)));
+      i = m.end;
+    }
+    if (i < text.length) spans.add(TextSpan(text: text.substring(i), style: style));
+    return spans;
   }
 
   static String _systemText(LiveStudioComment c) {
@@ -725,7 +742,55 @@ class _RiseInState extends State<_RiseIn> with SingleTickerProviderStateMixin {
   }
 }
 
-/// Comment input with sparkles / love / send.
+/// True while the live comment box is focused (the phone bar then gives the
+/// input the full width and hides its other buttons).
+final studioComposerOpenProvider = NotifierProvider.autoDispose<_ComposerOpen, bool>(_ComposerOpen.new);
+
+class _ComposerOpen extends Notifier<bool> {
+  @override
+  bool build() => false;
+  void set(bool v) {
+    if (state != v) state = v;
+  }
+}
+
+/// One-tap reactions, sent as a comment.
+const List<String> kLiveQuickReactions = ['❤️', '🔥', '😂', '👏', '😍', '😮', '🎉', '💯'];
+
+/// Emoji inserted at the cursor.
+const List<String> kLiveEmojis = [
+  '😀', '😃', '😄', '😁', '😆', '🥹', '😅', '🤣', '😂', '🙂', '😉', '😊', '😇', '🥰', '😍', '🤩',
+  '😘', '😋', '😜', '🤪', '😎', '🤓', '🥳', '😏', '😌', '🤔', '🤫', '🤭', '😴', '😮', '😱', '😭',
+  '😤', '😡', '🥺', '😬', '🙏', '👏', '🙌', '👍', '👎', '👋', '🤝', '💪', '✌️', '🤞', '👀', '💃',
+  '❤️', '🧡', '💛', '💚', '💙', '💜', '🖤', '💔', '💯', '🔥', '✨', '⭐', '🎉', '🎶', '🌹', '👑',
+];
+
+/// "@name" mention token: no spaces, up to 40 chars.
+final RegExp kLiveMentionRe = RegExp(r'@[^\s@]{1,40}');
+
+/// The @query being typed at the cursor (without "@"), or null.
+String? liveMentionQueryAt(TextEditingValue v) {
+  final sel = v.selection;
+  if (!sel.isValid || !sel.isCollapsed) return null;
+  final before = v.text.substring(0, sel.baseOffset);
+  final m = RegExp(r'(^|\s)@([^\s@]{0,40})$').firstMatch(before);
+  return m?.group(2);
+}
+
+/// Mention handle for a display name ("Amina K." → "AminaK.").
+String liveMentionHandle(String name) => name.replaceAll(RegExp(r'\s+'), '');
+
+class _MentionCandidate {
+  const _MentionCandidate(this.uid, this.name, this.avatarUrl);
+  final String uid;
+  final String name;
+  final String avatarUrl;
+}
+
+/// The live comment box: text, emoji tray with quick reactions, GIFs
+/// (lsGifSearch), @mentions of people on stage and recent commenters, and
+/// sparkles / love. The tray floats above the bar (an overlay, so it never
+/// shifts the stage and stays tappable).
 class CommentBar extends ConsumerStatefulWidget {
   const CommentBar({super.key, required this.streamId, required this.tokens, required this.phone});
   final String streamId;
@@ -739,23 +804,98 @@ class CommentBar extends ConsumerStatefulWidget {
 class _CommentBarState extends ConsumerState<CommentBar> {
   final _text = TextEditingController();
   final _focus = FocusNode();
+  final _link = LayerLink();
+  final _tray = OverlayPortalController();
+  bool _emoji = false;
+  String? _mention;
+  double _width = 280;
+
+  @override
+  void initState() {
+    super.initState();
+    _text.addListener(_onText);
+    _focus.addListener(_onFocus);
+  }
 
   @override
   void dispose() {
+    _text.removeListener(_onText);
+    _focus.removeListener(_onFocus);
     _text.dispose();
     _focus.dispose();
     super.dispose();
   }
 
-  Future<void> _send() async {
-    final v = _text.text;
+  void _setOpen(bool v) {
+    // Riverpod forbids provider writes during build / dispose.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) ref.read(studioComposerOpenProvider.notifier).set(v);
+    });
+  }
+
+  void _onFocus() {
+    _setOpen(_focus.hasFocus || _emoji);
+    _syncTray();
+  }
+
+  void _onText() {
+    final q = liveMentionQueryAt(_text.value);
+    if (q != _mention) {
+      setState(() => _mention = q);
+      _syncTray();
+    }
+  }
+
+  void _syncTray() {
+    final show = _emoji || (_mention != null && _focus.hasFocus);
+    if (show && !_tray.isShowing) _tray.show();
+    if (!show && _tray.isShowing) _tray.hide();
+  }
+
+  void _toggleEmoji() {
+    HapticFeedback.selectionClick();
+    setState(() => _emoji = !_emoji);
+    _setOpen(_emoji || _focus.hasFocus);
+    _syncTray();
+  }
+
+  void _closeTray() {
+    if (_emoji) setState(() => _emoji = false);
+    _setOpen(_focus.hasFocus);
+    _syncTray();
+  }
+
+  void _insert(String s) {
+    final v = _text.value;
+    final sel = v.selection.isValid ? v.selection : TextSelection.collapsed(offset: v.text.length);
+    final next = v.text.replaceRange(sel.start, sel.end, s);
+    if (next.characters.length > StudioLimits.commentMaxLength) return;
+    _text.value = TextEditingValue(text: next, selection: TextSelection.collapsed(offset: sel.start + s.length));
+  }
+
+  void _pickMention(_MentionCandidate c) {
+    final v = _text.value;
+    final at = v.selection.baseOffset;
+    final before = v.text.substring(0, at);
+    final start = before.lastIndexOf('@');
+    if (start < 0) return;
+    final handle = '@${liveMentionHandle(c.name)} ';
+    final next = v.text.replaceRange(start, at, handle);
+    _text.value = TextEditingValue(text: next, selection: TextSelection.collapsed(offset: start + handle.length));
+    HapticFeedback.selectionClick();
+  }
+
+  Future<void> _send([String? text]) async {
+    final v = text ?? _text.text;
     if (v.trim().isEmpty) return;
-    _text.clear();
+    if (text == null) _text.clear();
+    HapticFeedback.lightImpact();
     final ok = await ref.read(studioCommentFeedProvider(widget.streamId).notifier).send(v);
-    if (!ok && mounted && _text.text.isEmpty) _text.text = v;
+    if (!ok && mounted && text == null && _text.text.isEmpty) _text.text = v;
   }
 
   Future<void> _sendGif() async {
+    _closeTray();
     final gif = await showGifPicker(context);
     if (gif == null || !mounted) return;
     final caption = _text.text;
@@ -764,92 +904,297 @@ class _CommentBarState extends ConsumerState<CommentBar> {
     if (!ok && mounted && _text.text.isEmpty) _text.text = caption;
   }
 
+  List<_MentionCandidate> _candidates(String q) {
+    final me = ref.read(studioMyUidProvider);
+    final seen = <String>{};
+    final out = <_MentionCandidate>[];
+    void add(String uid, String name, String url) {
+      if (uid.isEmpty || uid == me || name.trim().isEmpty || !seen.add(uid)) return;
+      final handle = liveMentionHandle(name).toLowerCase();
+      if (q.isNotEmpty && !handle.contains(q.toLowerCase()) && !name.toLowerCase().contains(q.toLowerCase())) return;
+      out.add(_MentionCandidate(uid, name, url));
+    }
+
+    for (final m in ref.read(studioMembersProvider(widget.streamId)).value ?? const <StageMember>[]) {
+      add(m.uid, m.displayName, m.avatarUrl);
+    }
+    final items = ref.read(studioCommentFeedProvider(widget.streamId)).items;
+    for (final it in items.reversed) {
+      if (!it.isSystem) add(it.comment.uid, it.comment.name, it.comment.avatarUrl);
+      if (out.length >= 12) break;
+    }
+    return out;
+  }
+
+  Widget _trayView(BuildContext context) {
+    final t = widget.tokens;
+    final q = _mention;
+    final Widget body;
+    if (q != null && _focus.hasFocus) {
+      final list = _candidates(q);
+      body = list.isEmpty
+          ? Padding(
+              padding: const EdgeInsets.all(12),
+              child: Text('No one to mention yet', style: LiveStudioType.s(12, FontWeight.w500, t.textMedium)),
+            )
+          : SizedBox(
+              height: 52,
+              child: ListView.separated(
+                scrollDirection: Axis.horizontal,
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
+                itemCount: list.length,
+                separatorBuilder: (_, _) => const SizedBox(width: 6),
+                itemBuilder: (_, i) {
+                  final c = list[i];
+                  return Semantics(
+                    button: true,
+                    label: 'Mention ${c.name}',
+                    excludeSemantics: true,
+                    child: GestureDetector(
+                      onTap: () => _pickMention(c),
+                      child: Container(
+                        padding: const EdgeInsets.fromLTRB(3, 3, 10, 3),
+                        decoration: BoxDecoration(
+                          color: t.ghostFill,
+                          borderRadius: BorderRadius.circular(999),
+                          border: Border.all(color: t.ghostBorder, width: 1),
+                        ),
+                        child: Row(mainAxisSize: MainAxisSize.min, children: [
+                          StudioAvatar(name: c.name, url: c.avatarUrl, size: 28, fill: t.commentAvatar, textColor: t.textHigh),
+                          const SizedBox(width: 6),
+                          Text(c.name, style: LiveStudioType.s(12.5, FontWeight.w600, t.textHigh)),
+                        ]),
+                      ),
+                    ),
+                  );
+                },
+              ),
+            );
+    } else {
+      body = Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+        Padding(
+          padding: const EdgeInsets.fromLTRB(10, 8, 6, 4),
+          child: Row(children: [
+            Text('Quick reactions', style: LiveStudioType.s(11, FontWeight.w700, t.textMedium)),
+            const Spacer(),
+            Semantics(
+              button: true,
+              label: 'Close emoji',
+              excludeSemantics: true,
+              child: GestureDetector(
+                onTap: _closeTray,
+                child: Padding(
+                  padding: const EdgeInsets.all(4),
+                  child: Icon(Icons.keyboard_arrow_down_rounded, size: 20, color: t.textMedium),
+                ),
+              ),
+            ),
+          ]),
+        ),
+        SizedBox(
+          height: 44,
+          child: ListView(
+            scrollDirection: Axis.horizontal,
+            padding: const EdgeInsets.symmetric(horizontal: 6),
+            children: [
+              for (final e in kLiveQuickReactions)
+                Semantics(
+                  button: true,
+                  label: 'Send $e',
+                  excludeSemantics: true,
+                  child: GestureDetector(
+                    onTap: () => _send(e),
+                    child: Container(
+                      width: 44,
+                      margin: const EdgeInsets.symmetric(horizontal: 2),
+                      decoration: BoxDecoration(color: t.ghostFill, borderRadius: BorderRadius.circular(12)),
+                      alignment: Alignment.center,
+                      child: Text(e, style: const TextStyle(fontSize: 22)),
+                    ),
+                  ),
+                ),
+            ],
+          ),
+        ),
+        Divider(height: 12, thickness: 1, color: t.ghostBorder),
+        SizedBox(
+          height: 150,
+          child: GridView.count(
+            crossAxisCount: widget.phone ? 8 : 10,
+            padding: const EdgeInsets.fromLTRB(6, 0, 6, 8),
+            children: [
+              for (final e in kLiveEmojis)
+                Semantics(
+                  button: true,
+                  label: 'Insert $e',
+                  excludeSemantics: true,
+                  child: InkResponse(
+                    onTap: () => _insert(e),
+                    radius: 22,
+                    child: Center(child: Text(e, style: const TextStyle(fontSize: 22))),
+                  ),
+                ),
+            ],
+          ),
+        ),
+      ]);
+    }
+    return Positioned(
+      width: _width,
+      child: CompositedTransformFollower(
+        link: _link,
+        showWhenUnlinked: false,
+        targetAnchor: Alignment.topLeft,
+        followerAnchor: Alignment.bottomLeft,
+        offset: const Offset(0, -8),
+        child: TapRegion(
+          groupId: _link,
+          child: Material(
+            color: LiveStudioAccent.clear,
+            child: ClipRRect(
+              borderRadius: BorderRadius.circular(16),
+              child: BackdropFilter(
+                filter: ui.ImageFilter.blur(sigmaX: 20, sigmaY: 20),
+                child: Container(
+                  decoration: BoxDecoration(
+                    gradient: LinearGradient(
+                      begin: Alignment.topCenter,
+                      end: Alignment.bottomCenter,
+                      colors: [t.drawerTop, t.drawerBottom],
+                    ),
+                    borderRadius: BorderRadius.circular(16),
+                    border: Border.all(color: t.drawerBorder, width: 1),
+                  ),
+                  child: body,
+                ),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final t = widget.tokens;
     final p = widget.phone;
     final reactions = ref.read(studioReactionsProvider(widget.streamId).notifier);
+    final open = ref.watch(studioComposerOpenProvider);
     ref.listen(studioCommentFeedProvider(widget.streamId).select((s) => s.errorSeq), (_, _) {
       final err = ref.read(studioCommentFeedProvider(widget.streamId)).error;
       if (err != null && mounted) {
         ScaffoldMessenger.maybeOf(context)?.showSnackBar(SnackBar(content: Text(err)));
       }
     });
-    return GlassBox(
-      tokens: t,
-      phone: p,
-      height: p ? 42 : 64,
-      padding: p ? const EdgeInsets.fromLTRB(14, 0, 3, 0) : const EdgeInsets.fromLTRB(18, 0, 8, 0),
-      child: Row(children: [
-        Expanded(
-          child: Semantics(
-            textField: true,
-            label: 'Comment',
-            child: TextField(
-              controller: _text,
-              focusNode: _focus,
-              maxLength: StudioLimits.commentMaxLength,
-              textInputAction: TextInputAction.send,
-              onSubmitted: (_) => _send(),
-              cursorColor: LiveStudioAccent.pink,
-              style: LiveStudioType.s(14, FontWeight.w400, t.textHigh, height: p ? 18 : 20),
-              decoration: InputDecoration(
-                isDense: true,
-                counterText: '',
-                border: InputBorder.none,
-                hintText: p ? 'Add a comment…' : 'Say something nice…',
-                hintStyle: LiveStudioType.s(14, FontWeight.w400, t.placeholder),
-              ),
+    final small = p ? 32.0 : 40.0;
+    return LayoutBuilder(builder: (context, box) {
+      if (box.hasBoundedWidth) _width = math.max(240, box.maxWidth);
+      return OverlayPortal(
+        controller: _tray,
+        overlayChildBuilder: _trayView,
+        child: CompositedTransformTarget(
+          link: _link,
+          child: TapRegion(
+            groupId: _link,
+            onTapOutside: (_) {
+              if (_emoji) _closeTray();
+            },
+            child: GlassBox(
+              tokens: t,
+              phone: p,
+              height: p ? 42 : 64,
+              padding: p ? const EdgeInsets.fromLTRB(4, 0, 3, 0) : const EdgeInsets.fromLTRB(8, 0, 8, 0),
+              child: Row(children: [
+                StudioRoundButton(
+                  tokens: t,
+                  icon: _emoji ? Icons.keyboard_alt_outlined : Icons.emoji_emotions_outlined,
+                  label: _emoji ? 'Close emoji' : 'Emoji and quick reactions',
+                  size: small,
+                  iconSize: p ? 19 : 22,
+                  fill: LiveStudioAccent.clear,
+                  border: LiveStudioAccent.clear,
+                  color: _emoji ? LiveStudioAccent.pink : t.textMedium,
+                  onTap: _toggleEmoji,
+                ),
+                Expanded(
+                  child: Semantics(
+                    textField: true,
+                    label: 'Comment',
+                    child: TextField(
+                      controller: _text,
+                      focusNode: _focus,
+                      maxLength: StudioLimits.commentMaxLength,
+                      textInputAction: TextInputAction.send,
+                      textCapitalization: TextCapitalization.sentences,
+                      onSubmitted: (_) => _send(),
+                      onTapOutside: (_) {
+                        if (!_emoji && _mention == null) _focus.unfocus();
+                      },
+                      cursorColor: LiveStudioAccent.pink,
+                      style: LiveStudioType.s(14, FontWeight.w400, t.textHigh, height: p ? 18 : 20),
+                      decoration: InputDecoration(
+                        isDense: true,
+                        counterText: '',
+                        border: InputBorder.none,
+                        hintText: p ? 'Add a comment… @ to mention' : 'Say something nice… @ to mention',
+                        hintStyle: LiveStudioType.s(14, FontWeight.w400, t.placeholder),
+                      ),
+                    ),
+                  ),
+                ),
+                StudioRoundButton(
+                  tokens: t,
+                  icon: Icons.gif_box_rounded,
+                  label: 'Send a GIF',
+                  size: small,
+                  iconSize: p ? 20 : 22,
+                  fill: LiveStudioAccent.clear,
+                  border: LiveStudioAccent.clear,
+                  color: LiveStudioAccent.blue,
+                  onTap: _sendGif,
+                ),
+                if (!p || !open)
+                  StudioRoundButton(
+                    tokens: t,
+                    icon: Icons.auto_awesome,
+                    label: 'Send sparkles',
+                    size: small,
+                    iconSize: p ? 18 : 20,
+                    fill: LiveStudioAccent.clear,
+                    border: LiveStudioAccent.clear,
+                    color: LiveStudioAccent.teal,
+                    onTap: () => reactions.tap(ReactionKind.sparkles),
+                  ),
+                if (!p)
+                  StudioRoundButton(
+                    tokens: t,
+                    icon: Icons.favorite,
+                    label: 'Send love',
+                    size: 40,
+                    fill: LiveStudioAccent.clear,
+                    border: LiveStudioAccent.clear,
+                    color: LiveStudioAccent.pink,
+                    onTap: () => reactions.tap(ReactionKind.love),
+                  ),
+                StudioRoundButton(
+                  tokens: t,
+                  icon: Icons.send_rounded,
+                  label: 'Send comment',
+                  size: p ? 34 : 48,
+                  iconSize: p ? 16 : 20,
+                  fill: LiveStudioAccent.pink,
+                  border: LiveStudioAccent.pink,
+                  color: LiveStudioAccent.white,
+                  shadow: [BoxShadow(color: LiveStudioAccent.pinkA(0.4), blurRadius: p ? 12 : 16, offset: Offset(0, p ? 4 : 6))],
+                  onTap: _send,
+                ),
+              ]),
             ),
           ),
         ),
-        StudioRoundButton(
-          tokens: t,
-          icon: Icons.gif_box_rounded,
-          label: 'Send a GIF',
-          size: p ? 32 : 40,
-          iconSize: p ? 20 : 22,
-          fill: LiveStudioAccent.clear,
-          border: LiveStudioAccent.clear,
-          color: LiveStudioAccent.blue,
-          onTap: _sendGif,
-        ),
-        StudioRoundButton(
-          tokens: t,
-          icon: Icons.auto_awesome,
-          label: 'Send sparkles',
-          size: p ? 32 : 40,
-          iconSize: p ? 18 : 20,
-          fill: LiveStudioAccent.clear,
-          border: LiveStudioAccent.clear,
-          color: LiveStudioAccent.teal,
-          onTap: () => reactions.tap(ReactionKind.sparkles),
-        ),
-        if (!p)
-          StudioRoundButton(
-            tokens: t,
-            icon: Icons.favorite,
-            label: 'Send love',
-            size: 40,
-            fill: LiveStudioAccent.clear,
-            border: LiveStudioAccent.clear,
-            color: LiveStudioAccent.pink,
-            onTap: () => reactions.tap(ReactionKind.love),
-          ),
-        StudioRoundButton(
-          tokens: t,
-          icon: Icons.send_rounded,
-          label: 'Send comment',
-          size: p ? 34 : 48,
-          iconSize: p ? 16 : 20,
-          fill: LiveStudioAccent.pink,
-          border: LiveStudioAccent.pink,
-          color: LiveStudioAccent.white,
-          shadow: [BoxShadow(color: LiveStudioAccent.pinkA(0.4), blurRadius: p ? 12 : 16, offset: Offset(0, p ? 4 : 6))],
-          onTap: _send,
-        ),
-      ]),
-    );
+      );
+    });
   }
 }
 
@@ -948,9 +1293,10 @@ class _Heart {
   final double size;
 }
 
-/// Room tabs (SPEC §3): Lobby · Presenter's Goods (dot) · Map / Room ·
-/// Participants (count) · Activity & Chat (dot).
-enum StudioRoomTab { lobby, goods, room, people, chat }
+/// Room tabs. Lobby, Goods, Map / Room and Activity & Chat had no content
+/// behind them and are no longer shown; the live shows Participants and,
+/// for the host / co-hosts, the Watch together entries (YouTube, Browser).
+enum StudioRoomTab { lobby, goods, room, people, chat, youtube, browser }
 
 class StudioTabDef {
   const StudioTabDef(this.tab, this.label, this.short, this.icon);
@@ -961,12 +1307,16 @@ class StudioTabDef {
 }
 
 const List<StudioTabDef> kStudioTabs = [
-  StudioTabDef(StudioRoomTab.lobby, 'Lobby', 'Lobby', Icons.home_outlined),
-  StudioTabDef(StudioRoomTab.goods, 'Presenter’s Goods', 'Presenter’s Goods', Icons.inventory_2_outlined),
-  StudioTabDef(StudioRoomTab.room, 'Interactive Map / Room', 'Map / Room', Icons.map_outlined),
   StudioTabDef(StudioRoomTab.people, 'Participants', 'Participants', Icons.group_outlined),
-  StudioTabDef(StudioRoomTab.chat, 'Activity & Chat', 'Activity & Chat', Icons.chat_bubble_outline),
+  StudioTabDef(StudioRoomTab.youtube, 'Watch YouTube together', 'YouTube', Icons.smart_display_outlined),
+  StudioTabDef(StudioRoomTab.browser, 'Browse together', 'Browser', Icons.public),
 ];
+
+/// Tabs [role] can use (Watch together is for the host / co-hosts).
+List<StudioTabDef> studioTabsFor(StudioRole role) => [
+      for (final d in kStudioTabs)
+        if (role.isManager || d.tab == StudioRoomTab.people) d,
+    ];
 
 class RoomTabButton extends StatelessWidget {
   const RoomTabButton({

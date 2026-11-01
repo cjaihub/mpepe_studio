@@ -42,6 +42,7 @@ import {
   permissionForRole,
   pickAccent,
   placeOnStage,
+  stageCount,
   removeFromLayout,
   requestJoinDecision,
   respondDecision,
@@ -197,6 +198,7 @@ export const lsRequestJoin = onCall({ secrets: LIVEKIT_SECRETS }, (req) =>
       status: state.status,
       allowGuestRequests: allowsGuestRequests(streamSnap.data()),
       existing: existing.exists ? ((existing.data() as JoinRequest).status ?? null) : null,
+      onStage: stageCount(state.stage),
     }));
     await rateLimit(streamId, uid, 'join', REQUEST_JOIN_MAX, REQUEST_JOIN_WINDOW_MS);
 

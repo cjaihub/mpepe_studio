@@ -153,13 +153,23 @@ class StudioSessionController extends Notifier<AsyncValue<StudioState>> {
     try {
       StudioState? full;
       Object? callError;
+      // First load: read Firestore in parallel so a cold lsStateFull (up to
+      // its 15 s timeout) never holds the join spinner. applyFull keeps
+      // whichever is newer. Later resyncs use the callable alone.
+      Future<StudioState?>? early;
+      if (_sync.state == null) {
+        early = ref.read(studioStateReaderProvider)(streamId).then<StudioState?>((s) => s, onError: (_) => null);
+        unawaited(early.then((s) {
+          if (s != null && ref.mounted && identical(sync, _sync) && _sync.applyFull(s)) _emit();
+        }));
+      }
       try {
         full = await ref.read(studioMediaApiProvider).stateFull(streamId);
       } catch (e) {
         callError = e;
       }
       if (!ref.mounted || !identical(sync, _sync)) return;
-      full ??= await ref.read(studioStateReaderProvider)(streamId);
+      full ??= await (early ?? ref.read(studioStateReaderProvider)(streamId));
       if (!ref.mounted || !identical(sync, _sync)) return;
       if (full != null) {
         if (_sync.applyFull(full)) _emit();

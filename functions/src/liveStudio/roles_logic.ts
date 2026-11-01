@@ -120,11 +120,14 @@ export function requestJoinDecision(a: {
   status: StudioStatus;
   allowGuestRequests: boolean;
   existing?: JoinRequestStatus | null;
+  /** People on the stage panel now (host included). */
+  onStage?: number;
 }): Decision {
   if (a.blocked) return deny('permission-denied', 'You are blocked from this live.');
   if (a.status !== 'live') return deny('failed-precondition', 'This live is not on air.');
   if (!actorAllowed('requestJoin', a.role)) return deny('failed-precondition', 'You are already on stage.');
   if (!a.allowGuestRequests) return deny('failed-precondition', 'The host is not taking requests.');
+  if ((a.onStage ?? 0) >= Limits.maxOnStage) return deny('failed-precondition', STAGE_FULL_MESSAGE);
   return OK;
 }
 
@@ -207,10 +210,23 @@ export type Placement = { kind: 'wall'; index: number } | { kind: 'overflow' } |
 const onLayout = (s: StageLayout, uid: string) =>
   s.centerUid === uid || s.wall.includes(uid) || s.overflow.includes(uid);
 
+export const STAGE_FULL_MESSAGE = `The stage is full (${Limits.maxOnStage} people).`;
+
+/** Distinct people on the stage layout (center, wall, overflow). */
+export function stageCount(s: StageLayout): number {
+  return new Set([s.centerUid, ...s.wall, ...s.overflow].filter((u): u is string => !!u)).size;
+}
+
+/** True when nobody else can be placed on [s] ([Limits.maxOnStage]). */
+export const stageIsFull = (s: StageLayout): boolean => stageCount(s) >= Limits.maxOnStage;
+
 const normWall = (wall: (string | null)[]): (string | null)[] =>
   Array.from({ length: Limits.wallSlots }, (_, i) => wall[i] ?? null);
 
-/** Puts [uid] in the first free wall index, or overflow when the wall is full. */
+/**
+ * Puts [uid] in the first free wall index, or overflow when the wall is full.
+ * Throws [RolesError] when the stage already holds [Limits.maxOnStage] people.
+ */
 export function placeOnStage(
   stage: StageLayout,
   uid: string,
@@ -218,6 +234,7 @@ export function placeOnStage(
   by: string,
 ): { stage: StageLayout; placement: Placement } {
   if (onLayout(stage, uid)) return { stage, placement: { kind: 'already' } };
+  if (stageIsFull(stage)) throw new RolesError('failed-precondition', STAGE_FULL_MESSAGE);
   const wall = normWall(stage.wall);
   const index = wall.findIndex((u) => !u);
   if (index >= 0) {

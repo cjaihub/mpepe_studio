@@ -14,7 +14,7 @@ import '../../../../backend/live_studio/layout/layout.dart';
 import '../../../../backend/live_studio/media/livekit_studio_room.dart';
 import '../../../../backend/live_studio/media/studio_media_api.dart';
 import '../../../../backend/live_studio/media/studio_video_view.dart';
-import '../../../../backend/live_studio/roles/studio_moderation_controller.dart';
+import '../../../../backend/live_studio/roles/studio_roles_api.dart' show StudioConfirmPrompt;
 import '../../../../backend/live_studio/roles/studio_request_queue_controller.dart';
 import '../../../../backend/live_studio/session/studio_session_controller.dart';
 import '../../../../backend/live_studio/settings/studio_settings_controller.dart';
@@ -37,6 +37,10 @@ import '../fun/live_control_hub.dart';
 import '../fun/recording_decision_card.dart';
 import 'live_session_status.dart';
 import 'shell_widgets.dart';
+import 'stage_panel_grid.dart';
+import '../watch/watch_layer.dart';
+import '../watch/watch_picker_sheet.dart';
+import '../../../../backend/live_studio/watch/studio_watch.dart' show WatchKind, studioWatchProvider;
 
 /// The stream doc (`live_streams/{id}`): status / endedReason / host info.
 /// Catches server-side endings (sweeper, room closed) even if the room's
@@ -124,8 +128,17 @@ class _LiveStudioV2ScreenState extends ConsumerState<LiveStudioV2Screen> {
     if (room is LiveKitStudioRoom) _mediaSubs.add(room.mediaChanged.listen((_) => _rebuild()));
   }
 
+  bool _rebuildQueued = false;
+
+  /// Media events come in bursts (speakers, stream states, mutes): rebuild
+  /// the studio at most once per ~2 frames instead of once per event.
   void _rebuild() {
-    if (mounted) setState(() {});
+    if (_rebuildQueued || !mounted) return;
+    _rebuildQueued = true;
+    Future.delayed(const Duration(milliseconds: 32), () {
+      _rebuildQueued = false;
+      if (mounted) setState(() {});
+    });
   }
 
   void _onQuality(StudioLinkQuality q) {
@@ -163,18 +176,45 @@ class _LiveStudioV2ScreenState extends ConsumerState<LiveStudioV2Screen> {
 
   void _markEnded(String reason) {
     if (_endedReason != null) return;
+    _stopLocalWork();
+    if (mounted) setState(() => _endedReason = reason);
+  }
+
+  /// Stops everything this screen runs for the live: heartbeat, leader
+  /// election, presence polling, wakelock, and the room (camera, mic, screen
+  /// share, foreground service). The provider's own dispose is then a no-op.
+  void _stopLocalWork() {
     _heartbeat?.cancel();
     _heartbeat = null;
+    _presenceTimer?.cancel();
+    _presenceTimer = null;
+    _leader?.dispose();
+    _leader = null;
+    unawaited(WakelockPlus.disable());
     final room = _boundRoom;
-    // Release camera / mic right away; the provider's dispose is then a no-op.
     if (room != null) unawaited(room.disconnect());
-    setState(() => _endedReason = reason);
+  }
+
+  /// lsEnd in the background: the host is already out. Retries a few times;
+  /// if every try fails the server closes the live once heartbeats stop.
+  Future<void> _endOnServer() async {
+    final api = ref.read(studioMediaApiProvider);
+    final messenger = ScaffoldMessenger.maybeOf(context);
+    for (var attempt = 0; attempt < 3; attempt++) {
+      try {
+        await api.end(_id).timeout(const Duration(seconds: 12));
+        return;
+      } catch (_) {
+        await Future<void>.delayed(Duration(seconds: 2 << attempt));
+      }
+    }
+    messenger?.showSnackBar(const SnackBar(content: Text('No connection. Your live will close automatically.')));
   }
 
   /// Host / co-hosts run the auto-speaker leader election (ARCHITECTURE §8).
   void _syncLeader(StudioRole role, StudioRoomPort room, StudioState state, Map<String, StageMember> members) {
     final uid = ref.read(studioMyUidProvider);
-    if (!role.isManager || uid == null) {
+    if (!role.isManager || uid == null || _endedReason != null) {
       _leader?.dispose();
       _leader = null;
       _presenceTimer?.cancel();
@@ -204,21 +244,23 @@ class _LiveStudioV2ScreenState extends ConsumerState<LiveStudioV2Screen> {
 
   Future<void> _close(StudioRole role, LiveStudioTokens tokens) async {
     if (role == StudioRole.host) {
-      final ended = await ref
-          .read(studioModerationControllerProvider(_id).notifier)
-          .endLive(confirm: studioConfirmFor(context, tokens));
-      if (!mounted) return;
-      if (!ended) {
-        // Confirmed but lsEnd failed (offline): leave anyway; with no more
-        // heartbeats the server closes the live within ~90 s.
-        if (ref.read(studioModerationControllerProvider(_id)).error == null) return;
-        ScaffoldMessenger.maybeOf(context)?.showSnackBar(
-            const SnackBar(content: Text('No connection. Your live will close automatically.')));
-      }
+      final ok = await studioConfirmFor(context, tokens)(const StudioConfirmPrompt(
+        title: 'End the live?',
+        message: 'Everyone leaves the studio and the live stops for all viewers.',
+        confirmLabel: 'End live',
+      ));
+      if (!ok || !mounted) return;
+      HapticFeedback.mediumImpact();
+      // Leave at once (camera, mic and screen stop now); the server closes
+      // the room and tells the viewers in the background.
       _markEnded('host');
+      unawaited(_endOnServer());
       return;
     }
-    if (mounted) _leave();
+    // Viewers / guests: drop media before the route animates out, so no
+    // frozen frame slides away and nothing keeps running behind it.
+    _stopLocalWork();
+    _leave();
   }
 
   Widget _endedView(
@@ -271,6 +313,19 @@ class _LiveStudioV2ScreenState extends ConsumerState<LiveStudioV2Screen> {
     );
   }
 
+  void _onRoomTab(StudioRoomTab t, LiveStudioTokens tokens, StudioState s, List<StageMember> members, StudioRole role) {
+    switch (t) {
+      case StudioRoomTab.people:
+        _openPeople(tokens, s, members, role);
+      case StudioRoomTab.youtube || StudioRoomTab.browser:
+        if (!role.isManager) return;
+        showWatchTogetherSheet(context,
+            streamId: _id, tokens: tokens, initial: t == StudioRoomTab.youtube ? WatchKind.youtube : WatchKind.browser);
+      default:
+        setState(() => _tab = t);
+    }
+  }
+
   void _openDrawer(LiveStudioTokens tokens, StudioState s, List<StageMember> members, StudioRole role) {
     HapticFeedback.lightImpact();
     showModalBottomSheet<void>(
@@ -286,11 +341,7 @@ class _LiveStudioV2ScreenState extends ConsumerState<LiveStudioV2Screen> {
         participants: ref.read(studioCountsProvider(_id)).participants,
         onTab: (t) {
           Navigator.of(ctx).pop();
-          if (t == StudioRoomTab.people) {
-            _openPeople(tokens, s, members, role);
-          } else {
-            setState(() => _tab = t);
-          }
+          _onRoomTab(t, tokens, s, members, role);
         },
         room: _boundRoom,
         gaming: s.isGaming,
@@ -336,6 +387,12 @@ class _LiveStudioV2ScreenState extends ConsumerState<LiveStudioV2Screen> {
     final counts = ref.watch(studioCountsProvider(_id));
     if (counts.viewers > _peakViewers) _peakViewers = counts.viewers;
     if (_endedReason != null || doc?['status'] == 'ended' || base?.status == StudioStatus.ended) {
+      if (_endedReason == null) {
+        // Ended elsewhere (host, sweeper): release media now, not on pop.
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (mounted) _markEnded((doc?['endedReason'] as String?) ?? 'host');
+        });
+      }
       return _endedView(role, doc, base, members, counts);
     }
     final fatal = room is LiveKitStudioRoom ? room.fatalError : null;
@@ -376,14 +433,31 @@ class _LiveStudioV2ScreenState extends ConsumerState<LiveStudioV2Screen> {
           final o = viewport.width > viewport.height ? StudioOrientation.landscape : StudioOrientation.phone;
           final studio = geometry.studio(state.settings.studioId);
           final camera = studio.camera(o, viewport);
-          final comments = studio.commentsRect(o, state.settings.guestSize, viewport);
+          var comments = studio.commentsRect(o, state.settings.guestSize, viewport);
           final phone = o == StudioOrientation.phone;
           final host = members[state.hostId];
           final gaming = state.isGaming;
+          // More people on stage than the studio world shows: an even grid
+          // (1–10) instead, with the comments below / beside it.
+          final onStage = state.stage.publishers.toSet().toList();
+          final panel = !gaming && onStage.length > studioWorldCapacity(phone: phone);
+          final pad = MediaQuery.paddingOf(context);
+          final safe = Size(viewport.width - pad.horizontal, viewport.height - pad.vertical);
+          // The scaffold does not resize for the keyboard (the stage must not
+          // jump); the comment bar and feed lift above it instead.
+          final keyboard = (MediaQuery.viewInsetsOf(context).bottom - pad.bottom).clamp(0.0, double.infinity);
+          final Rect gridRect;
+          if (phone) {
+            gridRect = Rect.fromLTWH(6, 58, safe.width - 12, safe.height * 0.6);
+            if (panel) comments = Rect.fromLTRB(10, gridRect.bottom + 8, safe.width * 0.78, safe.height - 64);
+          } else {
+            gridRect = Rect.fromLTRB(24, 84, safe.width * 0.68, safe.height - 108);
+            if (panel) comments = Rect.fromLTRB(gridRect.right + 14, 84, safe.width - 112, safe.height - 108);
+          }
           final isHost = role == StudioRole.host;
           final VoidCallback? switchToGame = gaming && isHost ? () => _startGame(room, tip: true) : null;
 
-          final stage = StudioStage(
+          final world = StudioStage(
             geometry: geometry,
             state: state,
             members: gaming ? gamingStageMembers(members, state.hostId) : members,
@@ -433,6 +507,40 @@ class _LiveStudioV2ScreenState extends ConsumerState<LiveStudioV2Screen> {
               return h == null ? const SizedBox.shrink() : StudioVideoView(h, fit: BoxFit.contain);
             },
           );
+          final stage = !panel
+              ? world
+              : ColoredBox(
+                  color: tokens.base,
+                  child: Stack(children: [
+                    Positioned(
+                      left: pad.left + gridRect.left,
+                      top: pad.top + gridRect.top,
+                      width: gridRect.width,
+                      height: gridRect.height,
+                      child: StagePanelGrid(
+                        uids: onStage,
+                        members: members,
+                        tokens: tokens,
+                        phone: phone,
+                        hostId: state.hostId,
+                        isSpeaking: room.isSpeaking,
+                        isMuted: (uid) => !(members[uid]?.micOn ?? true) || room.isMicMuted(uid),
+                        videoBuilder: (uid, size) {
+                          final h = room.cameraOf(uid);
+                          return h == null ? const SizedBox.shrink() : StudioVideoView(h);
+                        },
+                        onTileTap: role.isManager
+                            ? (uid) {
+                                if (uid == state.stage.centerUid) return;
+                                final i = state.stage.wallIndexOf(uid);
+                                final cmd = LayoutCommands(ref.read(studioCallPortProvider), _id);
+                                unawaited((i >= 0 ? cmd.swap(i) : cmd.pin(uid)).then((_) {}, onError: (_) {}));
+                              }
+                            : null,
+                      ),
+                    ),
+                  ]),
+                );
 
           final chrome = phone
               ? _PhoneChrome(
@@ -443,6 +551,7 @@ class _LiveStudioV2ScreenState extends ConsumerState<LiveStudioV2Screen> {
                   role: role,
                   camera: camera,
                   comments: comments,
+                  keyboard: keyboard,
                   onPeople: () => _openPeople(tokens, state, membersList, role),
                   onClose: () => _close(role, tokens),
                   onShare: () => _share(state),
@@ -458,10 +567,9 @@ class _LiveStudioV2ScreenState extends ConsumerState<LiveStudioV2Screen> {
                   role: role,
                   room: room,
                   comments: comments,
+                  keyboard: keyboard,
                   tab: _tab,
-                  onTab: (t) => t == StudioRoomTab.people
-                      ? _openPeople(tokens, state, membersList, role)
-                      : setState(() => _tab = t),
+                  onTab: (t) => _onRoomTab(t, tokens, state, membersList, role),
                   onPeople: () => _openPeople(tokens, state, membersList, role),
                   onClose: () => _close(role, tokens),
                   onShare: () => _share(state),
@@ -491,6 +599,14 @@ class _LiveStudioV2ScreenState extends ConsumerState<LiveStudioV2Screen> {
                 ),
               ),
             ),
+            // Watch together (YouTube / browser), above the stage; the host's
+            // camera keeps streaming underneath.
+            if (!gaming)
+              Positioned.fill(
+                child: SafeArea(
+                  child: StudioWatchLayer(streamId: _id, tokens: tokens, phone: phone, canControl: role.isManager),
+                ),
+              ),
             Positioned.fill(
               child: SafeArea(child: StudioFunOverlay(streamId: _id, canManage: role.isManager, phone: phone)),
             ),
@@ -668,6 +784,7 @@ class _LandscapeChrome extends ConsumerWidget {
     required this.role,
     required this.room,
     required this.comments,
+    this.keyboard = 0,
     required this.tab,
     required this.onTab,
     required this.onPeople,
@@ -684,6 +801,9 @@ class _LandscapeChrome extends ConsumerWidget {
   final StudioRole role;
   final StudioRoomPort room;
   final Rect comments;
+
+  /// Keyboard height over the safe area (0 when hidden).
+  final double keyboard;
   final StudioRoomTab tab;
   final ValueChanged<StudioRoomTab> onTab;
   final VoidCallback onPeople;
@@ -795,7 +915,7 @@ class _LandscapeChrome extends ConsumerWidget {
       Positioned(
         left: 24,
         right: 24,
-        bottom: 26,
+        bottom: 26 + keyboard,
         child: SizedBox(
           height: 68,
           child: Row(children: [
@@ -809,7 +929,7 @@ class _LandscapeChrome extends ConsumerWidget {
                 child: SingleChildScrollView(
                   scrollDirection: Axis.horizontal,
                   child: Row(children: [
-                    for (final d in kStudioTabs.take(4))
+                    for (final d in studioTabsFor(role))
                       Padding(
                         padding: const EdgeInsets.symmetric(horizontal: 2),
                         child: RoomTabButton(
@@ -818,7 +938,6 @@ class _LandscapeChrome extends ConsumerWidget {
                           active: tab == d.tab,
                           onTap: () => onTab(d.tab),
                           count: d.tab == StudioRoomTab.people ? counts.participants : null,
-                          dot: d.tab == StudioRoomTab.goods,
                         ),
                       ),
                   ]),
@@ -1004,6 +1123,7 @@ class _PhoneChrome extends ConsumerWidget {
     required this.role,
     required this.camera,
     required this.comments,
+    this.keyboard = 0,
     required this.onPeople,
     required this.onClose,
     required this.onShare,
@@ -1018,6 +1138,9 @@ class _PhoneChrome extends ConsumerWidget {
   final StudioRole role;
   final StudioCamera camera;
   final Rect comments;
+
+  /// Keyboard height over the safe area (0 when hidden).
+  final double keyboard;
   final VoidCallback onPeople;
   final VoidCallback onClose;
   final VoidCallback onShare;
@@ -1035,6 +1158,11 @@ class _PhoneChrome extends ConsumerWidget {
     final counts = ref.watch(studioCountsProvider(streamId));
     final reactions = ref.watch(studioReactionsProvider(streamId));
     final rail = camera.artboardToUi(_railAnchor);
+    final typing = ref.watch(studioComposerOpenProvider);
+    final feed = keyboard > 0
+        ? Rect.fromLTRB(comments.left, (comments.top - keyboard).clamp(64.0, comments.bottom), comments.right,
+            comments.bottom - keyboard)
+        : comments;
     return Stack(children: [
       // Header: host card, then compact Join / Participants / Close.
       Positioned(
@@ -1107,17 +1235,20 @@ class _PhoneChrome extends ConsumerWidget {
           top: rail.dy,
           child: TableModePicker(streamId: streamId, kind: TableModePickerKind.rail, tokens: t),
         ),
-      Positioned.fromRect(rect: comments, child: CommentFeed(streamId: streamId, tokens: t)),
+      if (feed.height > 40) Positioned.fromRect(rect: feed, child: CommentFeed(streamId: streamId, tokens: t)),
       Positioned(right: 10, bottom: 62, width: 40, height: 150, child: FloatingHearts(streamId: streamId, rise: 130)),
-      // Slim bottom bar.
-      Positioned(
+      // Slim bottom bar (while typing: the input alone, full width).
+      AnimatedPositioned(
+        duration: const Duration(milliseconds: 160),
+        curve: Curves.easeOutCubic,
         left: 10,
         right: 10,
-        bottom: 12,
+        bottom: 12 + keyboard,
         child: SizedBox(
           height: 44,
           child: Row(children: [
             Expanded(child: CommentBar(streamId: streamId, tokens: t, phone: true)),
+            if (!typing) ...[
             const SizedBox(width: 5),
             if (!state.isGaming)
               ShareToTableButton(streamId: streamId, tokens: t, variant: ShareToTableVariant.phone)
@@ -1181,6 +1312,7 @@ class _PhoneChrome extends ConsumerWidget {
                     )
                   : null,
             ),
+            ],
           ]),
         ),
       ),
@@ -1217,6 +1349,7 @@ class _LiveFeaturesDrawer extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final t = tokens;
+    final watching = ref.watch(studioWatchProvider(streamId)).value?.kind;
     return _DrawerFrame(
       tokens: t,
       title: 'Live features',
@@ -1230,7 +1363,7 @@ class _LiveFeaturesDrawer extends ConsumerWidget {
         Text('Room', style: LiveStudioType.s(12, FontWeight.w600, t.textMedium, height: 16)),
         const SizedBox(height: 6),
         Row(children: [
-          for (final d in kStudioTabs)
+          for (final d in studioTabsFor(role))
             Expanded(
               child: Padding(
                 padding: const EdgeInsets.symmetric(horizontal: 3),
@@ -1239,7 +1372,9 @@ class _LiveFeaturesDrawer extends ConsumerWidget {
                   tokens: t,
                   active: d.tab == tab,
                   count: d.tab == StudioRoomTab.people ? participants : null,
-                  dot: d.tab == StudioRoomTab.goods || d.tab == StudioRoomTab.chat,
+                  // Dot: this is what everyone is watching right now.
+                  dot: (d.tab == StudioRoomTab.youtube && watching == WatchKind.youtube) ||
+                      (d.tab == StudioRoomTab.browser && watching == WatchKind.browser),
                   onTap: () => onTab(d.tab),
                 ),
               ),

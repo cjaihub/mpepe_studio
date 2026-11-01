@@ -561,6 +561,13 @@ class LiveKitStudioRoom implements StudioRoomPort, StudioGameStreamPort {
       _wantMic = false;
       _wantCam = false;
       unawaited(stopTableScreenShare().catchError((_) {}));
+      // Off the stage: release the camera and mic too (the server already
+      // stopped forwarding them; without this the camera light stays on).
+      final lp = _room?.localParticipant;
+      final cam = lp?.getTrackPublicationBySource(TrackSource.camera)?.track;
+      final tid = cam?.mediaStreamTrack.id;
+      if (tid != null) onCameraTrackUnpublished?.call(tid);
+      if (lp != null) unawaited(lp.unpublishAllTracks().catchError((Object e) => debugPrint('[LiveKitStudioRoom] unpublish: $e')));
     }
     _changed();
   }
@@ -775,21 +782,51 @@ class LiveKitStudioRoom implements StudioRoomPort, StudioGameStreamPort {
 
   // ─── Teardown ──────────────────────────────────────────────────────────────
 
+  /// Leaving must never hang the UI: LiveKit's leave waits on the signal
+  /// socket, which can stall on a bad link. Past these limits we drop it.
+  static const Duration _leaveTimeout = Duration(seconds: 3);
+  static const Duration _disposeTimeout = Duration(seconds: 2);
+
   Future<void> _teardownRoom() async {
-    for (final l in _trackListeners.values) {
-      await l.dispose();
-    }
+    final listeners = [..._trackListeners.values];
     _trackListeners.clear();
-    await _listener?.dispose();
+    for (final l in listeners) {
+      unawaited(l.dispose());
+    }
+    final listener = _listener;
     _listener = null;
+    unawaited(listener?.dispose());
     final room = _room;
     _room = null;
     if (room != null) {
       try {
-        await room.disconnect();
-      } catch (_) {}
-      await room.dispose();
+        await room.disconnect().timeout(_leaveTimeout);
+      } catch (e) {
+        debugPrint('[LiveKitStudioRoom] leave: $e');
+      }
+      try {
+        await room.dispose().timeout(_disposeTimeout);
+      } catch (e) {
+        debugPrint('[LiveKitStudioRoom] dispose: $e');
+      }
     }
+  }
+
+  /// Stops every local capture (camera, mic, screen) at once so the camera
+  /// light goes off and nothing keeps recording while the room leaves.
+  Future<void> _stopLocalCapture() async {
+    final lp = _room?.localParticipant;
+    final tracks = <LocalTrack>[
+      if (lp != null)
+        for (final pub in lp.trackPublications.values)
+          if (pub.track case final LocalTrack t) t,
+      ?_screenTrack,
+    ];
+    _screenTrack = null;
+    await Future.wait([
+      for (final t in tracks)
+        t.stop().timeout(_disposeTimeout).then((_) {}, onError: (Object e) => debugPrint('[LiveKitStudioRoom] stop: $e')),
+    ]);
   }
 
   @override
@@ -800,22 +837,28 @@ class LiveKitStudioRoom implements StudioRoomPort, StudioGameStreamPort {
     _tickTimer?.cancel();
     _qosTimer?.cancel();
     _qos.flush();
-    final wasSharing = _screenTrack != null;
-    await _screenTrack?.stop();
-    _screenTrack = null;
-    if (wasSharing) await _stopScreenCaptureService();
+    _wantMic = false;
+    _wantCam = false;
     final camPub = _room?.localParticipant?.getTrackPublicationBySource(TrackSource.camera);
     if (camPub?.track != null) {
       final tid = camPub!.track!.mediaStreamTrack.id;
       if (tid != null) onCameraTrackUnpublished?.call(tid);
     }
-    await _teardownRoom();
-    for (final h in _cams.values) {
-      h.dispose();
+    // Video views first (no frozen last frame), then the hardware, then the
+    // foreground service (always: the OS may have ended the share already
+    // while the service kept running), then the network.
+    for (final h in [..._cams.values, ?_screen]) {
+      h
+        ..bind(null)
+        ..dispose();
     }
     _cams.clear();
-    _screen?.dispose();
     _screen = null;
+    _changed();
+    await _stopLocalCapture();
+    await _stopScreenCaptureService();
+    await _teardownRoom();
+    _e2ee = null;
     await _events.close();
     await _speakersCtl.close();
     await _qualityCtl.close();

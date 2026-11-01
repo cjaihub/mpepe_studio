@@ -37,6 +37,9 @@ class StudioLimits {
   static const int wallSlots = 6;
   static const int phoneWallSlots = 4;
 
+  /// Most people on the stage panel at once, host included (server-enforced).
+  static const int maxOnStage = 10;
+
   /// Speaker hysteresis (ARCHITECTURE §8).
   static const Duration speakToTakeCenter = Duration(milliseconds: 1500);
   static const Duration minCenterHold = Duration(seconds: 4);
@@ -413,6 +416,12 @@ class StageLayout {
         ...wall.whereType<String>(),
         ...overflow,
       ];
+
+  /// Distinct people on stage (center, wall, overflow).
+  int get headcount => publishers.toSet().length;
+
+  /// True when [StudioLimits.maxOnStage] people are on stage.
+  bool get isFull => headcount >= StudioLimits.maxOnStage;
 
   /// Index of [uid] on the wall, or -1.
   int wallIndexOf(String uid) => wall.indexOf(uid);

@@ -22,6 +22,8 @@ export const Paths = {
 export const Limits = {
   wallSlots: 6,
   phoneWallSlots: 4,
+  /** Most people on the stage panel at once, host included. */
+  maxOnStage: 10,
   speakToTakeCenterMs: 1500,
   minCenterHoldMs: 4000,
   leaderFailoverMs: 10000,

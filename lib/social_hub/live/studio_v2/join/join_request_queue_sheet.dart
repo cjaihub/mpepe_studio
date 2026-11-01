@@ -12,6 +12,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../../backend/live_studio/contracts/studio_contracts.dart';
 import '../../../../backend/live_studio/roles/studio_request_queue_controller.dart';
+import '../../../../backend/live_studio/session/studio_session_controller.dart' show studioFirestoreProvider;
 import '../theme/live_studio_tokens.dart';
 
 /// Semantics labels (shared with tests).
@@ -35,6 +36,13 @@ Future<void> showJoinRequestQueueSheet(BuildContext context, {required String st
   );
 }
 
+/// Who is on stage now (`studio/state.stage`), for the x/10 counter.
+final _stageProvider = StreamProvider.autoDispose.family<StageLayout?, String>((ref, streamId) => ref
+    .watch(studioFirestoreProvider)
+    .doc(StudioPaths.state(streamId))
+    .snapshots()
+    .map((d) => d.data()?['stage'] is Map ? StageLayout.fromJson(Map<String, dynamic>.from(d.data()!['stage'] as Map)) : null));
+
 class JoinRequestQueueSheet extends ConsumerWidget {
   const JoinRequestQueueSheet({super.key, required this.streamId, required this.tokens});
 
@@ -56,6 +64,9 @@ class JoinRequestQueueSheet extends ConsumerWidget {
     final ctl = ref.read(ctlProvider.notifier);
     final async = ref.watch(studioPendingRequestsProvider(streamId));
     final pending = ctl.visible(async.value ?? const []);
+    final stage = ref.watch(_stageProvider(streamId)).value;
+    final onStage = stage?.headcount ?? 0;
+    final full = stage?.isFull ?? false;
     final maxH = MediaQuery.sizeOf(context).height * 0.7;
 
     Widget body;
@@ -80,6 +91,7 @@ class JoinRequestQueueSheet extends ConsumerWidget {
             tokens: t,
             request: r,
             busy: view.inFlight.contains(r.uid),
+            full: full,
             onApprove: () {
               HapticFeedback.lightImpact();
               unawaited(ctl.approve(r.uid));
@@ -130,6 +142,26 @@ class JoinRequestQueueSheet extends ConsumerWidget {
                   child: Text('${pending.length}',
                       style: LiveStudioType.s(10, FontWeight.w800, LiveStudioAccent.white, letter: 0.06)),
                 ),
+              const Spacer(),
+              if (stage != null)
+                Semantics(
+                  label: 'On stage $onStage of ${StudioLimits.maxOnStage}',
+                  excludeSemantics: true,
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                    decoration: BoxDecoration(
+                      color: full ? LiveStudioAccent.pinkA(0.16) : t.ghostFill,
+                      borderRadius: BorderRadius.circular(999),
+                      border: Border.all(color: full ? LiveStudioAccent.pink : t.ghostBorder, width: 1),
+                    ),
+                    child: Row(mainAxisSize: MainAxisSize.min, children: [
+                      Icon(Icons.groups_2_outlined, size: 14, color: full ? LiveStudioAccent.pink : t.textMedium),
+                      const SizedBox(width: 4),
+                      Text(full ? 'Stage full' : 'On stage $onStage/${StudioLimits.maxOnStage}',
+                          style: LiveStudioType.s(11, FontWeight.w700, full ? LiveStudioAccent.pink : t.textMedium)),
+                    ]),
+                  ),
+                ),
             ]),
             const SizedBox(height: 12),
             Flexible(child: body),
@@ -164,10 +196,14 @@ class _RequestRow extends StatelessWidget {
     required this.busy,
     required this.onApprove,
     required this.onDecline,
+    this.full = false,
   });
   final LiveStudioTokens tokens;
   final JoinRequest request;
   final bool busy;
+
+  /// The stage holds [StudioLimits.maxOnStage] people: Approve is disabled.
+  final bool full;
   final VoidCallback onApprove;
   final VoidCallback onDecline;
 
@@ -192,7 +228,8 @@ class _RequestRow extends StatelessWidget {
                 overflow: TextOverflow.ellipsis,
                 style: LiveStudioType.s(13.5, FontWeight.w700, t.textHigh)),
             const SizedBox(height: 2),
-            Text('Wants to join the stage', style: LiveStudioType.s(11, FontWeight.w500, t.textMedium)),
+            Text(full ? 'Stage is full — remove someone first' : 'Wants to join the stage',
+                style: LiveStudioType.s(11, FontWeight.w500, t.textMedium)),
           ]),
         ),
         if (busy)
@@ -219,18 +256,19 @@ class _RequestRow extends StatelessWidget {
             label: JoinQueueLabels.approve(name),
             excludeSemantics: true,
             child: Material(
-              color: LiveStudioAccent.blue,
+              color: full ? t.ghostFill : LiveStudioAccent.blue,
               shape: const StadiumBorder(),
               child: InkWell(
                 customBorder: const StadiumBorder(),
-                onTap: onApprove,
+                onTap: full ? null : onApprove,
                 child: ConstrainedBox(
                   constraints: const BoxConstraints(minHeight: 44, minWidth: 44),
                   child: Padding(
                     padding: const EdgeInsets.symmetric(horizontal: 14),
                     child: Center(
                       widthFactor: 1,
-                      child: Text('Approve', style: LiveStudioType.s(12.5, FontWeight.w700, LiveStudioAccent.white)),
+                      child: Text('Approve',
+                          style: LiveStudioType.s(12.5, FontWeight.w700, full ? t.textMedium : LiveStudioAccent.white)),
                     ),
                   ),
                 ),

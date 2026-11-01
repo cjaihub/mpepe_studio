@@ -24,6 +24,8 @@ import {
   removeFromLayout,
   requestJoinDecision,
   respondDecision,
+  stageCount,
+  stageIsFull,
 } from '../roles_logic';
 
 const NOW = 5_000_000;
@@ -203,6 +205,27 @@ test('placeOnStage: overflow when the wall is full', () => {
   const r = placeOnStage(stage({ wall: ['a', 'b', 'c', 'd', 'e', 'f'], overflow: ['o1'] }), 'g', NOW, 'host');
   assert.deepEqual(r.placement, { kind: 'overflow' });
   assert.deepEqual(r.stage.overflow, ['o1', 'g']);
+});
+
+test('stage cap: 10 people (host + 6 wall + 3 overflow), then full', () => {
+  const nine = stage({ wall: ['a', 'b', 'c', 'd', 'e', 'f'], overflow: ['o1', 'o2'] });
+  assert.equal(stageCount(nine), 9);
+  assert.equal(stageIsFull(nine), false);
+  const ten = placeOnStage(nine, 'o3', NOW, 'host').stage;
+  assert.equal(stageCount(ten), 10);
+  assert.equal(stageIsFull(ten), true);
+  assert.throws(() => placeOnStage(ten, 'g', NOW, 'host'), (e: unknown) =>
+    e instanceof RolesError && e.code === 'failed-precondition');
+  // Someone already on a full stage stays a no-op.
+  assert.deepEqual(placeOnStage(ten, 'a', NOW, 'host').placement, { kind: 'already' });
+});
+
+test('requestJoinDecision: refused when the stage is full', () => {
+  const base = { role: 'viewer' as StudioRole, blocked: false, status: 'live' as const, allowGuestRequests: true };
+  assert.equal(requestJoinDecision({ ...base, onStage: 9 }).ok, true);
+  const d = requestJoinDecision({ ...base, onStage: 10 });
+  assert.equal(d.ok, false);
+  assert.equal(!d.ok && d.code, 'failed-precondition');
 });
 
 test('placeOnStage: already on stage is a no-op', () => {

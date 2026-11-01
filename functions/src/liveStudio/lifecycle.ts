@@ -30,14 +30,15 @@ export async function endStudioStream(streamId: string, reason: EndReason): Prom
     );
     return true;
   });
-  try {
-    await patchState(streamId, 'status', (s) => (s.status === 'ended' ? undefined : 'ended'));
-  } catch (e) {
-    // v1 lives have no studio/state doc.
-    console.warn(`[liveStudio] end state ${streamId}:`, (e as Error).message);
-  }
-  // Finish the recording / restream first so the MP4 closes cleanly.
-  await stopStreamEgress(streamId);
+  // Viewers get the `ended` patch while the recording / restream finishes
+  // (in parallel); the room is deleted after egress so the MP4 closes cleanly.
+  await Promise.all([
+    patchState(streamId, 'status', (s) => (s.status === 'ended' ? undefined : 'ended')).catch((e) => {
+      // v1 lives have no studio/state doc.
+      console.warn(`[liveStudio] end state ${streamId}:`, (e as Error).message);
+    }),
+    stopStreamEgress(streamId),
+  ]);
   try {
     await roomService().deleteRoom(roomName(streamId));
   } catch (e) {
