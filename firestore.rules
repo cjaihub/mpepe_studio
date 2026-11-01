@@ -503,7 +503,9 @@ service cloud.firestore {
 
     // ─── Content & Engagement Collections ────────────────────────────────────
     match /content/{contentId} {
-      allow read: if canReadAuthorContent(resource.data.authorId);
+      // resource == null: reading a missing doc (likes/saves check both
+      // content/ and posts/ in one transaction) only reveals it doesn't exist.
+      allow read: if resource == null || canReadAuthorContent(resource.data.authorId);
       // destination / click counters are written only by contentSetDestination
       // and contentOpenDestination (functions/src/feed/destinationLinks.ts).
       allow create: if isSignedIn() && !isSuspended() && request.resource.data.authorId == request.auth.uid &&
@@ -616,7 +618,7 @@ service cloud.firestore {
 
     // ─── Posts ───────────────────────────────────────────────────────────────
     match /posts/{postId} {
-      allow read: if canReadAuthorContent(resource.data.authorId);
+      allow read: if resource == null || canReadAuthorContent(resource.data.authorId);
       allow create: if isSignedIn() && !isSuspended() && request.resource.data.authorId == request.auth.uid;
       // Author edits; anyone else may only bump engagement counters.
       allow update: if isSignedIn() && !isSuspended() && (
@@ -676,7 +678,7 @@ service cloud.firestore {
 
     // ─── Stories ─────────────────────────────────────────────────────────────
     match /stories/{storyId} {
-      allow read: if canReadAuthorContent(resource.data.authorId);
+      allow read: if resource == null || canReadAuthorContent(resource.data.authorId);
       allow create: if isSignedIn() && !isSuspended() && request.resource.data.authorId == request.auth.uid;
       // Author edits; viewers may only record their view / reaction / reply.
       allow update: if isSignedIn() && !isSuspended() && (
