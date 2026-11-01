@@ -65,7 +65,12 @@ if (track === 'production' && args['confirm-production'] !== 'true') {
     requestBody: { track, releases: [release] },
   });
 
-  const { data: committed } = await play.edits.commit({ packageName: PACKAGE, editId: edit.id });
+  // --not-sent-for-review: needed while other Console changes are waiting; send them from Publishing overview.
+  const { data: committed } = await play.edits.commit({
+    packageName: PACKAGE,
+    editId: edit.id,
+    ...(args['not-sent-for-review'] ? { changesNotSentForReview: true } : {}),
+  });
   console.log(`committed edit ${committed.id}: versionCode ${bundle.versionCode} → ${track} (${release.status})`);
 })().catch((e) => {
   console.error(e.errors || e.message || e);
