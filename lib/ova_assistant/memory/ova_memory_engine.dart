@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:math';
+import 'package:firebase_core/firebase_core.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
@@ -39,11 +40,12 @@ class OvaMemoryEngine {
   OvaMemoryEngine({
     required this.thermalWatchdog,
     FirebaseFirestore? firestore,
-  }) : _firestore = firestore ?? (kIsWeb ? null : FirebaseFirestore.instance) {
+  }) : _firestore = firestore ?? ((!kIsWeb && Firebase.apps.isNotEmpty) ? FirebaseFirestore.instance : null) {
     _initEngine();
   }
 
   void _initEngine() {
+    if (Firebase.apps.isEmpty) return;
     // Listen to Firebase Auth state to hydrate logged in user profile dynamically
     FirebaseAuth.instance.authStateChanges().listen((user) {
       if (user != null) {

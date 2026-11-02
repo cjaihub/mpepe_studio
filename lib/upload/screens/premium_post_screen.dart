@@ -12,6 +12,7 @@ import '../models/omnichannel_upload_task.dart';
 import '../models/connected_destination.dart';
 import '../../backend/connections/linked_accounts.dart' show LinkedPlatform;
 import '../../shared/widgets/linked_destinations_picker.dart';
+import '../../backend/social/services/video_playback_manager.dart';
 
 class PremiumPostScreen extends ConsumerStatefulWidget {
   const PremiumPostScreen({super.key});
@@ -21,6 +22,16 @@ class PremiumPostScreen extends ConsumerStatefulWidget {
 }
 
 class _PremiumPostScreenState extends ConsumerState<PremiumPostScreen> {
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) {
+        ref.read(videoPlaybackManagerProvider).setScreenActive(false);
+      }
+    });
+  }
+
   Future<void> _pickAndUploadFiles() async {
     final result = await FilePicker.pickFiles(allowMultiple: true);
     final files = result.map((f) => f.path).where((p) => p != null).map((p) => File(p!)).toList();
@@ -52,7 +63,14 @@ class _PremiumPostScreenState extends ConsumerState<PremiumPostScreen> {
         elevation: 0,
         leading: IconButton(
           icon: Icon(Icons.arrow_back_rounded, color: context.textPrimary),
-          onPressed: () => Navigator.pop(context),
+          onPressed: () {
+            HapticFeedback.lightImpact();
+            if (Navigator.of(context).canPop()) {
+              Navigator.of(context).pop();
+            } else {
+              context.go('/hub/home');
+            }
+          },
         ),
         centerTitle: true,
         title: Text(

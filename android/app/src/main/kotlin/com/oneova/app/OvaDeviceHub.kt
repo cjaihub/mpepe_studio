@@ -86,6 +86,11 @@ object OvaDeviceHub {
                     "setDnd" -> result.success(setDnd(app, call.argument<Boolean>("on") ?: true))
                     "setRinger" -> result.success(setRinger(app, call.argument<String>("mode") ?: "normal"))
                     "openPanel" -> result.success(openPanel(app, call.argument<String>("panel") ?: "internet"))
+                    "acquireAudioFocus" -> result.success(acquireAudioFocus(app, call.argument<String>("mode") ?: "exclusive"))
+                    "releaseAudioFocus" -> {
+                        releaseAudioFocus(app)
+                        result.success(true)
+                    }
                     "returnToApp" -> {
                         app.startActivity(Intent(app, MainActivity::class.java).apply {
                             flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_REORDER_TO_FRONT
@@ -98,6 +103,82 @@ object OvaDeviceHub {
                 result.error("OVA_DEVICE_ERROR", e.message, null)
             }
         }
+    }
+
+    // ── Audio focus for Ova Live voice ──────────────────────────────────────
+    // Live mode takes transient exclusive focus (other apps pause; "duck"
+    // lowers them instead). Focus changes and mic silencing (a call or
+    // another recorder taking the mic) go to Flutter as events so the Live
+    // session can release the mic and resume when it's free again.
+
+    private var focusRequest: android.media.AudioFocusRequest? = null
+    private var recordingCallback: AudioManager.AudioRecordingCallback? = null
+
+    private val focusListener = AudioManager.OnAudioFocusChangeListener { change ->
+        val state = when (change) {
+            AudioManager.AUDIOFOCUS_GAIN -> "gain"
+            AudioManager.AUDIOFOCUS_LOSS -> "loss"
+            AudioManager.AUDIOFOCUS_LOSS_TRANSIENT -> "loss_transient"
+            AudioManager.AUDIOFOCUS_LOSS_TRANSIENT_CAN_DUCK -> "duck"
+            else -> "other"
+        }
+        emit("audio_focus", mapOf("state" to state))
+    }
+
+    private fun acquireAudioFocus(app: Context, mode: String): String {
+        val audio = app.getSystemService(Context.AUDIO_SERVICE) as AudioManager
+        releaseAudioFocus(app)
+        val gain = if (mode == "duck") AudioManager.AUDIOFOCUS_GAIN_TRANSIENT_MAY_DUCK
+            else AudioManager.AUDIOFOCUS_GAIN_TRANSIENT_EXCLUSIVE
+        val granted: Int
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            val req = android.media.AudioFocusRequest.Builder(gain)
+                .setAudioAttributes(
+                    android.media.AudioAttributes.Builder()
+                        .setUsage(android.media.AudioAttributes.USAGE_ASSISTANT)
+                        .setContentType(android.media.AudioAttributes.CONTENT_TYPE_SPEECH)
+                        .build()
+                )
+                .setOnAudioFocusChangeListener(focusListener, main)
+                .setWillPauseWhenDucked(true)
+                .build()
+            focusRequest = req
+            granted = audio.requestAudioFocus(req)
+        } else {
+            @Suppress("DEPRECATION")
+            granted = audio.requestAudioFocus(focusListener, AudioManager.STREAM_VOICE_CALL, gain)
+        }
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            val cb = object : AudioManager.AudioRecordingCallback() {
+                override fun onRecordingConfigChanged(configs: MutableList<android.media.AudioRecordingConfiguration>) {
+                    // Only our own recordings are visible here; silenced = another app has the mic.
+                    val silenced = configs.any { it.isClientSilenced }
+                    emit("mic_silenced", mapOf("silenced" to silenced))
+                }
+            }
+            audio.registerAudioRecordingCallback(cb, main)
+            recordingCallback = cb
+        }
+        return when (granted) {
+            AudioManager.AUDIOFOCUS_REQUEST_GRANTED -> "granted"
+            AudioManager.AUDIOFOCUS_REQUEST_DELAYED -> "delayed"
+            else -> "failed"
+        }
+    }
+
+    private fun releaseAudioFocus(app: Context) {
+        val audio = app.getSystemService(Context.AUDIO_SERVICE) as AudioManager
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            focusRequest?.let { audio.abandonAudioFocusRequest(it) }
+        } else {
+            @Suppress("DEPRECATION")
+            audio.abandonAudioFocus(focusListener)
+        }
+        focusRequest = null
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            recordingCallback?.let { audio.unregisterAudioRecordingCallback(it) }
+        }
+        recordingCallback = null
     }
 
     private fun startSettings(app: Context, action: String) {

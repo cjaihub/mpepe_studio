@@ -6,6 +6,7 @@ import 'package:firebase_storage/firebase_storage.dart';
 import '../../../backend/social/services/story_service.dart';
 import '../../../backend/social/models/story.dart';
 import '../../../shared/theme/app_theme.dart';
+import '../../../shared/widgets/oneova_voice_typing_button.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:oneova/shared/widgets/animated_loading_indicator.dart';
 
@@ -173,6 +174,12 @@ class _CreateStorySheetState extends ConsumerState<CreateStorySheet> {
             decoration: InputDecoration(
               hintText: "What's on your mind?",
               hintStyle: const TextStyle(color: Colors.white54),
+              suffixIcon: OneovaVoiceTypingButton(
+                controller: _textController,
+                tooltip: 'Dictate status',
+                idleColor: Colors.white54,
+                activeColor: AppColors.brandPink,
+              ),
               filled: true,
               fillColor: AppColors.darkBackground,
               border: OutlineInputBorder(

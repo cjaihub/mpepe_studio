@@ -1,6 +1,6 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.allowsGuestRequests = exports.offStagePatch = exports.isOnStageRole = exports.actorAllowed = exports.ACTOR_MATRIX = exports.RolesError = exports.REQUEST_JOIN_WINDOW_MS = exports.REQUEST_JOIN_MAX = exports.MODERATION_ACTIONS = void 0;
+exports.allowsGuestRequests = exports.offStagePatch = exports.stageIsFull = exports.STAGE_FULL_MESSAGE = exports.isOnStageRole = exports.actorAllowed = exports.ACTOR_MATRIX = exports.RolesError = exports.REQUEST_JOIN_WINDOW_MS = exports.REQUEST_JOIN_MAX = exports.MODERATION_ACTIONS = void 0;
 exports.assertDecision = assertDecision;
 exports.parseTargetUid = parseTargetUid;
 exports.parseModerationAction = parseModerationAction;
@@ -11,6 +11,7 @@ exports.cancelDecision = cancelDecision;
 exports.respondDecision = respondDecision;
 exports.leaveDecision = leaveDecision;
 exports.authorizeModeration = authorizeModeration;
+exports.stageCount = stageCount;
 exports.placeOnStage = placeOnStage;
 exports.removeFromLayout = removeFromLayout;
 exports.pickAccent = pickAccent;
@@ -98,6 +99,7 @@ function parseModerateArgs(data) {
 // ─── Decisions ───────────────────────────────────────────────────────────────
 /** lsRequestJoin: a viewer, not blocked, on a live stream that allows requests. */
 function requestJoinDecision(a) {
+    var _a;
     if (a.blocked)
         return deny('permission-denied', 'You are blocked from this live.');
     if (a.status !== 'live')
@@ -106,6 +108,8 @@ function requestJoinDecision(a) {
         return deny('failed-precondition', 'You are already on stage.');
     if (!a.allowGuestRequests)
         return deny('failed-precondition', 'The host is not taking requests.');
+    if (((_a = a.onStage) !== null && _a !== void 0 ? _a : 0) >= contracts_1.Limits.maxOnStage)
+        return deny('failed-precondition', exports.STAGE_FULL_MESSAGE);
     return OK;
 }
 /** lsCancelRequest: the requester's own doc, still pending. */
@@ -180,11 +184,24 @@ function authorizeModeration(a) {
     }
 }
 const onLayout = (s, uid) => s.centerUid === uid || s.wall.includes(uid) || s.overflow.includes(uid);
+exports.STAGE_FULL_MESSAGE = `The stage is full (${contracts_1.Limits.maxOnStage} people).`;
+/** Distinct people on the stage layout (center, wall, overflow). */
+function stageCount(s) {
+    return new Set([s.centerUid, ...s.wall, ...s.overflow].filter((u) => !!u)).size;
+}
+/** True when nobody else can be placed on [s] ([Limits.maxOnStage]). */
+const stageIsFull = (s) => stageCount(s) >= contracts_1.Limits.maxOnStage;
+exports.stageIsFull = stageIsFull;
 const normWall = (wall) => Array.from({ length: contracts_1.Limits.wallSlots }, (_, i) => { var _a; return (_a = wall[i]) !== null && _a !== void 0 ? _a : null; });
-/** Puts [uid] in the first free wall index, or overflow when the wall is full. */
+/**
+ * Puts [uid] in the first free wall index, or overflow when the wall is full.
+ * Throws [RolesError] when the stage already holds [Limits.maxOnStage] people.
+ */
 function placeOnStage(stage, uid, nowMs, by) {
     if (onLayout(stage, uid))
         return { stage, placement: { kind: 'already' } };
+    if ((0, exports.stageIsFull)(stage))
+        throw new RolesError('failed-precondition', exports.STAGE_FULL_MESSAGE);
     const wall = normWall(stage.wall);
     const index = wall.findIndex((u) => !u);
     if (index >= 0) {

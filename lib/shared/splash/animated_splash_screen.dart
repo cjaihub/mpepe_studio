@@ -1,7 +1,6 @@
 import 'dart:async';
 import 'dart:io' show Platform;
 import 'dart:math' as math;
-import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/foundation.dart' show kIsWeb, kDebugMode;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -74,17 +73,15 @@ class _AnimatedSplashScreenState extends State<AnimatedSplashScreen> {
     _go();
   }
 
-  /// No automatic sign-in of any kind: a session must come from the login
-  /// screen and pass the two-factor gate (LoginSecurity) on this device.
+  /// Always open directly into the Reels/Feed screen (`/hub/home`).
+  /// Unauthenticated users immediately explore public reels with full immersion,
+  /// while authenticated users enjoy their active session without repeat logins.
   void _go() {
     if (_hasNavigated || !mounted) return;
     _hasNavigated = true;
     _watchdogTimer?.cancel();
-    final user = FirebaseAuth.instance.currentUser;
-    final verified = user != null && (user.isAnonymous || LoginSecurity.instance.isVerified(user));
-    final next = verified ? '/hub/home' : '/auth/main_login';
-    debugPrint('[Splash] Routing to $next');
-    context.go(next);
+    debugPrint('[Splash] Routing to /hub/home (Public Reel/Feed)');
+    context.go('/hub/home');
   }
 
   void _onTap(TapDownDetails d) {

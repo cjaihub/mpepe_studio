@@ -46,12 +46,23 @@ void main() {
       expect(a.status, LinkStatus.expired);
     });
 
-    test('Gmail needs the email and granted scopes', () {
+    test('Gmail needs the server-kept grant written by gmailConnect', () {
       expect(LinkedAccount.fromConnectionDoc('gmail', {'platform': 'gmail', 'accountName': 'x'}, now: now)!.status, LinkStatus.needsReconnect);
+      // Older phone-only grant: no server token, so it must be reconnected.
+      expect(
+        LinkedAccount.fromConnectionDoc('gmail', {
+          'platform': 'gmail',
+          'email': 'me@example.com',
+          'grantedScopes': ['https://www.googleapis.com/auth/gmail.readonly'],
+        }, now: now)!
+            .status,
+        LinkStatus.needsReconnect,
+      );
       final g = LinkedAccount.fromConnectionDoc('gmail', {
         'platform': 'gmail',
         'email': 'me@example.com',
         'grantedScopes': ['https://www.googleapis.com/auth/gmail.readonly'],
+        'tokenStore': 'server',
       }, now: now)!;
       expect(g.status, LinkStatus.connected);
       expect(g.accountName, 'me@example.com');

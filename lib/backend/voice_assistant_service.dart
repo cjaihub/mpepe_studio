@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_tts/flutter_tts.dart';
 import 'package:speech_to_text/speech_to_text.dart' as stt;
@@ -68,7 +69,7 @@ class VoiceAssistantService extends Notifier<VoiceAssistantState> {
     });
 
     _tts.setErrorHandler((msg) {
-      print("TTS Error: $msg");
+      debugPrint("TTS Error: $msg");
       state = state.copyWith(state: VoiceState.idle, isContinuous: false);
     });
   }
@@ -85,7 +86,7 @@ class VoiceAssistantService extends Notifier<VoiceAssistantState> {
       }
       return voiceList;
     } catch (e) {
-      print("Error getting voices: $e");
+      debugPrint("Error getting voices: $e");
       return [];
     }
   }
@@ -105,7 +106,7 @@ class VoiceAssistantService extends Notifier<VoiceAssistantState> {
         }
       },
       onError: (val) {
-        print('STT Error: $val');
+        debugPrint('STT Error: $val');
         state = state.copyWith(state: VoiceState.idle, isContinuous: false);
       },
     );
@@ -154,7 +155,15 @@ class VoiceAssistantService extends Notifier<VoiceAssistantState> {
     );
 
     if (response is AiTextResponse) {
-      await speak(response.text);
+      final spoken = response.isDegraded
+          ? response.text
+              .split('\n')
+              .map((l) => l.trim())
+              .where((l) => l.isNotEmpty && !l.startsWith('#') && !l.startsWith('|'))
+              .take(2)
+              .join(' ')
+          : response.text;
+      await speak(spoken.isEmpty ? 'Local Ova is ready.' : spoken);
     } else {
       state = state.copyWith(state: VoiceState.idle);
     }

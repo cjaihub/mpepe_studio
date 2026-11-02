@@ -1,4 +1,6 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
+import 'package:go_router/go_router.dart';
 import 'package:google_fonts/google_fonts.dart';
 import '../backend/project_repository.dart';
 import 'dart:async';
@@ -24,7 +26,7 @@ class _ExportCenterScreenState extends State<ExportCenterScreen> {
   bool _isHDR = false;
   String _selectedAudioCodec = 'AAC';
   
-  final List<String> _presets = ['Master', 'YouTube', 'Instagram', 'TikTok', 'Custom'];
+  final List<String> _presets = ['Master', 'YouTube', 'Instagram', 'Oneova Reel', 'Custom'];
   final List<String> _codecs = ['H.264', 'HEVC (H.265)', 'ProRes 422', 'ProRes 4444'];
   final List<String> _resolutions = ['Source', '1080p', '2K', '4K'];
   final List<double> _frameRates = [23.976, 24, 25, 29.97, 30, 50, 59.94, 60, 120];
@@ -59,7 +61,7 @@ class _ExportCenterScreenState extends State<ExportCenterScreen> {
           _selectedResolution = '4K';
           break;
         case 'Instagram':
-        case 'TikTok':
+        case 'Oneova Reel':
           _selectedCodec = 'H.264';
           _selectedResolution = '1080p';
           break;
@@ -75,6 +77,17 @@ class _ExportCenterScreenState extends State<ExportCenterScreen> {
       backgroundColor: context.bg,
       appBar: AppBar(
         backgroundColor: context.surface,
+        leading: IconButton(
+          icon: Icon(Icons.arrow_back_ios_new_rounded, size: 18, color: context.textPrimary),
+          onPressed: () {
+            HapticFeedback.lightImpact();
+            if (Navigator.of(context).canPop()) {
+              Navigator.of(context).pop();
+            } else {
+              context.go('/hub/home');
+            }
+          },
+        ),
         title: Text(
           'Export Center',
           style: GoogleFonts.inter(fontWeight: FontWeight.w900, color: context.textPrimary),
@@ -83,7 +96,14 @@ class _ExportCenterScreenState extends State<ExportCenterScreen> {
         actions: [
           IconButton(
             icon: Icon(Icons.close, color: context.textPrimary),
-            onPressed: () => Navigator.of(context).pop(),
+            onPressed: () {
+              HapticFeedback.lightImpact();
+              if (Navigator.of(context).canPop()) {
+                Navigator.of(context).pop();
+              } else {
+                context.go('/hub/home');
+              }
+            },
           )
         ],
       ),

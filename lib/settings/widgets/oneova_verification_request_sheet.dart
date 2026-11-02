@@ -4,19 +4,26 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:google_fonts/google_fonts.dart';
 import '../../backend/user_service.dart';
 import '../../shared/theme/app_theme.dart';
+import '../../shared/location/oneova_location_detector.dart';
+import '../../shared/widgets/oneova_voice_typing_button.dart';
 
 class OneovaVerificationRequestSheet extends ConsumerStatefulWidget {
   final AppUser user;
+  final bool isBusiness;
 
-  const OneovaVerificationRequestSheet({super.key, required this.user});
+  const OneovaVerificationRequestSheet({
+    super.key,
+    required this.user,
+    this.isBusiness = false,
+  });
 
-  static Future<void> show(BuildContext context, AppUser user) {
+  static Future<void> show(BuildContext context, AppUser user, {bool isBusiness = false}) {
     HapticFeedback.lightImpact();
     return showModalBottomSheet(
       context: context,
       backgroundColor: Colors.transparent,
       isScrollControlled: true,
-      builder: (_) => OneovaVerificationRequestSheet(user: user),
+      builder: (_) => OneovaVerificationRequestSheet(user: user, isBusiness: isBusiness),
     );
   }
 
@@ -28,6 +35,8 @@ class _OneovaVerificationRequestSheetState extends ConsumerState<OneovaVerificat
   final _legalNameController = TextEditingController();
   final _stageNameController = TextEditingController();
   final _proofLinkController = TextEditingController();
+  final _locationController = TextEditingController();
+  final _regNumberController = TextEditingController();
   String _selectedCategory = 'Creator & Art';
   bool _isSubmitting = false;
 
@@ -45,8 +54,20 @@ class _OneovaVerificationRequestSheetState extends ConsumerState<OneovaVerificat
   @override
   void initState() {
     super.initState();
-    _legalNameController.text = widget.user.fullName;
+    final biz = widget.user.businessDetails ?? {};
+    _legalNameController.text = (biz['legalName'] as String?)?.isNotEmpty == true
+        ? biz['legalName']
+        : widget.user.fullName;
     _stageNameController.text = widget.user.username ?? '';
+    _locationController.text = widget.user.location ?? '';
+    _regNumberController.text = biz['regNumber'] ?? '';
+
+    if (widget.isBusiness || widget.user.isBusiness) {
+      _selectedCategory = 'Business & Brand';
+      if ((biz['shopUrl'] as String?)?.isNotEmpty ?? false) {
+        _proofLinkController.text = biz['shopUrl'];
+      }
+    }
   }
 
   @override
@@ -54,6 +75,8 @@ class _OneovaVerificationRequestSheetState extends ConsumerState<OneovaVerificat
     _legalNameController.dispose();
     _stageNameController.dispose();
     _proofLinkController.dispose();
+    _locationController.dispose();
+    _regNumberController.dispose();
     super.dispose();
   }
 
@@ -73,11 +96,15 @@ class _OneovaVerificationRequestSheetState extends ConsumerState<OneovaVerificat
     HapticFeedback.mediumImpact();
 
     try {
+      final isBiz = widget.isBusiness || widget.user.isBusiness || _selectedCategory == 'Business & Brand';
       await ref.read(userProvider.notifier).requestVerification(widget.user.id, {
         'legalName': legalName,
         'stageName': _stageNameController.text.trim(),
         'category': _selectedCategory,
         'proofLink': _proofLinkController.text.trim(),
+        'location': _locationController.text.trim(),
+        'regNumber': _regNumberController.text.trim(),
+        'isBusiness': isBiz,
         'submittedAt': DateTime.now().toIso8601String(),
       });
 
@@ -92,7 +119,9 @@ class _OneovaVerificationRequestSheetState extends ConsumerState<OneovaVerificat
               const SizedBox(width: 10),
               Expanded(
                 child: Text(
-                  'Verification request submitted! Our studio trust team will review your account.',
+                  isBiz
+                      ? 'Business verification request submitted! Our trust team will review your enterprise credentials.'
+                      : 'Verification request submitted! Our studio trust team will review your account.',
                   style: GoogleFonts.inter(fontSize: 12.5, fontWeight: FontWeight.w600, color: Colors.white),
                 ),
               ),
@@ -119,6 +148,8 @@ class _OneovaVerificationRequestSheetState extends ConsumerState<OneovaVerificat
 
   @override
   Widget build(BuildContext context) {
+    final isBiz = widget.isBusiness || widget.user.isBusiness || _selectedCategory == 'Business & Brand';
+
     return Container(
       decoration: BoxDecoration(
         color: context.surface,
@@ -164,7 +195,7 @@ class _OneovaVerificationRequestSheetState extends ConsumerState<OneovaVerificat
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Text(
-                        'Request Verification Badge',
+                        isBiz ? 'Business Verification' : 'Request Verification Badge',
                         style: GoogleFonts.inter(
                           fontSize: 16,
                           fontWeight: FontWeight.w800,
@@ -173,7 +204,9 @@ class _OneovaVerificationRequestSheetState extends ConsumerState<OneovaVerificat
                         ),
                       ),
                       Text(
-                        'Verified badges confirm creator authenticity on Oneova',
+                        isBiz
+                            ? 'Submit legal entity details to obtain your official Oneova business trust checkmark'
+                            : 'Verified badges confirm creator authenticity on Oneova',
                         style: GoogleFonts.inter(fontSize: 11.5, color: context.textSecondary),
                       ),
                     ],
@@ -187,7 +220,7 @@ class _OneovaVerificationRequestSheetState extends ConsumerState<OneovaVerificat
             ),
             const SizedBox(height: 20),
             Text(
-              'LEGAL FULL NAME',
+              isBiz ? 'REGISTERED BUSINESS LEGAL NAME' : 'LEGAL FULL NAME',
               style: GoogleFonts.inter(
                 fontSize: 10.5,
                 fontWeight: FontWeight.w800,
@@ -200,8 +233,9 @@ class _OneovaVerificationRequestSheetState extends ConsumerState<OneovaVerificat
               controller: _legalNameController,
               style: GoogleFonts.inter(fontSize: 13, color: context.textPrimary),
               decoration: InputDecoration(
-                hintText: 'As it appears on official government ID',
+                hintText: isBiz ? 'Official legal company name (e.g. Acme Studio Africa Ltd)' : 'As it appears on official government ID',
                 hintStyle: GoogleFonts.inter(fontSize: 12, color: context.textMuted),
+                suffixIcon: OneovaVoiceTypingButton(controller: _legalNameController),
                 filled: true,
                 fillColor: context.surfaceMid,
                 isDense: true,
@@ -214,7 +248,7 @@ class _OneovaVerificationRequestSheetState extends ConsumerState<OneovaVerificat
             ),
             const SizedBox(height: 16),
             Text(
-              'KNOWN AS / STAGE NAME',
+              isBiz ? 'TRADING AS / BRAND NAME' : 'KNOWN AS / STAGE NAME',
               style: GoogleFonts.inter(
                 fontSize: 10.5,
                 fontWeight: FontWeight.w800,
@@ -227,8 +261,78 @@ class _OneovaVerificationRequestSheetState extends ConsumerState<OneovaVerificat
               controller: _stageNameController,
               style: GoogleFonts.inter(fontSize: 13, color: context.textPrimary),
               decoration: InputDecoration(
-                hintText: 'Public creator or brand name',
+                hintText: isBiz ? 'Public storefront or business brand name' : 'Public creator or brand name',
                 hintStyle: GoogleFonts.inter(fontSize: 12, color: context.textMuted),
+                suffixIcon: OneovaVoiceTypingButton(controller: _stageNameController),
+                filled: true,
+                fillColor: context.surfaceMid,
+                isDense: true,
+                contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(AppRadius.sm),
+                  borderSide: BorderSide(color: context.border),
+                ),
+              ),
+            ),
+            if (isBiz) ...[
+              const SizedBox(height: 16),
+              Text(
+                'BUSINESS REGISTRATION / TAX ID',
+                style: GoogleFonts.inter(
+                  fontSize: 10.5,
+                  fontWeight: FontWeight.w800,
+                  letterSpacing: 0.8,
+                  color: AppColors.brandBlue,
+                ),
+              ),
+              const SizedBox(height: 6),
+              TextField(
+                controller: _regNumberController,
+                style: GoogleFonts.inter(fontSize: 13, color: context.textPrimary),
+                decoration: InputDecoration(
+                  hintText: 'e.g. RC-1092834 or Tax Identification No.',
+                  hintStyle: GoogleFonts.inter(fontSize: 12, color: context.textMuted),
+                  suffixIcon: OneovaVoiceTypingButton(controller: _regNumberController),
+                  filled: true,
+                  fillColor: context.surfaceMid,
+                  isDense: true,
+                  contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                  border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(AppRadius.sm),
+                    borderSide: BorderSide(color: context.border),
+                  ),
+                ),
+              ),
+            ],
+            const SizedBox(height: 16),
+            Text(
+              isBiz ? 'HEADQUARTERS / OPERATING LOCATION' : 'OPERATING LOCATION',
+              style: GoogleFonts.inter(
+                fontSize: 10.5,
+                fontWeight: FontWeight.w800,
+                letterSpacing: 0.8,
+                color: AppColors.brandBlue,
+              ),
+            ),
+            const SizedBox(height: 6),
+            TextField(
+              controller: _locationController,
+              style: GoogleFonts.inter(fontSize: 13, color: context.textPrimary),
+              decoration: InputDecoration(
+                hintText: 'City, Country (e.g. Lagos, Nigeria / London, UK)',
+                hintStyle: GoogleFonts.inter(fontSize: 12, color: context.textMuted),
+                prefixIcon: const Icon(Icons.location_on_outlined, size: 18, color: AppColors.brandBlue),
+                suffixIcon: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    OneovaAutoLocationButton(
+                      controller: _locationController,
+                    ),
+                    OneovaVoiceTypingButton(
+                      controller: _locationController,
+                    ),
+                  ],
+                ),
                 filled: true,
                 fillColor: context.surfaceMid,
                 isDense: true,
@@ -241,7 +345,7 @@ class _OneovaVerificationRequestSheetState extends ConsumerState<OneovaVerificat
             ),
             const SizedBox(height: 16),
             Text(
-              'CREATOR CATEGORY',
+              isBiz ? 'BUSINESS CATEGORY' : 'CREATOR CATEGORY',
               style: GoogleFonts.inter(
                 fontSize: 10.5,
                 fontWeight: FontWeight.w800,
@@ -279,7 +383,7 @@ class _OneovaVerificationRequestSheetState extends ConsumerState<OneovaVerificat
             ),
             const SizedBox(height: 16),
             Text(
-              'OFFICIAL WEBSITE OR PROOF LINK',
+              isBiz ? 'OFFICIAL WEBSITE OR STOREFRONT URL' : 'OFFICIAL WEBSITE OR PROOF LINK',
               style: GoogleFonts.inter(
                 fontSize: 10.5,
                 fontWeight: FontWeight.w800,
@@ -292,8 +396,9 @@ class _OneovaVerificationRequestSheetState extends ConsumerState<OneovaVerificat
               controller: _proofLinkController,
               style: GoogleFonts.inter(fontSize: 13, color: context.textPrimary),
               decoration: InputDecoration(
-                hintText: 'https://yourwebsite.com or article link',
+                hintText: isBiz ? 'https://yourbusiness.com or official store link' : 'https://yourwebsite.com or article link',
                 hintStyle: GoogleFonts.inter(fontSize: 12, color: context.textMuted),
+                suffixIcon: OneovaVoiceTypingButton(controller: _proofLinkController),
                 filled: true,
                 fillColor: context.surfaceMid,
                 isDense: true,
@@ -322,7 +427,7 @@ class _OneovaVerificationRequestSheetState extends ConsumerState<OneovaVerificat
                         child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
                       )
                     : Text(
-                        'Submit Verification Request',
+                        isBiz ? 'Submit Business Verification' : 'Submit Verification Request',
                         style: GoogleFonts.inter(fontSize: 13, fontWeight: FontWeight.w700, color: Colors.white),
                       ),
               ),

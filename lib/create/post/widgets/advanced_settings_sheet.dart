@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:google_fonts/google_fonts.dart';
 import '../../../shared/theme/app_theme.dart';
+import '../../../shared/location/oneova_location_detector.dart';
+import '../../../shared/widgets/oneova_voice_typing_button.dart';
 
 class AdvancedPostSettings {
   final String ageRestriction; // 'all', '13+', '16+', '18+'
@@ -335,6 +337,17 @@ class _AdvancedSettingsSheetState extends State<AdvancedSettingsSheet> {
                         decoration: InputDecoration(
                           isDense: true,
                           prefixIcon: const Icon(Icons.location_on_outlined, size: 18),
+                          suffixIcon: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              OneovaAutoLocationButton(
+                                controller: _locationController,
+                              ),
+                              OneovaVoiceTypingButton(
+                                controller: _locationController,
+                              ),
+                            ],
+                          ),
                           hintText: 'Add location (e.g. Nairobi, Kenya)',
                           hintStyle: GoogleFonts.inter(fontSize: 12.5, color: context.textMuted),
                           border: OutlineInputBorder(
@@ -351,6 +364,7 @@ class _AdvancedSettingsSheetState extends State<AdvancedSettingsSheet> {
                         decoration: InputDecoration(
                           isDense: true,
                           prefixIcon: const Icon(Icons.link_rounded, size: 18),
+                          suffixIcon: OneovaVoiceTypingButton(controller: _linkController),
                           hintText: 'Add an action link (https://...)',
                           hintStyle: GoogleFonts.inter(fontSize: 12.5, color: context.textMuted),
                           border: OutlineInputBorder(

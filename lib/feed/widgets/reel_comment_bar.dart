@@ -13,6 +13,7 @@ import 'package:record/record.dart';
 import 'package:speech_to_text/speech_to_text.dart' as stt;
 import '../../auth/widgets/auth_interaction_gate.dart';
 import '../../shared/theme/app_theme.dart';
+import 'oneova_gif_picker_sheet.dart';
 import 'reel_palette.dart';
 
 enum _BarMode { idle, transcribing, recording }
@@ -70,8 +71,12 @@ class _ReelCommentBarState extends ConsumerState<ReelCommentBar> with SingleTick
   void dispose() {
     _recTimer?.cancel();
     _pulse.dispose();
-    _speech.cancel();
-    _recorder?.dispose();
+    try {
+      _speech.cancel();
+    } catch (_) {}
+    try {
+      _recorder?.dispose();
+    } catch (_) {}
     super.dispose();
   }
 
@@ -217,7 +222,14 @@ class _ReelCommentBarState extends ConsumerState<ReelCommentBar> with SingleTick
     _recTimer?.cancel();
     final elapsed = _recStart == null ? Duration.zero : DateTime.now().difference(_recStart!);
     _recStart = null;
-    final path = await _recorder?.stop();
+    String? path;
+    try {
+      if (await _recorder?.isRecording() ?? false) {
+        path = await _recorder?.stop();
+      }
+    } catch (e) {
+      debugPrint('[ReelCommentBar] recorder stop error: $e');
+    }
     if (mounted) setState(() => _mode = _BarMode.idle);
     if (path == null) return;
     final file = File(path);
@@ -252,6 +264,25 @@ class _ReelCommentBarState extends ConsumerState<ReelCommentBar> with SingleTick
         await file.delete();
       } catch (_) {}
     }
+  }
+
+  Future<void> _pickAndPostGif() async {
+    final uid = FirebaseAuth.instance.currentUser?.uid;
+    if (uid == null) {
+      AuthInteractionGate.requireAuth(context, actionTitle: 'post GIFs', onAuthenticated: _pickAndPostGif);
+      return;
+    }
+    final gif = await OneovaGifPickerSheet.show(context);
+    if (gif == null || !mounted) return;
+    await _post(Comment(
+      id: '',
+      postId: widget.contentId,
+      authorId: uid,
+      content: '',
+      type: CommentType.gif,
+      gif: gif,
+      createdAt: DateTime.now(),
+    ));
   }
 
   // ── UI ────────────────────────────────────────────────────────────────
@@ -358,7 +389,12 @@ class _ReelCommentBarState extends ConsumerState<ReelCommentBar> with SingleTick
             Expanded(child: _label(p)),
             if (_mode == _BarMode.idle && !hasTranscript) ...[
               widget.reactions,
-              const SizedBox(width: 6),
+              const SizedBox(width: 4),
+              GestureDetector(
+                onTap: _pickAndPostGif,
+                child: circle(Icons.gif_box_rounded, fill: AppColors.brandPink),
+              ),
+              const SizedBox(width: 4),
               GestureDetector(
                 onTap: widget.onOpenAssistant,
                 child: circle(Icons.auto_awesome_rounded, fill: AppColors.brandBlue),

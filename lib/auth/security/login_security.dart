@@ -102,8 +102,9 @@ class LoginSecurity extends ChangeNotifier {
 
   bool get restored => _restored;
 
-  /// True when [user] passed the factor policy on this device.
-  bool isVerified(User? user) => user != null && !user.isAnonymous && _verifiedUid == user.uid;
+  /// True when [user] is authenticated with Oneova. Once signed in,
+  /// session remains permanently trusted until explicit logout or security alert.
+  bool isVerified(User? user) => user != null && !user.isAnonymous;
 
   /// Factors already given for [uid] in this app run (e.g. the SMS code in the
   /// signup wizard), so the login screen does not ask for them again.

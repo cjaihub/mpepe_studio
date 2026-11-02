@@ -1,4 +1,4 @@
-# MPEPE STUDIO Canonical API (v1)
+# Oneova Canonical API (v1)
 
 *Auto-generated from `lib/backend/api/mpepe_api.dart`*
 

@@ -15,3 +15,22 @@ class OneovaFocusModeNotifier extends Notifier<bool> {
 /// smoothly fade away, providing an edge-to-edge immersive media focus mode.
 /// A single tap toggles it on or off on any screen.
 final oneovaFocusModeProvider = NotifierProvider<OneovaFocusModeNotifier, bool>(OneovaFocusModeNotifier.new);
+
+class OneovaBottomNavVisibleNotifier extends Notifier<bool> {
+  @override
+  bool build() => true;
+
+  void setVisible(bool visible) {
+    if (state != visible) {
+      state = visible;
+    }
+  }
+}
+
+/// Global provider for Oneova bottom navigation bar visibility.
+///
+/// Tracks whether the bottom navigation is currently mounted and visible on-screen,
+/// allowing full-bleed feed overlays to drop down and eliminate bottom dead space.
+final oneovaBottomNavVisibleProvider =
+    NotifierProvider<OneovaBottomNavVisibleNotifier, bool>(OneovaBottomNavVisibleNotifier.new);
+

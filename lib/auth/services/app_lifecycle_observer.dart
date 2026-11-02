@@ -19,9 +19,6 @@ final appLifecycleObserverProvider = Provider<AppLifecycleObserver>((ref) {
 class AppLifecycleObserver with WidgetsBindingObserver {
   final Ref _ref;
 
-  // Tracks when the app was last backgrounded
-  DateTime? _pausedAt;
-
   AppLifecycleObserver(this._ref);
 
   /// Call this once during app startup to register the observer
@@ -39,8 +36,6 @@ class AppLifecycleObserver with WidgetsBindingObserver {
     switch (state) {
       case AppLifecycleState.paused:
       case AppLifecycleState.inactive:
-        // Record when we went to background
-        _pausedAt = DateTime.now();
         _saveLastActiveTime();
         break;
 
@@ -64,31 +59,23 @@ class AppLifecycleObserver with WidgetsBindingObserver {
   }
 
   Future<void> _checkSessionTimeout() async {
-    // Only apply to authenticated users
+    // By default, Oneova keeps sessions permanently unlocked to allow seamless viewing.
+    // Biometric prompt only applies if the user explicitly opted-in to App Lock in Settings.
     final user = FirebaseAuth.instance.currentUser;
     if (user == null) return;
 
-    DateTime? lastActive = _pausedAt;
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final bioLockEnabled = prefs.getBool('oneova_biometric_app_lock_enabled') ?? false;
+      if (!bioLockEnabled) return;
 
-    // Fall back to SharedPreferences if in-memory value is gone (e.g. process restart)
-    if (lastActive == null) {
-      try {
-        final prefs = await SharedPreferences.getInstance();
-        final ms = prefs.getInt('last_active_time');
-        if (ms != null) {
-          lastActive = DateTime.fromMillisecondsSinceEpoch(ms);
-        }
-      } catch (_) {}
-    }
-
-    if (lastActive == null) return;
-
-    final elapsed = DateTime.now().difference(lastActive);
-    if (elapsed.inMinutes >= kSessionTimeoutMinutes) {
-      // Session expired — navigate to lock screen
-      // We use the router's global context via the navigator key
-      _navigateToLock();
-    }
+      final lastActiveMs = prefs.getInt('last_active_time');
+      if (lastActiveMs == null) return;
+      final elapsed = DateTime.now().difference(DateTime.fromMillisecondsSinceEpoch(lastActiveMs));
+      if (elapsed.inMinutes >= 15) {
+        _navigateToLock();
+      }
+    } catch (_) {}
   }
 
   void _navigateToLock() {

@@ -54,17 +54,32 @@ class _VoiceCommentMiniCardState extends State<VoiceCommentMiniCard> {
     for (final s in _subs) {
       s.cancel();
     }
-    _player?.dispose();
+    _subs.clear();
+    final p = _player;
+    _player = null;
+    if (p != null) {
+      try {
+        p.stop();
+        p.dispose();
+      } catch (_) {}
+    }
     super.dispose();
   }
 
   Future<void> _toggle() async {
+    if (widget.url.trim().isEmpty) return;
     HapticFeedback.selectionClick();
     if (_playing) {
-      await _player?.pause();
+      try {
+        await _player?.pause();
+      } catch (_) {}
       return;
     }
-    if (_active != null && _active != this) await _active!._player?.pause();
+    if (_active != null && _active != this) {
+      try {
+        await _active!._player?.pause();
+      } catch (_) {}
+    }
     _active = this;
     if (_player == null) {
       final p = Player();
@@ -84,11 +99,25 @@ class _VoiceCommentMiniCardState extends State<VoiceCommentMiniCard> {
         p.stream.completed.listen((done) {
           if (done && mounted) setState(() => _progress = 0);
         }),
+        p.stream.error.listen((err) {
+          debugPrint('[VoiceComment] player error: $err');
+          if (mounted) setState(() => _playing = false);
+        }),
       ]);
-      await p.open(Media(widget.url), play: true);
+      try {
+        await p.open(Media(widget.url), play: true);
+      } catch (e) {
+        debugPrint('[VoiceComment] open failed: $e');
+        if (mounted) setState(() => _playing = false);
+      }
     } else {
-      if (_progress >= 0.99) await _player!.seek(Duration.zero);
-      await _player!.play();
+      try {
+        if (_progress >= 0.99) await _player!.seek(Duration.zero);
+        await _player!.play();
+      } catch (e) {
+        debugPrint('[VoiceComment] play error: $e');
+        if (mounted) setState(() => _playing = false);
+      }
     }
   }
 

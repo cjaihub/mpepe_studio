@@ -2,8 +2,6 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
-import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -12,6 +10,7 @@ import 'package:intl/intl.dart';
 
 import '../../auth/services/app_lifecycle_observer.dart' show rootNavigatorKey;
 import '../../backend/ai_brain_service.dart';
+import '../../backend/security/oneova_ai_gateway.dart';
 import '../../backend/security/secure_api_key_vault.dart';
 import '../core/ova_tool_result.dart';
 import 'ova_abilities.dart';
@@ -23,6 +22,7 @@ import 'ova_geo_tools.dart';
 import 'ova_llm_client.dart';
 import 'ova_local_intents.dart';
 import 'ova_memory_tools.dart';
+import 'ova_shared_history_service.dart';
 import 'ova_task_center.dart';
 import 'ova_tool_registry.dart';
 
@@ -129,6 +129,9 @@ class OvaChatController extends ChangeNotifier {
   bool busy = false;
   bool _disposed = false;
   int _turn = 0;
+  String? _lastPrompt;
+  String? _lastImageBase64;
+  bool _lastTurnDegraded = false;
 
   /// Context used for permission prompts (set by the sheet).
   BuildContext? _permissionContext;
@@ -189,11 +192,22 @@ class OvaChatController extends ChangeNotifier {
   Future<void> runDirect(String label, String tool, Map<String, dynamic> args) =>
       send(label, direct: OvaLocalIntent(tool, args));
 
+  /// Clears any temporary proxy cooldown and retries the most recent prompt.
+  Future<void> retryLast() async {
+    final prompt = _lastPrompt;
+    if (prompt == null || prompt.trim().isEmpty || busy) return;
+    OneovaAiGateway.resetCooldown();
+    await send(prompt, imageBase64: _lastImageBase64);
+  }
+
   Future<void> send(String input, {String? imageBase64, OvaLocalIntent? direct}) async {
     final text = input.trim();
     if (text.isEmpty || busy) return;
     final turn = ++_turn;
     busy = true;
+    _lastPrompt = text;
+    _lastImageBase64 = imageBase64;
+    _lastTurnDegraded = false;
     _taskId = tasks.start(text.length > 70 ? '${text.substring(0, 70)}…' : text);
     items.add(OvaItem._(OvaItemKind.user, text: text));
     _history.add({'role': 'user', 'content': text});
@@ -210,26 +224,28 @@ class OvaChatController extends ChangeNotifier {
           replyLog.write(res.summary);
           _history.add({'role': 'assistant', 'content': res.summary});
         }
-      } else if (!await llm.hasKey()) {
-        const msg = 'Chat answers need an AI key. Commands like "call Mum", "flashlight on", '
-            '"set a 5 min timer", "search #music" or "go live" work without one.';
-        items.add(OvaItem._(
-          OvaItemKind.notice,
-          text: msg,
-          result: const OvaToolResult(
-            ok: false,
-            summary: msg,
-            icon: Icons.key_rounded,
-            actions: [OvaResultAction(label: 'Add AI key', icon: Icons.key_rounded, route: '/settings/ai')],
-          ),
-        ));
-        replyLog.write(msg);
       } else {
         navigateTo = await _modelLoop(turn, imageBase64, replyLog);
       }
     } catch (e) {
       debugPrint('[OvaChatController] turn error: $e');
-      items.add(OvaItem._(OvaItemKind.notice, text: 'Something went wrong: $e'));
+      _lastTurnDegraded = true;
+      items.add(
+        OvaItem._(
+          OvaItemKind.notice,
+          text: 'Temporary connection hiccup. Tap Retry or configure an AI key in AI Settings.',
+          result: const OvaToolResult(
+            ok: false,
+            title: 'Connection Hiccup',
+            summary: 'Temporary connection hiccup.',
+            icon: Icons.cloud_off_rounded,
+            actions: [
+              OvaResultAction(label: 'Retry', icon: Icons.refresh_rounded, url: 'ova://retry_last'),
+              OvaResultAction(label: 'AI Settings', icon: Icons.tune_rounded, route: '/settings/ai'),
+            ],
+          ),
+        ),
+      );
     }
 
     if (turn != _turn) return;
@@ -237,7 +253,7 @@ class OvaChatController extends ChangeNotifier {
     final taskId = _taskId;
     _taskId = null;
     if (taskId != null) {
-      final failed = items.isNotEmpty && (items.last.kind == OvaItemKind.notice || (items.last.result?.ok == false));
+      final failed = items.isNotEmpty && (items.last.result?.ok == false);
       final reply = lastReply;
       final summary = items.isNotEmpty && items.last.kind == OvaItemKind.assistant
           ? reply
@@ -245,7 +261,7 @@ class OvaChatController extends ChangeNotifier {
       tasks.finish(taskId, ok: !failed, summary: summary == null ? null : (summary.length > 160 ? '${summary.substring(0, 160)}…' : summary));
     }
     _notify();
-    _log(text, replyLog.toString());
+    _log(text, replyLog.toString(), persistToFirestore: !_lastTurnDegraded);
     if (navigateTo != null && !_disposed) (onNavigate ?? _defaultNavigate)(navigateTo);
   }
 
@@ -259,6 +275,7 @@ class OvaChatController extends ChangeNotifier {
 
       final calls = <OvaToolCall>[];
       String? error;
+      OvaAiDiagnostic? degradedDiag;
       await for (final ev in llm.stream(
         system: _systemPrompt(),
         history: _history,
@@ -272,6 +289,8 @@ class OvaChatController extends ChangeNotifier {
             _notify();
           case OvaToolCallsEvent():
             calls.addAll(ev.calls);
+          case OvaLlmDegraded():
+            degradedDiag = ev.diagnostic;
           case OvaLlmError():
             error = ev.message;
         }
@@ -280,8 +299,51 @@ class OvaChatController extends ChangeNotifier {
       if (bubble.text.trim().isEmpty) items.remove(bubble);
       replyLog.write(bubble.text);
 
+      if (degradedDiag != null) {
+        _lastTurnDegraded = true;
+        items.add(
+          OvaItem._(
+            OvaItemKind.notice,
+            text: degradedDiag.detail,
+            result: OvaToolResult(
+              ok: true,
+              title: degradedDiag.badgeLabel,
+              summary: degradedDiag.detail,
+              icon: degradedDiag.kind == OvaAiIssueKind.offline
+                  ? Icons.wifi_off_rounded
+                  : Icons.cloud_sync_rounded,
+              actions: const [
+                OvaResultAction(label: 'Retry', icon: Icons.refresh_rounded, url: 'ova://retry_last'),
+                OvaResultAction(label: 'AI Settings', icon: Icons.tune_rounded, route: '/settings/ai'),
+              ],
+            ),
+          ),
+        );
+        if (bubble.text.trim().isNotEmpty) {
+          _history.add({'role': 'assistant', 'content': bubble.text});
+        }
+        _notify();
+        return navigateTo;
+      }
+
       if (error != null) {
-        items.add(OvaItem._(OvaItemKind.notice, text: error));
+        _lastTurnDegraded = true;
+        items.add(
+          OvaItem._(
+            OvaItemKind.notice,
+            text: error,
+            result: OvaToolResult(
+              ok: false,
+              title: 'Ova Notice',
+              summary: error,
+              icon: Icons.info_outline_rounded,
+              actions: const [
+                OvaResultAction(label: 'Retry', icon: Icons.refresh_rounded, url: 'ova://retry_last'),
+                OvaResultAction(label: 'AI Settings', icon: Icons.tune_rounded, route: '/settings/ai'),
+              ],
+            ),
+          ),
+        );
         _notify();
         return navigateTo;
       }
@@ -418,15 +480,17 @@ Context:
     return '${on.isEmpty ? 'basic only' : on.join(', ')}${fresh > 0 ? '; $fresh new notifications since Ova started' : ''}';
   }
 
-  void _log(String query, String reply) {
-    final user = FirebaseAuth.instance.currentUser;
-    if (user == null || user.isAnonymous || reply.trim().isEmpty) return;
-    FirebaseFirestore.instance.collection('users').doc(user.uid).collection('ai_interactions').add({
-      'query': query,
-      'response': reply,
-      'status': 'completed',
-      'kind': 'ova_assistant',
-      'timestamp': FieldValue.serverTimestamp(),
-    }).then<void>((_) {}, onError: (Object e) => debugPrint('[OvaChatController] history write failed: $e'));
+  void _log(String query, String reply, {bool persistToFirestore = true}) {
+    if (reply.trim().isEmpty) return;
+    try {
+      registry.ref.read(ovaSharedHistoryProvider.notifier).recordTurn(
+            query: query,
+            response: reply,
+            source: OvaOriginSource.overlay,
+            persistToFirestore: persistToFirestore,
+          );
+    } catch (e) {
+      debugPrint('[OvaChatController] shared history sync failed: $e');
+    }
   }
 }

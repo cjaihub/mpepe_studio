@@ -17,7 +17,9 @@ import '../../../shared/theme/app_theme.dart';
 import '../studio/live_studio_screen.dart';
 import 'live_classic_widgets.dart';
 import '../../../backend/live_studio/live_studio_flag.dart';
+import '../settings/live_advanced_settings_sheet.dart';
 import '../studio_v2/shell/live_studio_v2_screen.dart';
+import 'live_classic_host_view.dart';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // LIVE ROOM GATE — /live/viewer/:streamId
@@ -53,18 +55,25 @@ class LiveRoomGate extends ConsumerWidget {
             onClose: () => _leave(context),
           );
         }
+        final me = FirebaseAuth.instance.currentUser?.uid ?? '';
+        final isHost = stream.hostId == me;
+
         if (stream.layoutMode == 'studio') {
           // v2 streams (lsStart) carry studioVersion 2; older ones stay on v1.
-          final version = ref.watch(liveStudioVersionProvider(streamId)).value;
-          if (version == null) {
-            return const Scaffold(
-              backgroundColor: AppColors.brandBlack,
-              body: Center(child: CircularProgressIndicator(color: AppColors.brandPink)),
-            );
-          }
+          final version = ref.watch(liveStudioVersionProvider(streamId)).value ?? 1;
           return version >= 2
               ? LiveStudioV2Screen(streamId: streamId)
               : LiveStudioScreen(streamId: streamId);
+        }
+        if (isHost) {
+          return LiveClassicHostView(
+            initial: stream,
+            onEnd: () {
+              ref.read(liveServiceProvider).endStream(streamId);
+              _leave(context);
+            },
+            onOpenTools: () => showLiveAdvancedSettingsSheet(context),
+          );
         }
         return LiveClassicViewerScreen(initialStreamId: streamId);
       },

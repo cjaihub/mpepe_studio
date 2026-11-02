@@ -19,12 +19,12 @@ class LiveRecordingWaveform extends StatelessWidget {
   const LiveRecordingWaveform({
     super.key,
     required this.levels,
-    this.height = 28,
+    this.height = 20,
     this.paused = false,
     this.color = AppColors.brandBlue,
     this.peakColor = AppColors.brandPink,
-    this.barWidth = 3,
-    this.gap = 2,
+    this.barWidth = 2.0,
+    this.gap = 1.8,
   });
 
   @override

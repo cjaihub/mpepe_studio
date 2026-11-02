@@ -3,6 +3,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import '../../backend/social/models/comment.dart';
 import '../../shared/theme/app_theme.dart';
 
 /// User privacy setting for real-time live presence and activity broadcasting
@@ -103,6 +104,9 @@ class LiveActivityCardItem {
   final String? voiceUrl;
   final int? voiceDurationMs;
 
+  /// Set for GIF comments so floating reel pills render a mini GIF preview.
+  final CommentGif? gif;
+
   const LiveActivityCardItem({
     required this.id,
     required this.type,
@@ -117,6 +121,7 @@ class LiveActivityCardItem {
     this.isVerified = false,
     this.voiceUrl,
     this.voiceDurationMs,
+    this.gif,
   });
 }
 
@@ -183,9 +188,10 @@ final liveSocialEventsStreamProvider = StreamProvider.autoDispose<List<LiveActiv
       }
 
       final userId = payload['userId'] as String? ?? payload['followerId'] as String? ?? '';
-      final username = payload['username'] as String? ?? (userId.isNotEmpty ? 'User_${userId.substring(0, min(4, userId.length))}' : 'Attendee');
+      final username = payload['username'] as String? ??
+          (userId.isNotEmpty ? 'User_${userId.substring(0, min(4, userId.length))}' : 'Attendee');
       final avatarUrl = payload['avatarUrl'] as String? ?? '';
-      
+
       String message;
       IconData icon;
       Color badgeColor;
@@ -256,66 +262,154 @@ class GlowingLoveBurstNotifier extends Notifier<int> {
 final glowingLoveBurstProvider =
     NotifierProvider<GlowingLoveBurstNotifier, int>(GlowingLoveBurstNotifier.new);
 
-/// Content-specific live activity stream: feeds top-liked/recent comments and recent likes
-/// for the looping reel into floating animated micro-cards
-final contentLiveActivityStreamProvider = StreamProvider.autoDispose.family<List<LiveActivityCardItem>, String>((ref, contentId) {
+class _CachedAuthor {
+  final String username;
+  final String avatarUrl;
+  final bool isVerified;
+  final DateTime fetchedAt;
+
+  const _CachedAuthor({
+    required this.username,
+    required this.avatarUrl,
+    required this.isVerified,
+    required this.fetchedAt,
+  });
+}
+
+final Map<String, _CachedAuthor> _authorMemo = {};
+
+Future<_CachedAuthor> _resolveAuthor(FirebaseFirestore firestore, String uid, {String fallback = 'Fan'}) async {
+  if (uid.isEmpty) {
+    return _CachedAuthor(username: fallback, avatarUrl: '', isVerified: false, fetchedAt: DateTime.now());
+  }
+  final cached = _authorMemo[uid];
+  if (cached != null && DateTime.now().difference(cached.fetchedAt) < const Duration(minutes: 5)) {
+    return cached;
+  }
+  final shortFallback = 'User_${uid.substring(0, min(4, uid.length))}';
+  try {
+    final uDoc = await firestore.collection('users').doc(uid).get();
+    if (uDoc.exists) {
+      final uData = uDoc.data();
+      final resolved = _CachedAuthor(
+        username: (uData?['username'] as String?)?.isNotEmpty == true
+            ? uData!['username'] as String
+            : ((uData?['displayName'] as String?)?.isNotEmpty == true
+                  ? uData!['displayName'] as String
+                  : ((uData?['fullName'] as String?)?.isNotEmpty == true
+                        ? uData!['fullName'] as String
+                        : shortFallback)),
+        avatarUrl: uData?['profilePhotoUrl'] as String? ?? '',
+        isVerified: uData?['isVerified'] == true,
+        fetchedAt: DateTime.now(),
+      );
+      _authorMemo[uid] = resolved;
+      return resolved;
+    }
+  } catch (_) {}
+  final def = _CachedAuthor(username: shortFallback, avatarUrl: '', isVerified: false, fetchedAt: DateTime.now());
+  _authorMemo[uid] = def;
+  return def;
+}
+
+/// Content-specific live activity stream: feeds real comments (text, GIF, voice)
+/// and deduplicated recent likes for the active reel into floating micro-cards.
+final contentLiveActivityStreamProvider =
+    StreamProvider.autoDispose.family<List<LiveActivityCardItem>, String>((ref, contentId) {
   final firestore = FirebaseFirestore.instance;
 
   return firestore
+      .collection('posts')
+      .doc(contentId)
       .collection('comments')
-      .where('postId', isEqualTo: contentId)
+      .orderBy('createdAt', descending: true)
       .limit(25)
       .snapshots()
-      .asyncMap((commentSnap) async {
-    final items = <LiveActivityCardItem>[];
+      .asyncMap((postCommentSnap) async {
+    final commentDocsById = <String, Map<String, dynamic>>{};
+    for (final doc in postCommentSnap.docs) {
+      commentDocsById[doc.id] = doc.data();
+    }
 
-    // 1. Top comments from real users
-    for (var i = 0; i < commentSnap.docs.length; i++) {
-      final doc = commentSnap.docs[i];
-      final data = doc.data();
+    // Fallback / merge from content/{id}/comments when posts/{id}/comments has fewer entries
+    if (commentDocsById.isEmpty) {
+      try {
+        final contentCommentSnap = await firestore
+            .collection('content')
+            .doc(contentId)
+            .collection('comments')
+            .orderBy('createdAt', descending: true)
+            .limit(25)
+            .get();
+        for (final doc in contentCommentSnap.docs) {
+          commentDocsById.putIfAbsent(doc.id, doc.data);
+        }
+      } catch (_) {}
+    }
+
+    // Legacy top-level comments fallback
+    if (commentDocsById.isEmpty) {
+      try {
+        final legacySnap = await firestore
+            .collection('comments')
+            .where('postId', isEqualTo: contentId)
+            .limit(15)
+            .get();
+        for (final doc in legacySnap.docs) {
+          commentDocsById.putIfAbsent(doc.id, doc.data);
+        }
+      } catch (_) {}
+    }
+
+    final commentItems = <LiveActivityCardItem>[];
+    final entries = commentDocsById.entries.toList();
+    for (var i = 0; i < entries.length; i++) {
+      final docId = entries[i].key;
+      final data = entries[i].value;
+      if (data['isModerated'] == true) continue;
+
       final authorId = data['authorId'] as String? ?? '';
-      final text = data['content'] as String? ?? '';
-      if (text.trim().isEmpty) continue;
+      final rawText = (data['content'] as String? ?? '').trim();
       final isVoice = data['type'] == 'voice';
-
-      String username = authorId.isNotEmpty ? 'User_${authorId.substring(0, min(4, authorId.length))}' : 'Fan';
-      String avatarUrl = '';
-      bool isVerified = false;
-      if (authorId.isNotEmpty) {
-        try {
-          final uDoc = await firestore.collection('users').doc(authorId).get();
-          if (uDoc.exists) {
-            final uData = uDoc.data();
-            username = uData?['username'] ?? uData?['displayName'] ?? username;
-            avatarUrl = uData?['profilePhotoUrl'] ?? '';
-            isVerified = uData?['isVerified'] == true;
-          }
-        } catch (_) {}
+      CommentGif? gif = CommentGif.fromMap(data['gif']);
+      if (gif == null && data['type'] == 'gif' && rawText.startsWith('https://')) {
+        gif = CommentGif(id: docId, url: rawText, w: 220, h: 220);
       }
+      final displayText = (data['type'] == 'gif' && rawText == gif?.url) ? '' : rawText;
 
+      if (displayText.isEmpty && gif == null && !isVoice) continue;
+
+      final author = await _resolveAuthor(firestore, authorId);
       final angles = [-0.015, 0.012, -0.010, 0.014, -0.012, 0.010];
       final ts = (data['createdAt'] as Timestamp?)?.toDate() ?? DateTime.now();
 
-      items.add(
+      commentItems.add(
         LiveActivityCardItem(
-          id: doc.id,
-          type: 'reel.comment',
+          id: 'c_$docId',
+          type: gif != null ? 'reel.gif_comment' : 'reel.comment',
           userId: authorId,
-          username: username,
-          avatarUrl: avatarUrl,
-          message: isVoice ? '' : text,
-          icon: isVoice ? Icons.graphic_eq_rounded : Icons.chat_bubble_rounded,
+          username: author.username,
+          avatarUrl: author.avatarUrl,
+          message: isVoice ? '' : displayText,
+          icon: isVoice
+              ? Icons.graphic_eq_rounded
+              : gif != null
+                  ? Icons.gif_box_rounded
+                  : Icons.chat_bubble_rounded,
           badgeColor: AppColors.brandBlue,
           timestamp: ts,
           rotationAngle: angles[i % angles.length],
-          isVerified: isVerified,
-          voiceUrl: isVoice ? text : null,
+          isVerified: author.isVerified,
+          voiceUrl: isVoice ? rawText : null,
           voiceDurationMs: isVoice ? (data['voiceDurationMs'] as num?)?.toInt() : null,
+          gif: gif,
         ),
       );
     }
 
-    // 2. Recent likes on this reel
+    // 2. Recent likes on this reel (deduplicated per userId)
+    final likeItems = <LiveActivityCardItem>[];
+    final seenLikers = <String>{};
     try {
       final likeSnap = await firestore
           .collection('content_likes')
@@ -327,46 +421,41 @@ final contentLiveActivityStreamProvider = StreamProvider.autoDispose.family<List
         final lDoc = likeSnap.docs[j];
         final lData = lDoc.data();
         final lUserId = lData['userId'] as String? ?? '';
-        if (lUserId.isEmpty) continue;
+        if (lUserId.isEmpty || !seenLikers.add(lUserId)) continue;
 
-        String lUsername = 'User_${lUserId.substring(0, min(4, lUserId.length))}';
-        String lAvatarUrl = '';
-        bool lIsVerified = false;
-        try {
-          final uDoc = await firestore.collection('users').doc(lUserId).get();
-          if (uDoc.exists) {
-            final uData = uDoc.data();
-            lUsername = uData?['username'] ?? uData?['displayName'] ?? lUsername;
-            lAvatarUrl = uData?['profilePhotoUrl'] ?? '';
-            lIsVerified = uData?['isVerified'] == true;
-          }
-        } catch (_) {}
-
+        final author = await _resolveAuthor(firestore, lUserId);
         final angles = [0.012, -0.014, 0.010, -0.015];
-        items.add(
+        likeItems.add(
           LiveActivityCardItem(
-            id: lDoc.id,
+            id: 'l_${lDoc.id}',
             type: 'reel.liked',
             userId: lUserId,
-            username: lUsername,
-            avatarUrl: lAvatarUrl,
-            message: 'liked this reel 🤍',
+            username: author.username,
+            avatarUrl: author.avatarUrl,
+            message: 'liked this reel',
             icon: Icons.favorite_rounded,
             badgeColor: AppColors.brandPink,
             timestamp: (lData['createdAt'] as Timestamp?)?.toDate() ?? DateTime.now(),
             rotationAngle: angles[j % angles.length],
-            isVerified: lIsVerified,
+            isVerified: author.isVerified,
           ),
         );
       }
     } catch (_) {}
 
-    // Sort items by timestamp so the stream flows chronologically
-    items.sort((a, b) => a.timestamp.compareTo(b.timestamp));
+    // Interleave comments first with occasional likes so comments lead the stream
+    commentItems.sort((a, b) => b.timestamp.compareTo(a.timestamp));
+    likeItems.sort((a, b) => b.timestamp.compareTo(a.timestamp));
 
-    // Only this reel's own comments and likes are shown: community events
-    // from other posts must never be labelled as activity on this reel.
-    return items;
+    final merged = <LiveActivityCardItem>[];
+    var ci = 0;
+    var li = 0;
+    while (ci < commentItems.length || li < likeItems.length) {
+      if (ci < commentItems.length) merged.add(commentItems[ci++]);
+      if (ci < commentItems.length) merged.add(commentItems[ci++]);
+      if (li < likeItems.length) merged.add(likeItems[li++]);
+    }
+    return merged;
   });
 });
 

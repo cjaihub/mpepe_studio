@@ -41,9 +41,41 @@ typedef StudioStateReader = Future<StudioState?> Function(String streamId);
 final studioStateReaderProvider = Provider<StudioStateReader>((ref) {
   final db = ref.watch(studioFirestoreProvider);
   return (streamId) async {
-    final snap = await db.doc(StudioPaths.state(streamId)).get();
-    final data = snap.data();
-    return data == null ? null : StudioState.fromJson(data);
+    try {
+      final snap = await db.doc(StudioPaths.state(streamId)).get();
+      final data = snap.data();
+      if (data != null) return StudioState.fromJson(data);
+    } catch (_) {}
+
+    // Resilient fallback: derive a valid StudioState from parent live_streams doc
+    try {
+      final streamSnap = await db.collection('live_streams').doc(streamId).get();
+      final d = streamSnap.data();
+      if (d != null) {
+        final hostId = (d['hostId'] as String?) ?? '';
+        final title = (d['title'] as String?) ?? 'Live Studio';
+        final statusStr = (d['status'] as String?) ?? 'live';
+        final isEnded = statusStr == 'ended';
+        final now = DateTime.now().millisecondsSinceEpoch;
+        return StudioState(
+          schemaVersion: 1,
+          streamId: streamId,
+          hostId: hostId,
+          title: title,
+          status: isEnded ? StudioStatus.ended : StudioStatus.live,
+          seq: 0,
+          settings: const StudioSettings(),
+          stage: StageLayout(
+            centerUid: hostId,
+            updatedAtMs: now,
+            updatedBy: hostId,
+          ),
+          table: const TableState(),
+          counts: const StudioCounts(viewers: 1),
+        );
+      }
+    } catch (_) {}
+    return null;
   };
 });
 

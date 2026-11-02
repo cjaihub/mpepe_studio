@@ -48,6 +48,9 @@ import '../services/pending_post_queue.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import 'widgets/circle_gesture_detector.dart';
 import '../providers/settings_provider.dart';
+import 'services/oneova_transcription_service.dart';
+import 'widgets/oneova_caption_overlay.dart';
+import 'widgets/oneova_transcript_sheet.dart';
 
 import 'package:oneova/backend/social/models/audio_track.dart';
 import 'package:oneova/backend/social/repositories/audio_track_repository.dart';
@@ -75,7 +78,8 @@ class ShortVideoFeedScreen extends ConsumerStatefulWidget {
   ConsumerState<ShortVideoFeedScreen> createState() => _ShortVideoFeedScreenState();
 }
 
-class _ShortVideoFeedScreenState extends ConsumerState<ShortVideoFeedScreen> {
+class _ShortVideoFeedScreenState extends ConsumerState<ShortVideoFeedScreen>
+    with RouteAware, WidgetsBindingObserver {
   late PageController _pageController;
   int _currentIndex = 0;
   DateTime _currentVideoStartTime = DateTime.now();
@@ -95,7 +99,7 @@ class _ShortVideoFeedScreenState extends ConsumerState<ShortVideoFeedScreen> {
   // Focus mode: enters by itself once a reel has played for 3s, then
   // stays until the user presses Back or draws a circle (which opens Ova).
   static const Duration _autoFocusAfter = Duration(seconds: 3);
-  bool _autoFocusArmed = true;
+  bool _autoFocusArmed = false;
   Timer? _autoFocusTimer;
   Duration _playedFor = Duration.zero;
   ReelPalette _palette = const ReelPalette(dark: true);
@@ -127,10 +131,14 @@ class _ShortVideoFeedScreenState extends ConsumerState<ShortVideoFeedScreen> {
     if (player != null) {
       _playerCompletionSub = player.stream.completed.listen((isCompleted) {
         if (isCompleted && _isAutoScrollEnabled && mounted && _currentPage < _pages.length - 1) {
-          _pageController.nextPage(
-            duration: const Duration(milliseconds: 380),
-            curve: Curves.easeInOutCubic,
-          );
+          if (_pageController.hasClients && _pageController.positions.length == 1) {
+            try {
+              _pageController.nextPage(
+                duration: const Duration(milliseconds: 380),
+                curve: Curves.easeInOutCubic,
+              );
+            } catch (_) {}
+          }
         }
       });
     }
@@ -151,6 +159,7 @@ class _ShortVideoFeedScreenState extends ConsumerState<ShortVideoFeedScreen> {
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     debugPrint('[ShortVideoFeedScreen] initState called');
     _currentMode = widget.initialMode;
     _pageController = PageController(initialPage: 0);
@@ -164,6 +173,62 @@ class _ShortVideoFeedScreenState extends ConsumerState<ShortVideoFeedScreen> {
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (mounted) ref.read(pendingPostQueueProvider.notifier).resumeAll();
     });
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    final modalRoute = ModalRoute.of(context);
+    if (modalRoute != null) {
+      mainFeedRouteObserver.subscribe(this, modalRoute);
+    }
+  }
+
+  @override
+  void didPushNext() {
+    // Another screen was pushed over this feed (e.g. Profile, Search, Notifications, Settings).
+    // Instantly auto-mute audio and pause playback.
+    debugPrint('[ShortVideoFeedScreen] didPushNext: route covered, auto-muting reels');
+    ref.read(videoPlaybackManagerProvider).setScreenActive(false);
+    super.didPushNext();
+  }
+
+  @override
+  void didPopNext() {
+    // Returned back to this feed after the top route was popped.
+    debugPrint('[ShortVideoFeedScreen] didPopNext: returned to feed, restoring active reel');
+    final isCurrent = ModalRoute.of(context)?.isCurrent ?? true;
+    if (isCurrent && mounted) {
+      ref.read(videoPlaybackManagerProvider).setScreenActive(true);
+      if (_feed.isNotEmpty && _currentIndex < _feed.length) {
+        ref.read(videoPlaybackManagerProvider).ensureCurrentPlaying(_feed[_currentIndex].id);
+      }
+    }
+    super.didPopNext();
+  }
+
+  @override
+  void didPop() {
+    ref.read(videoPlaybackManagerProvider).setScreenActive(false);
+    super.didPop();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    super.didChangeAppLifecycleState(state);
+    if (state == AppLifecycleState.paused ||
+        state == AppLifecycleState.inactive ||
+        state == AppLifecycleState.hidden) {
+      ref.read(videoPlaybackManagerProvider).setScreenActive(false);
+    } else if (state == AppLifecycleState.resumed) {
+      final isCurrent = ModalRoute.of(context)?.isCurrent ?? true;
+      if (isCurrent && mounted) {
+        ref.read(videoPlaybackManagerProvider).setScreenActive(true);
+        if (_feed.isNotEmpty && _currentIndex < _feed.length) {
+          ref.read(videoPlaybackManagerProvider).ensureCurrentPlaying(_feed[_currentIndex].id);
+        }
+      }
+    }
   }
 
   /// Counts continuous playback of the current reel; at 3s enters focus mode
@@ -221,9 +286,9 @@ class _ShortVideoFeedScreenState extends ConsumerState<ShortVideoFeedScreen> {
 
   // Paging past the live head of the feed: older pages are fetched once the
   // viewer is within [_pageAheadTrigger] reels of the end, so the prefetch
-  // window (ReelPrefetcher.windowSize) always has reels to work on.
-  static const int _pageSize = 30;
-  static const int _pageAheadTrigger = ReelPrefetcher.windowSize;
+  // window (ReelPrefetcher.windowSize = 60) always has 50+ reels ahead to work on.
+  static const int _pageSize = 40;
+  static const int _pageAheadTrigger = 55;
   DateTime? _oldestLoaded;
   bool _loadingOlder = false;
   bool _noOlder = false;
@@ -236,12 +301,12 @@ class _ShortVideoFeedScreenState extends ConsumerState<ShortVideoFeedScreen> {
   }
 
   /// Keeps the rolling window warm around reel [index]: player pool,
-  /// disk prefetch, decoded covers for the next two, and the next page.
+  /// disk prefetch, decoded covers for upcoming reels, and the next page.
   void _warmAround(int index) {
     if (_feed.isEmpty) return;
     ref.read(videoPlaybackManagerProvider).initializeAndPreload(_feed, index);
     ref.read(reelPrefetcherProvider).update(_feed, index);
-    for (var i = index + 1; i <= index + 2 && i < _feed.length; i++) {
+    for (var i = index + 1; i <= index + 4 && i < _feed.length; i++) {
       final c = _feed[i];
       final url = c.type == ContentType.photo ? c.mediaUrl : c.mediaMetadata.thumbnailUrl;
       if (url == null || url.isEmpty || !mounted) continue;
@@ -283,6 +348,12 @@ class _ShortVideoFeedScreenState extends ConsumerState<ShortVideoFeedScreen> {
         _pages.addAll(ranked);
       });
       ref.read(reelPrefetcherProvider).update(_feed, _currentIndex);
+
+      // If the buffer is still below the 55 threshold, chain another continuation page
+      if (_feed.length - _currentIndex < _pageAheadTrigger && !_noOlder) {
+        _loadingOlder = false;
+        await _loadOlder();
+      }
     } catch (e) {
       debugPrint('[ShortVideoFeedScreen] older page failed: $e');
     } finally {
@@ -347,10 +418,11 @@ class _ShortVideoFeedScreenState extends ConsumerState<ShortVideoFeedScreen> {
   Future<void> _primeFeed(int generation, String uid, List<Content> items) async {
     final perfMonitor = ref.read(performanceMonitorProvider);
     _noteOldest(items);
-    final recommendations = await perfMonitor.measureApiLatency(
+    final rawRecs = await perfMonitor.measureApiLatency(
       'feed.fetchRecommendations',
       () => ref.read(recommendationServiceProvider).rankCandidates(uid, _currentMode, items),
     );
+    final recommendations = List<Content>.from(rawRecs);
 
     if (widget.initialVideoId != null && widget.initialVideoId!.isNotEmpty) {
       try {
@@ -389,9 +461,9 @@ class _ShortVideoFeedScreenState extends ConsumerState<ShortVideoFeedScreen> {
     final present = _feed.map((c) => c.id).toSet();
     final unseen = items.where((c) => !present.contains(c.id)).toList();
     if (unseen.isEmpty) return;
-    final fresh = await ref.read(recommendationServiceProvider).filterCandidates(uid, unseen);
-    if (fresh.isEmpty || !mounted || generation != _feedGeneration) return;
-    fresh.sort((a, b) => b.createdAt.compareTo(a.createdAt));
+    final rawFresh = await ref.read(recommendationServiceProvider).filterCandidates(uid, unseen);
+    if (rawFresh.isEmpty || !mounted || generation != _feedGeneration) return;
+    final fresh = List<Content>.from(rawFresh)..sort((a, b) => b.createdAt.compareTo(a.createdAt));
 
     final wasEmpty = _feed.isEmpty;
     setState(() {
@@ -411,6 +483,8 @@ class _ShortVideoFeedScreenState extends ConsumerState<ShortVideoFeedScreen> {
 
   @override
   void dispose() {
+    mainFeedRouteObserver.unsubscribe(this);
+    WidgetsBinding.instance.removeObserver(this);
     _feedSub?.cancel();
     _autoFocusTimer?.cancel();
     SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
@@ -512,6 +586,12 @@ class _ShortVideoFeedScreenState extends ConsumerState<ShortVideoFeedScreen> {
     _scheduleAutoFocus();
     if (_feed.isNotEmpty && index < _feed.length) {
       ref.read(videoPlaybackManagerProvider).setLooping(_feed[index].id, _isLoopModeEnabled);
+      // Auto-transcribe active reel & pre-transcribe next reel in advance
+      final transcription = ref.read(oneovaTranscriptionServiceProvider);
+      transcription.preTranscribeInAdvance(_feed[index]);
+      if (index + 1 < _feed.length) {
+        transcription.preTranscribeInAdvance(_feed[index + 1]);
+      }
     }
     
     final uid = FirebaseAuth.instance.currentUser?.uid ?? 'currentUser';
@@ -577,16 +657,23 @@ class _ShortVideoFeedScreenState extends ConsumerState<ShortVideoFeedScreen> {
               onPageChanged: _onPageChanged,
               itemCount: _pages.length,
               itemBuilder: (context, index) {
+                final isScreenActive = ref.watch(videoPlaybackManagerProvider).isScreenActive;
                 final item = _pages[index];
                 if (item is LiveFeedSlot) {
                   return LiveFeedCard(
                     key: ValueKey('live_${item.streamId}'),
                     initial: item.initial,
-                    isActive: index == _currentPage,
-                    onSkip: () => _pageController.nextPage(
-                      duration: const Duration(milliseconds: 380),
-                      curve: Curves.easeInOutCubic,
-                    ),
+                    isActive: index == _currentPage && isScreenActive,
+                    onSkip: () {
+                      if (_pageController.hasClients && _pageController.positions.length == 1) {
+                        try {
+                          _pageController.nextPage(
+                            duration: const Duration(milliseconds: 380),
+                            curve: Curves.easeInOutCubic,
+                          );
+                        } catch (_) {}
+                      }
+                    },
                   );
                 }
                 final content = item as Content;
@@ -597,7 +684,7 @@ class _ShortVideoFeedScreenState extends ConsumerState<ShortVideoFeedScreen> {
                     child: _ShortVideoItem(
                       key: ValueKey(content.id),
                       content: content,
-                      isActive: index == _currentPage,
+                      isActive: index == _currentPage && isScreenActive,
                       isFullScreen: isFocusMode,
                     ),
                   ),
@@ -651,6 +738,27 @@ class _ShortVideoFeedScreenState extends ConsumerState<ShortVideoFeedScreen> {
               child: const PendingPostPill(),
             ),
 
+          // Subtle buffering line at bottom when active reel is loading
+          Positioned(
+            left: 0,
+            right: 0,
+            bottom: 0,
+            child: ValueListenableBuilder<bool>(
+              valueListenable: ref.read(videoPlaybackManagerProvider).activeReelBuffering,
+              builder: (context, isBuffering, _) {
+                if (!isBuffering) return const SizedBox.shrink();
+                return const SizedBox(
+                  height: 2.0,
+                  child: LinearProgressIndicator(
+                    minHeight: 2.0,
+                    backgroundColor: Colors.transparent,
+                    valueColor: AlwaysStoppedAnimation<Color>(AppColors.brandBlue),
+                  ),
+                );
+              },
+            ),
+          ),
+
         ],
       ),
       ),
@@ -671,24 +779,38 @@ class _ShortVideoFeedScreenState extends ConsumerState<ShortVideoFeedScreen> {
       curve: Curves.easeInOutCubic,
       child: child,
       builder: (context, t, child) {
-        if (t == 0.0) return child!;
         return AnimatedBuilder(
           animation: _pageController,
           child: child,
           builder: (context, child) {
             double page = _currentPage.toDouble();
-            if (_pageController.hasClients && _pageController.position.haveDimensions) {
-              page = _pageController.page ?? page;
+            if (_pageController.hasClients &&
+                _pageController.positions.length == 1 &&
+                _pageController.position.haveDimensions) {
+              try {
+                page = _pageController.page ?? page;
+              } catch (_) {}
             }
             final delta = (page - index).abs().clamp(0.0, 1.0);
-            final scale = 1.0 - 0.06 * delta * t;
+            final scale = 1.0 - (0.04 * delta) - (0.02 * t);
+            final double radius = 18.0 + (8.0 * t);
             return Opacity(
-              opacity: (1.0 - 0.35 * delta * t).clamp(0.0, 1.0),
+              opacity: (1.0 - 0.35 * delta * (0.3 + 0.7 * t)).clamp(0.0, 1.0),
               child: Transform.scale(
                 scale: scale,
-                child: ClipRRect(
-                  borderRadius: BorderRadius.circular(34.0 * t),
-                  child: child,
+                child: Container(
+                  decoration: BoxDecoration(
+                    borderRadius: BorderRadius.circular(radius),
+                    border: Border.all(
+                      color: Colors.white.withValues(alpha: 0.08),
+                      width: 1.0,
+                    ),
+                  ),
+                  child: ClipRRect(
+                    borderRadius: BorderRadius.circular(radius),
+                    clipBehavior: Clip.antiAliasWithSaveLayer,
+                    child: child,
+                  ),
                 ),
               ),
             );
@@ -856,6 +978,11 @@ class _ShortVideoFeedScreenState extends ConsumerState<ShortVideoFeedScreen> {
               _currentIndex = 0;
               _currentPage = 0;
             });
+            if (_pageController.hasClients && _pageController.positions.length == 1) {
+              try {
+                _pageController.jumpToPage(0);
+              } catch (_) {}
+            }
             _loadFeed();
           },
         ),
@@ -869,6 +996,11 @@ class _ShortVideoFeedScreenState extends ConsumerState<ShortVideoFeedScreen> {
               _currentIndex = 0;
               _currentPage = 0;
             });
+            if (_pageController.hasClients && _pageController.positions.length == 1) {
+              try {
+                _pageController.jumpToPage(0);
+              } catch (_) {}
+            }
             _loadFeed();
           },
         ),
@@ -1147,6 +1279,76 @@ class _ShortVideoFeedScreenState extends ConsumerState<ShortVideoFeedScreen> {
               ],
             ),
           ),
+          Container(
+            height: 10,
+            width: 1,
+            color: _palette.divider,
+            margin: const EdgeInsets.symmetric(horizontal: 6),
+          ),
+          // YouTube-style Closed Captions (CC) toggle & unlock
+          Consumer(
+            builder: (context, ref, _) {
+              final isCC = ref.watch(oneovaCaptionsEnabledProvider);
+              return GestureDetector(
+                onTap: () {
+                  HapticFeedback.selectionClick();
+                  ref.read(oneovaCaptionsEnabledProvider.notifier).toggle();
+                  ScaffoldMessenger.of(context).clearSnackBars();
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(
+                      content: Text(
+                        !isCC ? 'Captions ON (auto-transcribing)' : 'Captions OFF',
+                      ),
+                      backgroundColor: !isCC ? AppColors.brandBlue : AppColors.darkSurface,
+                      duration: const Duration(seconds: 1),
+                      behavior: SnackBarBehavior.floating,
+                    ),
+                  );
+                },
+                onLongPress: () async {
+                  if (_feed.isNotEmpty && _currentIndex < _feed.length) {
+                    final item = _feed[_currentIndex];
+                    final t = await ref.read(oneovaTranscriptionServiceProvider).getTranscript(
+                      item.id,
+                      mediaUrl: item.mediaUrl,
+                      fallbackText: item.description,
+                      duration: item.mediaMetadata.duration,
+                    );
+                    if (!mounted || !context.mounted) return;
+                    if (t != null) {
+                      final player = ref.read(videoPlaybackManagerProvider).getPlayer(item.id);
+                      final pos = player?.state.position.inMilliseconds ?? 0;
+                      showOneovaTranscriptSheet(
+                        context,
+                        transcript: t,
+                        currentPositionMs: pos,
+                        onSeek: (ms) => player?.seek(Duration(milliseconds: ms)),
+                      );
+                    }
+                  }
+                },
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(
+                      isCC ? Icons.closed_caption_rounded : Icons.closed_caption_outlined,
+                      size: 13,
+                      color: isCC ? AppColors.brandPink : _palette.fgSoft,
+                    ),
+                    const SizedBox(width: 2.5),
+                    Text(
+                      'CC',
+                      style: GoogleFonts.inter(
+                        fontSize: 10,
+                        fontWeight: isCC ? FontWeight.w800 : FontWeight.w600,
+                        color: isCC ? AppColors.brandPink : _palette.fgSoft,
+                      ),
+                    ),
+                  ],
+                ),
+              );
+            },
+          ),
         ],
       ),
     );
@@ -1324,6 +1526,8 @@ class _ShortVideoItemState extends ConsumerState<_ShortVideoItem> with TickerPro
   bool _showBurstHeart = false;
   bool _followJustConfirmed = false;
   bool _captionExpanded = false;
+  bool _showPlayPauseIndicator = false;
+  Timer? _playPauseFadeTimer;
 
   ReelPalette get _p => ReelPalette.of(context);
 
@@ -1380,6 +1584,7 @@ class _ShortVideoItemState extends ConsumerState<_ShortVideoItem> with TickerPro
 
   @override
   void dispose() {
+    _playPauseFadeTimer?.cancel();
     for (final s in _subs) {
       s.cancel();
     }
@@ -1390,6 +1595,14 @@ class _ShortVideoItemState extends ConsumerState<_ShortVideoItem> with TickerPro
     _likePulseController.dispose();
     _vinylController.dispose();
     super.dispose();
+  }
+
+  void _safeBurstFloatingHearts({int count = 4}) {
+    try {
+      if (_floatingHeartsKey.currentContext != null) {
+        _floatingHeartsKey.currentState?.burst(count: count);
+      }
+    } catch (_) {}
   }
 
   void _triggerDoubleTapLike(Offset position) {
@@ -1406,7 +1619,7 @@ class _ShortVideoItemState extends ConsumerState<_ShortVideoItem> with TickerPro
           _showBurstHeart = true;
         });
         _likePulseController.forward(from: 0.0);
-        _floatingHeartsKey.currentState?.burst(count: 4);
+        _safeBurstFloatingHearts(count: 4);
         _burstHeartController.forward(from: 0.0).then((_) {
           if (mounted) {
             setState(() {
@@ -1478,14 +1691,16 @@ class _ShortVideoItemState extends ConsumerState<_ShortVideoItem> with TickerPro
 
   void _togglePlay() {
     final manager = ref.read(videoPlaybackManagerProvider);
-    
     manager.togglePlayPause(widget.content.id);
-    
     final isPlaying = manager.getController(widget.content.id)?.player.state.playing ?? false;
+    setState(() {
+      _showPlayPauseIndicator = !isPlaying;
+    });
     if (isPlaying) {
-// 0
-    } else {
-// 0
+      _playPauseFadeTimer?.cancel();
+      _playPauseFadeTimer = Timer(const Duration(milliseconds: 650), () {
+        if (mounted) setState(() => _showPlayPauseIndicator = false);
+      });
     }
   }
 
@@ -1496,7 +1711,9 @@ class _ShortVideoItemState extends ConsumerState<_ShortVideoItem> with TickerPro
       ref.read(videoPlaybackManagerProvider).ensureCurrentPlaying(widget.content.id);
       _vinylController.repeat();
     } else if (!widget.isActive && oldWidget.isActive) {
-      ref.read(videoPlaybackManagerProvider).getPlayer(widget.content.id)?.pause();
+      final player = ref.read(videoPlaybackManagerProvider).getPlayer(widget.content.id);
+      player?.setVolume(0.0);
+      player?.pause();
       _vinylController.stop();
     }
   }
@@ -1514,10 +1731,8 @@ class _ShortVideoItemState extends ConsumerState<_ShortVideoItem> with TickerPro
     return GestureDetector(
       behavior: HitTestBehavior.opaque,
       onTap: () {
-        // Enters focus mode; once in, taps never leave it (only Back does).
-        if (widget.isFullScreen) return;
         HapticFeedback.lightImpact();
-        ref.read(oneovaFocusModeProvider.notifier).set(true);
+        _togglePlay();
       },
       onDoubleTapDown: (details) {
         _lastTapPosition = details.localPosition;
@@ -1553,6 +1768,37 @@ class _ShortVideoItemState extends ConsumerState<_ShortVideoItem> with TickerPro
                 fit: _landscape ? BoxFit.contain : BoxFit.cover,
                 fill: Colors.transparent,
                 controls: NoVideoControls,
+              ),
+            ),
+
+          // ── Oneova Centered Play/Pause Indicator ─────────
+          if (_showPlayPauseIndicator)
+            Center(
+              child: IgnorePointer(
+                child: AnimatedOpacity(
+                  opacity: _showPlayPauseIndicator ? 1.0 : 0.0,
+                  duration: const Duration(milliseconds: 200),
+                  child: Container(
+                    width: 68,
+                    height: 68,
+                    decoration: BoxDecoration(
+                      color: Colors.black.withValues(alpha: 0.5),
+                      shape: BoxShape.circle,
+                      border: Border.all(color: Colors.white.withValues(alpha: 0.35), width: 1.5),
+                      boxShadow: [
+                        BoxShadow(
+                          color: Colors.black.withValues(alpha: 0.35),
+                          blurRadius: 18,
+                        ),
+                      ],
+                    ),
+                    child: const Icon(
+                      Icons.play_arrow_rounded,
+                      color: Colors.white,
+                      size: 42,
+                    ),
+                  ),
+                ),
               ),
             ),
 
@@ -1641,10 +1887,16 @@ class _ShortVideoItemState extends ConsumerState<_ShortVideoItem> with TickerPro
 
           // ── Engagement Rail Overlay (right: 8) ────────────
           if (widget.isActive)
-            Positioned(
+            AnimatedPositioned(
+              duration: const Duration(milliseconds: 220),
+              curve: Curves.easeOutCubic,
               right: 8,
               top: _landscape ? MediaQuery.paddingOf(context).top + 64 : null,
-              bottom: _landscape ? 12 + MediaQuery.paddingOf(context).bottom : 66.0 + MediaQuery.paddingOf(context).bottom,
+              bottom: _landscape
+                  ? 8.0 + MediaQuery.paddingOf(context).bottom
+                  : (ref.watch(oneovaBottomNavVisibleProvider) && !widget.isFullScreen
+                      ? 56.0 + MediaQuery.paddingOf(context).bottom
+                      : 6.0 + MediaQuery.paddingOf(context).bottom),
               child: AnimatedSlide(
                 offset: widget.isFullScreen ? const Offset(1.2, 0) : Offset.zero,
                 duration: const Duration(milliseconds: 250),
@@ -1664,13 +1916,31 @@ class _ShortVideoItemState extends ConsumerState<_ShortVideoItem> with TickerPro
                 ),
               ),
             ),
-          // ── Content Info Overlay (left: 0, right: 70) ──────
+          // ── Realtime Auto-Synced Closed Caption (CC) Overlay ──
           if (widget.isActive)
             Positioned(
+              left: 16,
+              right: _landscape ? null : 76,
+              bottom: _landscape
+                  ? 120.0 + MediaQuery.paddingOf(context).bottom
+                  : (ref.watch(oneovaBottomNavVisibleProvider) && !widget.isFullScreen
+                      ? 186.0 + MediaQuery.paddingOf(context).bottom
+                      : 136.0 + MediaQuery.paddingOf(context).bottom),
+              child: OneovaCaptionOverlay(content: widget.content),
+            ),
+          // ── Content Info Overlay (left: 0, right: 70) ──────
+          if (widget.isActive)
+            AnimatedPositioned(
+              duration: const Duration(milliseconds: 220),
+              curve: Curves.easeOutCubic,
               left: 0,
               right: _landscape ? null : 70,
               width: _landscape ? (MediaQuery.sizeOf(context).width * 0.45).clamp(280.0, 520.0) : null,
-              bottom: _landscape ? 12 + MediaQuery.paddingOf(context).bottom : 66.0 + MediaQuery.paddingOf(context).bottom,
+              bottom: _landscape
+                  ? 8.0 + MediaQuery.paddingOf(context).bottom
+                  : (ref.watch(oneovaBottomNavVisibleProvider) && !widget.isFullScreen
+                      ? 56.0 + MediaQuery.paddingOf(context).bottom
+                      : 4.0 + MediaQuery.paddingOf(context).bottom),
               child: AnimatedSlide(
                 offset: widget.isFullScreen ? const Offset(0, 0.4) : Offset.zero,
                 duration: const Duration(milliseconds: 250),
@@ -1700,6 +1970,118 @@ class _ShortVideoItemState extends ConsumerState<_ShortVideoItem> with TickerPro
             ),
 
 
+          // ── Focus Mode (Clear Display) Floating Controls ──
+          if (widget.isFullScreen)
+            Positioned(
+              left: 14,
+              right: 14,
+              bottom: 24.0 + MediaQuery.paddingOf(context).bottom,
+              child: AnimatedOpacity(
+                opacity: widget.isFullScreen ? 1.0 : 0.0,
+                duration: const Duration(milliseconds: 220),
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    // Quick Comment Pill
+                    _PressScale(
+                      onTap: () {
+                        HapticFeedback.lightImpact();
+                        _showComments(context, autoFocus: true);
+                      },
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+                        decoration: BoxDecoration(
+                          color: _p.glass,
+                          borderRadius: BorderRadius.circular(AppRadius.full),
+                          border: Border.all(color: _p.glassBorder, width: 1.0),
+                          boxShadow: [
+                            BoxShadow(
+                              color: Colors.black.withValues(alpha: 0.35),
+                              blurRadius: 10,
+                            ),
+                          ],
+                        ),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            const Icon(Icons.chat_bubble_outline_rounded, color: Colors.white, size: 16),
+                            const SizedBox(width: 6),
+                            Text(
+                              'Comment',
+                              style: GoogleFonts.inter(
+                                color: Colors.white,
+                                fontSize: 12,
+                                fontWeight: FontWeight.w700,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+
+                    // Quick Emojis
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+                      decoration: BoxDecoration(
+                        color: _p.glass,
+                        borderRadius: BorderRadius.circular(AppRadius.full),
+                        border: Border.all(color: _p.glassBorder, width: 1.0),
+                      ),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          _buildQuickReactionEmoji('❤️', FirebaseAuth.instance.currentUser?.uid ?? ''),
+                          const SizedBox(width: 8),
+                          _buildQuickReactionEmoji('🔥', FirebaseAuth.instance.currentUser?.uid ?? ''),
+                          const SizedBox(width: 8),
+                          _buildQuickReactionEmoji('😂', FirebaseAuth.instance.currentUser?.uid ?? ''),
+                          const SizedBox(width: 8),
+                          _buildQuickReactionEmoji('👏', FirebaseAuth.instance.currentUser?.uid ?? ''),
+                        ],
+                      ),
+                    ),
+
+                    // Exit Focus Mode Pill
+                    _PressScale(
+                      onTap: () {
+                        HapticFeedback.lightImpact();
+                        ref.read(oneovaFocusModeProvider.notifier).set(false);
+                      },
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+                        decoration: BoxDecoration(
+                          color: AppColors.brandBlue,
+                          borderRadius: BorderRadius.circular(AppRadius.full),
+                          border: Border.all(color: Colors.white.withValues(alpha: 0.3), width: 1.0),
+                          boxShadow: [
+                            BoxShadow(
+                              color: AppColors.brandBlue.withValues(alpha: 0.4),
+                              blurRadius: 10,
+                            ),
+                          ],
+                        ),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            const Icon(Icons.fullscreen_exit_rounded, color: Colors.white, size: 18),
+                            const SizedBox(width: 6),
+                            Text(
+                              'Exit Clear Mode',
+                              style: GoogleFonts.inter(
+                                color: Colors.white,
+                                fontSize: 12,
+                                fontWeight: FontWeight.w700,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+
           // ── Author Side Panel (left 25% slide-in) ─────────
           if (_showAuthorPanel)
             AuthorSidePanel(
@@ -1717,7 +2099,21 @@ class _ShortVideoItemState extends ConsumerState<_ShortVideoItem> with TickerPro
     final url = widget.content.type == ContentType.photo
         ? widget.content.mediaUrl
         : widget.content.mediaMetadata.thumbnailUrl;
-    if (url == null || url.isEmpty) return Container(color: _p.placeholder);
+    if (url == null || url.isEmpty) {
+      return Container(
+        decoration: BoxDecoration(
+          gradient: LinearGradient(
+            begin: Alignment.topCenter,
+            end: Alignment.bottomCenter,
+            colors: [
+              _p.placeholder,
+              _p.dark ? const Color(0xFF141414) : const Color(0xFFF1F5F9),
+              _p.placeholder,
+            ],
+          ),
+        ),
+      );
+    }
     // Decoded at screen width only (not the source size) to keep image memory low.
     final mq = MediaQuery.of(context);
     return Image(
@@ -1728,7 +2124,19 @@ class _ShortVideoItemState extends ConsumerState<_ShortVideoItem> with TickerPro
       ),
       fit: _landscape ? BoxFit.contain : BoxFit.cover,
       gaplessPlayback: true,
-      errorBuilder: (_, _, _) => Container(color: _p.placeholder),
+      errorBuilder: (_, _, _) => Container(
+        decoration: BoxDecoration(
+          gradient: LinearGradient(
+            begin: Alignment.topCenter,
+            end: Alignment.bottomCenter,
+            colors: [
+              _p.placeholder,
+              _p.dark ? const Color(0xFF141414) : const Color(0xFFF1F5F9),
+              _p.placeholder,
+            ],
+          ),
+        ),
+      ),
     );
   }
 
@@ -1916,7 +2324,7 @@ class _ShortVideoItemState extends ConsumerState<_ShortVideoItem> with TickerPro
                               onAuthenticated: () {
                                 final next = !(_pendingLiked ?? _serverLiked);
                                 _likePulseController.forward(from: 0.0);
-                                if (next) _floatingHeartsKey.currentState?.burst();
+                                if (next) _safeBurstFloatingHearts(count: 3);
                                 _setLiked(uid, next);
                               },
                             );
@@ -2012,7 +2420,12 @@ class _ShortVideoItemState extends ConsumerState<_ShortVideoItem> with TickerPro
                     actionTitle: 'share videos and generate links',
                     onAuthenticated: () {
                       ref.read(recommendationServiceProvider).trackEvent(uid, widget.content.id, ContentInteractionType.share, {});
-                      ShareSheet.show(context, postId: widget.content.id, authorId: widget.content.authorId);
+                      ShareSheet.show(
+                        context,
+                        postId: widget.content.id,
+                        authorId: widget.content.authorId,
+                        content: widget.content,
+                      );
                     },
                   );
                 },
@@ -2380,6 +2793,21 @@ class _ShortVideoItemState extends ConsumerState<_ShortVideoItem> with TickerPro
           ),
           const SizedBox(height: 8),
 
+          // ── Quick Suggestion Chips (Oneova quick commenting) ──
+          SingleChildScrollView(
+            scrollDirection: Axis.horizontal,
+            child: Row(
+              children: [
+                _buildQuickCommentChip('🔥 Fire!', currentUid),
+                _buildQuickCommentChip('😂 So true', currentUid),
+                _buildQuickCommentChip('❤️ Love this', currentUid),
+                _buildQuickCommentChip('👏 Incredible', currentUid),
+                _buildQuickCommentChip('🙌 10/10', currentUid),
+              ],
+            ),
+          ),
+          const SizedBox(height: 6),
+
           // ── Add comment bar (tap mic = live transcription, hold = voice comment) ──
           ReelCommentBar(
             contentId: widget.content.id,
@@ -2401,13 +2829,19 @@ class _ShortVideoItemState extends ConsumerState<_ShortVideoItem> with TickerPro
             reactions: Row(
               mainAxisSize: MainAxisSize.min,
               children: [
-                _buildQuickReactionEmoji('😍', currentUid),
-                const SizedBox(width: 6),
+                _buildQuickReactionEmoji('❤️', currentUid),
+                const SizedBox(width: 4),
                 _buildQuickReactionEmoji('🔥', currentUid),
+                const SizedBox(width: 4),
+                _buildQuickReactionEmoji('😂', currentUid),
+                const SizedBox(width: 4),
+                _buildQuickReactionEmoji('👏', currentUid),
+                const SizedBox(width: 4),
+                _buildQuickReactionEmoji('😍', currentUid),
               ],
             ),
           ),
-          const SizedBox(height: 8), // Snug above bottom nav
+          const SizedBox(height: 2), // Snug flush above bottom nav
         ],
       ),
     );
@@ -2463,6 +2897,149 @@ class _ShortVideoItemState extends ConsumerState<_ShortVideoItem> with TickerPro
       ),
     );
   }
+
+  Widget _buildQuickCommentChip(String text, String currentUid) {
+    return Padding(
+      padding: const EdgeInsets.only(right: 6.0),
+      child: GestureDetector(
+        behavior: HitTestBehavior.opaque,
+        onTap: () {
+          AuthInteractionGate.requireAuth(
+            context,
+            actionTitle: 'comment on reels',
+            onAuthenticated: () async {
+              HapticFeedback.lightImpact();
+              try {
+                final newComment = Comment(
+                  id: '',
+                  postId: widget.content.id,
+                  authorId: currentUid,
+                  content: text,
+                  createdAt: DateTime.now(),
+                );
+                await ref.read(commentServiceProvider).addComment(
+                  newComment,
+                  isCreator: widget.content.authorId == currentUid,
+                );
+                if (!mounted) return;
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(
+                    content: Text('Commented: "$text"'),
+                    duration: const Duration(milliseconds: 1400),
+                    behavior: SnackBarBehavior.floating,
+                  ),
+                );
+              } catch (e) {
+                if (!mounted) return;
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(content: Text('Could not post comment: $e')),
+                );
+              }
+            },
+          );
+        },
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+          decoration: BoxDecoration(
+            color: _p.glass,
+            borderRadius: BorderRadius.circular(AppRadius.full),
+            border: Border.all(color: _p.glassBorder, width: 1.0),
+          ),
+          child: Text(
+            text,
+            style: GoogleFonts.inter(
+              color: Colors.white,
+              fontSize: 11,
+              fontWeight: FontWeight.w600,
+              shadows: _p.textShadow,
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  void _showSpeedSheet(BuildContext context, dynamic player) {
+    HapticFeedback.lightImpact();
+    final double currentRate = player?.state.rate ?? 1.0;
+    const rates = [0.5, 0.75, 1.0, 1.25, 1.5, 2.0];
+
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: context.surface,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(AppRadius.xl)),
+      ),
+      builder: (ctx) {
+        return SafeArea(
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Center(
+                  child: Container(
+                    width: 36,
+                    height: 4,
+                    decoration: BoxDecoration(
+                      color: ctx.border,
+                      borderRadius: BorderRadius.circular(AppRadius.full),
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 12),
+                Text(
+                  'Playback Speed',
+                  style: GoogleFonts.inter(
+                    color: ctx.textPrimary,
+                    fontSize: 15,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+                const SizedBox(height: 14),
+                Wrap(
+                  spacing: 10,
+                  runSpacing: 10,
+                  alignment: WrapAlignment.center,
+                  children: rates.map((r) {
+                    final isSelected = (currentRate - r).abs() < 0.05;
+                    return GestureDetector(
+                      onTap: () {
+                        HapticFeedback.selectionClick();
+                        player?.setRate(r);
+                        Navigator.pop(ctx);
+                      },
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 9),
+                        decoration: BoxDecoration(
+                          color: isSelected ? AppColors.brandBlue : ctx.surfaceMid,
+                          borderRadius: BorderRadius.circular(AppRadius.full),
+                          border: Border.all(
+                            color: isSelected ? AppColors.brandBlue : ctx.border,
+                            width: 1.0,
+                          ),
+                        ),
+                        child: Text(
+                          '${r}x',
+                          style: GoogleFonts.inter(
+                            color: isSelected ? Colors.white : ctx.textPrimary,
+                            fontSize: 13,
+                            fontWeight: isSelected ? FontWeight.w700 : FontWeight.w500,
+                          ),
+                        ),
+                      ),
+                    );
+                  }).toList(),
+                ),
+                const SizedBox(height: 12),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
+
   void _showFeedControls(BuildContext context) {
     HapticFeedback.mediumImpact();
     final uid = FirebaseAuth.instance.currentUser?.uid ?? '';
@@ -2547,6 +3124,21 @@ class _ShortVideoItemState extends ConsumerState<_ShortVideoItem> with TickerPro
                 rec.trackEvent(uid, widget.content.id, ContentInteractionType.soundInteraction, {'volume': newVolume});
               }),
               tile(Icons.play_circle_outline_rounded, 'Play / Pause', _togglePlay),
+              tile(
+                Icons.fullscreen_rounded,
+                'Clear Display (Focus Mode)',
+                () {
+                  HapticFeedback.lightImpact();
+                  ref.read(oneovaFocusModeProvider.notifier).set(true);
+                },
+                iconColor: AppColors.brandBlue,
+              ),
+              tile(
+                Icons.speed_rounded,
+                'Playback Speed (${player?.state.rate ?? 1.0}x)',
+                () => _showSpeedSheet(context, player),
+                iconColor: AppColors.brandBlue,
+              ),
               tile(Icons.shield_outlined, 'Live presence & privacy', () => OneovaQuickPrivacySheet.show(context),
                   iconColor: AppColors.brandBlue),
               if (widget.content.authorId == uid)

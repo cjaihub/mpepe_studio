@@ -14,8 +14,16 @@ class OvaGoogleAccess {
     gmail.GmailApi.gmailModifyScope,
   ];
   static const youtubeScopes = [
+    // Full YouTube access for reading, uploading, comment replies, live streaming and analytics
+    yt.YouTubeApi.youtubeScope,
+    yt.YouTubeApi.youtubeUploadScope,
     yt.YouTubeApi.youtubeReadonlyScope,
     yt.YouTubeApi.youtubeForceSslScope,
+    yt.YouTubeApi.youtubepartnerScope,
+    yt.YouTubeApi.youtubepartnerChannelAuditScope,
+    yt.YouTubeApi.youtubeChannelMembershipsCreatorScope,
+    'https://www.googleapis.com/auth/yt-analytics.readonly',
+    'https://www.googleapis.com/auth/yt-analytics-monetary.readonly',
   ];
 
   /// Returns an authorised client, or null if the user declined.

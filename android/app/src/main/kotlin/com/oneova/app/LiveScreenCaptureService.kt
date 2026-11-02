@@ -32,10 +32,18 @@ class LiveScreenCaptureService : Service() {
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         createChannel()
         val notification = buildNotification()
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-            startForeground(NOTIFICATION_ID, notification, serviceTypes())
-        } else {
-            startForeground(NOTIFICATION_ID, notification)
+        try {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                startForeground(NOTIFICATION_ID, notification, serviceTypes())
+            } else {
+                startForeground(NOTIFICATION_ID, notification)
+            }
+        } catch (e: Exception) {
+            android.util.Log.e("LiveScreenCaptureService", "startForeground failed: ${e.message}")
+            try {
+                // Fallback to basic foreground without restricted mediaProjection type if rejected
+                startForeground(NOTIFICATION_ID, notification)
+            } catch (_: Exception) {}
         }
         return START_NOT_STICKY
     }

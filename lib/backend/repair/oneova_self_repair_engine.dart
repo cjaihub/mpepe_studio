@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'dart:io';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_storage/firebase_storage.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -104,8 +105,8 @@ final oneOvaSelfRepairEngineProvider = Provider<OneOvaSelfRepairEngine>((ref) {
 /// 5. Execute self-healing recipes and maintain an audit log in `users/{uid}/repair_logs`.
 class OneOvaSelfRepairEngine {
   final SecureKeyVault _vault;
-  final FirebaseFirestore _firestore = FirebaseFirestore.instance;
-  final FirebaseAuth _auth = FirebaseAuth.instance;
+  FirebaseFirestore? get _firestore => Firebase.apps.isNotEmpty ? FirebaseFirestore.instance : null;
+  FirebaseAuth? get _auth => Firebase.apps.isNotEmpty ? FirebaseAuth.instance : null;
 
   OneOvaSelfRepairEngine(this._vault);
 
@@ -115,7 +116,7 @@ class OneOvaSelfRepairEngine {
     final List<String> fixed = [];
 
     // 1. Check Authentication Status
-    final user = _auth.currentUser;
+    final user = _auth?.currentUser;
     if (user != null) {
       checks.add(HealthCheckItem(
         component: 'Authentication Service',
@@ -133,7 +134,11 @@ class OneOvaSelfRepairEngine {
     // 2. Check Cloud Firestore Latency & Read/Write
     final fsStopwatch = Stopwatch()..start();
     try {
-      await _firestore.collection('system_config').doc('health_ping').set({
+      final fs = _firestore;
+      if (fs == null) {
+        throw StateError('Firebase is not initialized');
+      }
+      await fs.collection('system_config').doc('health_ping').set({
         'lastPing': FieldValue.serverTimestamp(),
         'platform': Platform.operatingSystem,
       }, SetOptions(merge: true)).timeout(const Duration(seconds: 4));
@@ -242,7 +247,17 @@ class OneOvaSelfRepairEngine {
   Future<RepairResult> repairUserProfile(String uid) async {
     final List<String> repaired = [];
     try {
-      final docRef = _firestore.collection('users').doc(uid);
+      final fs = _firestore;
+      if (fs == null) {
+        return RepairResult(
+          success: false,
+          action: 'repairUserProfile',
+          summary: 'Firebase not available',
+          repairedFields: const [],
+          timestamp: DateTime.now(),
+        );
+      }
+      final docRef = fs.collection('users').doc(uid);
       final docSnap = await docRef.get();
 
       final currentData = docSnap.data() ?? {};
@@ -250,7 +265,7 @@ class OneOvaSelfRepairEngine {
 
       // 1. Mandatory Core Identity Fields
       if (!currentData.containsKey('displayName') || (currentData['displayName'] as String?)?.trim().isEmpty == true) {
-        final fallbackName = _auth.currentUser?.displayName ?? 'Oneova Creator';
+        final fallbackName = _auth?.currentUser?.displayName ?? 'Oneova Creator';
         patches['displayName'] = fallbackName;
         repaired.add('displayName ($fallbackName)');
       }
@@ -265,8 +280,9 @@ class OneOvaSelfRepairEngine {
         repaired.add('username (@$generatedUsername)');
       }
 
-      if (!currentData.containsKey('email') && _auth.currentUser?.email != null) {
-        patches['email'] = _auth.currentUser!.email;
+      final email = _auth?.currentUser?.email;
+      if (!currentData.containsKey('email') && email != null) {
+        patches['email'] = email;
         repaired.add('email');
       }
 
@@ -521,7 +537,7 @@ Platform: ${Platform.operatingSystem}
       // Autonomously execute the recommended action
       bool executed = false;
       if (action == 'repair_user_profile') {
-        final uid = _auth.currentUser?.uid;
+        final uid = _auth?.currentUser?.uid;
         if (uid != null) {
           await repairUserProfile(uid);
           executed = true;
@@ -559,7 +575,9 @@ Platform: ${Platform.operatingSystem}
     required dynamic details,
   }) async {
     try {
-      await _firestore.collection('users').doc(uid).collection('repair_logs').add({
+      final fs = _firestore;
+      if (fs == null) return;
+      await fs.collection('users').doc(uid).collection('repair_logs').add({
         'action': action,
         'summary': summary,
         'details': details,

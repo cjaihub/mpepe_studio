@@ -64,7 +64,7 @@ const logger = __importStar(require("firebase-functions/logger"));
 const firestore_1 = require("firebase-admin/firestore");
 const optionalSecrets_1 = require("../optionalSecrets");
 const db = () => (0, firestore_1.getFirestore)();
-const RETURN_URL = 'https://mpepe-2b4bd.web.app/';
+const RETURN_URL = 'https://oneova.web.app/';
 /** Currencies Stripe charges without minor units. */
 const ZERO_DECIMAL = new Set(['bif', 'clp', 'djf', 'gnf', 'jpy', 'kmf', 'krw', 'mga', 'pyg', 'rwf', 'ugx', 'vnd', 'vuv', 'xaf', 'xof', 'xpf']);
 const minor = (amount, currency) => ZERO_DECIMAL.has(currency) ? Math.round(amount) : Math.round(amount * 100);

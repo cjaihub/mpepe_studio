@@ -83,11 +83,11 @@ const broadcast_logic_1 = require("../broadcast_logic");
 const gift_logic_1 = require("../gift_logic");
 (0, node_test_1.test)('gifts: catalog prices, quantity limits, host share, recent list', () => {
     assert.deepEqual((0, gift_logic_1.parseGift)({ giftId: 'rose' }), { giftId: 'rose', qty: 1 });
-    assert.throws(() => (0, gift_logic_1.parseGift)({ giftId: 'car' }), gift_logic_1.GiftError);
+    assert.throws(() => (0, gift_logic_1.parseGift)({ giftId: 'not_a_gift' }), gift_logic_1.GiftError);
     assert.throws(() => (0, gift_logic_1.parseGift)({ giftId: 'rose', qty: 0 }), gift_logic_1.GiftError);
     assert.throws(() => (0, gift_logic_1.parseGift)({ giftId: 'rose', qty: 1.5 }), gift_logic_1.GiftError);
-    assert.deepEqual((0, gift_logic_1.giftPrice)('crown', 3), { total: 150, hostCoins: 75 });
-    assert.deepEqual((0, gift_logic_1.giftPrice)('rose', 1), { total: 1, hostCoins: 0 });
+    assert.deepEqual((0, gift_logic_1.giftPrice)('crown', 3), { total: 150, hostCoins: 120 });
+    assert.deepEqual((0, gift_logic_1.giftPrice)('rose', 1), { total: 1, hostCoins: 1 });
     const g = { id: 'x', uid: 'u', name: 'n', avatarUrl: '', giftId: 'rose', qty: 1, coins: 1, atMs: 0 };
     let list = undefined;
     for (let i = 0; i < 20; i++)
@@ -96,7 +96,7 @@ const gift_logic_1 = require("../gift_logic");
     assert.equal(list[0].id, 'g19');
 });
 const gif_logic_1 = require("../gif_logic");
-(0, node_test_1.test)('gif comments accept only GIPHY media', () => {
+(0, node_test_1.test)('gif comments accept trusted GIF hosts and reject arbitrary URLs', () => {
     assert.equal((0, gif_logic_1.parseCommentGif)(undefined), null);
     assert.deepEqual((0, gif_logic_1.parseCommentGif)({ id: 'abc123', url: 'https://media2.giphy.com/media/abc123/200w.webp', w: 200, h: 150 }), {
         id: 'abc123',
@@ -104,12 +104,45 @@ const gif_logic_1 = require("../gif_logic");
         w: 200,
         h: 150,
     });
+    assert.deepEqual((0, gif_logic_1.parseCommentGif)({
+        id: 'noto_1f525',
+        url: 'https://fonts.gstatic.com/s/e/notoemoji/latest/1f525/512.gif',
+        w: 256,
+        h: 256,
+    }), {
+        id: 'noto_1f525',
+        url: 'https://fonts.gstatic.com/s/e/notoemoji/latest/1f525/512.gif',
+        w: 256,
+        h: 256,
+    });
+    assert.deepEqual((0, gif_logic_1.parseCommentGif)({
+        id: 'own_1',
+        url: 'https://firebasestorage.googleapis.com/v0/b/mpepe-2b4bd.firebasestorage.app/o/gifs%2F1793_uid.gif?alt=media&token=abc-123',
+        w: 320,
+        h: 320,
+    }), {
+        id: 'own_1',
+        url: 'https://firebasestorage.googleapis.com/v0/b/mpepe-2b4bd.firebasestorage.app/o/gifs%2F1793_uid.gif?alt=media&token=abc-123',
+        w: 320,
+        h: 320,
+    });
     assert.equal((0, gif_logic_1.parseCommentGif)({ id: 'a', url: 'https://evil.com/x.gif', w: 1, h: 1 }), 'invalid');
     assert.equal((0, gif_logic_1.parseCommentGif)({ id: 'a', url: 'http://media.giphy.com/x.gif', w: 1, h: 1 }), 'invalid');
     assert.equal((0, gif_logic_1.parseCommentGif)({ id: 'a', url: 'https://media.giphy.com/x.gif', w: 0, h: 1 }), 'invalid');
     const g = (0, gif_logic_1.fromGiphy)({ id: 'xyz', images: { fixed_width: { webp: 'https://media1.giphy.com/media/xyz/200w.webp?cid=1', width: '200', height: '100' } } });
     assert.equal(g === null || g === void 0 ? void 0 : g.url, 'https://media1.giphy.com/media/xyz/200w.webp');
     assert.equal(g === null || g === void 0 ? void 0 : g.h, 100);
+    const tn = (0, gif_logic_1.fromTenor)({ id: '999', media_formats: { tinygif: { url: 'https://media.tenor.com/abc/tiny.gif', dims: [220, 160] } } });
+    assert.equal(tn === null || tn === void 0 ? void 0 : tn.id, 'tn_999');
+    assert.equal(tn === null || tn === void 0 ? void 0 : tn.h, 160);
+    const wm = (0, gif_logic_1.fromWikimediaPage)({
+        pageid: 42,
+        imageinfo: [{ url: 'https://upload.wikimedia.org/wikipedia/commons/a/b/Dance.gif?utm_source=x', width: 300, height: 240, size: 50000, mime: 'image/gif' }],
+    });
+    assert.equal(wm === null || wm === void 0 ? void 0 : wm.id, 'wm_42');
+    assert.equal(wm === null || wm === void 0 ? void 0 : wm.url, 'https://upload.wikimedia.org/wikipedia/commons/a/b/Dance.gif');
+    assert.ok((0, gif_logic_1.searchNotoAnimatedGifs)('fire').some((x) => x.id === 'noto_1f525'));
+    assert.ok((0, gif_logic_1.searchNotoAnimatedGifs)('').length >= 20);
     assert.equal((0, gif_logic_1.sanitizeGifQuery)('  cats\n '), 'cats');
 });
 //# sourceMappingURL=fun_broadcast_logic.test.js.map

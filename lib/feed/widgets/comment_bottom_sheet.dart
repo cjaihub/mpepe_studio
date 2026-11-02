@@ -18,7 +18,9 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:go_router/go_router.dart';
 import 'package:oneova/shared/widgets/animated_loading_indicator.dart';
 import '../../../shared/services/draft_store.dart';
-import '../../social_hub/live/studio_v2/fun/gif_picker.dart';
+import 'oneova_gif_picker_sheet.dart';
+import 'voice_comment_card.dart';
+import '../../../shared/widgets/oneova_voice_typing_button.dart';
 
 final _commentAuthorProvider = StreamProvider.autoDispose
     .family<AppUser?, String>((ref, uid) {
@@ -76,6 +78,19 @@ class _CommentBottomSheetState extends ConsumerState<CommentBottomSheet> {
   final FocusNode _focusNode = FocusNode();
   bool _isPosting = false;
   String? _inlineError;
+  bool _sortByNewest = false;
+  CommentGif? _stagedGif;
+
+  static const List<String> _quickEmojis = ['❤️', '🔥', '😂', '👏', '😍', '💯', '🙌', '😮'];
+  static const List<String> _quickSuggestions = [
+    '🔥 Fire!',
+    '😂 So true',
+    '❤️ Love this',
+    '👏 Incredible',
+    '🙌 10/10',
+    '✨ Vibe',
+    '👀 Need part 2',
+  ];
 
   /// Top-level comment the next post replies to (replies stay one level deep).
   String? _replyToId;
@@ -102,9 +117,9 @@ class _CommentBottomSheetState extends ConsumerState<CommentBottomSheet> {
     if (_commentController.text.startsWith('@')) _commentController.clear();
   }
 
-  /// Orders top-level comments (newest first) with their replies (oldest
-  /// first) directly underneath.
-  static List<Comment> _threaded(List<Comment> comments) {
+  /// Orders top-level comments with their replies (oldest first) directly underneath.
+  /// Supports Top (by reactionCount) or Newest (by createdAt), pinned always on top.
+  static List<Comment> _threaded(List<Comment> comments, {bool newest = false}) {
     final ids = comments.map((c) => c.id).toSet();
     final replies = <String, List<Comment>>{};
     final roots = <Comment>[];
@@ -116,6 +131,14 @@ class _CommentBottomSheetState extends ConsumerState<CommentBottomSheet> {
         roots.add(c);
       }
     }
+    roots.sort((a, b) {
+      if (a.isPinned != b.isPinned) return a.isPinned ? -1 : 1;
+      if (newest) {
+        return b.createdAt.compareTo(a.createdAt);
+      } else {
+        return b.reactionCount.compareTo(a.reactionCount);
+      }
+    });
     return [
       for (final root in roots) ...[
         root,
@@ -152,16 +175,17 @@ class _CommentBottomSheetState extends ConsumerState<CommentBottomSheet> {
     super.dispose();
   }
 
-  /// GIF search shared with Live Studio comments (`lsGifSearch`).
+  /// GIF search powered by Oneova GIF Engine (`lsGifSearch`).
   Future<void> _pickGif() async {
     if (_isPosting) return;
-    final g = await showGifPicker(context);
+    final g = await OneovaGifPickerSheet.show(context);
     if (g == null || !mounted) return;
-    await _postComment(gif: CommentGif(id: g.id, url: g.url, w: g.w, h: g.h));
+    setState(() => _stagedGif = g);
   }
 
-  Future<void> _postComment({CommentGif? gif}) async {
+  Future<void> _postComment() async {
     final text = _commentController.text.trim();
+    final gif = _stagedGif;
     if ((text.isEmpty && gif == null) || _isPosting) return;
 
     final user = FirebaseAuth.instance.currentUser;
@@ -204,6 +228,7 @@ class _CommentBottomSheetState extends ConsumerState<CommentBottomSheet> {
         _commentController.clear();
         DraftStore.instance.clearDraft(DraftStore.commentKey(widget.content.id));
         setState(() {
+          _stagedGif = null;
           _replyToId = null;
           _replyToName = null;
         });
@@ -272,7 +297,6 @@ class _CommentBottomSheetState extends ConsumerState<CommentBottomSheet> {
                   ),
                 ),
                 child: Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
                     Text(
                       commentsAsync.maybeWhen(
@@ -286,6 +310,68 @@ class _CommentBottomSheetState extends ConsumerState<CommentBottomSheet> {
                         letterSpacing: -0.2,
                       ),
                     ),
+                    const Spacer(),
+                    // Top / Newest sort toggle
+                    Container(
+                      padding: const EdgeInsets.all(2),
+                      decoration: BoxDecoration(
+                        color: context.surfaceMid,
+                        borderRadius: BorderRadius.circular(AppRadius.sm),
+                        border: Border.all(color: context.border, width: 1.0),
+                      ),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          GestureDetector(
+                            onTap: () {
+                              if (_sortByNewest) {
+                                HapticFeedback.selectionClick();
+                                setState(() => _sortByNewest = false);
+                              }
+                            },
+                            child: Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                              decoration: BoxDecoration(
+                                color: !_sortByNewest ? AppColors.brandBlue : Colors.transparent,
+                                borderRadius: BorderRadius.circular(AppRadius.xs),
+                              ),
+                              child: Text(
+                                'Top',
+                                style: GoogleFonts.inter(
+                                  color: !_sortByNewest ? Colors.white : context.textSecondary,
+                                  fontSize: 11,
+                                  fontWeight: FontWeight.w700,
+                                ),
+                              ),
+                            ),
+                          ),
+                          GestureDetector(
+                            onTap: () {
+                              if (!_sortByNewest) {
+                                HapticFeedback.selectionClick();
+                                setState(() => _sortByNewest = true);
+                              }
+                            },
+                            child: Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                              decoration: BoxDecoration(
+                                color: _sortByNewest ? AppColors.brandBlue : Colors.transparent,
+                                borderRadius: BorderRadius.circular(AppRadius.xs),
+                              ),
+                              child: Text(
+                                'Newest',
+                                style: GoogleFonts.inter(
+                                  color: _sortByNewest ? Colors.white : context.textSecondary,
+                                  fontSize: 11,
+                                  fontWeight: FontWeight.w700,
+                                ),
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(width: 8),
                     IconButton(
                       icon: Icon(
                         Icons.close,
@@ -293,6 +379,8 @@ class _CommentBottomSheetState extends ConsumerState<CommentBottomSheet> {
                         size: 20,
                       ),
                       onPressed: () => Navigator.pop(context),
+                      padding: EdgeInsets.zero,
+                      constraints: const BoxConstraints(minWidth: 32, minHeight: 32),
                       splashRadius: 18,
                     ),
                   ],
@@ -376,7 +464,7 @@ class _CommentBottomSheetState extends ConsumerState<CommentBottomSheet> {
                         ),
                       );
                     }
-                    final threaded = _threaded(comments);
+                    final threaded = _threaded(comments, newest: _sortByNewest);
                     return ListView.builder(
                       padding: const EdgeInsets.only(top: 8, bottom: 20),
                       itemCount: threaded.length,
@@ -462,6 +550,110 @@ class _CommentBottomSheetState extends ConsumerState<CommentBottomSheet> {
                             ],
                           ).animate().fadeIn(duration: 150.ms),
                         ),
+                      if (_stagedGif != null)
+                        Padding(
+                          padding: const EdgeInsets.only(bottom: 8),
+                          child: Align(
+                            alignment: Alignment.centerLeft,
+                            child: Stack(
+                              clipBehavior: Clip.none,
+                              children: [
+                                ClipRRect(
+                                  borderRadius: BorderRadius.circular(AppRadius.sm),
+                                  child: Container(
+                                    width: 72,
+                                    height: 72,
+                                    color: context.surfaceMid,
+                                    child: Image.network(_stagedGif!.url, fit: BoxFit.cover, gaplessPlayback: true),
+                                  ),
+                                ),
+                                Positioned(
+                                  top: -6,
+                                  right: -6,
+                                  child: GestureDetector(
+                                    onTap: () => setState(() => _stagedGif = null),
+                                    child: Container(
+                                      width: 20,
+                                      height: 20,
+                                      decoration: const BoxDecoration(shape: BoxShape.circle, color: Colors.black87),
+                                      child: const Icon(Icons.close_rounded, color: Colors.white, size: 14),
+                                    ),
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ).animate().fadeIn(duration: 150.ms),
+                      Padding(
+                        padding: const EdgeInsets.only(bottom: 6),
+                        child: SizedBox(
+                          height: 28,
+                          child: ListView(
+                            scrollDirection: Axis.horizontal,
+                            children: [
+                              for (final e in _quickEmojis)
+                                GestureDetector(
+                                  onTap: () {
+                                    HapticFeedback.selectionClick();
+                                    _commentController.text += e;
+                                    _commentController.selection = TextSelection.fromPosition(
+                                      TextPosition(offset: _commentController.text.length),
+                                    );
+                                  },
+                                  child: Container(
+                                    margin: const EdgeInsets.only(right: 6),
+                                    padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
+                                    decoration: BoxDecoration(
+                                      color: context.surfaceMid,
+                                      borderRadius: BorderRadius.circular(AppRadius.full),
+                                      border: Border.all(color: context.border, width: 1.0),
+                                    ),
+                                    child: Text(e, style: const TextStyle(fontSize: 14)),
+                                  ),
+                                ),
+                              Container(
+                                width: 1,
+                                height: 16,
+                                margin: const EdgeInsets.symmetric(horizontal: 4, vertical: 6),
+                                color: context.border,
+                              ),
+                              for (final chip in _quickSuggestions)
+                                GestureDetector(
+                                  onTap: () {
+                                    HapticFeedback.selectionClick();
+                                    if (_commentController.text.isEmpty) {
+                                      _commentController.text = chip;
+                                    } else {
+                                      _commentController.text += ' $chip';
+                                    }
+                                    _commentController.selection = TextSelection.fromPosition(
+                                      TextPosition(offset: _commentController.text.length),
+                                    );
+                                  },
+                                  child: Container(
+                                    margin: const EdgeInsets.only(right: 6),
+                                    padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 4),
+                                    decoration: BoxDecoration(
+                                      color: context.surfaceMid,
+                                      borderRadius: BorderRadius.circular(AppRadius.full),
+                                      border: Border.all(color: context.border, width: 1.0),
+                                    ),
+                                    child: Center(
+                                      child: Text(
+                                        chip,
+                                        style: GoogleFonts.inter(
+                                          color: context.textPrimary,
+                                          fontSize: 11,
+                                          fontWeight: FontWeight.w600,
+                                        ),
+                                      ),
+                                    ),
+                                  ),
+                                ),
+                            ],
+                          ),
+                        ),
+                      ),
                       Row(
                         children: [
                           // User Avatar
@@ -528,6 +720,14 @@ class _CommentBottomSheetState extends ConsumerState<CommentBottomSheet> {
                                       onSubmitted: (_) => _postComment(),
                                     ),
                                   ),
+                                  OneovaVoiceTypingButton(
+                                    controller: _commentController,
+                                    onChanged: (_) => setState(() {}),
+                                    iconSize: 20,
+                                    padding: const EdgeInsets.symmetric(horizontal: 4),
+                                    tooltip: 'Voice typing comment',
+                                    showTranslateAction: true,
+                                  ),
                                   GestureDetector(
                                     behavior: HitTestBehavior.opaque,
                                     onTap: _pickGif,
@@ -562,19 +762,17 @@ class _CommentBottomSheetState extends ConsumerState<CommentBottomSheet> {
                                   icon: Icon(
                                     Icons.send_rounded,
                                     color:
-                                        _commentController.text
-                                            .trim()
-                                            .isNotEmpty
-                                        ? AppColors.brandBlue
-                                        : context.textMuted.withValues(
-                                            alpha: 0.5,
-                                          ),
+                                        (_commentController.text.trim().isNotEmpty || _stagedGif != null)
+                                            ? AppColors.brandBlue
+                                            : context.textMuted.withValues(
+                                                alpha: 0.5,
+                                              ),
                                     size: 22,
                                   ),
                                   onPressed:
-                                      _commentController.text.trim().isNotEmpty
-                                      ? _postComment
-                                      : null,
+                                      (_commentController.text.trim().isNotEmpty || _stagedGif != null)
+                                          ? _postComment
+                                          : null,
                                   splashRadius: 20,
                                 ),
                         ],
@@ -764,6 +962,35 @@ class _CommentTile extends ConsumerWidget {
                           ),
                         ),
                       ],
+                      if (comment.isPinned) ...[
+                        const SizedBox(width: 6),
+                        Container(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 5,
+                            vertical: 1.5,
+                          ),
+                          decoration: BoxDecoration(
+                            color: Colors.amber.withValues(alpha: 0.18),
+                            borderRadius: BorderRadius.circular(AppRadius.xs),
+                            border: Border.all(color: Colors.amber.withValues(alpha: 0.5), width: 1.0),
+                          ),
+                          child: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              const Icon(Icons.push_pin_rounded, color: Colors.amber, size: 9),
+                              const SizedBox(width: 3),
+                              Text(
+                                'Pinned',
+                                style: GoogleFonts.inter(
+                                  color: Colors.amber,
+                                  fontSize: 9,
+                                  fontWeight: FontWeight.w800,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ],
                       const SizedBox(width: 8),
                       Text(
                         timeago.format(comment.createdAt, locale: 'en_short'),
@@ -775,7 +1002,16 @@ class _CommentTile extends ConsumerWidget {
                     ],
                   ),
                   const SizedBox(height: 3),
-                  if (comment.content.isNotEmpty)
+                  if (comment.type == CommentType.voice && comment.content.isNotEmpty)
+                    Padding(
+                      padding: const EdgeInsets.only(top: 4, bottom: 2),
+                      child: VoiceCommentMiniCard(
+                        url: comment.content,
+                        seed: comment.id,
+                        durationMs: comment.voiceDurationMs,
+                      ),
+                    )
+                  else if (comment.content.isNotEmpty)
                     Text(
                       comment.content,
                       style: GoogleFonts.inter(
@@ -788,19 +1024,46 @@ class _CommentTile extends ConsumerWidget {
                   if (comment.gif != null)
                     Padding(
                       padding: const EdgeInsets.only(top: 4),
-                      child: ConstrainedBox(
-                        constraints: const BoxConstraints(maxWidth: 170, maxHeight: 200),
-                        child: AspectRatio(
-                          aspectRatio: comment.gif!.aspectRatio,
-                          child: ClipRRect(
-                            borderRadius: BorderRadius.circular(AppRadius.md),
-                            child: ColoredBox(
-                              color: context.surfaceMid,
-                              child: Image.network(
-                                comment.gif!.url,
-                                fit: BoxFit.cover,
-                                gaplessPlayback: true,
-                                errorBuilder: (_, _, _) => const SizedBox.shrink(),
+                      child: GestureDetector(
+                        onTap: () {
+                          HapticFeedback.lightImpact();
+                          showDialog(
+                            context: context,
+                            builder: (ctx) => Dialog(
+                              backgroundColor: Colors.transparent,
+                              insetPadding: const EdgeInsets.all(16),
+                              child: Stack(
+                                alignment: Alignment.topRight,
+                                children: [
+                                  ClipRRect(
+                                    borderRadius: BorderRadius.circular(AppRadius.lg),
+                                    child: InteractiveViewer(
+                                      child: Image.network(comment.gif!.url, fit: BoxFit.contain),
+                                    ),
+                                  ),
+                                  IconButton(
+                                    icon: const Icon(Icons.close_rounded, color: Colors.white, size: 28),
+                                    onPressed: () => Navigator.pop(ctx),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          );
+                        },
+                        child: ConstrainedBox(
+                          constraints: const BoxConstraints(maxWidth: 170, maxHeight: 200),
+                          child: AspectRatio(
+                            aspectRatio: comment.gif!.aspectRatio,
+                            child: ClipRRect(
+                              borderRadius: BorderRadius.circular(AppRadius.md),
+                              child: ColoredBox(
+                                color: context.surfaceMid,
+                                child: Image.network(
+                                  comment.gif!.url,
+                                  fit: BoxFit.cover,
+                                  gaplessPlayback: true,
+                                  errorBuilder: (_, _, _) => const SizedBox.shrink(),
+                                ),
                               ),
                             ),
                           ),

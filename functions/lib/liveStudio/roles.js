@@ -138,6 +138,7 @@ exports.lsRequestJoin = (0, https_1.onCall)({ secrets: shared_1.LIVEKIT_SECRETS 
         status: state.status,
         allowGuestRequests: (0, roles_logic_1.allowsGuestRequests)(streamSnap.data()),
         existing: existing.exists ? ((_a = existing.data().status) !== null && _a !== void 0 ? _a : null) : null,
+        onStage: (0, roles_logic_1.stageCount)(state.stage),
     }));
     await (0, shared_1.rateLimit)(streamId, uid, 'join', roles_logic_1.REQUEST_JOIN_MAX, roles_logic_1.REQUEST_JOIN_WINDOW_MS);
     const p = await profileOf(uid);

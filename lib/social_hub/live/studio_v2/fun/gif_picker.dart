@@ -6,6 +6,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../../../backend/gif/oneova_gif_engine.dart';
 import '../../../../backend/live_studio/fun/studio_fun.dart';
 import '../theme/live_studio_tokens.dart';
 
@@ -55,21 +56,37 @@ class _GifPickerState extends ConsumerState<_GifPicker> {
       _loading = true;
       _error = null;
     });
+
+    List<StudioGif> foundGifs = const [];
+
     try {
       final r = await ref.read(studioGifApiProvider).search(q.trim());
-      if (!mounted || seq != _seq) return;
-      setState(() {
-        _enabled = r.enabled;
-        _gifs = r.gifs;
-        _loading = false;
-      });
-    } catch (_) {
-      if (!mounted || seq != _seq) return;
-      setState(() {
-        _loading = false;
-        _error = 'GIFs are not available right now.';
-      });
+      if (r.gifs.isNotEmpty) {
+        foundGifs = r.gifs;
+      }
+    } catch (_) {}
+
+    // Resilient fallback to Open-Source GIF Engine
+    if (foundGifs.isEmpty) {
+      try {
+        final openGifs = await ref.read(oneovaGifEngineProvider).search(q.trim());
+        if (openGifs.isNotEmpty) {
+          foundGifs = openGifs.map((g) => g.toStudioGif()).toList();
+        }
+      } catch (_) {}
     }
+
+    if (!mounted || seq != _seq) return;
+    setState(() {
+      _enabled = true;
+      _gifs = foundGifs;
+      _loading = false;
+      if (foundGifs.isEmpty) {
+        _error = 'No GIFs found for "$q". Try another search!';
+      } else {
+        _error = null;
+      }
+    });
   }
 
   @override

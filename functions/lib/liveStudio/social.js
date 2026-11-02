@@ -439,32 +439,114 @@ exports.lsLivekitWebhook = (0, https_1.onRequest)({ secrets: shared_1.LIVEKIT_SE
 });
 // ─── lsGifSearch ────────────────────────────────────────────────────────────
 /**
- * GIF search for comments (GIPHY). `{q?}` → `{gifs: [{id, url, w, h}], enabled}`.
- * Trending when q is empty. The GIPHY key is optional (GIPHY_API_KEY in
- * Secret Manager, read at run time): without it `enabled` is false.
+ * GIF search for comments. `{q?}` → `{gifs: [{id, url, w, h}], enabled, provider}`.
+ *
+ * Provider priority:
+ * 1. GIPHY (`GIPHY_API_KEY` secret)
+ * 2. Tenor v2 (`TENOR_API_KEY` secret)
+ * 3. Built-in always-on tier: Google Noto 512px animated reaction GIFs +
+ *    Wikimedia Commons live animated GIF search (`filemime:image/gif`).
  */
 exports.lsGifSearch = (0, https_1.onCall)(async (req) => {
     var _a;
+    var _b, _c, _d;
     (0, shared_1.requireUid)(req);
     const q = (0, gif_logic_1.sanitizeGifQuery)(asData(req.data).q);
-    const key = await (0, optionalSecrets_1.optionalSecret)('GIPHY_API_KEY');
-    if (!key)
-        return { gifs: [], enabled: false };
-    const params = new URLSearchParams({ api_key: key, limit: '24', rating: 'pg-13', bundle: 'messaging_non_clips' });
-    if (q)
-        params.set('q', q);
-    const url = `https://api.giphy.com/v1/gifs/${q ? 'search' : 'trending'}?${params.toString()}`;
-    try {
-        const res = await fetch(url);
-        if (!res.ok)
-            throw new Error(`GIPHY ${res.status}`);
-        const body = (await res.json());
-        const gifs = ((_a = body.data) !== null && _a !== void 0 ? _a : []).map(gif_logic_1.fromGiphy).filter((g) => g !== null);
-        return { gifs, enabled: true };
+    // 1. GIPHY when configured
+    const giphyKey = await (0, optionalSecrets_1.optionalSecret)('GIPHY_API_KEY');
+    if (giphyKey) {
+        const params = new URLSearchParams({
+            api_key: giphyKey,
+            limit: '24',
+            rating: 'pg-13',
+            bundle: 'messaging_non_clips',
+        });
+        if (q)
+            params.set('q', q);
+        const url = `https://api.giphy.com/v1/gifs/${q ? 'search' : 'trending'}?${params.toString()}`;
+        try {
+            const res = await fetch(url);
+            if (!res.ok)
+                throw new Error(`GIPHY ${res.status}`);
+            const body = (await res.json());
+            const gifs = ((_b = body.data) !== null && _b !== void 0 ? _b : []).map(gif_logic_1.fromGiphy).filter((g) => g !== null);
+            if (gifs.length > 0)
+                return { gifs, enabled: true, provider: 'giphy' };
+        }
+        catch (e) {
+            console.warn('[liveStudio] GIPHY search failed, falling back:', e.message);
+        }
     }
-    catch (e) {
-        console.warn('[liveStudio] gif search failed:', e.message);
-        throw new https_1.HttpsError('unavailable', 'GIF search is not available right now.');
+    // 2. Tenor v2 when configured
+    const tenorKey = await (0, optionalSecrets_1.optionalSecret)('TENOR_API_KEY');
+    if (tenorKey) {
+        const params = new URLSearchParams({
+            key: tenorKey,
+            client_key: 'oneova',
+            limit: '24',
+            media_filter: 'tinygif,gif',
+            contentfilter: 'medium',
+        });
+        if (q)
+            params.set('q', q);
+        const url = `https://tenor.googleapis.com/v2/${q ? 'search' : 'featured'}?${params.toString()}`;
+        try {
+            const res = await fetch(url);
+            if (!res.ok)
+                throw new Error(`Tenor ${res.status}`);
+            const body = (await res.json());
+            const gifs = ((_c = body.results) !== null && _c !== void 0 ? _c : []).map(gif_logic_1.fromTenor).filter((g) => g !== null);
+            if (gifs.length > 0)
+                return { gifs, enabled: true, provider: 'tenor' };
+        }
+        catch (e) {
+            console.warn('[liveStudio] Tenor search failed, falling back:', e.message);
+        }
     }
+    // 3. Always-on live tier: curated Google Noto animated GIFs + Wikimedia Commons animated GIF search
+    const notoGifs = (0, gif_logic_1.searchNotoAnimatedGifs)(q, 24);
+    const wikiGifs = [];
+    if (q.length >= 2) {
+        try {
+            const wikiParams = new URLSearchParams({
+                action: 'query',
+                generator: 'search',
+                gsrsearch: `filemime:image/gif ${q}`,
+                gsrnamespace: '6',
+                gsrlimit: '18',
+                prop: 'imageinfo',
+                iiprop: 'url|size|mime',
+                format: 'json',
+            });
+            const ctrl = new AbortController();
+            const timer = setTimeout(() => ctrl.abort(), 3500);
+            try {
+                const res = await fetch(`https://commons.wikimedia.org/w/api.php?${wikiParams.toString()}`, {
+                    headers: { 'User-Agent': 'Oneova/1.0 (https://oneova.app)' },
+                    signal: ctrl.signal,
+                });
+                if (res.ok) {
+                    const body = (await res.json());
+                    for (const page of Object.values((_d = (_a = body.query) === null || _a === void 0 ? void 0 : _a.pages) !== null && _d !== void 0 ? _d : {})) {
+                        const parsed = (0, gif_logic_1.fromWikimediaPage)(page);
+                        if (parsed)
+                            wikiGifs.push(parsed);
+                    }
+                }
+            }
+            finally {
+                clearTimeout(timer);
+            }
+        }
+        catch (e) {
+            console.warn('[liveStudio] Wikimedia GIF search fallback skipped:', e.message);
+        }
+    }
+    const combined = [...notoGifs, ...wikiGifs].slice(0, 30);
+    if (combined.length === 0 && q) {
+        // If query matched no tags or wiki files, still return nothing cleanly with enabled: true
+        return { gifs: [], enabled: true, provider: 'oneova' };
+    }
+    return { gifs: combined, enabled: true, provider: 'oneova' };
 });
 //# sourceMappingURL=social.js.map

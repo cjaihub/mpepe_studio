@@ -180,6 +180,7 @@ export const Topics = {
   react: 'react',
   counts: 'counts',
   requests: 'stage.req',
+  pool: 'studio.pool',
 } as const;
 
 export type StudioEvent =
@@ -190,7 +191,8 @@ export type StudioEvent =
   | { v: 1; type: 'comment.deleted'; id: string; ts: number }
   | { v: 1; type: 'reaction.agg'; loves: number; sparkles: number; totals: StudioCounts; ts: number }
   | { v: 1; type: 'counts'; viewers: number; participants: number; ts: number }
-  | ({ v: 1; type: 'request.new' | 'request.update' } & JoinRequest & { ts: number });
+  | ({ v: 1; type: 'request.new' | 'request.update' } & JoinRequest & { ts: number })
+  | { v: 1; type: `pool.${string}`; [key: string]: unknown };
 
 export const TABLE_SCREEN_TRACK = 'table_screen';
 

@@ -4,10 +4,10 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:googleapis/gmail/v1.dart' as gmail;
 import 'package:googleapis/youtube/v3.dart' as yt;
 
 import '../../ova_assistant/services/ova_google_access.dart';
+import '../../social_hub/gmail/gmail_service.dart';
 import '../../youtube_manager/services/youtube_account_store.dart';
 import '../connections/linked_accounts.dart';
 
@@ -82,23 +82,18 @@ class PlatformInboxItem {
   }
 
   /// Maps a Gmail message fetched with `format: metadata`.
-  static PlatformInboxItem fromGmail(gmail.Message m) {
-    String header(String name) =>
-        m.payload?.headers?.firstWhere((h) => h.name?.toLowerCase() == name.toLowerCase(), orElse: gmail.MessagePartHeader.new).value ??
-        '';
-    final from = header('From');
-    // "Jane Doe <jane@x.com>" -> "Jane Doe"
-    final match = RegExp(r'^\s*"?([^"<]+?)"?\s*<').firstMatch(from);
-    final ms = int.tryParse(m.internalDate ?? '');
+  /// Maps a message returned by the server-side Gmail connection (gmailCall).
+  static PlatformInboxItem fromGmail(GmailMessage m) {
+    final name = m.fromName.trim();
     return PlatformInboxItem(
-      id: m.id ?? '',
+      id: m.id,
       platform: LinkedPlatform.gmail,
       kind: InboxItemKind.email,
-      senderName: (match?.group(1) ?? from).trim().isEmpty ? 'Unknown sender' : (match?.group(1) ?? from).trim(),
-      title: header('Subject'),
-      preview: _unescape(m.snippet ?? ''),
-      timestamp: ms != null ? DateTime.fromMillisecondsSinceEpoch(ms) : DateTime.fromMillisecondsSinceEpoch(0),
-      isRead: !(m.labelIds ?? const []).contains('UNREAD'),
+      senderName: name.isEmpty ? 'Unknown sender' : name,
+      title: m.subject,
+      preview: m.snippet,
+      timestamp: m.receivedAt ?? DateTime.fromMillisecondsSinceEpoch(0),
+      isRead: !m.unread,
       targetId: m.threadId,
     );
   }
@@ -121,13 +116,6 @@ class PlatformInboxItem {
       targetId: t.snippet?.videoId,
     );
   }
-
-  static String _unescape(String s) => s
-      .replaceAll('&#39;', "'")
-      .replaceAll('&quot;', '"')
-      .replaceAll('&amp;', '&')
-      .replaceAll('&lt;', '<')
-      .replaceAll('&gt;', '>');
 
   /// Newest first; drops duplicates by id.
   static List<PlatformInboxItem> sortNewest(Iterable<PlatformInboxItem> items) {
@@ -212,22 +200,15 @@ class InboxAccessDenied implements Exception {
   String toString() => '${platform.label} access was not granted. Reconnect it in Connected accounts.';
 }
 
+/// Gmail goes through the server-side connection (`gmailCall`), which holds
+/// the encrypted refresh token; the phone never needs its own Gmail grant.
 Future<List<PlatformInboxItem>> _fetchGmail() async {
-  final client = await OvaGoogleAccess.client(OvaGoogleAccess.gmailScopes, prompt: false);
-  if (client == null) throw const InboxAccessDenied(LinkedPlatform.gmail);
   try {
-    final api = gmail.GmailApi(client);
-    final list = await api.users.messages.list('me', labelIds: ['INBOX'], maxResults: 25);
-    final ids = (list.messages ?? const []).map((m) => m.id).whereType<String>();
-    final messages = await Future.wait(ids.map((id) => api.users.messages.get(
-          'me',
-          id,
-          format: 'metadata',
-          metadataHeaders: const ['From', 'Subject', 'Date'],
-        )));
-    return messages.map(PlatformInboxItem.fromGmail).toList();
-  } finally {
-    client.close();
+    final page = await GmailService().list(query: 'in:inbox', limit: 25);
+    return page.messages.map(PlatformInboxItem.fromGmail).toList();
+  } on GmailException catch (e) {
+    if (e.notConnected) throw const InboxAccessDenied(LinkedPlatform.gmail);
+    rethrow;
   }
 }
 

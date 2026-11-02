@@ -16,6 +16,7 @@ import '../backend/connections/linked_accounts.dart' show LinkedPlatform;
 import '../shared/widgets/linked_destinations_picker.dart';
 import 'post/providers/post_draft_provider.dart';
 import '../services/pending_post_queue.dart';
+import '../backend/social/services/video_playback_manager.dart';
 import 'post/services/post_search_service.dart';
 import 'post/services/openrouter_post_optimizer.dart';
 import 'post/widgets/caption_editor.dart';
@@ -53,6 +54,7 @@ class _MediaPreviewScreenState extends ConsumerState<MediaPreviewScreen> {
   // Media Player
   Player? _player;
   VideoController? _videoController;
+  late final AppLifecycleListener _lifecycleListener;
 
   // Cover settings
   int _coverTimeMs = 0;
@@ -106,8 +108,23 @@ class _MediaPreviewScreenState extends ConsumerState<MediaPreviewScreen> {
       _player!.setPlaylistMode(PlaylistMode.loop);
     }
 
-    // Initialize or restore draft from repository
+    _lifecycleListener = AppLifecycleListener(
+      onPause: () => _player?.pause(),
+      onInactive: () => _player?.pause(),
+      onHide: () => _player?.pause(),
+      onResume: () {
+        if (mounted && widget.isVideo) _player?.play();
+      },
+      onShow: () {
+        if (mounted && widget.isVideo) _player?.play();
+      },
+    );
+
+    // Initialize or restore draft from repository and pause background reels
     WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) {
+        ref.read(videoPlaybackManagerProvider).setScreenActive(false);
+      }
       _initDraftAndAi();
     });
   }
@@ -220,6 +237,7 @@ class _MediaPreviewScreenState extends ConsumerState<MediaPreviewScreen> {
 
   @override
   void dispose() {
+    _lifecycleListener.dispose();
     _player?.dispose();
     _titleController.dispose();
     _captionController.dispose();
@@ -475,6 +493,7 @@ class _MediaPreviewScreenState extends ConsumerState<MediaPreviewScreen> {
   Widget build(BuildContext context) {
     final searchService = ref.watch(postSearchServiceProvider);
     final draftState = ref.watch(postDraftProvider);
+    final router = GoRouter.of(context);
 
     return PopScope(
       canPop: false,
@@ -482,7 +501,11 @@ class _MediaPreviewScreenState extends ConsumerState<MediaPreviewScreen> {
         if (didPop) return;
         final shouldPop = await _onWillPop();
         if (shouldPop && mounted) {
-          context.pop();
+          if (router.canPop()) {
+            router.pop();
+          } else {
+            router.go('/hub/home');
+          }
         }
       },
       child: Scaffold(
@@ -491,8 +514,15 @@ class _MediaPreviewScreenState extends ConsumerState<MediaPreviewScreen> {
           leading: IconButton(
             icon: const Icon(Icons.arrow_back),
             onPressed: () async {
+              HapticFeedback.lightImpact();
               final shouldPop = await _onWillPop();
-              if (shouldPop && mounted) context.pop();
+              if (shouldPop && mounted) {
+                if (router.canPop()) {
+                  router.pop();
+                } else {
+                  router.go('/hub/home');
+                }
+              }
             },
           ),
           backgroundColor: context.bg,

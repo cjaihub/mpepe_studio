@@ -65,9 +65,9 @@ test('gifts: catalog prices, quantity limits, host share, recent list', () => {
   assert.equal(list![0].id, 'g19');
 });
 
-import { fromGiphy, parseCommentGif, sanitizeGifQuery } from '../gif_logic';
+import { fromGiphy, fromTenor, fromWikimediaPage, parseCommentGif, sanitizeGifQuery, searchNotoAnimatedGifs } from '../gif_logic';
 
-test('gif comments accept only GIPHY media', () => {
+test('gif comments accept trusted GIF hosts and reject arbitrary URLs', () => {
   assert.equal(parseCommentGif(undefined), null);
   assert.deepEqual(parseCommentGif({ id: 'abc123', url: 'https://media2.giphy.com/media/abc123/200w.webp', w: 200, h: 150 }), {
     id: 'abc123',
@@ -75,11 +75,50 @@ test('gif comments accept only GIPHY media', () => {
     w: 200,
     h: 150,
   });
+  assert.deepEqual(
+    parseCommentGif({
+      id: 'noto_1f525',
+      url: 'https://fonts.gstatic.com/s/e/notoemoji/latest/1f525/512.gif',
+      w: 256,
+      h: 256,
+    }),
+    {
+      id: 'noto_1f525',
+      url: 'https://fonts.gstatic.com/s/e/notoemoji/latest/1f525/512.gif',
+      w: 256,
+      h: 256,
+    },
+  );
+  assert.deepEqual(
+    parseCommentGif({
+      id: 'own_1',
+      url: 'https://firebasestorage.googleapis.com/v0/b/mpepe-2b4bd.firebasestorage.app/o/gifs%2F1793_uid.gif?alt=media&token=abc-123',
+      w: 320,
+      h: 320,
+    }),
+    {
+      id: 'own_1',
+      url: 'https://firebasestorage.googleapis.com/v0/b/mpepe-2b4bd.firebasestorage.app/o/gifs%2F1793_uid.gif?alt=media&token=abc-123',
+      w: 320,
+      h: 320,
+    },
+  );
   assert.equal(parseCommentGif({ id: 'a', url: 'https://evil.com/x.gif', w: 1, h: 1 }), 'invalid');
   assert.equal(parseCommentGif({ id: 'a', url: 'http://media.giphy.com/x.gif', w: 1, h: 1 }), 'invalid');
   assert.equal(parseCommentGif({ id: 'a', url: 'https://media.giphy.com/x.gif', w: 0, h: 1 }), 'invalid');
   const g = fromGiphy({ id: 'xyz', images: { fixed_width: { webp: 'https://media1.giphy.com/media/xyz/200w.webp?cid=1', width: '200', height: '100' } } });
   assert.equal(g?.url, 'https://media1.giphy.com/media/xyz/200w.webp');
   assert.equal(g?.h, 100);
+  const tn = fromTenor({ id: '999', media_formats: { tinygif: { url: 'https://media.tenor.com/abc/tiny.gif', dims: [220, 160] } } });
+  assert.equal(tn?.id, 'tn_999');
+  assert.equal(tn?.h, 160);
+  const wm = fromWikimediaPage({
+    pageid: 42,
+    imageinfo: [{ url: 'https://upload.wikimedia.org/wikipedia/commons/a/b/Dance.gif?utm_source=x', width: 300, height: 240, size: 50000, mime: 'image/gif' }],
+  });
+  assert.equal(wm?.id, 'wm_42');
+  assert.equal(wm?.url, 'https://upload.wikimedia.org/wikipedia/commons/a/b/Dance.gif');
+  assert.ok(searchNotoAnimatedGifs('fire').some((x) => x.id === 'noto_1f525'));
+  assert.ok(searchNotoAnimatedGifs('').length >= 20);
   assert.equal(sanitizeGifQuery('  cats\n '), 'cats');
 });

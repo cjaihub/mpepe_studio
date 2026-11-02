@@ -47,14 +47,16 @@ class SecureKeyVault {
       // Secure storage read fallback
     }
 
-    // 2. Check dotenv
-    final envGemini = dotenv.env['GEMINI_API_KEY'];
-    if (envGemini != null && envGemini.trim().isNotEmpty) {
-      return envGemini.trim();
-    }
-    final envGoogle = dotenv.env['GOOGLE_AI_API_KEY'];
-    if (envGoogle != null && envGoogle.trim().isNotEmpty) {
-      return envGoogle.trim();
+    // 2. Check dotenv (guarded when dotenv is not loaded in tests)
+    if (dotenv.isInitialized) {
+      final envGemini = dotenv.env['GEMINI_API_KEY'];
+      if (envGemini != null && envGemini.trim().isNotEmpty) {
+        return envGemini.trim();
+      }
+      final envGoogle = dotenv.env['GOOGLE_AI_API_KEY'];
+      if (envGoogle != null && envGoogle.trim().isNotEmpty) {
+        return envGoogle.trim();
+      }
     }
 
     // 3. Check compile-time environment variables
@@ -86,21 +88,61 @@ class SecureKeyVault {
     return key.isNotEmpty;
   }
 
+  static const String defaultGeminiModel = 'gemini-2.5-flash';
+  static const List<String> geminiFallbackModels = <String>[
+    'gemini-2.5-flash',
+    'gemini-2.0-flash',
+    'gemini-1.5-flash',
+  ];
+
+  static const String defaultOpenRouterModel = 'google/gemini-2.5-flash';
+  static const List<String> openRouterFallbackModels = <String>[
+    'google/gemini-2.5-flash',
+    'meta-llama/llama-3.3-70b-instruct:free',
+    'google/gemma-3-27b-it:free',
+  ];
+
+  /// Upgrades retired Gemini Developer API model IDs so older saved settings
+  /// do not hit 404 on `generativelanguage.googleapis.com`.
+  static String normalizeGeminiModel(String raw) {
+    final clean = raw.trim();
+    if (clean.isEmpty) return defaultGeminiModel;
+    switch (clean) {
+      case 'gemini-3.8-flash':
+      case 'gemini-2.5-flash':
+        return 'gemini-2.5-flash';
+      case 'gemini-2.0-flash':
+      case 'gemini-2.0-flash-exp':
+        return 'gemini-2.0-flash';
+      case 'gemini-1.5-flash':
+      case 'gemini-1.5-pro':
+        return clean;
+      default:
+        return clean;
+    }
+  }
+
+  /// Ordered Gemini models to try (normalized preferred first, then fallbacks).
+  Future<List<String>> getGeminiModelCascade() async {
+    final preferred = normalizeGeminiModel(await getPreferredGeminiModel());
+    return <String>{preferred, ...geminiFallbackModels}.toList();
+  }
+
   /// Obtains the preferred Gemini model (defaults to gemini-2.5-flash for speed & multimodality).
   Future<String> getPreferredGeminiModel() async {
     try {
       final customModel = await _secureStorage.read(key: _geminiModelStorageKey);
       if (customModel != null && customModel.isNotEmpty) {
-        return customModel;
+        return normalizeGeminiModel(customModel);
       }
     } catch (_) {}
 
-    final envModel = dotenv.env['GEMINI_DEFAULT_MODEL'];
+    final envModel = dotenv.isInitialized ? dotenv.env['GEMINI_DEFAULT_MODEL'] : null;
     if (envModel != null && envModel.isNotEmpty) {
-      return envModel;
+      return normalizeGeminiModel(envModel);
     }
 
-    return 'gemini-2.5-flash';
+    return defaultGeminiModel;
   }
 
   /// Sets the preferred Gemini model in secure storage.
@@ -144,13 +186,12 @@ class SecureKeyVault {
       }
     } catch (_) {}
 
-    final envModel = dotenv.env['OPENROUTER_DEFAULT_MODEL'];
+    final envModel = dotenv.isInitialized ? dotenv.env['OPENROUTER_DEFAULT_MODEL'] : null;
     if (envModel != null && envModel.isNotEmpty) {
       return envModel;
     }
 
-    // Reliable, fast, and free tier model by default
-    return 'meta-llama/llama-3-8b-instruct:free';
+    return defaultOpenRouterModel;
   }
 
   /// Sets the preferred model in secure storage.

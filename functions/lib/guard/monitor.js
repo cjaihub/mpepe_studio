@@ -70,6 +70,7 @@ const reputation_1 = require("./reputation");
 const actions_1 = require("./actions");
 const protect_1 = require("./protect");
 const security_1 = require("../security");
+const gif_logic_1 = require("../liveStudio/gif_logic");
 const db = () => (0, firestore_2.getFirestore)();
 /** What the app shows on a message, comment or profile (no message text). */
 function safetyField(v) {
@@ -114,11 +115,19 @@ async function scanChatMessage(ref, data) {
 }
 // ─────────────── Comments ───────────────
 async function scanComment(ref, data) {
-    var _a, _b;
-    if (!data || data.type === 'gif')
+    var _a, _b, _c;
+    if (!data)
         return;
+    // GIF comments may only carry a GIPHY image (from lsGifSearch); anything
+    // else is hidden so the GIF slot can't be used to post arbitrary links.
+    if (data.type === 'gif' || data.gif !== undefined) {
+        if ((0, gif_logic_1.parseCommentGif)((_a = data.gif) !== null && _a !== void 0 ? _a : null) === 'invalid' || (data.type === 'gif' && !data.gif)) {
+            await ref.set({ isModerated: true, safety: { verdict: 'dangerous', reasons: ['This GIF is not from the GIF picker'], blockedLinks: [], categories: [], by: 'ova_guard', checkedAt: firestore_2.FieldValue.serverTimestamp() } }, { merge: true });
+            return;
+        }
+    }
     const text = typeof data.content === 'string' ? data.content : '';
-    const authorId = String((_a = data.authorId) !== null && _a !== void 0 ? _a : '');
+    const authorId = String((_b = data.authorId) !== null && _b !== void 0 ? _b : '');
     if (!text || !authorId)
         return;
     const quick = (0, linkSafety_1.analyzeText)(text);
@@ -130,7 +139,7 @@ async function scanComment(ref, data) {
     await ref.set({ safety: safetyField(v) }, { merge: true });
     if (v.verdict === 'dangerous') {
         const source = 'scan:comment';
-        const reason = (_b = v.reasons[0]) !== null && _b !== void 0 ? _b : 'It contains a dangerous link';
+        const reason = (_c = v.reasons[0]) !== null && _c !== void 0 ? _c : 'It contains a dangerous link';
         await (0, actions_1.takeAction)({ uid: authorId, action: 'hide_content', targetPath: ref.path, source, reason: `Comment hidden until reviewed: ${reason}` });
         await (0, security_1.recordSecurityEvent)(authorId, 'phishing_sent', { details: { where: 'comment', reasons: v.reasons } });
         await escalateRepeats(authorId, 'comments', source, reason, ref.path);

@@ -1,9 +1,9 @@
 # Oneova backend endpoints
 
-Generated on 2026-10-31 from `functions/src/index.ts` exports (compiled) and `firebase functions:list --project mpepe-2b4bd`.
+Generated on 2026-11-02 from `functions/src/index.ts` exports (compiled) and `firebase functions:list --project mpepe-2b4bd`.
 Region: every function runs in the default region (`us-central1`) except Firestore triggers, which Firebase places next to the database (`europe-west1`). The app calls `FirebaseFunctions.instance` (us-central1), which matches.
 
-Totals: **138** functions in source, **75** deployed, **63** not deployed. **27** callables the app uses are not deployed yet, so those features fail in production until they are: `guardCheckLinks`, `accountLookup`, `verifyCoinPurchase`, `sendUserGift`, `walletSync`, `payoutOptions`, `payoutBanks`, `savePayoutMethod`, `deletePayoutMethod`, `requestWithdrawal`, `cancelWithdrawal`, `kycStart`, `kycRefresh`, `verifySubscriptionPurchase`, `recordWatchTime`, `stripeConfig`, `stripeConnectOnboard`, `stripePayoutStatus`, `quoteDelivery`, `createOrderCheckout`, `acceptDelivery`, `startJourney`, `confirmDelivery`, `cancelOrder`, `gmailConnect`, `gmailDisconnect`, `gmailCall`.
+Totals: **144** functions in source, **138** deployed (100% of app-used endpoints), **6** future Looks batch/compute functions not yet deployed (`generateCatalogBundles`, `onBillingBudgetNotification`, `scheduledFeedbackBigQueryExport`, `createLookOptimized`, `enqueueComputeJobCallable`, `getComputeJobStatusCallable`).
 
 ## How endpoints are protected
 
@@ -113,7 +113,13 @@ Totals: **138** functions in source, **75** deployed, **63** not deployed. **27*
 | `lsReact` | Callable | Live Studio | Signed in | Verified; enforced when APP_CHECK_ENFORCE=true | Per-stream/per-user (liveStudio/shared rateLimit) | yes | yes (us-central1) |
 | `lsShare` | Callable | Live Studio | Signed in | Verified; enforced when APP_CHECK_ENFORCE=true | Per-stream/per-user (liveStudio/shared rateLimit) | yes | yes (us-central1) |
 | `lsLivekitWebhook` | HTTPS | LiveKit room/egress webhook | Public; LiveKit signed JWT (WebhookReceiver) | n/a (server-to-server) | — | server | yes (us-central1) |
-| `lsGifSearch` | Callable | Live Studio | Signed in | Verified; enforced when APP_CHECK_ENFORCE=true | Per-stream/per-user (liveStudio/shared rateLimit) | yes | yes (us-central1) |
+| `lsGifSearch` | Callable | Live Studio trusted GIF search | Signed in | Verified; enforced when APP_CHECK_ENFORCE=true | Per-stream/per-user (liveStudio/shared rateLimit) | yes | yes (us-central1) |
+| `lsWatch` | Callable | Live Studio Watch Together state & sync | Signed in | Verified; enforced when APP_CHECK_ENFORCE=true | Per-stream/per-user (liveStudio/shared rateLimit) | yes | yes (us-central1) |
+| `lsYouTubeSearch` | Callable | Live Studio Watch Together YouTube search | Signed in | Verified; enforced when APP_CHECK_ENFORCE=true | Per-stream/per-user (liveStudio/shared rateLimit) | yes | yes (us-central1) |
+| `lsPool` | Callable | Live Studio multiplayer 3D 8-Ball Pool & server physics | Signed in | Verified; enforced when APP_CHECK_ENFORCE=true | Per-stream/per-user (liveStudio/shared rateLimit) | yes | yes (us-central1) |
+| `contentSetDestination` | Callable | Author sets/clears Ova Guard-checked reel destination/product link | Signed in (author) | Verified; enforced when APP_CHECK_ENFORCE=true | 30 / 10 min per user | yes | yes (us-central1) |
+| `contentOpenDestination` | Callable | Opens reel destination link, re-verifies Web Risk & counts unique clicks | Signed in | Verified; enforced when APP_CHECK_ENFORCE=true | 120 / 10 min per user | yes | yes (us-central1) |
+| `voiceTidy` | Callable | Cleans dictated text (punctuation, capitals, filler removal) on Vertex AI | Signed in | Verified; enforced when APP_CHECK_ENFORCE=true | Per-user | yes | yes (us-central1) |
 | `onCallParticipantWritten` | Trigger | Call participant state | n/a (server) | n/a | — | server | yes (europe-west1) |
 | `onCallFinished` | Trigger | Call summary / missed-call | n/a (server) | n/a | — | server | yes (europe-west1) |
 | `sweepStaleCalls` | Schedule | Ends stale calls | n/a (server) | n/a | — | server | yes (us-central1) |

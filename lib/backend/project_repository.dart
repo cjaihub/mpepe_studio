@@ -115,7 +115,10 @@ class StudioProject {
 }
 
 class ProjectRepository {
-  final FirebaseFirestore _firestore = FirebaseFirestore.instance;
+  final FirebaseFirestore? _injectedFirestore;
+  ProjectRepository([this._injectedFirestore]);
+
+  FirebaseFirestore get _firestore => _injectedFirestore ?? FirebaseFirestore.instance;
 
   Stream<List<StudioProject>> watchProjects() {
     return _firestore

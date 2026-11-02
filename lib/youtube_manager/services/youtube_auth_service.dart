@@ -27,12 +27,17 @@ class YouTubeAuthService extends Notifier<GoogleSignInAccount?> {
   GoogleSignIn get _googleSignIn => GoogleSignIn.instance;
 
   static const List<String> _ytScopes = [
+    // Full YouTube management access
     youtube.YouTubeApi.youtubeScope,
-    youtube.YouTubeApi.youtubeReadonlyScope,
     youtube.YouTubeApi.youtubeUploadScope,
+    youtube.YouTubeApi.youtubeReadonlyScope,
     youtube.YouTubeApi.youtubeForceSslScope,
     youtube.YouTubeApi.youtubepartnerScope,
+    youtube.YouTubeApi.youtubepartnerChannelAuditScope,
+    youtube.YouTubeApi.youtubeChannelMembershipsCreatorScope,
+    // YouTube Analytics (standard and monetary reports)
     analytics.YouTubeAnalyticsApi.ytAnalyticsReadonlyScope,
+    analytics.YouTubeAnalyticsApi.ytAnalyticsMonetaryReadonlyScope,
   ];
 
   final _secureStorage = const FlutterSecureStorage();

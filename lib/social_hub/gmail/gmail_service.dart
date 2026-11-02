@@ -8,8 +8,9 @@ import 'package:google_sign_in/google_sign_in.dart';
 ///
 /// Connecting shows Google's consent screen for exactly these scopes and
 /// sends a one-time server code to the `gmailConnect` function, which keeps
-/// the refresh token encrypted on the server. Mail is read and sent through
-/// the `gmailCall` function; the app never holds a long-lived Gmail token.
+/// the refresh token encrypted under `users/{uid}/secure_tokens/gmail`
+/// (server only). Mail is read and sent through the `gmailCall` function; the
+/// app never holds a long-lived Gmail token.
 class GmailService {
   static const scopes = [
     'https://www.googleapis.com/auth/gmail.readonly',
@@ -89,6 +90,7 @@ class GmailMessage {
   final String to;
   final String subject;
   final String date;
+  final DateTime? receivedAt;
   final String snippet;
   final bool unread;
   final bool starred;
@@ -101,6 +103,7 @@ class GmailMessage {
     required this.to,
     required this.subject,
     required this.date,
+    this.receivedAt,
     required this.snippet,
     required this.unread,
     required this.starred,
@@ -114,6 +117,10 @@ class GmailMessage {
         to: (m['to'] ?? '').toString(),
         subject: (m['subject'] ?? '').toString(),
         date: (m['date'] ?? '').toString(),
+        receivedAt: switch (int.tryParse((m['internalDate'] ?? '').toString())) {
+          final ms? => DateTime.fromMillisecondsSinceEpoch(ms),
+          null => null,
+        },
         snippet: _unescape((m['snippet'] ?? '').toString()),
         unread: m['unread'] == true,
         starred: m['starred'] == true,

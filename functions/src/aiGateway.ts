@@ -3,7 +3,7 @@ import { Type } from '@google/genai';
 import { ToolExecutionLayer } from './services/ToolExecutionLayer';
 import { getFirestore } from 'firebase-admin/firestore';
 import { readAccountSettings } from './accountSettings';
-import { vertexAi } from './vertexAi';
+import { generateVertexContent } from './vertexAi';
 import { limit } from './guard/protect';
 
 /**
@@ -173,8 +173,6 @@ export const aiGateway = onCall(async (request) => {
     throw new HttpsError('invalid-argument', 'Missing prompt.');
   }
 
-  const ai = vertexAi();
-
   // Add system instruction
   let chatHistory: any[] = [
     { role: 'user', parts: [{ text: "System Instructions: You are a helpful AI assistant. Use tools to satisfy the user's request. Only answer based on what the tools provide." }] },
@@ -188,8 +186,7 @@ export const aiGateway = onCall(async (request) => {
   chatHistory.push({ role: 'user', parts: [{ text: prompt }] });
 
   try {
-    let response = await ai.models.generateContent({
-      model: 'gemini-2.5-flash',
+    let response = await generateVertexContent({
       contents: chatHistory,
       config: {
         tools: applicationTools,
@@ -239,8 +236,7 @@ export const aiGateway = onCall(async (request) => {
             parts: [{ functionResponse: { name, response: toolResult } }] 
         });
         
-        response = await ai.models.generateContent({
-            model: 'gemini-2.5-flash',
+        response = await generateVertexContent({
             contents: chatHistory,
             config: {
                 tools: applicationTools,
@@ -301,13 +297,10 @@ async function handleComposeMessage(userId: string, data: any) {
     default: prompt = `Improve this text: "${currentText}"`;
   }
 
-  const ai = vertexAi();
-  
   const systemInstruction = "You are an AI messaging assistant. Provide ONLY the suggested text. Do NOT include explanations, markdown blocks, or conversational filler like 'Here is the improved text:'. Just the text itself. Ensure you refuse to process requests that clearly fall under sensitive topics (e.g. financial, medical, legal, security).";
 
   try {
-    const response = await ai.models.generateContent({
-      model: 'gemini-2.5-flash',
+    const response = await generateVertexContent({
       contents: [
         { role: 'user', parts: [{ text: `System: ${systemInstruction}\n\nTask: ${prompt}` }] }
       ],

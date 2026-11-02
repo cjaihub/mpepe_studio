@@ -7,7 +7,7 @@ import 'package:flutter/foundation.dart';
 /// only the sign-in header fields (name, handle, photo, password flags).
 ///
 /// Until that function is deployed (or if it is unreachable) this falls back
-/// to the old profile query, so sign-in keeps working on every backend.
+/// to the profile query, so sign-in keeps working on every backend.
 class AccountLookupService {
   AccountLookupService._();
 

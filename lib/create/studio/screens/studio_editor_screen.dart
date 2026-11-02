@@ -693,7 +693,13 @@ class _StudioEditorScreenState extends ConsumerState<StudioEditorScreen> {
     _pb.pause();
     _autosave?.cancel();
     await _save();
-    if (mounted) context.pop();
+    if (mounted) {
+      if (context.canPop()) {
+        context.pop();
+      } else {
+        context.go('/hub/home');
+      }
+    }
   }
 
   Widget _topBar() {

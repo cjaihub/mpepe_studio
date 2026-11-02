@@ -1,3 +1,4 @@
+import 'package:firebase_core/firebase_core.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
@@ -89,7 +90,7 @@ class RemoteConnectState {
 }
 
 class RemoteConnectService extends Notifier<RemoteConnectState> {
-  final FirebaseFirestore _firestore = FirebaseFirestore.instance;
+  FirebaseFirestore get _firestore => FirebaseFirestore.instance;
   static const _prefsKey = 'linked_computer_tokens';
   static const _keysPrefsKey = 'linked_computer_aes_keys';
 
@@ -100,11 +101,17 @@ class RemoteConnectService extends Notifier<RemoteConnectState> {
   }
 
   Future<void> _loadLinkedComputers() async {
-    final prefs = await SharedPreferences.getInstance();
-    final tokens = prefs.getStringList(_prefsKey) ?? [];
-    final keysStr = prefs.getString(_keysPrefsKey);
-    
-    Map<String, enc.Key> loadedKeys = {};
+    List<String> tokens = const [];
+    String? keysStr;
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      tokens = prefs.getStringList(_prefsKey) ?? [];
+      keysStr = prefs.getString(_keysPrefsKey);
+    } catch (_) {
+      return;
+    }
+
+    final loadedKeys = <String, enc.Key>{};
     if (keysStr != null) {
       final map = jsonDecode(keysStr) as Map<String, dynamic>;
       map.forEach((k, v) {
@@ -112,8 +119,8 @@ class RemoteConnectService extends Notifier<RemoteConnectState> {
       });
       state = state.copyWith(activeKeys: loadedKeys);
     }
-    
-    if (tokens.isEmpty) return;
+
+    if (tokens.isEmpty || Firebase.apps.isEmpty) return;
 
     // Listen to each token
     for (String token in tokens) {

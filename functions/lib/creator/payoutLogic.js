@@ -25,7 +25,8 @@ exports.normalizeMsisdn = normalizeMsisdn;
 exports.fraudReasons = fraudReasons;
 exports.DIAMOND_USD = 0.01;
 exports.HOLD_DAYS = 7;
-exports.MIN_WITHDRAW_USD = 10;
+/** One Diamond; the real floor is 1 unit of the payout currency after fees (see requestWithdrawal). */
+exports.MIN_WITHDRAW_USD = 0.01;
 exports.MAX_WITHDRAW_USD = 2000;
 exports.MAX_REQUESTS_PER_DAY = 3;
 const NEXT = {

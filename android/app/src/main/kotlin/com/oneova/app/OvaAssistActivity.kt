@@ -59,6 +59,12 @@ class OvaAssistActivity : FlutterFragmentActivity() {
             setShowWhenLocked(true)
             setTurnScreenOn(true)
         }
+        @Suppress("DEPRECATION")
+        window.addFlags(
+            android.view.WindowManager.LayoutParams.FLAG_SHOW_WHEN_LOCKED or
+            android.view.WindowManager.LayoutParams.FLAG_TURN_SCREEN_ON or
+            android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON
+        )
         handleLaunch(intent)
     }
 
@@ -77,10 +83,17 @@ class OvaAssistActivity : FlutterFragmentActivity() {
 
     private fun ensureOverlayEngine() {
         if (FlutterEngineCache.getInstance().contains(ENGINE_ID)) return
-        val engine = FlutterEngine(applicationContext, null, true)
-        val bundle = FlutterInjector.instance().flutterLoader().findAppBundlePath()
-        engine.dartExecutor.executeDartEntrypoint(DartExecutor.DartEntrypoint(bundle, "ovaOverlayMain"))
-        FlutterEngineCache.getInstance().put(ENGINE_ID, engine)
+        try {
+            val loader = FlutterInjector.instance().flutterLoader()
+            loader.startInitialization(applicationContext)
+            loader.ensureInitializationComplete(applicationContext, null)
+            val bundle = loader.findAppBundlePath()
+            val engine = FlutterEngine(applicationContext, null, true)
+            engine.dartExecutor.executeDartEntrypoint(DartExecutor.DartEntrypoint(bundle, "ovaOverlayMain"))
+            FlutterEngineCache.getInstance().put(ENGINE_ID, engine)
+        } catch (e: Exception) {
+            android.util.Log.e("OvaAssistActivity", "Failed to initialize overlay engine", e)
+        }
     }
 
     override fun getCachedEngineId(): String = ENGINE_ID
@@ -137,36 +150,9 @@ class OvaAssistActivity : FlutterFragmentActivity() {
             ?: if (intent?.action == Intent.ACTION_ASSIST) "assist" else "app"
 
         val km = getSystemService(KeyguardManager::class.java)
-        if (km != null && km.isKeyguardLocked) {
-            unlocked = false
-            setContentVisible(false)
-            if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) {
-                finish()
-                return
-            }
-            awaitingUnlock = true
-            km.requestDismissKeyguard(this, object : KeyguardManager.KeyguardDismissCallback() {
-                override fun onDismissSucceeded() {
-                    awaitingUnlock = false
-                    unlocked = true
-                    setContentVisible(true)
-                    notifyShown()
-                }
-
-                override fun onDismissCancelled() {
-                    awaitingUnlock = false
-                    finish()
-                }
-
-                override fun onDismissError() {
-                    awaitingUnlock = false
-                    finish()
-                }
-            })
-        } else {
-            unlocked = true
-            setContentVisible(true)
-        }
+        unlocked = km == null || !km.isKeyguardLocked
+        // Fully visible on lock screen for instant voice mode, task planning, and message reading
+        setContentVisible(true)
         notifyShown()
     }
 
@@ -179,6 +165,30 @@ class OvaAssistActivity : FlutterFragmentActivity() {
     }
 
     private fun openFullApp(route: String?) {
+        val km = getSystemService(KeyguardManager::class.java)
+        if (km != null && km.isKeyguardLocked && Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            awaitingUnlock = true
+            km.requestDismissKeyguard(this, object : KeyguardManager.KeyguardDismissCallback() {
+                override fun onDismissSucceeded() {
+                    awaitingUnlock = false
+                    unlocked = true
+                    launchFullAppIntent(route)
+                }
+
+                override fun onDismissCancelled() {
+                    awaitingUnlock = false
+                }
+
+                override fun onDismissError() {
+                    awaitingUnlock = false
+                }
+            })
+        } else {
+            launchFullAppIntent(route)
+        }
+    }
+
+    private fun launchFullAppIntent(route: String?) {
         val intent = Intent(this, MainActivity::class.java).apply {
             addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP)
             if (!route.isNullOrEmpty() && route.startsWith("/")) {

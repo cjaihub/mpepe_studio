@@ -1,12 +1,15 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:io';
 
+import 'package:firebase_ai/firebase_ai.dart';
+import 'package:firebase_core/firebase_core.dart';
 import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 
 import '../../backend/ai_brain_service.dart';
-import '../../backend/security/secure_api_key_vault.dart';
 import '../../backend/security/oneova_ai_gateway.dart';
+import '../../backend/security/secure_api_key_vault.dart';
 import 'ova_tool_registry.dart';
 
 /// One tool call requested by the model.
@@ -29,26 +32,50 @@ class OvaToolCallsEvent extends OvaLlmEvent {
   OvaToolCallsEvent(this.calls);
 }
 
+/// Emitted when cloud providers are unreachable or cooling down and Local Ova
+/// stepped in so the user still gets an immediate answer plus recovery actions.
+class OvaLlmDegraded extends OvaLlmEvent {
+  final OvaAiDiagnostic diagnostic;
+  OvaLlmDegraded(this.diagnostic);
+}
+
 class OvaLlmError extends OvaLlmEvent {
   final String message;
   OvaLlmError(this.message);
 }
 
-/// Streams chat completions with tool calling.
-/// Uses OpenRouter when a key is set, otherwise Gemini directly.
-/// History is kept in OpenAI chat format and converted for Gemini.
+class _StreamAttemptOutcome {
+  final bool emitted;
+  final bool offline;
+  final int? statusCode;
+  final OvaAiDiagnostic? diagnostic;
+
+  const _StreamAttemptOutcome({
+    required this.emitted,
+    this.offline = false,
+    this.statusCode,
+    this.diagnostic,
+  });
+}
+
+/// Streams chat completions with tool calling and multi-provider failover:
+/// 1. User's saved OpenRouter key (OpenAI SSE + free-model fallback)
+/// 2. User's saved Gemini key (`gemini-3.8-flash` -> `gemini-2.5-flash` SSE)
+/// 3. Keyless Firebase AI Logic (`FirebaseAI.googleAI` -> `FirebaseAI.agentPlatform`)
+/// 4. Signed-in Oneova Cloud Proxy (`aiProxy` with App Check + 401 refresh + 5xx cooldown)
+/// 5. Instant Local Ova Smart Synthesis via [AIBrainService] + [OvaLlmDegraded]
 class OvaLlmClient {
   final AIBrainService brain;
   final SecureKeyVault vault;
-  OvaLlmClient(this.brain, this.vault);
+  final http.Client? _httpClient;
+
+  OvaLlmClient(this.brain, this.vault, [this._httpClient]);
 
   static const _openRouterModel = 'google/gemini-2.5-flash';
 
-  Future<bool> hasKey() async {
-    if (OneovaAiGateway.canCall(brain.openRouterKey)) return true;
-    if ((await vault.getOpenRouterApiKey()).isNotEmpty) return true;
-    return (await vault.getGeminiApiKey()).isNotEmpty;
-  }
+  /// Ova is always ready to answer—via user key, keyless Firebase AI, signed-in
+  /// proxy, or instant Local Ova synthesis.
+  Future<bool> hasKey() async => true;
 
   Stream<OvaLlmEvent> stream({
     required String system,
@@ -56,46 +83,226 @@ class OvaLlmClient {
     required List<OvaToolSpec> tools,
     String? imageBase64,
   }) async* {
+    final cleanHistory = AIBrainService.sanitizeChatMessages(history);
+    OvaAiDiagnostic? lastDiagnostic;
+
+    // ── Stage 1: User-supplied OpenRouter API Key ───────────────────────
     var orKey = brain.openRouterKey;
     if (orKey.isEmpty) orKey = await vault.getOpenRouterApiKey();
-    if (OneovaAiGateway.canCall(orKey)) {
-      yield* _openRouter(orKey, system, history, tools, imageBase64);
-      return;
+    if (orKey.isNotEmpty) {
+      for (final model in const [
+        _openRouterModel,
+        'meta-llama/llama-3.3-70b-instruct:free',
+      ]) {
+        final buffer = <OvaLlmEvent>[];
+        final outcome = await _collectOpenRouter(
+          key: orKey,
+          model: model,
+          system: system,
+          history: cleanHistory,
+          tools: tools,
+          imageBase64: imageBase64,
+          sink: buffer.add,
+        );
+        if (outcome.emitted) {
+          for (final ev in buffer) {
+            yield ev;
+          }
+          return;
+        }
+        if (outcome.diagnostic != null) lastDiagnostic = outcome.diagnostic;
+        if (outcome.offline || outcome.statusCode == 401) break;
+      }
+      if (lastDiagnostic?.kind == OvaAiIssueKind.offline) {
+        yield* _emitLocalFallback(cleanHistory, system, imageBase64, lastDiagnostic);
+        return;
+      }
     }
+
+    // ── Stage 2: User-supplied Google Gemini API Key ────────────────────
     final gKey = await vault.getGeminiApiKey();
     if (gKey.isNotEmpty) {
-      yield* _gemini(gKey, system, history, tools, imageBase64);
-      return;
+      final models = await vault.getGeminiModelCascade();
+      for (final model in models) {
+        final buffer = <OvaLlmEvent>[];
+        final outcome = await _collectGemini(
+          key: gKey,
+          model: model,
+          system: system,
+          history: cleanHistory,
+          tools: tools,
+          imageBase64: imageBase64,
+          sink: buffer.add,
+        );
+        if (outcome.emitted) {
+          for (final ev in buffer) {
+            yield ev;
+          }
+          return;
+        }
+        if (outcome.diagnostic != null) lastDiagnostic = outcome.diagnostic;
+        if (outcome.offline) break;
+        if (outcome.statusCode != null && outcome.statusCode != 404) break;
+      }
+      if (lastDiagnostic?.kind == OvaAiIssueKind.offline) {
+        yield* _emitLocalFallback(cleanHistory, system, imageBase64, lastDiagnostic);
+        return;
+      }
     }
-    yield OvaLlmError('no_key');
+
+    // ── Stage 3: Keyless Firebase AI Logic (Google AI -> Vertex AI) ─────
+    if (Firebase.apps.isNotEmpty && _httpClient == null) {
+      final fbEvents = await _tryFirebaseAiStream(
+        system: system,
+        history: cleanHistory,
+        imageBase64: imageBase64,
+      );
+      if (fbEvents.isNotEmpty) {
+        for (final ev in fbEvents) {
+          yield ev;
+        }
+        return;
+      }
+    }
+
+    // ── Stage 4: Signed-in Oneova Cloud Proxy (`aiProxy`) ───────────────
+    if (OneovaAiGateway.canCall('')) {
+      final buffer = <OvaLlmEvent>[];
+      var outcome = await _collectOpenRouter(
+        key: '',
+        model: _openRouterModel,
+        system: system,
+        history: cleanHistory,
+        tools: tools,
+        imageBase64: imageBase64,
+        sink: buffer.add,
+      );
+
+      // Refresh expired Firebase ID token once on 401
+      if (!outcome.emitted && outcome.statusCode == 401) {
+        final refreshed = await OneovaAiGateway.bearer('', forceRefresh: true);
+        if (refreshed.isNotEmpty) {
+          buffer.clear();
+          outcome = await _collectOpenRouter(
+            key: '',
+            model: _openRouterModel,
+            system: system,
+            history: cleanHistory,
+            tools: tools,
+            imageBase64: imageBase64,
+            overrideBearer: refreshed,
+            sink: buffer.add,
+          );
+        }
+      }
+
+      if (outcome.emitted) {
+        OneovaAiGateway.recordProxySuccess();
+        for (final ev in buffer) {
+          yield ev;
+        }
+        return;
+      }
+
+      if (outcome.statusCode != null) {
+        OneovaAiGateway.recordProxyFailure(outcome.statusCode!);
+      }
+      if (outcome.diagnostic != null) {
+        lastDiagnostic ??= outcome.diagnostic;
+      }
+    } else if (OneovaAiGateway.signedIn && OneovaAiGateway.isProxyCoolingDown) {
+      lastDiagnostic ??= OvaAiDiagnostic(
+        kind: OvaAiIssueKind.cloudUnavailable,
+        badgeLabel: 'Cloud AI Busy · Local Ova',
+        detail:
+            'Oneova Cloud AI is temporarily unavailable (${OneovaAiGateway.lastProxyErrorStatus ?? 503}). Local Ova answered above—tap Retry or add a personal AI key in AI Settings.',
+        httpStatus: OneovaAiGateway.lastProxyErrorStatus,
+      );
+    }
+
+    // ── Stage 5: Instant Local Ova Synthesis + Diagnostic ───────────────
+    yield* _emitLocalFallback(cleanHistory, system, imageBase64, lastDiagnostic);
   }
 
-  // ── OpenRouter (OpenAI-compatible SSE) ─────────────────────────────────
-
-  Stream<OvaLlmEvent> _openRouter(
-    String key,
+  Stream<OvaLlmEvent> _emitLocalFallback(
+    List<Map<String, dynamic>> cleanHistory,
     String system,
-    List<Map<String, dynamic>> history,
-    List<OvaToolSpec> tools,
     String? imageBase64,
+    OvaAiDiagnostic? preferredDiagnostic,
   ) async* {
+    final res = await brain.processRequest(
+      cleanHistory,
+      screenBase64: imageBase64,
+      userContextPrompt: system,
+    );
+    if (res is AiTextResponse) {
+      if (res.text.trim().isNotEmpty) {
+        yield OvaTextDelta(res.text);
+      }
+      final diag = preferredDiagnostic ?? res.diagnostic;
+      if (diag != null) {
+        yield OvaLlmDegraded(diag);
+      }
+      return;
+    }
+    if (res is AiToolCallResponse) {
+      final mapped = <OvaToolCall>[];
+      for (final c in res.toolCalls) {
+        if (c is Map) {
+          final fn = c['function'] as Map? ?? const {};
+          final name = (fn['name'] ?? '').toString();
+          if (name.isNotEmpty) {
+            mapped.add(
+              OvaToolCall(
+                (c['id'] ?? 'call_${DateTime.now().microsecondsSinceEpoch}').toString(),
+                name,
+                _decodeArgs((fn['arguments'] ?? '{}').toString()),
+              ),
+            );
+          }
+        }
+      }
+      if (mapped.isNotEmpty) {
+        yield OvaToolCallsEvent(mapped);
+        return;
+      }
+    }
+  }
+
+  // ── OpenRouter / Proxy (OpenAI-compatible SSE) ─────────────────────────
+
+  Future<_StreamAttemptOutcome> _collectOpenRouter({
+    required String key,
+    required String model,
+    required String system,
+    required List<Map<String, dynamic>> history,
+    required List<OvaToolSpec> tools,
+    required String? imageBase64,
+    required void Function(OvaLlmEvent) sink,
+    String? overrideBearer,
+  }) async {
     final messages = <Map<String, dynamic>>[
       {'role': 'system', 'content': system},
       ...history,
     ];
-    if (imageBase64 != null) {
+    if (imageBase64 != null && imageBase64.isNotEmpty) {
       final lastUser = messages.lastIndexWhere((m) => m['role'] == 'user');
       if (lastUser >= 0) {
         messages[lastUser] = {
           'role': 'user',
           'content': [
-            {'type': 'text', 'text': messages[lastUser]['content']},
+            {'type': 'text', 'text': (messages[lastUser]['content'] ?? '').toString()},
             {'type': 'image_url', 'image_url': {'url': 'data:image/png;base64,$imageBase64'}},
           ],
         };
       }
     }
-    final bearer = await OneovaAiGateway.bearer(key);
+
+    final bearer = overrideBearer ?? await OneovaAiGateway.bearer(key);
+    if (bearer.isEmpty) {
+      return const _StreamAttemptOutcome(emitted: false);
+    }
+
     final req = http.Request('POST', OneovaAiGateway.chatUri(key))
       ..headers.addAll({
         'Content-Type': 'application/json',
@@ -105,20 +312,30 @@ class OvaLlmClient {
         ...await OneovaAiGateway.appCheckHeader(key),
       })
       ..body = jsonEncode({
-        'model': _openRouterModel,
+        'model': model,
         'stream': true,
         'messages': messages,
         'tools': tools.map((t) => t.toOpenAi()).toList(),
       });
 
-    final client = http.Client();
+    final client = _httpClient ?? http.Client();
+    final ownsClient = _httpClient == null;
     try {
-      final res = await client.send(req).timeout(const Duration(seconds: 30));
+      final res = await client.send(req).timeout(const Duration(seconds: 12));
       if (res.statusCode != 200) {
         final body = await res.stream.bytesToString();
-        yield OvaLlmError('AI service error ${res.statusCode}: ${_short(body)}');
-        return;
+        return _StreamAttemptOutcome(
+          emitted: false,
+          statusCode: res.statusCode,
+          diagnostic: OneovaAiGateway.classifyHttpFailure(
+            res.statusCode,
+            body,
+            usingUserKey: key.isNotEmpty,
+          ),
+        );
       }
+
+      var emittedAny = false;
       final calls = <int, _PartialCall>{};
       await for (final line in res.stream.transform(utf8.decoder).transform(const LineSplitter())) {
         if (!line.startsWith('data:')) continue;
@@ -132,9 +349,13 @@ class OvaLlmClient {
         }
         final choices = json['choices'] as List?;
         if (choices == null || choices.isEmpty) continue;
-        final delta = (choices.first as Map)['delta'] as Map? ?? const {};
+        final firstChoice = choices.first as Map;
+        final delta = (firstChoice['delta'] as Map?) ?? (firstChoice['message'] as Map?) ?? const {};
         final content = delta['content'];
-        if (content is String && content.isNotEmpty) yield OvaTextDelta(content);
+        if (content is String && content.isNotEmpty) {
+          emittedAny = true;
+          sink(OvaTextDelta(content));
+        }
         final tc = delta['tool_calls'];
         if (tc is List) {
           for (final c in tc) {
@@ -149,28 +370,57 @@ class OvaLlmClient {
         }
       }
       if (calls.isNotEmpty) {
-        yield OvaToolCallsEvent(calls.values.map((p) => p.build()).toList());
+        emittedAny = true;
+        sink(OvaToolCallsEvent(calls.values.map((p) => p.build()).toList()));
       }
+      return _StreamAttemptOutcome(emitted: emittedAny);
+    } on SocketException {
+      return const _StreamAttemptOutcome(
+        emitted: false,
+        offline: true,
+        diagnostic: OvaAiDiagnostic(
+          kind: OvaAiIssueKind.offline,
+          badgeLabel: 'Offline Mode · Local Ova',
+          detail: 'No internet connection detected. Local Ova answered above—tap Retry when back online.',
+        ),
+      );
     } on TimeoutException {
-      yield OvaLlmError('The AI service took too long to answer.');
+      return const _StreamAttemptOutcome(
+        emitted: false,
+        statusCode: 504,
+        diagnostic: OvaAiDiagnostic(
+          kind: OvaAiIssueKind.cloudUnavailable,
+          badgeLabel: 'Cloud AI Timeout · Local Ova',
+          detail: 'Cloud AI timed out. Local Ova answered above—tap Retry or add an AI key in AI Settings.',
+          httpStatus: 504,
+        ),
+      );
     } catch (e) {
       debugPrint('[OvaLlmClient] OpenRouter error: $e');
-      yield OvaLlmError('Could not reach the AI service. Check your connection.');
+      return const _StreamAttemptOutcome(
+        emitted: false,
+        diagnostic: OvaAiDiagnostic(
+          kind: OvaAiIssueKind.cloudUnavailable,
+          badgeLabel: 'Cloud AI Busy · Local Ova',
+          detail: 'Could not reach Cloud AI right now. Local Ova answered above—tap Retry or check AI Settings.',
+        ),
+      );
     } finally {
-      client.close();
+      if (ownsClient) client.close();
     }
   }
 
-  // ── Gemini (streamGenerateContent SSE) ─────────────────────────────────
+  // ── Gemini Direct (streamGenerateContent SSE) ──────────────────────────
 
-  Stream<OvaLlmEvent> _gemini(
-    String key,
-    String system,
-    List<Map<String, dynamic>> history,
-    List<OvaToolSpec> tools,
-    String? imageBase64,
-  ) async* {
-    final model = await vault.getPreferredGeminiModel();
+  Future<_StreamAttemptOutcome> _collectGemini({
+    required String key,
+    required String model,
+    required String system,
+    required List<Map<String, dynamic>> history,
+    required List<OvaToolSpec> tools,
+    required String? imageBase64,
+    required void Function(OvaLlmEvent) sink,
+  }) async {
     final contents = <Map<String, dynamic>>[];
     for (final m in history) {
       switch (m['role']) {
@@ -178,7 +428,7 @@ class OvaLlmClient {
           contents.add({
             'role': 'user',
             'parts': [
-              {'text': m['content']},
+              {'text': (m['content'] ?? '').toString()},
             ],
           });
           break;
@@ -189,7 +439,10 @@ class OvaLlmClient {
           for (final c in (m['tool_calls'] as List? ?? const [])) {
             final fn = (c as Map)['function'] as Map;
             parts.add({
-              'functionCall': {'name': fn['name'], 'args': _decodeArgs(fn['arguments'] as String? ?? '{}')},
+              'functionCall': {
+                'name': fn['name'],
+                'args': _decodeArgs(fn['arguments'] as String? ?? '{}'),
+              },
             });
           }
           if (parts.isNotEmpty) contents.add({'role': 'model', 'parts': parts});
@@ -209,7 +462,7 @@ class OvaLlmClient {
           break;
       }
     }
-    if (imageBase64 != null) {
+    if (imageBase64 != null && imageBase64.isNotEmpty) {
       final lastUser = contents.lastIndexWhere((c) => c['role'] == 'user');
       if (lastUser >= 0) {
         (contents[lastUser]['parts'] as List).add({
@@ -219,7 +472,8 @@ class OvaLlmClient {
     }
 
     final uri = Uri.parse(
-        'https://generativelanguage.googleapis.com/v1beta/models/$model:streamGenerateContent?alt=sse&key=$key');
+      'https://generativelanguage.googleapis.com/v1beta/models/$model:streamGenerateContent?alt=sse&key=$key',
+    );
     final req = http.Request('POST', uri)
       ..headers['Content-Type'] = 'application/json'
       ..body = jsonEncode({
@@ -234,14 +488,24 @@ class OvaLlmClient {
         ],
       });
 
-    final client = http.Client();
+    final client = _httpClient ?? http.Client();
+    final ownsClient = _httpClient == null;
     try {
-      final res = await client.send(req).timeout(const Duration(seconds: 30));
+      final res = await client.send(req).timeout(const Duration(seconds: 12));
       if (res.statusCode != 200) {
         final body = await res.stream.bytesToString();
-        yield OvaLlmError('AI service error ${res.statusCode}: ${_short(body)}');
-        return;
+        return _StreamAttemptOutcome(
+          emitted: false,
+          statusCode: res.statusCode,
+          diagnostic: OneovaAiGateway.classifyHttpFailure(
+            res.statusCode,
+            body,
+            usingUserKey: true,
+          ),
+        );
       }
+
+      var emittedAny = false;
       final calls = <OvaToolCall>[];
       await for (final line in res.stream.transform(utf8.decoder).transform(const LineSplitter())) {
         if (!line.startsWith('data:')) continue;
@@ -256,26 +520,105 @@ class OvaLlmClient {
         final parts = ((cands.first as Map)['content'] as Map?)?['parts'] as List? ?? const [];
         for (final p in parts) {
           final part = p as Map;
-          if (part['text'] is String) yield OvaTextDelta(part['text'] as String);
+          if (part['text'] is String && (part['text'] as String).isNotEmpty) {
+            emittedAny = true;
+            sink(OvaTextDelta(part['text'] as String));
+          }
           final fc = part['functionCall'];
           if (fc is Map) {
-            calls.add(OvaToolCall(
-              'g${DateTime.now().microsecondsSinceEpoch}_${calls.length}',
-              fc['name'] as String,
-              Map<String, dynamic>.from((fc['args'] as Map?) ?? const {}),
-            ));
+            calls.add(
+              OvaToolCall(
+                'g${DateTime.now().microsecondsSinceEpoch}_${calls.length}',
+                fc['name'] as String,
+                Map<String, dynamic>.from((fc['args'] as Map?) ?? const {}),
+              ),
+            );
           }
         }
       }
-      if (calls.isNotEmpty) yield OvaToolCallsEvent(calls);
+      if (calls.isNotEmpty) {
+        emittedAny = true;
+        sink(OvaToolCallsEvent(calls));
+      }
+      return _StreamAttemptOutcome(emitted: emittedAny);
+    } on SocketException {
+      return const _StreamAttemptOutcome(
+        emitted: false,
+        offline: true,
+        diagnostic: OvaAiDiagnostic(
+          kind: OvaAiIssueKind.offline,
+          badgeLabel: 'Offline Mode · Local Ova',
+          detail: 'No internet connection detected. Local Ova answered above—tap Retry when back online.',
+        ),
+      );
     } on TimeoutException {
-      yield OvaLlmError('The AI service took too long to answer.');
+      return const _StreamAttemptOutcome(
+        emitted: false,
+        statusCode: 504,
+        diagnostic: OvaAiDiagnostic(
+          kind: OvaAiIssueKind.cloudUnavailable,
+          badgeLabel: 'Connection Slow · Local Ova',
+          detail: 'Gemini stream timed out. Local Ova answered above—tap Retry.',
+          httpStatus: 504,
+        ),
+      );
     } catch (e) {
       debugPrint('[OvaLlmClient] Gemini error: $e');
-      yield OvaLlmError('Could not reach the AI service. Check your connection.');
+      return const _StreamAttemptOutcome(emitted: false);
     } finally {
-      client.close();
+      if (ownsClient) client.close();
     }
+  }
+
+  // ── Keyless Firebase AI Logic Stream ───────────────────────────────────
+
+  Future<List<OvaLlmEvent>> _tryFirebaseAiStream({
+    required String system,
+    required List<Map<String, dynamic>> history,
+    required String? imageBase64,
+  }) async {
+    final contents = <Content>[];
+    for (int i = 0; i < history.length; i++) {
+      final m = history[i];
+      final role = m['role'];
+      if (role != 'user' && role != 'assistant') continue;
+      final text = (m['content'] ?? '').toString().trim();
+      final parts = <Part>[
+        if (text.isNotEmpty) TextPart(text),
+      ];
+      if (imageBase64 != null && imageBase64.isNotEmpty && i == history.length - 1 && role == 'user') {
+        try {
+          parts.add(InlineDataPart('image/png', base64Decode(imageBase64)));
+        } catch (_) {}
+      }
+      if (parts.isEmpty) continue;
+      contents.add(role == 'user' ? Content.multi(parts) : Content.model(parts));
+    }
+    if (contents.isEmpty) return const [];
+
+    for (final (useVertex, modelName) in const [
+      (false, 'gemini-2.5-flash'),
+      (false, 'gemini-2.0-flash'),
+      (true, 'gemini-2.5-flash'),
+    ]) {
+      try {
+        final ai = useVertex
+            ? FirebaseAI.agentPlatform(location: 'us-central1')
+            : FirebaseAI.googleAI();
+        final gm = ai.generativeModel(
+          model: modelName,
+          systemInstruction: Content.system(system),
+        );
+        final res = await gm.generateContent(contents).timeout(const Duration(seconds: 8));
+        final text = res.text?.trim() ?? '';
+        if (text.isNotEmpty) {
+          return <OvaLlmEvent>[OvaTextDelta(text)];
+        }
+      } catch (e) {
+        if (kDebugMode) debugPrint('[OvaLlmClient] FirebaseAI($modelName) skipped: $e');
+      }
+    }
+    return const [];
   }
 
   static Map<String, dynamic> _decodeArgs(String raw) {
@@ -286,8 +629,6 @@ class OvaLlmClient {
       return <String, dynamic>{};
     }
   }
-
-  static String _short(String body) => body.length > 160 ? '${body.substring(0, 160)}…' : body;
 }
 
 class _PartialCall {

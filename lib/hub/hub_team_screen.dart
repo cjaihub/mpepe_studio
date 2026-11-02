@@ -1,4 +1,7 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
+import 'package:go_router/go_router.dart';
+import '../shared/theme/app_theme.dart';
 import '../shared/widgets/components.dart';
 import '../shared/widgets/studio_background.dart';
 
@@ -11,10 +14,38 @@ class HubTeamScreen extends StatelessWidget {
       backgroundIcons: const [Icons.hub_outlined, Icons.people_outline, Icons.dashboard_outlined],
       child: SafeArea(
         child: ListView(
-          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 24),
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 16),
           children: [
-            Text('Team & studio', style: TextStyle(fontSize: 23, fontWeight: FontWeight.w900, letterSpacing: -0.4, color: Theme.of(context).colorScheme.onSurface)),
-            const SizedBox(height: 14),
+            Row(
+              children: [
+                IconButton(
+                  tooltip: 'Back to Home',
+                  visualDensity: VisualDensity.compact,
+                  onPressed: () {
+                    HapticFeedback.lightImpact();
+                    if (Navigator.of(context).canPop()) {
+                      Navigator.of(context).pop();
+                    } else {
+                      context.go('/hub/home');
+                    }
+                  },
+                  icon: Icon(Icons.arrow_back_ios_new_rounded, size: 18, color: context.textPrimary),
+                ),
+                const SizedBox(width: 4),
+                Expanded(
+                  child: Text(
+                    'Team & studio',
+                    style: TextStyle(
+                      fontSize: 20,
+                      fontWeight: FontWeight.w800,
+                      letterSpacing: -0.3,
+                      color: context.textPrimary,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 12),
             OneovaCard(
               child: Row(
                 children: [

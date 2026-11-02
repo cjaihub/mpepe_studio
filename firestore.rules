@@ -432,11 +432,29 @@ service cloud.firestore {
         allow write: if false;
       }
 
+      // Server-only secrets (e.g. secure_tokens/gmail: the AES-256-GCM
+      // encrypted Gmail OAuth refresh token). Read and written only by Cloud
+      // Functions via the Admin SDK — no client access, not even owner/admin.
+      match /secure_tokens/{document=**} {
+        allow read, write: if false;
+      }
+
+      // Linked social accounts. Meta / TikTok flows write their own docs from
+      // the client; the gmail status doc (and anything beneath it) is written
+      // only by gmailConnect / gmailDisconnect, so clients may only read it.
+      match /social_connections/{connId}/{document=**} {
+        allow read: if isOwner(uid) || isAdmin();
+        allow write: if (isOwner(uid) || isAdmin()) && connId != 'gmail';
+      }
+
       // Other user subcollections (settings, looks, lookFolders, liveSettings,
       // liveProfiles, liveScenes, private data, etc.).
       // login_history stays append-only; entitlements stay server-written.
+      // Rules are OR-ed, so secure_tokens and social_connections are excluded
+      // here and governed only by their dedicated blocks above.
       match /{sub}/{document=**} {
-        allow read, write: if (isOwner(uid) || isAdmin()) && sub != 'login_history' && sub != 'entitlements';
+        allow read, write: if (isOwner(uid) || isAdmin()) &&
+                              !(sub in ['login_history', 'entitlements', 'secure_tokens', 'social_connections']);
       }
     }
 
@@ -491,6 +509,12 @@ service cloud.firestore {
       allow read, write: if false; // server-only feedback collection exported to BigQuery
     }
 
+    // Legacy Gmail OAuth token location (now users/{uid}/secure_tokens/gmail).
+    // Server-only; the global deny already covers it, kept explicit for clarity.
+    match /gmail_tokens/{uid} {
+      allow read, write: if false;
+    }
+
     // ─── Telemetry Events ────────────────────────────────────────────────────
     match /telemetry_events/{eventId} {
       // Viewers write their own events; creators read events about their clips.
@@ -505,7 +529,7 @@ service cloud.firestore {
     match /content/{contentId} {
       // resource == null: reading a missing doc (likes/saves check both
       // content/ and posts/ in one transaction) only reveals it doesn't exist.
-      allow read: if resource == null || canReadAuthorContent(resource.data.authorId);
+      allow read: if resource == null || resource.data.get('visibility', 'public') == 'public' || canReadAuthorContent(resource.data.authorId);
       // destination / click counters are written only by contentSetDestination
       // and contentOpenDestination (functions/src/feed/destinationLinks.ts).
       allow create: if isSignedIn() && !isSuspended() && request.resource.data.authorId == request.auth.uid &&
@@ -618,7 +642,7 @@ service cloud.firestore {
 
     // ─── Posts ───────────────────────────────────────────────────────────────
     match /posts/{postId} {
-      allow read: if resource == null || canReadAuthorContent(resource.data.authorId);
+      allow read: if resource == null || resource.data.get('visibility', 'public') == 'public' || canReadAuthorContent(resource.data.authorId);
       allow create: if isSignedIn() && !isSuspended() && request.resource.data.authorId == request.auth.uid;
       // Author edits; anyone else may only bump engagement counters.
       allow update: if isSignedIn() && !isSuspended() && (
@@ -678,7 +702,7 @@ service cloud.firestore {
 
     // ─── Stories ─────────────────────────────────────────────────────────────
     match /stories/{storyId} {
-      allow read: if resource == null || canReadAuthorContent(resource.data.authorId);
+      allow read: if resource == null || resource.data.get('visibility', 'public') == 'public' || canReadAuthorContent(resource.data.authorId);
       allow create: if isSignedIn() && !isSuspended() && request.resource.data.authorId == request.auth.uid;
       // Author edits; viewers may only record their view / reaction / reply.
       allow update: if isSignedIn() && !isSuspended() && (

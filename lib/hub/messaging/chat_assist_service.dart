@@ -1,15 +1,21 @@
+import 'dart:convert';
+
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:cloud_functions/cloud_functions.dart';
 import 'package:flutter/widgets.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../shared/services/voice_audio_cache.dart';
 import 'widgets/chat_background.dart';
+
+export '../../shared/services/voice_audio_cache.dart';
 
 /// Your own settings for one chat, at users/{uid}/chat_prefs/{chatId}.
 /// Private to you: highlights, messages deleted for you, and the AI toggle.
 class ChatPrefs {
   final bool aiEnabled;
   final bool aiAutoTranslate;
+  final bool aiAutoTranslateVoice;
   final Map<String, Timestamp> highlights;
   final Set<String> hidden;
 
@@ -19,6 +25,7 @@ class ChatPrefs {
   const ChatPrefs({
     this.aiEnabled = false,
     this.aiAutoTranslate = false,
+    this.aiAutoTranslateVoice = false,
     this.highlights = const {},
     this.hidden = const {},
     this.background,
@@ -33,6 +40,7 @@ class ChatPrefs {
     return ChatPrefs(
       aiEnabled: d['aiEnabled'] == true,
       aiAutoTranslate: d['aiAutoTranslate'] == true,
+      aiAutoTranslateVoice: d['aiAutoTranslateVoice'] == true,
       highlights: h,
       hidden: {...((d['hidden'] as List?) ?? const []).map((e) => e.toString())},
       background: ChatBackground.fromMap(d['background']),
@@ -87,11 +95,18 @@ class ChatAssistService {
   DocumentReference<Map<String, dynamic>> _prefsDoc(String uid, String chatId) =>
       _db.collection('users').doc(uid).collection('chat_prefs').doc(chatId);
 
-  Future<void> setAi(String uid, String chatId, {bool? enabled, bool? autoTranslate}) =>
+  Future<void> setAi(
+    String uid,
+    String chatId, {
+    bool? enabled,
+    bool? autoTranslate,
+    bool? autoTranslateVoice,
+  }) =>
       _prefsDoc(uid, chatId).set({
         'aiEnabled': ?enabled,
         // Turning AI off also stops auto-translate.
         'aiAutoTranslate': ?(enabled == false ? false : autoTranslate),
+        'aiAutoTranslateVoice': ?(enabled == false ? false : autoTranslateVoice),
         'updatedAt': FieldValue.serverTimestamp(),
       }, SetOptions(merge: true));
 
@@ -114,13 +129,64 @@ class ChatAssistService {
   Future<Map<String, dynamic>> _call(Map<String, dynamic> body) async {
     try {
       final res = await _functions
-          .httpsCallable('chatAssist', options: HttpsCallableOptions(timeout: const Duration(seconds: 45)))
+          .httpsCallable('chatAssist', options: HttpsCallableOptions(timeout: const Duration(seconds: 55)))
           .call(body);
       return Map<String, dynamic>.from(res.data as Map);
     } on FirebaseFunctionsException catch (e) {
       if (e.code == 'not-found') throw const ChatAssistException('Oneova AI for chats is not available yet.');
       throw ChatAssistException(e.message ?? 'Oneova AI could not help with that right now.');
     }
+  }
+
+  /// Translates a voice note into [target] (defaults to device language) and
+  /// synthesizes voice-matched audio preserving the speaker's vocal profile.
+  Future<VoiceTranslationResult> translateVoiceNote({
+    required String cacheKey,
+    required String audioPathOrUrl,
+    String? senderUid,
+    String? target,
+  }) {
+    final targetLang = target ?? deviceLanguage();
+    final fullKey = '$cacheKey::$targetLang';
+    return VoiceAudioDiskCache.runDeduplicatedTranslation(fullKey, () async {
+      final bytes = await VoiceAudioDiskCache.readAudioBytes(audioPathOrUrl);
+      if (bytes.isEmpty) {
+        throw const ChatAssistException('Voice note audio is empty.');
+      }
+      if (bytes.length > 4400000) {
+        throw const ChatAssistException('Voice note is too long to translate at once.');
+      }
+      final d = await _call({
+        'op': 'translateVoice',
+        'audioBase64': base64Encode(bytes),
+        'mimeType': VoiceAudioDiskCache.inferMimeType(audioPathOrUrl),
+        'target': targetLang,
+        if (senderUid != null && senderUid.isNotEmpty) 'senderUid': senderUid,
+      });
+
+      final audioB64 = (d['audioBase64'] ?? '').toString();
+      final audioMime = (d['audioMimeType'] ?? 'audio/wav').toString();
+      String? synthPath;
+      if (audioB64.isNotEmpty) {
+        synthPath = await VoiceAudioDiskCache.saveSynthesizedAudio(
+          cacheKey: fullKey,
+          base64Audio: audioB64,
+          mimeType: audioMime,
+        );
+      }
+
+      return VoiceTranslationResult(
+        transcript: (d['transcript'] ?? '').toString(),
+        translated: (d['translated'] ?? '').toString(),
+        source: (d['source'] ?? '').toString(),
+        target: targetLang,
+        same: d['same'] == true,
+        localAudioPath: synthPath,
+        voiceName: (d['voiceName'] ?? 'Aoede').toString(),
+        pitch: (d['pitch'] is num) ? (d['pitch'] as num).toDouble().clamp(0.85, 1.18) : 1.0,
+        rate: (d['rate'] is num) ? (d['rate'] as num).toDouble().clamp(0.85, 1.15) : 1.0,
+      );
+    });
   }
 
   Future<List<ChatTranslation>> translate(List<String> texts, {String? target}) async {

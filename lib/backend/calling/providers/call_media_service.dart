@@ -22,6 +22,13 @@ class CallMediaState {
   /// camera off.
   final bool isVideoOn;
   final bool isFrontCamera;
+
+  /// Zero-cost on-device Studio Voice Clean (hardware + WebRTC AEC/NS/AGC/HPF).
+  final bool isVoiceEnhanced;
+
+  /// Increments whenever tracks inside [localStream] are added/swapped so
+  /// renderers re-bind even when [localStream.id] stays the same.
+  final int streamRevision;
   final AudioRoute audioRoute;
   final List<AudioOutputOption> outputs;
 
@@ -30,6 +37,8 @@ class CallMediaState {
     this.isAudioMuted = false,
     this.isVideoOn = false,
     this.isFrontCamera = true,
+    this.isVoiceEnhanced = true,
+    this.streamRevision = 0,
     this.audioRoute = AudioRoute.earpiece,
     this.outputs = const [],
   });
@@ -42,6 +51,8 @@ class CallMediaState {
     bool? isAudioMuted,
     bool? isVideoOn,
     bool? isFrontCamera,
+    bool? isVoiceEnhanced,
+    int? streamRevision,
     AudioRoute? audioRoute,
     List<AudioOutputOption>? outputs,
   }) {
@@ -50,6 +61,8 @@ class CallMediaState {
       isAudioMuted: isAudioMuted ?? this.isAudioMuted,
       isVideoOn: isVideoOn ?? this.isVideoOn,
       isFrontCamera: isFrontCamera ?? this.isFrontCamera,
+      isVoiceEnhanced: isVoiceEnhanced ?? this.isVoiceEnhanced,
+      streamRevision: streamRevision ?? this.streamRevision,
       audioRoute: audioRoute ?? this.audioRoute,
       outputs: outputs ?? this.outputs,
     );
@@ -66,26 +79,50 @@ class CallMediaService extends Notifier<CallMediaState> {
 
   static const Map<String, dynamic> _videoConstraints = {
     'facingMode': 'user',
-    'width': {'ideal': 960},
-    'height': {'ideal': 540},
-    'frameRate': {'ideal': 24, 'max': 30},
+    'width': {'ideal': 1280},
+    'height': {'ideal': 720},
+    'frameRate': {'ideal': 30, 'max': 30},
   };
+
+  static Map<String, dynamic> _audioConstraints({required bool enhanced}) {
+    if (!enhanced) {
+      return const {
+        'echoCancellation': true,
+        'noiseSuppression': false,
+        'autoGainControl': false,
+        'channelCount': 1,
+        'sampleRate': 48000,
+      };
+    }
+    return const {
+      'echoCancellation': true,
+      'noiseSuppression': true,
+      'autoGainControl': true,
+      'highPassFilter': true,
+      'typingNoiseDetection': true,
+      'channelCount': 1,
+      'sampleRate': 48000,
+      'googEchoCancellation': true,
+      'googAutoGainControl': true,
+      'googNoiseSuppression': true,
+      'googHighpassFilter': true,
+      'googTypingNoiseDetection': true,
+    };
+  }
 
   /// Opens the microphone (and camera for video calls).
   Future<void> initializeMedia({required bool video}) async {
     if (state.localStream != null) return;
     final stream = await navigator.mediaDevices.getUserMedia({
-      'audio': {
-        'echoCancellation': true,
-        'noiseSuppression': true,
-        'autoGainControl': true,
-      },
+      'audio': _audioConstraints(enhanced: state.isVoiceEnhanced),
       'video': video ? _videoConstraints : false,
     });
     state = state.copyWith(
       localStream: stream,
       isVideoOn: video,
+      isFrontCamera: true,
       isAudioMuted: false,
+      streamRevision: state.streamRevision + 1,
       audioRoute: video ? AudioRoute.speaker : AudioRoute.earpiece,
     );
     navigator.mediaDevices.ondevicechange = (_) => _onDevicesChanged();
@@ -144,7 +181,11 @@ class CallMediaService extends Notifier<CallMediaState> {
       });
       final track = cam.getVideoTracks().first;
       await stream.addTrack(track);
-      state = state.copyWith(isVideoOn: true, localStream: stream);
+      state = state.copyWith(
+        isVideoOn: true,
+        localStream: stream,
+        streamRevision: state.streamRevision + 1,
+      );
       if (state.audioRoute == AudioRoute.earpiece) await selectRoute(AudioRoute.speaker);
       return track;
     }
@@ -152,15 +193,85 @@ class CallMediaService extends Notifier<CallMediaState> {
     for (final t in tracks) {
       t.enabled = on;
     }
-    state = state.copyWith(isVideoOn: on);
+    state = state.copyWith(isVideoOn: on, streamRevision: state.streamRevision + 1);
     return on && tracks.isNotEmpty ? tracks.first : null;
   }
 
-  Future<void> switchCamera() async {
-    final tracks = state.localStream?.getVideoTracks() ?? const <MediaStreamTrack>[];
-    if (tracks.isEmpty) return;
-    await Helper.switchCamera(tracks.first);
-    state = state.copyWith(isFrontCamera: !state.isFrontCamera);
+  /// Flips front ↔ rear camera. Uses native hardware switch first (<120ms,
+  /// zero renegotiation); falls back to capturing a new track if a device HAL
+  /// rejects in-place switching. Returns a replacement track only on fallback.
+  Future<MediaStreamTrack?> switchCamera() async {
+    final stream = state.localStream;
+    final tracks = stream?.getVideoTracks() ?? const <MediaStreamTrack>[];
+    if (stream == null || tracks.isEmpty) return null;
+    final nextFront = !state.isFrontCamera;
+    try {
+      await Helper.switchCamera(tracks.first);
+      state = state.copyWith(
+        isFrontCamera: nextFront,
+        streamRevision: state.streamRevision + 1,
+      );
+      return null;
+    } catch (e) {
+      debugPrint('[CallMedia] Helper.switchCamera fallback: $e');
+      final cam = await navigator.mediaDevices.getUserMedia({
+        'audio': false,
+        'video': {..._videoConstraints, 'facingMode': nextFront ? 'user' : 'environment'},
+      });
+      final newTrack = cam.getVideoTracks().first;
+      for (final old in List<MediaStreamTrack>.from(tracks)) {
+        try {
+          await stream.removeTrack(old);
+          await old.stop();
+        } catch (_) {}
+      }
+      await stream.addTrack(newTrack);
+      state = state.copyWith(
+        isFrontCamera: nextFront,
+        localStream: stream,
+        streamRevision: state.streamRevision + 1,
+      );
+      return newTrack;
+    }
+  }
+
+  /// Toggles zero-cost Studio Voice Clean (hardware + WebRTC DSP) and returns
+  /// the hot-swapped audio track if a call is active.
+  Future<MediaStreamTrack?> toggleVoiceEnhanced() => setVoiceEnhanced(!state.isVoiceEnhanced);
+
+  Future<MediaStreamTrack?> setVoiceEnhanced(bool enhanced) async {
+    if (state.isVoiceEnhanced == enhanced) return null;
+    final stream = state.localStream;
+    if (stream == null) {
+      state = state.copyWith(isVoiceEnhanced: enhanced);
+      return null;
+    }
+    try {
+      final fresh = await navigator.mediaDevices.getUserMedia({
+        'audio': _audioConstraints(enhanced: enhanced),
+        'video': false,
+      });
+      final newAudio = fresh.getAudioTracks().firstOrNull;
+      if (newAudio == null) return null;
+      newAudio.enabled = !state.isAudioMuted;
+      for (final old in List<MediaStreamTrack>.from(stream.getAudioTracks())) {
+        try {
+          await stream.removeTrack(old);
+          await old.stop();
+        } catch (_) {}
+      }
+      await stream.addTrack(newAudio);
+      state = state.copyWith(
+        isVoiceEnhanced: enhanced,
+        localStream: stream,
+        streamRevision: state.streamRevision + 1,
+      );
+      return newAudio;
+    } catch (e) {
+      debugPrint('[CallMedia] setVoiceEnhanced($enhanced) failed: $e');
+      state = state.copyWith(isVoiceEnhanced: enhanced);
+      return null;
+    }
   }
 
   Future<void> refreshOutputs() async {
@@ -243,7 +354,11 @@ class CallMediaService extends Notifier<CallMediaState> {
   Future<void> disposeMedia() async {
     navigator.mediaDevices.ondevicechange = null;
     final stream = state.localStream;
-    state = const CallMediaState();
+    final keepVoiceClean = state.isVoiceEnhanced;
+    state = CallMediaState(isVoiceEnhanced: keepVoiceClean);
+    try {
+      await Helper.setSpeakerphoneOn(false);
+    } catch (_) {}
     if (stream == null) return;
     for (final t in stream.getTracks()) {
       try {

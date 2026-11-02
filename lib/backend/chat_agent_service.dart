@@ -103,8 +103,12 @@ class ChatAgentService {
           {'role': 'user', 'content': userText}
         ],
         taskType: 'general',
-        userContextPrompt: "${_omniAssistant.generateSystemPromptAdditions()}\\n\\nYou are the Onerova Studio Agent. The user is asking you for help. Read the connected computer's context if necessary.",
+        userContextPrompt: "${_omniAssistant.generateSystemPromptAdditions()}\\n\\nYou are the Oneova Studio Agent. The user is asking you for help. Read the connected computer's context if necessary.",
       );
+
+      if (response is AiTextResponse && response.isDegraded) {
+        return; // Do not auto-post offline fallback notices into user chats
+      }
 
       String replyText = '';
       if (response is AiTextResponse) {

@@ -239,7 +239,7 @@ class _EditorScreenState extends ConsumerState<EditorScreen> {
             if (context.canPop()) {
               context.pop();
             } else {
-              context.push('/social_hub/feed');
+              context.go('/hub/home');
             }
           },
         ),

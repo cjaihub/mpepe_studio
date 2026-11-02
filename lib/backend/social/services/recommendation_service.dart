@@ -84,13 +84,13 @@ class RecommendationService {
     return ranked.take(limit).toList();
   }
 
-  /// Content types the home feed shows: reels play, photos render full-screen.
-  static const feedContentTypes = <String>['short_video', 'photo'];
+  /// Content types the home feed shows: reels/videos play, photos render full-screen.
+  static const feedContentTypes = <String>['short_video', 'reel', 'reels', 'video', 'photo'];
 
   /// Whether [c] may appear in other users' public feeds.
   static bool isFeedEligible(Content c) =>
       c.visibility == 'public' &&
-      feedContentTypes.contains(c.type.name) &&
+      (c.type == ContentType.short_video || c.type == ContentType.photo) &&
       c.mediaUrl.isNotEmpty &&
       !c.mediaUrl.contains('picsum');
 
@@ -113,7 +113,7 @@ class RecommendationService {
   /// Real-time feed candidates: emits again whenever anyone publishes,
   /// edits or removes content (For You), or when the people the user follows
   /// post or the follow graph itself changes (Following / Friends).
-  Stream<List<Content>> watchFeedCandidates(String currentUserId, FeedMode mode, {int limit = 60}) {
+  Stream<List<Content>> watchFeedCandidates(String currentUserId, FeedMode mode, {int limit = 80}) {
     switch (mode) {
       case FeedMode.following:
       case FeedMode.followingCreators:
@@ -137,7 +137,7 @@ class RecommendationService {
     String currentUserId,
     FeedMode mode, {
     required DateTime before,
-    int limit = 30,
+    int limit = 40,
   }) async {
     final cursor = Timestamp.fromDate(before);
     switch (mode) {

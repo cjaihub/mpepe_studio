@@ -113,9 +113,11 @@ class _NotificationOverlayManagerState extends ConsumerState<NotificationOverlay
           final route = n.route ?? '/notifications';
           if (mounted) GoRouter.of(context).push(route);
         },
-        onReply: n.category == AppNotificationCategory.newMessage && n.payload?['chatId'] is String
+        onReply: (n.category == AppNotificationCategory.newMessage && n.payload?['chatId'] is String)
             ? (text) => _reply(n.payload!['chatId'] as String, text)
-            : null,
+            : ((n.category == AppNotificationCategory.comment || n.category == AppNotificationCategory.reply) && n.payload?['postId'] is String)
+                ? (text) => _replyComment(n.payload!['postId'] as String, text)
+                : null,
         onDone: _finish,
       ),
     );
@@ -137,6 +139,25 @@ class _NotificationOverlayManagerState extends ConsumerState<NotificationOverlay
     final me = FirebaseAuth.instance.currentUser?.uid;
     if (me == null || text.trim().isEmpty) return;
     await ref.read(messagingRepositoryProvider).sendMessage(chatId, me, text.trim());
+  }
+
+  Future<void> _replyComment(String postId, String text) async {
+    final me = FirebaseAuth.instance.currentUser?.uid;
+    if (me == null || text.trim().isEmpty) return;
+    try {
+      await FirebaseFirestore.instance.collection('posts').doc(postId).collection('comments').add({
+        'postId': postId,
+        'authorId': me,
+        'content': text.trim(),
+        'createdAt': FieldValue.serverTimestamp(),
+        'likeCount': 0,
+      });
+      await FirebaseFirestore.instance.collection('content').doc(postId).update({
+        'commentCount': FieldValue.increment(1),
+      }).catchError((_) {});
+    } catch (e) {
+      debugPrint('[NotificationOverlay] replyComment error: $e');
+    }
   }
 
   /// Plays the user's chosen tone. Go-live alerts ring twice with a firmer
@@ -514,6 +535,48 @@ class _PopupBannerState extends State<_PopupBanner> with TickerProviderStateMixi
             style: GoogleFonts.inter(color: context.textSecondary, fontSize: 12.5, height: 1.3),
           ),
         ),
+        if (n.category == AppNotificationCategory.like ||
+            n.category == AppNotificationCategory.comment ||
+            n.category == AppNotificationCategory.reply) ...[
+          const SizedBox(height: 4),
+          Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                decoration: BoxDecoration(
+                  color: AppColors.brandBlue.withValues(alpha: 0.12),
+                  borderRadius: BorderRadius.circular(AppRadius.xs),
+                  border: Border.all(color: AppColors.brandBlue.withValues(alpha: 0.28), width: 0.8),
+                ),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(
+                      n.category == AppNotificationCategory.like
+                          ? Icons.favorite_rounded
+                          : Icons.chat_bubble_rounded,
+                      size: 10,
+                      color: n.category == AppNotificationCategory.like
+                          ? AppColors.brandPink
+                          : AppColors.brandBlue,
+                    ),
+                    const SizedBox(width: 4),
+                    Text(
+                      n.category == AppNotificationCategory.like ? 'Liked your reel' : 'New comment on reel',
+                      style: GoogleFonts.inter(
+                        fontSize: 10.5,
+                        fontWeight: FontWeight.w700,
+                        color: n.category == AppNotificationCategory.like
+                            ? AppColors.brandPink
+                            : AppColors.brandBlue,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ],
         if (_expanded && n.thumbnailUrl != null) ...[
           const SizedBox(height: 8),
           ClipRRect(
@@ -529,15 +592,25 @@ class _PopupBannerState extends State<_PopupBanner> with TickerProviderStateMixi
 
   Widget _actions() {
     final isChat = n.category == AppNotificationCategory.newMessage;
+    final isComment = n.category == AppNotificationCategory.comment ||
+        n.category == AppNotificationCategory.reply ||
+        n.category == AppNotificationCategory.mention;
+    final isLike = n.category == AppNotificationCategory.like ||
+        n.category == AppNotificationCategory.reaction;
     final (label, icon) = _primaryAction();
+
     return Padding(
       padding: const EdgeInsets.fromLTRB(12, 0, 12, 10),
       child: Row(
         children: [
-          if (isChat && widget.onReply != null) ...[
+          if ((isChat || isComment) && widget.onReply != null) ...[
             _chip(Icons.reply_rounded, 'Reply', _startReply, primary: true),
             const SizedBox(width: 8),
-            _chip(Icons.open_in_new_rounded, 'Open', widget.onOpen),
+            _chip(Icons.open_in_new_rounded, 'View', widget.onOpen),
+          ] else if (isLike) ...[
+            _chip(Icons.favorite_rounded, '❤️ Like back', widget.onOpen, primary: true),
+            const SizedBox(width: 8),
+            _chip(Icons.play_circle_outline_rounded, 'View reel', widget.onOpen),
           ] else
             _chip(icon, label, widget.onOpen, primary: true),
           const Spacer(),

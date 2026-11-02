@@ -199,7 +199,7 @@ class CallSoundEvent {
   const CallSoundEvent(this.id, this.sound, this.senderId, this.senderName);
 }
 
-enum CallLayout { grid, spotlight }
+enum CallLayout { grid, spotlight, split }
 
 class CallRoomState {
   final String? callId;

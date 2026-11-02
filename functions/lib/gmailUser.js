@@ -34,6 +34,8 @@ var __importStar = (this && this.__importStar) || (function () {
 })();
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.gmailCall = exports.gmailDisconnect = exports.gmailStatus = exports.gmailConnect = exports.GMAIL_SCOPES = void 0;
+exports.encryptWith = encryptWith;
+exports.decryptWith = decryptWith;
 /**
  * Each Oneova user's own Gmail, connected in Connected accounts.
  *
@@ -43,9 +45,14 @@ exports.gmailCall = exports.gmailDisconnect = exports.gmailStatus = exports.gmai
  *   gmailDisconnect()                 revoke at Google and delete everything
  *   gmailCall({ action, ... })        list / get / send / reply / modify / trash
  *
- * Tokens live in `gmail_tokens/{uid}` (server only; rules deny clients) and
- * are encrypted with AES-256-GCM. The app only sees a public status doc at
- * `users/{uid}/social_connections/gmail`.
+ * The refresh token lives under the user's own document at
+ * `users/{uid}/secure_tokens/gmail` (server only; rules deny every client,
+ * owner and admin included). It is encrypted with AES-256-GCM and the uid is
+ * bound in as associated data, so a blob copied to another user's doc won't
+ * decrypt. The app only sees a status doc at
+ * `users/{uid}/social_connections/gmail`, also server-written.
+ * Tokens from the old top-level `gmail_tokens/{uid}` location are moved on
+ * first use.
  *
  * Setup (once, project mpepe-2b4bd):
  *   - GOOGLE_WEB_CLIENT_ID in functions/.env.mpepe-2b4bd (the Web client from
@@ -79,17 +86,66 @@ async function key() {
         throw new https_1.HttpsError('failed-precondition', 'Gmail connection is not set up on the server yet.');
     return buf;
 }
-async function encrypt(plain) {
+/** `v2.iv.tag.data`, base64 parts; [uid] is the GCM associated data. */
+function encryptWith(k, plain, uid) {
     const iv = crypto.randomBytes(12);
-    const c = crypto.createCipheriv('aes-256-gcm', await key(), iv);
+    const c = crypto.createCipheriv('aes-256-gcm', k, iv);
+    c.setAAD(Buffer.from(uid, 'utf8'));
     const enc = Buffer.concat([c.update(plain, 'utf8'), c.final()]);
-    return [iv, c.getAuthTag(), enc].map((b) => b.toString('base64')).join('.');
+    return ['v2', ...[iv, c.getAuthTag(), enc].map((b) => b.toString('base64'))].join('.');
 }
-async function decrypt(blob) {
-    const [iv, tag, enc] = blob.split('.').map((s) => Buffer.from(s, 'base64'));
-    const d = crypto.createDecipheriv('aes-256-gcm', await key(), iv);
+/** Reads `v2.` blobs (uid-bound) and the original `iv.tag.data` format. */
+function decryptWith(k, blob, uid) {
+    const parts = blob.split('.');
+    const v2 = parts[0] === 'v2';
+    const [iv, tag, enc] = (v2 ? parts.slice(1) : parts).map((s) => Buffer.from(s, 'base64'));
+    const d = crypto.createDecipheriv('aes-256-gcm', k, iv);
+    if (v2)
+        d.setAAD(Buffer.from(uid, 'utf8'));
     d.setAuthTag(tag);
     return Buffer.concat([d.update(enc), d.final()]).toString('utf8');
+}
+async function encrypt(plain, uid) {
+    return encryptWith(await key(), plain, uid);
+}
+async function decrypt(blob, uid) {
+    return decryptWith(await key(), blob, uid);
+}
+// ── token storage ────────────────────────────────────────────────────────
+const tokenRef = (uid) => db().collection('users').doc(uid).collection('secure_tokens').doc('gmail');
+const legacyTokenRef = (uid) => db().collection('gmail_tokens').doc(uid);
+const statusRef = (uid) => db().collection('users').doc(uid).collection('social_connections').doc('gmail');
+/** The user's stored token; moves one from the old top-level location if needed. */
+async function loadToken(uid) {
+    var _a, _b, _c, _d, _e;
+    const snap = await tokenRef(uid).get();
+    if (snap.exists && snap.get('refreshToken')) {
+        return { refreshToken: snap.get('refreshToken'), email: (_a = snap.get('email')) !== null && _a !== void 0 ? _a : '' };
+    }
+    const legacy = await legacyTokenRef(uid).get();
+    const enc = legacy.get('refreshToken');
+    if (!enc)
+        return null;
+    const refreshToken = await encrypt(await decrypt(enc, uid), uid);
+    const batch = db().batch();
+    batch.set(tokenRef(uid), {
+        refreshToken,
+        email: (_b = legacy.get('email')) !== null && _b !== void 0 ? _b : '',
+        scopes: (_c = legacy.get('scopes')) !== null && _c !== void 0 ? _c : [],
+        connectedAt: (_d = legacy.get('connectedAt')) !== null && _d !== void 0 ? _d : firestore_1.FieldValue.serverTimestamp(),
+        movedAt: firestore_1.FieldValue.serverTimestamp(),
+    });
+    batch.delete(legacyTokenRef(uid));
+    await batch.commit();
+    return { refreshToken, email: (_e = legacy.get('email')) !== null && _e !== void 0 ? _e : '' };
+}
+/** Removes the token (both locations) and the public status doc. */
+async function clearToken(uid) {
+    const batch = db().batch();
+    batch.delete(tokenRef(uid));
+    batch.delete(legacyTokenRef(uid));
+    batch.delete(statusRef(uid));
+    await batch.commit();
 }
 // ── OAuth client ─────────────────────────────────────────────────────────
 async function oauth() {
@@ -108,12 +164,15 @@ function uidOf(req) {
     return a.uid;
 }
 async function gmailFor(uid) {
-    const snap = await db().collection('gmail_tokens').doc(uid).get();
-    const enc = snap.get('refreshToken');
-    if (!enc)
+    const stored = await loadToken(uid);
+    if (!stored) {
+        // A status doc without a token (e.g. written by an older app build) would
+        // show Gmail as connected when it can't work: remove it.
+        await statusRef(uid).delete().catch(() => undefined);
         throw new https_1.HttpsError('failed-precondition', 'Connect Gmail first (Connected accounts → Gmail).');
+    }
     const client = await oauth();
-    client.setCredentials({ refresh_token: await decrypt(enc) });
+    client.setCredentials({ refresh_token: await decrypt(stored.refreshToken, uid) });
     return googleapis_1.google.gmail({ version: 'v1', auth: client });
 }
 function str(v, max = 20000) {
@@ -147,42 +206,45 @@ exports.gmailConnect = (0, https_1.onCall)(async (request) => {
     client.setCredentials(tokens);
     const profile = await googleapis_1.google.gmail({ version: 'v1', auth: client }).users.getProfile({ userId: 'me' });
     const email = (_c = profile.data.emailAddress) !== null && _c !== void 0 ? _c : '';
-    await db().collection('gmail_tokens').doc(uid).set({
-        refreshToken: await encrypt(tokens.refresh_token),
+    const batch = db().batch();
+    batch.set(tokenRef(uid), {
+        refreshToken: await encrypt(tokens.refresh_token, uid),
         email,
         scopes: granted,
         connectedAt: firestore_1.FieldValue.serverTimestamp(),
     });
-    await db().collection('users').doc(uid).collection('social_connections').doc('gmail').set({
+    batch.delete(legacyTokenRef(uid));
+    batch.set(statusRef(uid), {
         platform: 'gmail',
         accountName: email,
+        email,
+        grantedScopes: exports.GMAIL_SCOPES,
         scopes: exports.GMAIL_SCOPES.map((s) => s.split('/').pop()),
+        // The refresh token is held server-side (secure_tokens/gmail).
+        tokenStore: 'server',
         connectedAt: firestore_1.FieldValue.serverTimestamp(),
     });
+    await batch.commit();
     return { ok: true, email };
 });
 exports.gmailStatus = (0, https_1.onCall)(async (request) => {
-    var _a;
     const uid = uidOf(request);
-    const snap = await db().collection('gmail_tokens').doc(uid).get();
-    return snap.exists ? { connected: true, email: (_a = snap.get('email')) !== null && _a !== void 0 ? _a : '' } : { connected: false };
+    const stored = await loadToken(uid);
+    return stored ? { connected: true, email: stored.email } : { connected: false };
 });
 exports.gmailDisconnect = (0, https_1.onCall)(async (request) => {
     const uid = uidOf(request);
-    const ref = db().collection('gmail_tokens').doc(uid);
-    const snap = await ref.get();
-    const enc = snap.get('refreshToken');
-    if (enc) {
+    const stored = await loadToken(uid).catch(() => null);
+    if (stored) {
         try {
             const client = await oauth();
-            await client.revokeToken(await decrypt(enc));
+            await client.revokeToken(await decrypt(stored.refreshToken, uid));
         }
         catch (e) {
             logger.warn('[gmailDisconnect] revoke failed (token may already be gone)', { error: String(e) });
         }
     }
-    await ref.delete();
-    await db().collection('users').doc(uid).collection('social_connections').doc('gmail').delete();
+    await clearToken(uid);
     return { ok: true };
 });
 // ── mail actions ─────────────────────────────────────────────────────────
@@ -227,7 +289,7 @@ function rfc822(to, subject, body, inReplyTo) {
     return Buffer.from(lines.join('\r\n')).toString('base64url');
 }
 function summary(m) {
-    var _a, _b, _c;
+    var _a, _b, _c, _d;
     return {
         id: m.id,
         threadId: m.threadId,
@@ -235,9 +297,10 @@ function summary(m) {
         to: header(m, 'To'),
         subject: header(m, 'Subject'),
         date: header(m, 'Date'),
-        snippet: (_a = m.snippet) !== null && _a !== void 0 ? _a : '',
-        unread: ((_b = m.labelIds) !== null && _b !== void 0 ? _b : []).includes('UNREAD'),
-        starred: ((_c = m.labelIds) !== null && _c !== void 0 ? _c : []).includes('STARRED'),
+        internalDate: (_a = m.internalDate) !== null && _a !== void 0 ? _a : null,
+        snippet: (_b = m.snippet) !== null && _b !== void 0 ? _b : '',
+        unread: ((_c = m.labelIds) !== null && _c !== void 0 ? _c : []).includes('UNREAD'),
+        starred: ((_d = m.labelIds) !== null && _d !== void 0 ? _d : []).includes('STARRED'),
     };
 }
 exports.gmailCall = (0, https_1.onCall)(async (request) => {
@@ -302,8 +365,7 @@ exports.gmailCall = (0, https_1.onCall)(async (request) => {
         const msg = String((_f = e.message) !== null && _f !== void 0 ? _f : e);
         if (/invalid_grant/.test(msg)) {
             // The user removed access in their Google account: clean up.
-            await db().collection('gmail_tokens').doc(uid).delete();
-            await db().collection('users').doc(uid).collection('social_connections').doc('gmail').delete();
+            await clearToken(uid);
             throw new https_1.HttpsError('failed-precondition', 'Gmail access was removed. Connect Gmail again.');
         }
         logger.warn('[gmailCall] failed', { action: d.action, error: msg });

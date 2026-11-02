@@ -29,7 +29,8 @@ exports.GIFT_CATALOG = {
     castle: { label: 'Castle', coins: 2500 },
     galaxy: { label: 'Galaxy', coins: 5000 },
 };
-exports.HOST_SHARE = 0.5;
+/** Creator keeps 80% of every gift; Oneova keeps 20%. */
+exports.HOST_SHARE = 0.8;
 exports.MAX_QTY = 99;
 exports.RECENT_GIFTS = 15;
 class GiftError extends Error {
@@ -47,7 +48,7 @@ function parseGift(data) {
 }
 function giftPrice(giftId, qty) {
     const total = exports.GIFT_CATALOG[giftId].coins * qty;
-    return { total, hostCoins: Math.floor(total * exports.HOST_SHARE) };
+    return { total, hostCoins: Math.ceil(total * exports.HOST_SHARE) };
 }
 /** Newest first, capped at RECENT_GIFTS. */
 function pushRecent(list, g) {

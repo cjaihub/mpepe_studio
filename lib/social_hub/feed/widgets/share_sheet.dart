@@ -1,13 +1,19 @@
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:cloud_functions/cloud_functions.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:share_plus/share_plus.dart';
+import 'package:uuid/uuid.dart';
 
+import '../../../../backend/social/models/content.dart';
 import '../../../../backend/social/models/share_models.dart';
+import '../../../../backend/social/models/story.dart';
 import '../../../../backend/social/services/share_service.dart';
+import '../../../../backend/social/services/story_service.dart';
 import '../../../../shared/theme/app_theme.dart';
+import '../../../../shared/widgets/oneova_voice_typing_button.dart';
 
 enum _Tab { chats, following, followers }
 
@@ -18,20 +24,27 @@ enum _Tab { chats, following, followers }
 class ShareSheet extends ConsumerStatefulWidget {
   final String postId;
   final String authorId;
+  final Content? content;
 
   const ShareSheet({
     super.key,
     required this.postId,
     required this.authorId,
+    this.content,
   });
 
-  static void show(BuildContext context, {required String postId, required String authorId}) {
+  static void show(
+    BuildContext context, {
+    required String postId,
+    required String authorId,
+    Content? content,
+  }) {
     HapticFeedback.lightImpact();
     showModalBottomSheet(
       context: context,
       backgroundColor: Colors.transparent,
       isScrollControlled: true,
-      builder: (_) => ShareSheet(postId: postId, authorId: authorId),
+      builder: (_) => ShareSheet(postId: postId, authorId: authorId, content: content),
     );
   }
 
@@ -155,6 +168,83 @@ class _ShareSheetState extends ConsumerState<ShareSheet> {
     }
   }
 
+  Future<void> _shareToStory() async {
+    final user = FirebaseAuth.instance.currentUser;
+    if (user == null) {
+      _toast('Please sign in to share to your status.');
+      return;
+    }
+    setState(() => _busy = true);
+    try {
+      String mediaUrl = '';
+      String thumbnailUrl = '';
+      bool isPhoto = false;
+
+      if (widget.content != null) {
+        mediaUrl = widget.content!.mediaUrl;
+        thumbnailUrl = widget.content!.mediaMetadata.thumbnailUrl ??
+            widget.content!.mediaMetadata.posterFrameUrl ??
+            '';
+        isPhoto = widget.content!.type == ContentType.photo;
+      } else {
+        final doc = await FirebaseFirestore.instance.collection('content').doc(widget.postId).get();
+        if (doc.exists) {
+          final data = doc.data() ?? {};
+          mediaUrl = data['mediaUrl'] as String? ?? '';
+          final meta = data['mediaMetadata'] as Map<String, dynamic>?;
+          thumbnailUrl = (meta?['thumbnailUrl'] ?? meta?['posterFrameUrl'] ?? '') as String;
+          isPhoto = data['type'] == 'photo';
+        }
+      }
+
+      if (mediaUrl.isEmpty && thumbnailUrl.isEmpty) {
+        _toast('Could not load content to add to status.');
+        return;
+      }
+
+      final now = DateTime.now();
+      final story = Story(
+        id: const Uuid().v4(),
+        authorId: user.uid,
+        authorName: user.displayName ?? 'Creator',
+        authorAvatarUrl: user.photoURL ?? '',
+        mediaType: isPhoto ? StoryMediaType.photo : StoryMediaType.video,
+        mediaUrl: mediaUrl.isNotEmpty ? mediaUrl : thumbnailUrl,
+        createdAt: now,
+        expiresAt: now.add(const Duration(hours: 24)),
+        privacy: StoryPrivacy.public,
+        lifecycle: StoryLifecycle.published,
+        interactiveElements: [
+          InteractiveElement(
+            type: 'shared_post',
+            x: 0.5,
+            y: 0.5,
+            data: {
+              'postId': widget.postId,
+              'authorId': widget.authorId,
+              'thumbnailUrl': thumbnailUrl,
+              'caption': _note.text.trim().isNotEmpty
+                  ? _note.text.trim()
+                  : (widget.content?.description ?? ''),
+            },
+          ),
+        ],
+      );
+
+      await ref.read(storyServiceProvider).createStory(story);
+      await _svc.recordShare(widget.postId, _me);
+
+      HapticFeedback.mediumImpact();
+      if (!mounted) return;
+      Navigator.of(context).pop();
+      _toast('Added to your Status / Story! (active for 24h)');
+    } catch (e) {
+      _toast('Failed to share to status: $e');
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
   Future<void> _copyLink() async {
     final url = _svc.linkFor(widget.postId, _me);
     await Clipboard.setData(ClipboardData(text: url));
@@ -253,6 +343,10 @@ class _ShareSheetState extends ConsumerState<ShareSheet> {
             hintStyle: TextStyle(fontSize: 13, color: context.textMuted),
             prefixIcon: Icon(Icons.search_rounded, size: 18, color: context.textMuted),
             prefixIconConstraints: const BoxConstraints(minWidth: 36),
+            suffixIcon: OneovaVoiceTypingButton(
+              controller: _search,
+              tooltip: 'Dictate name or chat',
+            ),
             contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
             filled: true,
             fillColor: context.surfaceMid,
@@ -451,6 +545,10 @@ class _ShareSheetState extends ConsumerState<ShareSheet> {
             hintStyle: TextStyle(fontSize: 13, color: context.textMuted),
             prefixIcon: Icon(Icons.edit_outlined, size: 16, color: context.textMuted),
             prefixIconConstraints: const BoxConstraints(minWidth: 36),
+            suffixIcon: OneovaVoiceTypingButton(
+              controller: _note,
+              tooltip: 'Dictate message',
+            ),
             contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
             border: OutlineInputBorder(
               borderRadius: BorderRadius.circular(AppRadius.sm),
@@ -481,7 +579,7 @@ class _ShareSheetState extends ConsumerState<ShareSheet> {
       );
 
   Widget _quickActions() {
-    Widget action(IconData icon, String label, VoidCallback? onTap, {bool accent = false}) => Expanded(
+    Widget action(IconData icon, String label, VoidCallback? onTap, {bool accent = false, Color? accentColor}) => Expanded(
           child: InkWell(
             borderRadius: BorderRadius.circular(AppRadius.md),
             onTap: onTap,
@@ -494,14 +592,14 @@ class _ShareSheetState extends ConsumerState<ShareSheet> {
                     width: 42,
                     height: 42,
                     decoration: BoxDecoration(
-                      color: accent ? AppColors.brandBlue : context.surfaceMid,
+                      color: accent ? (accentColor ?? AppColors.brandBlue) : context.surfaceMid,
                       shape: BoxShape.circle,
-                      border: Border.all(color: accent ? AppColors.brandBlue : context.border),
+                      border: Border.all(color: accent ? (accentColor ?? AppColors.brandBlue) : context.border),
                     ),
                     child: Icon(icon, size: 19, color: accent ? Colors.white : context.textPrimary),
                   ),
                   const SizedBox(height: 5),
-                  Text(label, style: TextStyle(fontSize: 11, fontWeight: FontWeight.w600, color: context.textSecondary)),
+                  Text(label, maxLines: 1, overflow: TextOverflow.ellipsis, style: TextStyle(fontSize: 10.5, fontWeight: FontWeight.w600, color: context.textSecondary)),
                 ],
               ),
             ),
@@ -511,7 +609,14 @@ class _ShareSheetState extends ConsumerState<ShareSheet> {
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
       child: Row(
         children: [
-          action(Icons.link_rounded, 'Copy link', _private ? null : _copyLink, accent: true),
+          action(
+            Icons.auto_stories_rounded,
+            'Add to Story',
+            _private || _busy ? null : _shareToStory,
+            accent: true,
+            accentColor: AppColors.brandPink,
+          ),
+          action(Icons.link_rounded, 'Copy link', _private ? null : _copyLink, accent: true, accentColor: AppColors.brandBlue),
           action(Icons.campaign_outlined, 'All followers',
               _private || _busy ? null : () => _shareToAll(followers: true)),
           action(Icons.ios_share_rounded, 'More apps', _private ? null : _systemShare),

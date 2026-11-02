@@ -22,6 +22,8 @@ exports.Paths = {
 exports.Limits = {
     wallSlots: 6,
     phoneWallSlots: 4,
+    /** Most people on the stage panel at once, host included. */
+    maxOnStage: 10,
     speakToTakeCenterMs: 1500,
     minCenterHoldMs: 4000,
     leaderFailoverMs: 10000,
@@ -70,6 +72,7 @@ exports.Topics = {
     react: 'react',
     counts: 'counts',
     requests: 'stage.req',
+    pool: 'studio.pool',
 };
 exports.TABLE_SCREEN_TRACK = 'table_screen';
 const emptyStage = (centerUid) => ({
@@ -81,6 +84,6 @@ const emptyStage = (centerUid) => ({
     updatedBy: '',
 });
 exports.emptyStage = emptyStage;
-const shareUrl = (streamId) => `https://mpepe-2b4bd.web.app/live/${streamId}`;
+const shareUrl = (streamId) => `https://oneova.web.app/live/${streamId}`;
 exports.shareUrl = shareUrl;
 //# sourceMappingURL=contracts.js.map

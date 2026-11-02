@@ -155,6 +155,13 @@ extension _ChatUpgrades on _ChatDetailScreenState {
                           })
                         : tile(Icons.translate_rounded, 'Translate', () => _translateOne(message),
                             hint: prefs.aiEnabled ? null : 'Sends this message to Oneova AI'),
+                  if (message.mediaType == 'audio')
+                    tile(
+                      Icons.record_voice_over_rounded,
+                      'Translate in speaker voice',
+                      () => VoiceAudioDiskCache.requestTranslate(message.id),
+                      hint: prefs.aiEnabled ? null : 'Translates & speaks in speaker voice',
+                    ),
                   tile(
                     highlighted ? Icons.star_rounded : Icons.star_outline_rounded,
                     highlighted ? 'Remove highlight' : 'Highlight',
@@ -439,6 +446,37 @@ extension _ChatUpgrades on _ChatDetailScreenState {
     }
   }
 
+  Future<void> _setAutoTranslateVoice(bool on) async {
+    if (_myUid.isEmpty) return;
+    try {
+      await ref.read(chatAssistServiceProvider).setAi(_myUid, widget.chatId, autoTranslateVoice: on);
+    } catch (_) {
+      _toast("Couldn't change voice note auto-translate.");
+    }
+  }
+
+  Future<VoiceTranslationResult> _translateVoiceMessage(
+    MessageModel message, {
+    required String decryptedOrResolvedPath,
+  }) async {
+    if (!_prefs.aiEnabled) {
+      final ok = await _confirmAi(
+        title: 'Translate voice note in speaker voice?',
+        body: 'Only this voice note is sent to Oneova AI to translate it into your language '
+            'and synthesize audio matched to the speaker\'s voice. AI stays off for the rest of this chat.',
+        cta: 'Translate',
+      );
+      if (!ok) {
+        throw const ChatAssistException('Voice translation cancelled.');
+      }
+    }
+    return ref.read(chatAssistServiceProvider).translateVoiceNote(
+          cacheKey: message.id,
+          audioPathOrUrl: decryptedOrResolvedPath,
+          senderUid: message.senderId,
+        );
+  }
+
   /// Plain text lines for the AI, oldest first, skipping undecrypted ones.
   List<AssistLine> _assistLines(int count) {
     final out = <AssistLine>[];
@@ -661,6 +699,21 @@ extension _ChatUpgrades on _ChatDetailScreenState {
                     style: GoogleFonts.inter(color: ctx.textMuted, fontSize: 11)),
                 value: prefs.aiEnabled && prefs.aiAutoTranslate,
                 onChanged: prefs.aiEnabled ? (v) => _setAutoTranslate(v) : null,
+              ),
+              SwitchListTile.adaptive(
+                contentPadding: EdgeInsets.zero,
+                dense: true,
+                activeTrackColor: AppColors.brandPink,
+                title: Text('Auto-translate voice notes',
+                    style: GoogleFonts.inter(
+                        color: prefs.aiEnabled ? ctx.textPrimary : ctx.textMuted,
+                        fontSize: 13.5,
+                        fontWeight: FontWeight.w600)),
+                subtitle: Text(
+                    'Translates incoming voice notes into ${ChatAssistService.deviceLanguage()} using the speaker\'s voice.',
+                    style: GoogleFonts.inter(color: ctx.textMuted, fontSize: 11)),
+                value: prefs.aiEnabled && prefs.aiAutoTranslateVoice,
+                onChanged: prefs.aiEnabled ? (v) => _setAutoTranslateVoice(v) : null,
               ),
               const SizedBox(height: 4),
               SizedBox(

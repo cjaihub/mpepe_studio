@@ -187,7 +187,22 @@ class _MeSection extends ConsumerWidget {
                 label: media.isFrontCamera ? 'Front' : 'Back',
                 onTap: controller.switchCamera,
               ),
+            CallControlButton(
+              icon: Icons.graphic_eq_rounded,
+              label: media.isVoiceEnhanced ? 'HD Voice' : 'Natural',
+              active: media.isVoiceEnhanced,
+              onTap: controller.toggleVoiceEnhance,
+            ),
           ],
+        ),
+        Padding(
+          padding: const EdgeInsets.only(top: 10, left: 4, right: 4),
+          child: Text(
+            media.isVoiceEnhanced
+                ? 'Studio Voice Clean is on: hardware noise suppression, echo cancellation, and Opus HD voice active with zero cloud latency.'
+                : 'Natural mic mode: raw room acoustics without noise suppression.',
+            style: GoogleFonts.inter(fontSize: 11, color: context.textSecondary, height: 1.35),
+          ),
         ),
         _sectionTitle(context, 'Audio output'),
         for (final o in media.outputs)
@@ -616,6 +631,34 @@ class _LayoutSection extends ConsumerWidget {
                     label: 'Spotlight',
                     selected: room.layout == CallLayout.spotlight,
                     onTap: () => roomCtl.setLayout(CallLayout.spotlight),
+                  ),
+                ),
+              ),
+            ],
+          )
+        else
+          Row(
+            children: [
+              Expanded(
+                child: AspectRatio(
+                  aspectRatio: 1.6,
+                  child: _PadTile(
+                    icon: Icons.picture_in_picture_alt_rounded,
+                    label: 'Picture-in-Picture',
+                    selected: room.layout != CallLayout.split,
+                    onTap: () => roomCtl.setLayout(CallLayout.grid),
+                  ),
+                ),
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: AspectRatio(
+                  aspectRatio: 1.6,
+                  child: _PadTile(
+                    icon: Icons.vertical_split_rounded,
+                    label: 'Dual Split 50/50',
+                    selected: room.layout == CallLayout.split,
+                    onTap: () => roomCtl.setLayout(CallLayout.split),
                   ),
                 ),
               ),

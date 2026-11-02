@@ -30,6 +30,7 @@ import 'create_group_screen.dart';
 import '../../providers/settings_provider.dart';
 import '../../backend/social/providers/unread_chat_count_provider.dart';
 import '../../backend/inbox/providers/presence_service.dart';
+import '../../shared/widgets/live_user_presence_dot.dart';
 import '../../ova_assistant/widgets/ova_assistant_sheet.dart';
 import '../../backend/social/models/creator_engagement_level.dart';
 
@@ -481,6 +482,10 @@ class _InAppMessagingScreenState extends ConsumerState<InAppMessagingScreen> {
                 // Top App Header
                 _buildTopAppHeader(),
 
+                // Top Section Tabs: Chats | Calls | Updates | Communities
+                // Placed at top so when in the chat panel there are no other menus under it
+                _buildTopSectionTabs(chatsAsync),
+
                 // Chat-list chrome (search, platform banner, filter pills) is hidden
                 // on the Status tab so it stays a clean WhatsApp-style status list.
                 if (_activeBottomTab != 1) ...[
@@ -499,19 +504,16 @@ class _InAppMessagingScreenState extends ConsumerState<InAppMessagingScreen> {
                     showCreatorProBanner: showCreatorProBanner,
                   ),
                 ),
-
-                // WhatsApp Style 4-Tab Bottom Navigation Bar
-                _buildBottomNavigationBar(chatsAsync),
               ],
             ),
 
-            // Two-Tiered Floating Action Buttons
+            // Two-Tiered Floating Action Buttons (compact 20px bottom offset, no menus below)
             if (_activeBottomTab == 0 &&
                 _activeFilter != 'rooms' &&
                 _activeFilter != 'vip' &&
                 (showAiStudioFab || showComposeFab))
               Positioned(
-                bottom: 78,
+                bottom: 20,
                 left: fabAlignment == 'left' ? 16 : null,
                 right: fabAlignment == 'right' ? 16 : null,
                 child: Column(
@@ -531,7 +533,7 @@ class _InAppMessagingScreenState extends ConsumerState<InAppMessagingScreen> {
             // Calls tab: start a new call
             if (_activeBottomTab == 3)
               Positioned(
-                bottom: 78,
+                bottom: 20,
                 left: fabAlignment == 'left' ? 16 : null,
                 right: fabAlignment == 'right' ? 16 : null,
                 child: _buildComposeFab(forCall: true),
@@ -540,7 +542,7 @@ class _InAppMessagingScreenState extends ConsumerState<InAppMessagingScreen> {
             // Status tab: WhatsApp-style text (pencil) + camera buttons
             if (_activeBottomTab == 1)
               Positioned(
-                bottom: 84,
+                bottom: 20,
                 left: fabAlignment == 'left' ? 16 : null,
                 right: fabAlignment == 'right' ? 16 : null,
                 child: _buildStatusFabs(),
@@ -1136,11 +1138,9 @@ class _InAppMessagingScreenState extends ConsumerState<InAppMessagingScreen> {
       );
     }
 
-    // Default: Chats Inbox List with optional AI studio banner and following creators quick message bar
+    // Default: Chats Inbox List with following creators quick message bar
     return Column(
       children: [
-        if (!_isBannerDismissed && showCreatorProBanner)
-          _buildCreatorProBanner(),
         if (quickCreatorsLimit > 0)
           _buildFollowingCreatorsBar(quickCreatorsLimit),
         Expanded(child: _buildChatsList(chatsAsync)),
@@ -2450,9 +2450,9 @@ class _InAppMessagingScreenState extends ConsumerState<InAppMessagingScreen> {
               Consumer(
                 builder: (context, ref, _) {
                   final presenceAsync = ref.watch(
-                    userPresenceProvider(user.id),
+                    userPresenceDetailsProvider(user.id),
                   );
-                  final isOnline = presenceAsync.value ?? false;
+                  final presence = presenceAsync.value ?? const UserPresence();
 
                   return Stack(
                     clipBehavior: Clip.none,
@@ -2483,19 +2483,10 @@ class _InAppMessagingScreenState extends ConsumerState<InAppMessagingScreen> {
                       Positioned(
                         bottom: 0,
                         right: 0,
-                        child: Container(
-                          width: 11,
-                          height: 11,
-                          decoration: BoxDecoration(
-                            color: isOnline
-                                ? AppColors.brandPink
-                                : Colors.transparent,
-                            shape: BoxShape.circle,
-                            border: Border.all(
-                              color: context.surface,
-                              width: 2,
-                            ),
-                          ),
+                        child: LiveUserPresenceDot(
+                          presence: presence,
+                          size: 12,
+                          borderColor: context.surface,
                         ),
                       ),
                     ],
@@ -3277,157 +3268,102 @@ class _InAppMessagingScreenState extends ConsumerState<InAppMessagingScreen> {
   }
 
   // ──────────────────────────────────────────────────────────────────────────
-  // 8. BOTTOM NAVIGATION BAR (WhatsApp / Oneova Pro 4-Tabs)
+  // 8. TOP SECTION TABS (Replaces bottom bar so chat panel has no menus under it)
   // ──────────────────────────────────────────────────────────────────────────
-  Widget _buildBottomNavigationBar(AsyncValue<List<ChatModel>> chatsAsync) {
+  Widget _buildTopSectionTabs(AsyncValue<List<ChatModel>> chatsAsync) {
     final unread = chatsAsync.maybeWhen(
       data: (chats) {
         var count = 0;
+        final myId = currentUserId ?? '';
         for (final c in chats) {
-          count += c.unreadCounts[currentUserId!] ?? 0;
+          count += c.unreadCounts[myId] ?? 0;
         }
         return count;
       },
       orElse: () => 0,
     );
 
-    return MediaQuery.withClampedTextScaling(
-      maxScaleFactor: 1.1,
-      child: Container(
-        height: 62,
-        decoration: BoxDecoration(
-          color: context.surface,
-          border: Border(top: BorderSide(color: context.border, width: 1)),
-        ),
-        padding: const EdgeInsets.symmetric(horizontal: 8),
-        child: Row(
-          children: [
-            // Chats first, Calls right next to it.
-            _buildBottomNavItem(
-              index: 0,
-              icon: Icons.chat_bubble_rounded,
-              label: 'Chats',
-              badge: unread > 0 ? (unread > 99 ? '99+' : '$unread') : null,
-              isActive: _activeBottomTab == 0,
-            ),
-            _buildBottomNavItem(
-              index: 3,
-              icon: Icons.call_rounded,
-              label: 'Calls',
-              isActive: _activeBottomTab == 3,
-            ),
-            _buildBottomNavItem(
-              index: 1,
-              icon: Icons.play_circle_outline_rounded,
-              label: 'Updates',
-              hasDot: true,
-              isActive: _activeBottomTab == 1,
-            ),
-            _buildBottomNavItem(
-              index: 2,
-              icon: Icons.campaign_rounded,
-              label: 'Communities',
-              isActive: _activeBottomTab == 2,
-            ),
-          ],
-        ),
-      ),
-    );
-  }
+    final tabs = <(int, String, IconData, IconData, String?)>[
+      (0, 'Chats', Icons.chat_bubble_outline_rounded, Icons.chat_bubble_rounded, unread > 0 ? (unread > 99 ? '99+' : '$unread') : null),
+      (3, 'Calls', Icons.call_outlined, Icons.call_rounded, null),
+      (1, 'Updates', Icons.play_circle_outline_rounded, Icons.play_circle_fill_rounded, null),
+      (2, 'Communities', Icons.groups_outlined, Icons.groups_rounded, null),
+    ];
 
-  Widget _buildBottomNavItem({
-    required int index,
-    required IconData icon,
-    required String label,
-    String? badge,
-    bool hasDot = false,
-    required bool isActive,
-  }) {
-    return Expanded(
-      child: GestureDetector(
-        behavior: HitTestBehavior.opaque,
-        onTap: () {
-          if (_activeBottomTab == index) return;
-          HapticFeedback.selectionClick();
-          setState(() {
-            _activeBottomTab = index;
-          });
-        },
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Stack(
-              clipBehavior: Clip.none,
-              children: [
-                Container(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 16,
-                    vertical: 3,
-                  ),
-                  decoration: BoxDecoration(
-                    color: isActive
-                        ? AppColors.brandBlue.withValues(alpha: 0.14)
-                        : Colors.transparent,
-                    borderRadius: BorderRadius.circular(16),
-                  ),
-                  child: Icon(
-                    icon,
-                    size: 22,
-                    color: isActive ? AppColors.brandBlue : context.textMuted,
+    return Container(
+      height: 42,
+      decoration: BoxDecoration(
+        color: context.surface,
+        border: Border(bottom: BorderSide(color: context.border, width: 1.0)),
+      ),
+      child: Row(
+        children: tabs.map((t) {
+          final index = t.$1;
+          final label = t.$2;
+          final icon = t.$3;
+          final activeIcon = t.$4;
+          final badge = t.$5;
+          final isSelected = _activeBottomTab == index;
+
+          return Expanded(
+            child: InkWell(
+              onTap: () {
+                if (_activeBottomTab == index) return;
+                HapticFeedback.selectionClick();
+                setState(() => _activeBottomTab = index);
+              },
+              child: AnimatedContainer(
+                duration: const Duration(milliseconds: 180),
+                alignment: Alignment.center,
+                decoration: BoxDecoration(
+                  border: Border(
+                    bottom: BorderSide(
+                      color: isSelected ? AppColors.brandBlue : Colors.transparent,
+                      width: 2.5,
+                    ),
                   ),
                 ),
-                if (badge != null)
-                  Positioned(
-                    top: -2,
-                    right: 4,
-                    child: Container(
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 5,
-                        vertical: 1,
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(
+                      isSelected ? activeIcon : icon,
+                      size: 15,
+                      color: isSelected ? AppColors.brandBlue : context.textSecondary,
+                    ),
+                    const SizedBox(width: 5),
+                    Text(
+                      label,
+                      style: GoogleFonts.inter(
+                        fontSize: 12.0,
+                        fontWeight: isSelected ? FontWeight.w700 : FontWeight.w500,
+                        color: isSelected ? AppColors.brandBlue : context.textSecondary,
                       ),
-                      decoration: BoxDecoration(
-                        color: AppColors.brandPink,
-                        borderRadius: BorderRadius.circular(10),
-                        border: Border.all(color: context.surface, width: 1.5),
-                      ),
-                      child: Text(
-                        badge,
-                        style: const TextStyle(
-                          color: Colors.white,
-                          fontSize: 9.5,
-                          fontWeight: FontWeight.w900,
+                    ),
+                    if (badge != null) ...[
+                      const SizedBox(width: 4),
+                      Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1.0),
+                        decoration: BoxDecoration(
+                          color: AppColors.brandPink,
+                          borderRadius: BorderRadius.circular(AppRadius.full),
+                        ),
+                        child: Text(
+                          badge,
+                          style: GoogleFonts.inter(
+                            color: AppColors.brandWhite,
+                            fontSize: 9.0,
+                            fontWeight: FontWeight.w800,
+                          ),
                         ),
                       ),
-                    ),
-                  )
-                else if (hasDot)
-                  Positioned(
-                    top: 0,
-                    right: 12,
-                    child: Container(
-                      width: 7,
-                      height: 7,
-                      decoration: BoxDecoration(
-                        color: AppColors.brandPink,
-                        shape: BoxShape.circle,
-                        border: Border.all(color: context.surface, width: 1.5),
-                      ),
-                    ),
-                  ),
-              ],
-            ),
-            const SizedBox(height: 3),
-            Text(
-              label,
-              style: GoogleFonts.inter(
-                color: isActive ? AppColors.brandBlue : context.textMuted,
-                fontSize: 11,
-                fontWeight: isActive ? FontWeight.bold : FontWeight.w500,
+                    ],
+                  ],
+                ),
               ),
             ),
-          ],
-        ),
+          );
+        }).toList(),
       ),
     );
   }

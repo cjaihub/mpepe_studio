@@ -107,6 +107,39 @@ class WalletService {
     return entry;
   }
 
+  /// Tops up coins via local or global payment provider (e.g. M-Pesa, Stripe).
+  Future<WalletLedgerEntry> topUpCoins({
+    required String userId,
+    required int coins,
+    required double fiatAmount,
+    required PaymentProvider provider,
+    required String currency,
+  }) async {
+    final wallet = getWallet(userId);
+    final txId = 'tx_topup_${DateTime.now().millisecondsSinceEpoch}';
+
+    final entry = WalletLedgerEntry(
+      id: txId,
+      userId: userId,
+      type: LedgerTransactionType.coinPurchase,
+      coinsDelta: coins,
+      fiatDelta: fiatAmount,
+      currency: currency,
+      description: 'Purchased $coins Oneova Coins (${provider.label})',
+      referenceId: 'ref_$txId',
+      status: 'completed',
+      createdAt: DateTime.now(),
+    );
+
+    final updatedTx = List<WalletLedgerEntry>.from(wallet.transactions)..insert(0, entry);
+    _wallets[userId] = wallet.copyWith(
+      coinBalance: wallet.coinBalance + coins,
+      transactions: updatedTx,
+    );
+
+    return entry;
+  }
+
   /// Dispatches withdrawal request to local African mobile money or bank.
   Future<WalletLedgerEntry> withdrawEarnings(WithdrawalRequest req) async {
     final wallet = getWallet(req.userId);

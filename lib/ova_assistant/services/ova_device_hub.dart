@@ -115,6 +115,30 @@ class OvaDeviceHub {
   Future<void> openNotificationAccess() => _call('openNotificationAccess');
   Future<void> openDndAccess() => _call('openDndAccess');
   Future<void> returnToApp() => _call('returnToApp');
+
+  /// Takes audio focus for Live voice: `exclusive` pauses other audio,
+  /// `duck` lowers it. Returns granted / delayed / failed (unsupported off Android).
+  Future<String> acquireAudioFocus({String mode = 'exclusive'}) async {
+    try {
+      return await _call<String>('acquireAudioFocus', {'mode': mode}) ?? 'unsupported';
+    } catch (_) {
+      return 'failed';
+    }
+  }
+
+  Future<void> releaseAudioFocus() async {
+    try {
+      await _call('releaseAudioFocus');
+    } catch (_) {}
+  }
+
+  /// Focus changes (`gain`, `loss`, `loss_transient`, `duck`) and
+  /// `silenced` when another app (a call, a recorder) takes the mic.
+  Stream<String> get audioFocusEvents => events.map((e) {
+        if (e['type'] == 'audio_focus') return (e['state'] ?? 'other').toString();
+        if (e['type'] == 'mic_silenced') return e['silenced'] == true ? 'silenced' : 'unsilenced';
+        return '';
+      }).where((s) => s.isNotEmpty);
 }
 
 final ovaDeviceHubProvider = Provider<OvaDeviceHub>((ref) => OvaDeviceHub());

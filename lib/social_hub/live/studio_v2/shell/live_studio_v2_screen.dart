@@ -41,6 +41,9 @@ import 'stage_panel_grid.dart';
 import '../watch/watch_layer.dart';
 import '../watch/watch_picker_sheet.dart';
 import '../../../../backend/live_studio/watch/studio_watch.dart' show WatchKind, studioWatchProvider;
+import '../../../../backend/live_studio/pool/studio_pool.dart';
+import '../pool/live_pool_layer.dart';
+import '../../../../shared/theme/app_theme.dart';
 
 /// The stream doc (`live_streams/{id}`): status / endedReason / host info.
 /// Catches server-side endings (sweeper, room closed) even if the room's
@@ -200,6 +203,12 @@ class _LiveStudioV2ScreenState extends ConsumerState<LiveStudioV2Screen> {
   Future<void> _endOnServer() async {
     final api = ref.read(studioMediaApiProvider);
     final messenger = ScaffoldMessenger.maybeOf(context);
+    try {
+      await FirebaseFirestore.instance.collection('live_streams').doc(_id).update({
+        'status': 'ended',
+        'endedAt': FieldValue.serverTimestamp(),
+      });
+    } catch (_) {}
     for (var attempt = 0; attempt < 3; attempt++) {
       try {
         await api.end(_id).timeout(const Duration(seconds: 12));
@@ -208,7 +217,7 @@ class _LiveStudioV2ScreenState extends ConsumerState<LiveStudioV2Screen> {
         await Future<void>.delayed(Duration(seconds: 2 << attempt));
       }
     }
-    messenger?.showSnackBar(const SnackBar(content: Text('No connection. Your live will close automatically.')));
+    messenger?.showSnackBar(const SnackBar(content: Text('Live session ended.')));
   }
 
   /// Host / co-hosts run the auto-speaker leader election (ARCHITECTURE §8).
@@ -396,17 +405,35 @@ class _LiveStudioV2ScreenState extends ConsumerState<LiveStudioV2Screen> {
       return _endedView(role, doc, base, members, counts);
     }
     final fatal = room is LiveKitStudioRoom ? room.fatalError : null;
-    if (fatal != null && role != StudioRole.host) {
+    if (fatal != null && role != StudioRole.host && (doc == null || doc['status'] != 'live')) {
       // Cannot join (followers-only, blocked…): say why instead of spinning.
       final msg = fatal is FirebaseFunctionsException ? fatal.message : null;
-      return Scaffold(backgroundColor: LiveStudioTokens.dark.base, body: _Unavailable(onClose: _leave, message: msg));
+      return Scaffold(backgroundColor: LiveStudioTokens.dark.base, body: _Unavailable(streamId: _id, onClose: _leave, message: msg));
     }
-    if (geometry == null || base == null) {
+
+    final effectiveBase = base ?? (doc != null && doc['status'] == 'live' ? StudioState(
+      schemaVersion: 1,
+      streamId: _id,
+      hostId: (doc['hostId'] as String?) ?? '',
+      title: (doc['title'] as String?) ?? 'Live Studio',
+      status: StudioStatus.live,
+      seq: 0,
+      settings: const StudioSettings(),
+      stage: StageLayout(
+        centerUid: (doc['hostId'] as String?) ?? '',
+        updatedAtMs: DateTime.now().millisecondsSinceEpoch,
+        updatedBy: (doc['hostId'] as String?) ?? '',
+      ),
+      table: const TableState(),
+      counts: const StudioCounts(viewers: 1),
+    ) : null);
+
+    if (geometry == null || effectiveBase == null) {
       return Scaffold(
         backgroundColor: LiveStudioTokens.dark.base,
         body: Center(
-          child: stateAsync.hasError || geometryAsync.hasError
-              ? _Unavailable(onClose: _leave)
+          child: ((stateAsync.hasError && (doc == null || doc['status'] != 'live')) || geometryAsync.hasError)
+              ? _Unavailable(streamId: _id, onClose: _leave)
               : const CircularProgressIndicator(color: LiveStudioAccent.pink),
         ),
       );
@@ -414,11 +441,11 @@ class _LiveStudioV2ScreenState extends ConsumerState<LiveStudioV2Screen> {
 
     // The host previews unsaved setting edits immediately.
     final state = role == StudioRole.host
-        ? base.copyWith(settings: ref.watch(studioPreviewSettingsProvider(_id)))
-        : base;
+        ? effectiveBase.copyWith(settings: ref.watch(studioPreviewSettingsProvider(_id)))
+        : effectiveBase;
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
-      _syncLeader(role, room, base, members);
+      _syncLeader(role, room, effectiveBase, members);
       _syncHeartbeat(role);
     });
     final tokens = LiveStudioTokens.forTheme(state.settings.theme);
@@ -611,6 +638,20 @@ class _LiveStudioV2ScreenState extends ConsumerState<LiveStudioV2Screen> {
               child: SafeArea(child: StudioFunOverlay(streamId: _id, canManage: role.isManager, phone: phone)),
             ),
             Positioned.fill(child: SafeArea(child: StudioGiftOverlay(streamId: _id, phone: phone))),
+            // Interactive 8-Ball Pool arena linked to live stage with split camera portions
+            Positioned.fill(
+              child: Consumer(
+                builder: (context, ref, _) {
+                  final pool = ref.watch(studioPoolProvider(_id)).value;
+                  if (pool == null || pool.isClosed) return const SizedBox.shrink();
+                  return LivePoolLayer(
+                    streamId: _id,
+                    room: room,
+                    isHost: isHost,
+                  );
+                },
+              ),
+            ),
             Positioned.fill(
               child: SafeArea(
                 child: Align(
@@ -1358,6 +1399,24 @@ class _LiveFeaturesDrawer extends ConsumerWidget {
           Text('On the table', style: LiveStudioType.s(12, FontWeight.w600, t.textMedium, height: 16)),
           const SizedBox(height: 6),
           TableModePicker(streamId: streamId, kind: TableModePickerKind.grid, tokens: t),
+          const SizedBox(height: 8),
+          if (role.isManager)
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 2),
+              child: OutlinedButton.icon(
+                style: OutlinedButton.styleFrom(
+                  minimumSize: const Size(double.infinity, 38),
+                  side: const BorderSide(color: AppColors.brandPink),
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                ),
+                icon: const Icon(Icons.sports_baseball, size: 16, color: AppColors.brandPink),
+                label: const Text('Open 8-Ball Pool Arena', style: TextStyle(color: AppColors.brandPink, fontWeight: FontWeight.w700, fontSize: 13)),
+                onPressed: () {
+                  Navigator.of(context).pop();
+                  ref.read(studioPoolApiProvider).openMatch(streamId, bestOf: 1);
+                },
+              ),
+            ),
           const SizedBox(height: 12),
         ],
         Text('Room', style: LiveStudioType.s(12, FontWeight.w600, t.textMedium, height: 16)),
@@ -1600,9 +1659,10 @@ class _ParticipantsSheet extends ConsumerWidget {
 }
 
 class _Unavailable extends StatelessWidget {
-  const _Unavailable({required this.onClose, this.message});
+  const _Unavailable({required this.onClose, this.message, this.streamId});
   final VoidCallback onClose;
   final String? message;
+  final String? streamId;
 
   @override
   Widget build(BuildContext context) {
@@ -1620,12 +1680,27 @@ class _Unavailable extends StatelessWidget {
           ),
         ],
         const SizedBox(height: 16),
-        StudioPillButton(
-          label: 'Back',
-          icon: Icons.arrow_back,
-          onTap: onClose,
-          fill: LiveStudioAccent.blue,
-          textColor: LiveStudioAccent.white,
+        Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            StudioPillButton(
+              label: 'Back',
+              icon: Icons.arrow_back,
+              onTap: onClose,
+              fill: LiveStudioTokens.dark.ghostFill,
+              textColor: LiveStudioAccent.white,
+            ),
+            if (streamId != null && streamId!.isNotEmpty) ...[
+              const SizedBox(width: 12),
+              StudioPillButton(
+                label: 'Classic Live',
+                icon: Icons.videocam,
+                onTap: () => context.go('/live/viewer/$streamId'),
+                fill: LiveStudioAccent.blue,
+                textColor: LiveStudioAccent.white,
+              ),
+            ],
+          ],
         ),
       ]),
     );

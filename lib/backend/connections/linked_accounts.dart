@@ -5,9 +5,8 @@ import 'package:cloud_functions/cloud_functions.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:googleapis/gmail/v1.dart' as gmail;
 
-import '../../ova_assistant/services/ova_google_access.dart';
+import '../../social_hub/gmail/gmail_service.dart';
 import '../../youtube_manager/services/youtube_account_store.dart';
 import '../meta_oauth_service.dart';
 import '../tiktok_oauth_service.dart';
@@ -108,15 +107,20 @@ class LinkedAccount {
 
   /// Maps a `social_connections` doc. Returns null for platforms Oneova can't
   /// link. A doc only counts as connected when it carries the evidence the
-  /// real flow leaves: a secure-storage token key (TikTok, Meta) or the
-  /// Google account email and granted scopes (Gmail).
+  /// real flow leaves: a secure-storage token key (TikTok, Meta) or, for
+  /// Gmail, the account email and granted scopes written by `gmailConnect`
+  /// together with `tokenStore: 'server'` (older phone-only grants have no
+  /// server token and need a reconnect).
   static LinkedAccount? fromConnectionDoc(String docId, Map<String, dynamic> data, {DateTime? now}) {
     final platform = LinkedPlatform.fromId(data['platform'] as String? ?? docId);
     if (platform == null || platform == LinkedPlatform.youtube) return null;
 
     final tokenKey = data['tokenKey'];
     final hasGrant = platform == LinkedPlatform.gmail
-        ? (data['email'] is String && (data['email'] as String).isNotEmpty && data['grantedScopes'] is List)
+        ? (data['email'] is String &&
+            (data['email'] as String).isNotEmpty &&
+            data['grantedScopes'] is List &&
+            data['tokenStore'] == 'server')
         : (tokenKey is String && tokenKey.isNotEmpty);
     final expiresAt = _time(data['tokenExpiresAt']);
     final status = !hasGrant
@@ -280,32 +284,14 @@ class LinkedAccountsController {
     }
   }
 
+  /// Gmail is kept on the server: Google's consent screen returns a one-time
+  /// code, `gmailConnect` exchanges it and stores the encrypted refresh token
+  /// under `users/{uid}/secure_tokens/gmail`, then writes the status doc this
+  /// screen listens to. The phone never stores a Gmail token.
   Future<bool> _connectGmail() async {
-    final uid = FirebaseAuth.instance.currentUser?.uid;
-    if (uid == null) return false;
-    final client = await OvaGoogleAccess.client(OvaGoogleAccess.gmailScopes);
-    if (client == null) return false;
-    try {
-      final profile = await gmail.GmailApi(client).users.getProfile('me');
-      final email = profile.emailAddress ?? '';
-      if (email.isEmpty) return false;
-      await FirebaseFirestore.instance
-          .collection('users')
-          .doc(uid)
-          .collection('social_connections')
-          .doc(LinkedPlatform.gmail.id)
-          .set({
-        'platform': LinkedPlatform.gmail.id,
-        'accountName': email,
-        'email': email,
-        'grantedScopes': OvaGoogleAccess.gmailScopes,
-        'messagesTotal': profile.messagesTotal,
-        'connectedAt': FieldValue.serverTimestamp(),
-      });
-      return true;
-    } finally {
-      client.close();
-    }
+    if (FirebaseAuth.instance.currentUser == null) return false;
+    final email = await ref.read(gmailServiceProvider).connect();
+    return email.isNotEmpty;
   }
 
   Future<void> disconnect(LinkedAccount account) async {
@@ -323,12 +309,8 @@ class LinkedAccountsController {
       case LinkedPlatform.whatsapp:
         await ref.read(metaOAuthProvider.notifier).disconnect(MetaApp.whatsapp);
       case LinkedPlatform.gmail:
-        await FirebaseFirestore.instance
-            .collection('users')
-            .doc(uid)
-            .collection('social_connections')
-            .doc(LinkedPlatform.gmail.id)
-            .delete();
+        // Revokes at Google and deletes the token + status doc server-side.
+        await ref.read(gmailServiceProvider).disconnect();
     }
   }
 }

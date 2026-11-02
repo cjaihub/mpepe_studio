@@ -463,10 +463,10 @@ async function dispatch(wid) {
     }
 }
 exports.requestWithdrawal = (0, https_1.onCall)({ timeoutSeconds: 60 }, async (req) => {
-    var _a, _b, _c, _d;
-    var _e, _f;
+    var _a, _b, _c, _d, _e;
+    var _f, _g, _h, _j;
     const uid = me(req);
-    const key = String((_e = (_a = req.data) === null || _a === void 0 ? void 0 : _a.idempotencyKey) !== null && _e !== void 0 ? _e : '');
+    const key = String((_f = (_a = req.data) === null || _a === void 0 ? void 0 : _a.idempotencyKey) !== null && _f !== void 0 ? _f : '');
     if (key.length < 8 || key.length > 80)
         throw new https_1.HttpsError('invalid-argument', 'Missing request id.');
     const wid = crypto.createHash('sha256').update(`${uid}:${key}`).digest('hex').slice(0, 32);
@@ -476,7 +476,7 @@ exports.requestWithdrawal = (0, https_1.onCall)({ timeoutSeconds: 60 }, async (r
         return { id: wid, status: existing.get('status'), duplicate: true };
     const kyc = await verifiedKyc(uid);
     await releaseMatured(uid);
-    const methodId = String((_f = (_b = req.data) === null || _b === void 0 ? void 0 : _b.methodId) !== null && _f !== void 0 ? _f : '');
+    const methodId = String((_g = (_b = req.data) === null || _b === void 0 ? void 0 : _b.methodId) !== null && _g !== void 0 ? _g : '');
     const method = methodId && !methodId.includes('/') ? (await db().doc(`payout_methods/${uid}/methods/${methodId}`).get()).data() : null;
     if (!method)
         throw new https_1.HttpsError('invalid-argument', 'Choose where to send the money.');
@@ -487,7 +487,7 @@ exports.requestWithdrawal = (0, https_1.onCall)({ timeoutSeconds: 60 }, async (r
     const diamonds = Math.floor(Number((_c = req.data) === null || _c === void 0 ? void 0 : _c.diamonds));
     const amountUsd = Math.round((0, payoutLogic_1.diamondsToUsd)(diamonds) * 100) / 100;
     if (!Number.isFinite(diamonds) || amountUsd < payoutLogic_1.MIN_WITHDRAW_USD)
-        throw new https_1.HttpsError('invalid-argument', `The minimum withdrawal is $${payoutLogic_1.MIN_WITHDRAW_USD}.`);
+        throw new https_1.HttpsError('invalid-argument', 'Choose an amount to withdraw.');
     if (amountUsd > payoutLogic_1.MAX_WITHDRAW_USD)
         throw new https_1.HttpsError('invalid-argument', `You can withdraw up to $${payoutLogic_1.MAX_WITHDRAW_USD} at a time.`);
     // Velocity: one open withdrawal at a time and a few per day.
@@ -506,6 +506,12 @@ exports.requestWithdrawal = (0, https_1.onCall)({ timeoutSeconds: 60 }, async (r
     ]);
     const locAt = profile.get('locationAt');
     const locationCountry = locAt && Date.now() - locAt.toMillis() < 3 * 86400000 ? profile.get('locationCountry') : null;
+    // Ova Guard can pause withdrawals after a suspicious sign-in (security_state).
+    const guard = await db().doc(`security_state/${uid}`).get();
+    const frozen = (_h = (_e = guard.get('withdrawalsFrozenUntil')) === null || _e === void 0 ? void 0 : _e.toMillis()) !== null && _h !== void 0 ? _h : 0;
+    if (frozen > Date.now()) {
+        throw new https_1.HttpsError('failed-precondition', `Withdrawals are paused for your safety: ${(_j = guard.get('withdrawalsFrozenReason')) !== null && _j !== void 0 ? _j : 'unusual sign-in'}. See Security in your profile.`);
+    }
     const reasons = (0, payoutLogic_1.fraudReasons)({
         amountUsd,
         accountAgeDays: (Date.now() - new Date(user.metadata.creationTime).getTime()) / 86400000,
@@ -520,6 +526,10 @@ exports.requestWithdrawal = (0, https_1.onCall)({ timeoutSeconds: 60 }, async (r
     const rate = method.provider === 'stripe' ? 1 : await usdRate(method.currency);
     const currency = method.provider === 'stripe' ? 'USD' : method.currency;
     const localAmount = (0, payoutLogic_1.roundLocal)(netUsd * rate, currency);
+    // Any amount works as long as at least 1 unit of the payout currency arrives after the fee.
+    if (localAmount < 1) {
+        throw new https_1.HttpsError('invalid-argument', `After the ${currency} ${(0, payoutLogic_1.roundLocal)(feeUsd * rate, currency)} payout fee nothing would arrive. Withdraw a little more.`);
+    }
     const wallet = db().doc(`wallets/${uid}`);
     await db().runTransaction(async (tx) => {
         var _a;

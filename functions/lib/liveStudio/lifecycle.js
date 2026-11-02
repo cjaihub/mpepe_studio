@@ -31,15 +31,15 @@ async function endStudioStream(streamId, reason) {
         tx.set(ref, { status: 'ended', endedAt: firestore_1.FieldValue.serverTimestamp(), endedReason: reason, hostLeftAt: firestore_1.FieldValue.delete() }, { merge: true });
         return true;
     });
-    try {
-        await (0, shared_1.patchState)(streamId, 'status', (s) => (s.status === 'ended' ? undefined : 'ended'));
-    }
-    catch (e) {
-        // v1 lives have no studio/state doc.
-        console.warn(`[liveStudio] end state ${streamId}:`, e.message);
-    }
-    // Finish the recording / restream first so the MP4 closes cleanly.
-    await (0, broadcast_1.stopStreamEgress)(streamId);
+    // Viewers get the `ended` patch while the recording / restream finishes
+    // (in parallel); the room is deleted after egress so the MP4 closes cleanly.
+    await Promise.all([
+        (0, shared_1.patchState)(streamId, 'status', (s) => (s.status === 'ended' ? undefined : 'ended')).catch((e) => {
+            // v1 lives have no studio/state doc.
+            console.warn(`[liveStudio] end state ${streamId}:`, e.message);
+        }),
+        (0, broadcast_1.stopStreamEgress)(streamId),
+    ]);
     try {
         await (0, shared_1.roomService)().deleteRoom((0, shared_1.roomName)(streamId));
     }

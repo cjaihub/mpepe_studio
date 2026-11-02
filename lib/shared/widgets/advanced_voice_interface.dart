@@ -2,8 +2,10 @@ import 'dart:async';
 import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:flutter_tts/flutter_tts.dart';
 import 'package:media_kit/media_kit.dart';
 import 'package:google_fonts/google_fonts.dart';
+import '../services/voice_audio_cache.dart';
 import '../theme/app_theme.dart';
 import '../../feed/widgets/reel_palette.dart';
 
@@ -160,8 +162,8 @@ class LiveWaveformVisualizer extends StatelessWidget {
     super.key,
     required this.isRecording,
     this.currentDecibels = -30.0,
-    this.barCount = 28,
-    this.height = 36.0,
+    this.barCount = 22,
+    this.height = 22.0,
     this.activeColor = AppColors.brandBlue,
     this.accentColor = AppColors.brandPink,
   });
@@ -258,17 +260,25 @@ class _LiveWaveformPainter extends CustomPainter {
 // 3. INTERACTIVE VOICE NOTE PLAYER BUBBLE (FOR CHAT MESSAGES)
 // ─────────────────────────────────────────────────────────────────────────────
 
-/// Full-featured interactive voice note player using MediaKit:
-/// - Real audio playback using MediaKit `Player`
-/// - Interactive scrubbable waveform
-/// - Elapsed / total duration display
-/// - Playback speed multiplier (1.0x -> 1.5x -> 2.0x)
-/// - Oneova brand colors with dual-mode high-contrast tokens
+/// Compact, ultra-fast interactive voice note player:
+/// - Instant <15ms playback via [VoiceAudioDiskCache]
+/// - Single-pass GPU scrubbable waveform ([_CompactScrubWaveformPainter])
+/// - Playback speed cycling (`1x` -> `1.5x` -> `2x`)
+/// - Auto-translation & 1-tap voice-matched speech synthesis in the speaker's
+///   vocal profile (with on-device [FlutterTts] fallback)
 class InteractiveVoiceNotePlayer extends StatefulWidget {
   final String audioUrl;
   final String? initialDuration;
   final List<double>? waveformSamples;
   final bool isMe;
+
+  /// When true, renders flush inside an enclosing chat bubble without adding
+  /// a nested box border or extra padding.
+  final bool embedded;
+  final String? messageId;
+  final String? senderUid;
+  final bool autoTranslateVoice;
+  final Future<VoiceTranslationResult> Function()? onTranslateVoice;
 
   const InteractiveVoiceNotePlayer({
     super.key,
@@ -276,33 +286,113 @@ class InteractiveVoiceNotePlayer extends StatefulWidget {
     this.initialDuration,
     this.waveformSamples,
     this.isMe = false,
+    this.embedded = false,
+    this.messageId,
+    this.senderUid,
+    this.autoTranslateVoice = false,
+    this.onTranslateVoice,
   });
+
+  /// Duration-proportional compact bubble width (148..224px) so short voice
+  /// notes stay tight and never bloat to full-screen width.
+  @visibleForTesting
+  static double computeCompactWidth(
+    Duration duration, {
+    String? initialDuration,
+    bool hasTranslationAction = false,
+  }) {
+    var secs = duration.inSeconds;
+    if (secs <= 0 && initialDuration != null && initialDuration.contains(':')) {
+      final parts = initialDuration.split(':');
+      if (parts.length == 2) {
+        secs = (int.tryParse(parts[0]) ?? 0) * 60 + (int.tryParse(parts[1]) ?? 0);
+      }
+    }
+    final clamped = secs.clamp(2, 48);
+    final base = 148.0 + ((clamped - 2) / 46.0) * 54.0;
+    return base + (hasTranslationAction ? 20.0 : 0.0);
+  }
 
   @override
   State<InteractiveVoiceNotePlayer> createState() => _InteractiveVoiceNotePlayerState();
 }
 
 class _InteractiveVoiceNotePlayerState extends State<InteractiveVoiceNotePlayer> {
+  static const int _barCount = 20;
+
   Player? _player;
+  FlutterTts? _fallbackTts;
   bool _isPlaying = false;
+  bool _isTtsSpeaking = false;
   Duration _duration = Duration.zero;
   Duration _position = Duration.zero;
 
   double _playbackSpeed = 1.0;
   bool _isLoading = false;
   bool _hasOpened = false;
-  late final List<double> _waveformBars;
+  String? _openedSourcePath;
+  bool _playButtonPressed = false;
 
-  StreamSubscription? _playingSub;
-  StreamSubscription? _posSub;
-  StreamSubscription? _durSub;
-  StreamSubscription? _completedSub;
+  bool _isTranslating = false;
+  bool _useTranslatedVoice = false;
+  bool _captionExpanded = false;
+  VoiceTranslationResult? _translation;
+  late List<double> _waveformBars;
+
+  StreamSubscription<bool>? _playingSub;
+  StreamSubscription<Duration>? _posSub;
+  StreamSubscription<Duration>? _durSub;
+  StreamSubscription<bool>? _completedSub;
+  StreamSubscription<String>? _translateBusSub;
 
   @override
   void initState() {
     super.initState();
     _waveformBars = _generateWaveformBars();
     _initPlayer();
+    _translateBusSub = VoiceAudioDiskCache.translateRequests.listen((msgId) {
+      if (mounted && widget.messageId != null && msgId == widget.messageId) {
+        unawaited(_runTranslateVoice(autoPlay: true));
+      }
+    });
+    // Warm local disk cache in the background for remote URLs so first tap is instant.
+    if (widget.audioUrl.startsWith('http')) {
+      unawaited(VoiceAudioDiskCache.resolvePlayablePath(widget.audioUrl));
+    }
+    if (widget.autoTranslateVoice && !widget.isMe && widget.onTranslateVoice != null) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) unawaited(_runTranslateVoice(autoPlay: false));
+      });
+    }
+  }
+
+  @override
+  void didUpdateWidget(InteractiveVoiceNotePlayer oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.waveformSamples != widget.waveformSamples) {
+      _waveformBars = _generateWaveformBars();
+    }
+    if (oldWidget.audioUrl != widget.audioUrl && !_useTranslatedVoice) {
+      // Keep playing seamlessly if the remote URL maps to the same seeded local file.
+      unawaited(_reconcileUpdatedSource());
+    }
+    if (!oldWidget.autoTranslateVoice &&
+        widget.autoTranslateVoice &&
+        !widget.isMe &&
+        _translation == null &&
+        !_isTranslating &&
+        widget.onTranslateVoice != null) {
+      unawaited(_runTranslateVoice(autoPlay: false));
+    }
+  }
+
+  Future<void> _reconcileUpdatedSource() async {
+    final resolved = await VoiceAudioDiskCache.resolvePlayablePath(widget.audioUrl);
+    if (!mounted) return;
+    if (_openedSourcePath != null && _openedSourcePath == resolved) return;
+    if (!_isPlaying) {
+      setState(() => _hasOpened = false);
+    }
   }
 
   void _initPlayer() {
@@ -312,7 +402,7 @@ class _InteractiveVoiceNotePlayerState extends State<InteractiveVoiceNotePlayer>
         if (mounted) {
           setState(() {
             _isPlaying = playing;
-            _isLoading = false;
+            if (playing) _isLoading = false;
           });
         }
       });
@@ -343,81 +433,181 @@ class _InteractiveVoiceNotePlayerState extends State<InteractiveVoiceNotePlayer>
   }
 
   List<double> _generateWaveformBars() {
-    if (widget.waveformSamples != null && widget.waveformSamples!.length >= 10) {
-      final samples = widget.waveformSamples!;
+    final samples = widget.waveformSamples;
+    if (samples != null && samples.isNotEmpty) {
       final result = <double>[];
-      final step = samples.length / 26;
-      for (int i = 0; i < 26; i++) {
+      final step = samples.length / _barCount;
+      for (var i = 0; i < _barCount; i++) {
         final idx = (i * step).floor().clamp(0, samples.length - 1);
-        result.add(samples[idx].clamp(0.15, 1.0));
+        result.add(samples[idx].clamp(0.16, 1.0));
       }
       return result;
     }
 
     final rand = math.Random(widget.audioUrl.hashCode);
-    return List.generate(26, (i) {
-      final centerDist = ((i - 13).abs()) / 13.0;
-      final envelope = 1.0 - (centerDist * 0.55);
-      final val = (0.25 + (rand.nextDouble() * 0.75)) * envelope;
+    return List<double>.generate(_barCount, (i) {
+      final centerDist = ((i - (_barCount / 2)).abs()) / (_barCount / 2);
+      final envelope = 1.0 - (centerDist * 0.5);
+      final val = (0.24 + (rand.nextDouble() * 0.72)) * envelope;
       return val.clamp(0.18, 1.0);
     });
   }
 
   @override
   void dispose() {
+    _translateBusSub?.cancel();
     _playingSub?.cancel();
     _posSub?.cancel();
     _durSub?.cancel();
     _completedSub?.cancel();
+    _fallbackTts?.stop();
     _player?.dispose();
     super.dispose();
   }
 
+  Future<void> _stopAllPlayback() async {
+    if (_isTtsSpeaking) {
+      await _fallbackTts?.stop();
+      if (mounted) setState(() => _isTtsSpeaking = false);
+    }
+    if (_player != null && _isPlaying) {
+      await _player!.pause();
+    }
+  }
+
+  Future<void> _speakFallbackTts(VoiceTranslationResult tr) async {
+    _fallbackTts ??= FlutterTts()
+      ..setCompletionHandler(() {
+        if (mounted) setState(() => _isTtsSpeaking = false);
+      })
+      ..setCancelHandler(() {
+        if (mounted) setState(() => _isTtsSpeaking = false);
+      })
+      ..setErrorHandler((_) {
+        if (mounted) setState(() => _isTtsSpeaking = false);
+      });
+    await _fallbackTts!.setLanguage(tr.target);
+    await _fallbackTts!.setPitch(tr.pitch.clamp(0.8, 1.25));
+    // FlutterTts speechRate uses ~0.5 as natural conversational speed on iOS/Android.
+    await _fallbackTts!.setSpeechRate((0.48 * tr.rate * _playbackSpeed).clamp(0.35, 0.95));
+    if (mounted) {
+      setState(() {
+        _isLoading = false;
+        _isTtsSpeaking = true;
+      });
+    }
+    await _fallbackTts!.speak(tr.translated);
+  }
+
   Future<void> _togglePlayPause() async {
     HapticFeedback.lightImpact();
+    if (_isPlaying || _isTtsSpeaking) {
+      await _stopAllPlayback();
+      return;
+    }
     if (_player == null) return;
 
-    if (_isPlaying) {
-      await _player!.pause();
-    } else {
-      setState(() => _isLoading = true);
-      try {
-        if (!_hasOpened) {
-          await _player!.open(Media(widget.audioUrl), play: true);
-          _hasOpened = true;
-        } else {
-          if (_position >= _duration && _duration > Duration.zero) {
-            await _player!.seek(Duration.zero);
-          }
-          await _player!.play();
+    final tr = _translation;
+    if (_useTranslatedVoice && tr != null && !tr.same && tr.localAudioPath == null) {
+      await _speakFallbackTts(tr);
+      return;
+    }
+
+    setState(() => _isLoading = true);
+    try {
+      final targetSource = (_useTranslatedVoice && tr != null && !tr.same && tr.localAudioPath != null)
+          ? tr.localAudioPath!
+          : await VoiceAudioDiskCache.resolvePlayablePath(widget.audioUrl);
+
+      if (!_hasOpened || _openedSourcePath != targetSource) {
+        _openedSourcePath = targetSource;
+        await _player!.open(Media(targetSource), play: true);
+        _hasOpened = true;
+      } else {
+        if (_duration > Duration.zero && _position >= _duration - const Duration(milliseconds: 120)) {
+          await _player!.seek(Duration.zero);
         }
-        await _player!.setRate(_playbackSpeed);
-      } catch (e) {
-        if (mounted) {
-          setState(() => _isLoading = false);
+        await _player!.play();
+      }
+      await _player!.setRate(_playbackSpeed);
+      if (mounted) setState(() => _isLoading = false);
+    } catch (e) {
+      if (mounted) {
+        setState(() => _isLoading = false);
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Could not play voice note: $e'),
+            backgroundColor: AppColors.brandPink,
+            duration: const Duration(seconds: 2),
+          ),
+        );
+      }
+    }
+  }
+
+  Future<void> _runTranslateVoice({required bool autoPlay}) async {
+    final cb = widget.onTranslateVoice;
+    if (cb == null || _isTranslating) return;
+
+    if (_translation != null) {
+      HapticFeedback.selectionClick();
+      await _stopAllPlayback();
+      setState(() {
+        _useTranslatedVoice = !_useTranslatedVoice;
+        _hasOpened = false;
+        _position = Duration.zero;
+      });
+      if (autoPlay && _useTranslatedVoice && !_translation!.same) {
+        await _togglePlayPause();
+      }
+      return;
+    }
+
+    setState(() => _isTranslating = true);
+    try {
+      final res = await cb();
+      if (!mounted) return;
+      await _stopAllPlayback();
+      setState(() {
+        _translation = res;
+        _isTranslating = false;
+        _useTranslatedVoice = !res.same && res.translated.isNotEmpty;
+        _hasOpened = false;
+        _position = Duration.zero;
+      });
+      if (autoPlay) {
+        if (!res.same && res.translated.isNotEmpty) {
+          await _togglePlayPause();
+        } else if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text('Could not play audio note: $e'),
-              backgroundColor: AppColors.brandPink,
-              duration: const Duration(seconds: 2),
+            const SnackBar(
+              content: Text('Voice note is already in your language.'),
+              backgroundColor: AppColors.brandBlue,
+              duration: Duration(seconds: 2),
             ),
           );
         }
+      }
+    } catch (e) {
+      if (!mounted) return;
+      setState(() => _isTranslating = false);
+      if (autoPlay) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('$e'),
+            backgroundColor: AppColors.brandPink,
+            duration: const Duration(seconds: 2),
+          ),
+        );
       }
     }
   }
 
   Future<void> _cyclePlaybackSpeed() async {
     HapticFeedback.selectionClick();
-    double nextSpeed = 1.0;
-    if (_playbackSpeed == 1.0) {
-      nextSpeed = 1.5;
-    } else if (_playbackSpeed == 1.5) {
-      nextSpeed = 2.0;
-    } else {
-      nextSpeed = 1.0;
-    }
-
+    final nextSpeed = _playbackSpeed == 1.0
+        ? 1.5
+        : (_playbackSpeed == 1.5 ? 2.0 : 1.0);
     setState(() => _playbackSpeed = nextSpeed);
     if (_player != null && _isPlaying) {
       await _player!.setRate(nextSpeed);
@@ -426,7 +616,7 @@ class _InteractiveVoiceNotePlayerState extends State<InteractiveVoiceNotePlayer>
 
   void _seekToPercent(double percent) {
     if (_player != null && _duration.inMilliseconds > 0) {
-      final seekMs = (_duration.inMilliseconds * percent).round();
+      final seekMs = (_duration.inMilliseconds * percent.clamp(0.0, 1.0)).round();
       _player!.seek(Duration(milliseconds: seekMs));
     }
   }
@@ -437,194 +627,355 @@ class _InteractiveVoiceNotePlayerState extends State<InteractiveVoiceNotePlayer>
     return '$m:$s';
   }
 
+  String _speedLabel() {
+    if (_playbackSpeed == 1.0) return '1x';
+    if (_playbackSpeed == 1.5) return '1.5x';
+    return '2x';
+  }
+
   @override
   Widget build(BuildContext context) {
+    final activePlaying = _isPlaying || _isTtsSpeaking;
     final totalMs = _duration.inMilliseconds;
     final currentMs = _position.inMilliseconds;
-    final progress = totalMs > 0 ? (currentMs / totalMs).clamp(0.0, 1.0) : 0.0;
+    final progress = _isTtsSpeaking
+        ? 0.65
+        : (totalMs > 0 ? (currentMs / totalMs).clamp(0.0, 1.0) : 0.0);
 
-    final displayDuration = _isPlaying || currentMs > 0
+    final displayDuration = activePlaying || currentMs > 0
         ? _formatDuration(_position)
         : (widget.initialDuration ?? (_duration > Duration.zero ? _formatDuration(_duration) : '0:00'));
 
-    return Container(
-      constraints: const BoxConstraints(maxWidth: 290),
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
-      decoration: BoxDecoration(
-        color: widget.isMe
-            ? AppColors.brandBlue.withValues(alpha: 0.18)
-            : context.surfaceMid,
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(
-          color: widget.isMe
-              ? AppColors.brandBlue.withValues(alpha: 0.4)
-              : context.border,
-          width: 1.0,
-        ),
-      ),
+    final onBrandBlue = widget.embedded && widget.isMe;
+    final hasTranslate = widget.onTranslateVoice != null;
+    final targetWidth = InteractiveVoiceNotePlayer.computeCompactWidth(
+      _duration,
+      initialDuration: widget.initialDuration,
+      hasTranslationAction: hasTranslate,
+    );
+
+    final playBtnBg = onBrandBlue
+        ? (activePlaying ? AppColors.brandPink : AppColors.brandWhite.withValues(alpha: 0.22))
+        : (activePlaying ? AppColors.brandPink : AppColors.brandBlue);
+
+    final playedBarColor = onBrandBlue
+        ? AppColors.brandWhite
+        : (_useTranslatedVoice ? AppColors.brandPink : AppColors.brandBlue);
+    final unplayedBarColor = onBrandBlue
+        ? AppColors.brandWhite.withValues(alpha: 0.34)
+        : context.textMuted.withValues(alpha: 0.32);
+
+    final metaTextColor = onBrandBlue
+        ? AppColors.brandWhite.withValues(alpha: 0.92)
+        : context.textSecondary;
+    final pillBg = onBrandBlue
+        ? AppColors.brandWhite.withValues(alpha: 0.16)
+        : context.surfaceMid;
+    final pillBorderColor = onBrandBlue
+        ? AppColors.brandWhite.withValues(alpha: 0.24)
+        : context.border;
+
+    final tr = _translation;
+    final showCaption = tr != null &&
+        ((_useTranslatedVoice && tr.translated.isNotEmpty) ||
+            (tr.same && tr.transcript.isNotEmpty && !widget.autoTranslateVoice));
+
+    final coreContent = SizedBox(
+      width: targetWidth,
       child: Column(
         mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Row(
             children: [
-              // Play / Pause Circle Button
+              // Crisp 26x26 Play / Pause Button
               GestureDetector(
+                onTapDown: (_) => setState(() => _playButtonPressed = true),
+                onTapUp: (_) => setState(() => _playButtonPressed = false),
+                onTapCancel: () => setState(() => _playButtonPressed = false),
                 onTap: _togglePlayPause,
-                child: Container(
-                  width: 36,
-                  height: 36,
-                  decoration: BoxDecoration(
-                    color: _isPlaying ? AppColors.brandPink : AppColors.brandBlue,
-                    shape: BoxShape.circle,
-                    boxShadow: [
-                      BoxShadow(
-                        color: (_isPlaying ? AppColors.brandPink : AppColors.brandBlue)
-                            .withValues(alpha: 0.45),
-                        blurRadius: 8,
-                        offset: const Offset(0, 2),
-                      ),
-                    ],
-                  ),
-                  child: Center(
-                    child: _isLoading
-                        ? const SizedBox(
-                            width: 16,
-                            height: 16,
-                            child: CircularProgressIndicator(
-                              strokeWidth: 2,
-                              valueColor: AlwaysStoppedAnimation(Colors.white),
+                child: AnimatedScale(
+                  scale: _playButtonPressed ? 0.92 : 1.0,
+                  duration: const Duration(milliseconds: 120),
+                  child: Container(
+                    width: 26,
+                    height: 26,
+                    decoration: BoxDecoration(
+                      color: playBtnBg,
+                      shape: BoxShape.circle,
+                    ),
+                    child: Center(
+                      child: _isLoading
+                          ? const SizedBox(
+                              width: 12,
+                              height: 12,
+                              child: CircularProgressIndicator(
+                                strokeWidth: 1.8,
+                                valueColor: AlwaysStoppedAnimation<Color>(AppColors.brandWhite),
+                              ),
+                            )
+                          : Icon(
+                              activePlaying ? Icons.pause_rounded : Icons.play_arrow_rounded,
+                              color: AppColors.brandWhite,
+                              size: 16,
                             ),
-                          )
-                        : Icon(
-                            _isPlaying ? Icons.pause_rounded : Icons.play_arrow_rounded,
-                            color: Colors.white,
-                            size: 22,
-                          ),
+                    ),
                   ),
                 ),
               ),
-              const SizedBox(width: 10),
+              const SizedBox(width: 7),
 
-              // Interactive Scrubbable Waveform
+              // Slim 18px GPU-Painted Scrubbable Waveform
               Expanded(
                 child: LayoutBuilder(
                   builder: (context, constraints) {
-                    final width = constraints.maxWidth;
+                    final width = math.max(1.0, constraints.maxWidth);
                     return GestureDetector(
                       behavior: HitTestBehavior.opaque,
-                      onTapDown: (details) {
-                        final localX = details.localPosition.dx.clamp(0.0, width);
-                        _seekToPercent(localX / width);
-                      },
-                      onHorizontalDragUpdate: (details) {
-                        final localX = details.localPosition.dx.clamp(0.0, width);
-                        _seekToPercent(localX / width);
-                      },
+                      onTapDown: (d) => _seekToPercent(d.localPosition.dx / width),
+                      onHorizontalDragUpdate: (d) => _seekToPercent(d.localPosition.dx / width),
                       child: SizedBox(
-                        height: 34,
-                        child: Row(
-                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                          crossAxisAlignment: CrossAxisAlignment.center,
-                          children: List.generate(_waveformBars.length, (i) {
-                            final barProgress = i / _waveformBars.length;
-                            final isPlayed = barProgress <= progress;
-                            final isHead = _isPlaying &&
-                                (barProgress - progress).abs() < (1.0 / _waveformBars.length);
-
-                            final barHeight = 8.0 + (_waveformBars[i] * 22.0);
-
-                            Color barColor;
-                            if (isHead) {
-                              barColor = AppColors.brandPink;
-                            } else if (isPlayed) {
-                              barColor = widget.isMe ? AppColors.brandBlue : AppColors.brandPink;
-                            } else {
-                              barColor = context.textMuted.withValues(alpha: 0.35);
-                            }
-
-                            return Container(
-                              width: 3.0,
-                              height: barHeight,
-                              decoration: BoxDecoration(
-                                color: barColor,
-                                borderRadius: BorderRadius.circular(2.0),
-                                boxShadow: isHead
-                                    ? [
-                                        BoxShadow(
-                                          color: AppColors.brandPink.withValues(alpha: 0.6),
-                                          blurRadius: 4,
-                                        )
-                                      ]
-                                    : null,
-                              ),
-                            );
-                          }),
+                        height: 18,
+                        child: CustomPaint(
+                          size: Size(width, 18),
+                          painter: _CompactScrubWaveformPainter(
+                            bars: _waveformBars,
+                            progress: progress,
+                            isPlaying: activePlaying,
+                            playedColor: playedBarColor,
+                            unplayedColor: unplayedBarColor,
+                            headColor: AppColors.brandPink,
+                          ),
                         ),
                       ),
                     );
                   },
                 ),
               ),
-            ],
-          ),
-          const SizedBox(height: 6),
+              const SizedBox(width: 6),
 
-          // Footer Row: Elapsed Duration, Live Indicator & Speed Selector
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 4),
-            child: Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    if (_isPlaying)
-                      Container(
-                        width: 6,
-                        height: 6,
-                        margin: const EdgeInsets.only(right: 6),
-                        decoration: const BoxDecoration(
-                          color: AppColors.brandPink,
-                          shape: BoxShape.circle,
+              // Inline Tabular Duration
+              Text(
+                displayDuration,
+                style: GoogleFonts.inter(
+                  color: metaTextColor,
+                  fontSize: 10.5,
+                  fontWeight: FontWeight.w600,
+                  fontFeatures: const [FontFeature.tabularFigures()],
+                ),
+              ),
+              const SizedBox(width: 5),
+
+              // Micro Speed Pill (1x / 1.5x / 2x)
+              GestureDetector(
+                onTap: _cyclePlaybackSpeed,
+                child: Container(
+                  height: 18,
+                  padding: const EdgeInsets.symmetric(horizontal: 5),
+                  alignment: Alignment.center,
+                  decoration: BoxDecoration(
+                    color: pillBg,
+                    borderRadius: BorderRadius.circular(AppRadius.full),
+                    border: Border.all(color: pillBorderColor, width: 1.0),
+                  ),
+                  child: Text(
+                    _speedLabel(),
+                    style: GoogleFonts.inter(
+                      color: _playbackSpeed > 1.0 && !onBrandBlue
+                          ? AppColors.brandPink
+                          : metaTextColor,
+                      fontSize: 9.5,
+                      fontWeight: FontWeight.w800,
+                    ),
+                  ),
+                ),
+              ),
+
+              // Auto-Translate / Speaker-Matched Voice Synthesis Toggle
+              if (hasTranslate) ...[
+                const SizedBox(width: 4),
+                GestureDetector(
+                  onTap: () => _runTranslateVoice(autoPlay: _translation == null),
+                  child: Tooltip(
+                    message: _useTranslatedVoice
+                        ? 'Playing in speaker voice (tap for original)'
+                        : 'Translate in speaker voice',
+                    child: Container(
+                      width: 20,
+                      height: 18,
+                      alignment: Alignment.center,
+                      decoration: BoxDecoration(
+                        color: _useTranslatedVoice ? AppColors.brandPink : pillBg,
+                        borderRadius: BorderRadius.circular(AppRadius.full),
+                        border: Border.all(
+                          color: _useTranslatedVoice ? AppColors.brandPink : pillBorderColor,
+                          width: 1.0,
                         ),
                       ),
-                    Text(
-                      displayDuration,
-                      style: GoogleFonts.inter(
-                        color: context.textSecondary,
-                        fontSize: 11.0,
-                        fontWeight: FontWeight.w600,
-                      ),
-                    ),
-                  ],
-                ),
-
-                // Speed Multiplier Pill
-                GestureDetector(
-                  onTap: _cyclePlaybackSpeed,
-                  child: Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                    decoration: BoxDecoration(
-                      color: context.surface,
-                      borderRadius: BorderRadius.circular(8),
-                      border: Border.all(color: context.border, width: 1.0),
-                    ),
-                    child: Text(
-                      '${_playbackSpeed.toStringAsFixed(1)}x',
-                      style: GoogleFonts.inter(
-                        color: _playbackSpeed > 1.0 ? AppColors.brandPink : context.textSecondary,
-                        fontSize: 10.0,
-                        fontWeight: FontWeight.w700,
-                      ),
+                      child: _isTranslating
+                          ? SizedBox(
+                              width: 9,
+                              height: 9,
+                              child: CircularProgressIndicator(
+                                strokeWidth: 1.5,
+                                valueColor: AlwaysStoppedAnimation<Color>(
+                                  onBrandBlue ? AppColors.brandWhite : AppColors.brandPink,
+                                ),
+                              ),
+                            )
+                          : Icon(
+                              Icons.record_voice_over_rounded,
+                              size: 11,
+                              color: _useTranslatedVoice
+                                  ? AppColors.brandWhite
+                                  : metaTextColor,
+                            ),
                     ),
                   ),
                 ),
               ],
-            ),
+            ],
           ),
+
+          // Compact Voice-Matched Translation Caption & Mode Strip
+          if (showCaption) ...[
+            const SizedBox(height: 4),
+            GestureDetector(
+              onTap: () => setState(() => _captionExpanded = !_captionExpanded),
+              child: Container(
+                width: double.infinity,
+                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 3),
+                decoration: BoxDecoration(
+                  color: pillBg,
+                  borderRadius: BorderRadius.circular(AppRadius.xs + 2),
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(
+                          Icons.graphic_eq_rounded,
+                          size: 10,
+                          color: onBrandBlue ? AppColors.brandWhite : AppColors.brandPink,
+                        ),
+                        const SizedBox(width: 3),
+                        Flexible(
+                          child: Text(
+                            _useTranslatedVoice
+                                ? '${tr.source.isNotEmpty ? "${tr.source.toUpperCase()} → " : ""}${tr.target.toUpperCase()} · Speaker Voice'
+                                : 'Transcript',
+                            style: GoogleFonts.inter(
+                              fontSize: 9.0,
+                              fontWeight: FontWeight.w800,
+                              letterSpacing: 0.3,
+                              color: onBrandBlue ? AppColors.brandWhite : AppColors.brandPink,
+                            ),
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 1.5),
+                    Text(
+                      _useTranslatedVoice ? tr.translated : tr.transcript,
+                      maxLines: _captionExpanded ? 8 : 2,
+                      overflow: TextOverflow.ellipsis,
+                      style: GoogleFonts.inter(
+                        fontSize: 11.0,
+                        height: 1.28,
+                        fontWeight: FontWeight.w500,
+                        color: onBrandBlue ? AppColors.brandWhite : context.textPrimary,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ],
         ],
       ),
     );
+
+    if (widget.embedded) {
+      return coreContent;
+    }
+
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 5),
+      decoration: BoxDecoration(
+        color: widget.isMe
+            ? AppColors.brandBlue.withValues(alpha: 0.14)
+            : context.surface,
+        borderRadius: BorderRadius.circular(AppRadius.md),
+        border: Border.all(
+          color: widget.isMe
+              ? AppColors.brandBlue.withValues(alpha: 0.35)
+              : context.border,
+          width: 1.0,
+        ),
+      ),
+      child: coreContent,
+    );
+  }
+}
+
+class _CompactScrubWaveformPainter extends CustomPainter {
+  final List<double> bars;
+  final double progress;
+  final bool isPlaying;
+  final Color playedColor;
+  final Color unplayedColor;
+  final Color headColor;
+
+  const _CompactScrubWaveformPainter({
+    required this.bars,
+    required this.progress,
+    required this.isPlaying,
+    required this.playedColor,
+    required this.unplayedColor,
+    required this.headColor,
+  });
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    if (bars.isEmpty || size.width <= 0 || size.height <= 0) return;
+
+    const barWidth = 2.0;
+    final count = bars.length;
+    final gap = count > 1 ? math.max(1.2, (size.width - count * barWidth) / (count - 1)) : 0.0;
+    final midY = size.height / 2;
+    final paint = Paint()..style = PaintingStyle.fill;
+
+    for (var i = 0; i < count; i++) {
+      final x = i * (barWidth + gap);
+      if (x + barWidth > size.width + 0.5) break;
+      final barProgress = count > 1 ? i / (count - 1) : 0.0;
+      final isHead = isPlaying && (barProgress - progress).abs() <= (0.85 / count);
+      final isPlayed = barProgress <= progress && progress > 0.0;
+
+      final h = (3.0 + bars[i].clamp(0.0, 1.0) * (size.height - 3.5)).clamp(3.0, size.height);
+      paint.color = isHead ? headColor : (isPlayed ? playedColor : unplayedColor);
+
+      canvas.drawRRect(
+        RRect.fromRectAndRadius(
+          Rect.fromLTWH(x, midY - h / 2, barWidth, h),
+          const Radius.circular(1.0),
+        ),
+        paint,
+      );
+    }
+  }
+
+  @override
+  bool shouldRepaint(covariant _CompactScrubWaveformPainter old) {
+    return old.progress != progress ||
+        old.isPlaying != isPlaying ||
+        old.playedColor != playedColor ||
+        old.unplayedColor != unplayedColor ||
+        old.bars != bars;
   }
 }

@@ -1,4 +1,6 @@
+import 'dart:async';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../models/comment.dart';
@@ -40,36 +42,75 @@ class CommentService {
     String postId, {
     CommentSortType sort = CommentSortType.top,
   }) {
-    final postsStream = _firestore
-        .collection('posts')
-        .doc(postId)
-        .collection('comments')
-        .orderBy('createdAt', descending: true)
-        .snapshots();
+    late StreamController<List<Comment>> controller;
+    StreamSubscription? subPosts;
+    StreamSubscription? subContent;
+    List<Comment> postComments = const [];
+    List<Comment> contentComments = const [];
 
-    return postsStream.asyncMap((snapshot) async {
-      if (snapshot.docs.isNotEmpty) {
-        return snapshot.docs
-            .map((doc) => Comment.fromFirestore(doc))
-            .where((c) => !c.isModerated)
-            .toList();
+    void emitMerged() {
+      if (controller.isClosed) return;
+      final Map<String, Comment> map = {};
+      for (final c in postComments) {
+        map[c.id] = c;
       }
-      try {
-        final contentSnapshot = await _firestore
-            .collection('content')
-            .doc(postId)
-            .collection('comments')
-            .orderBy('createdAt', descending: true)
-            .get();
-        if (contentSnapshot.docs.isNotEmpty) {
-          return contentSnapshot.docs
-              .map((doc) => Comment.fromFirestore(doc))
-              .where((c) => !c.isModerated)
-              .toList();
-        }
-      } catch (_) {}
-      return <Comment>[];
-    });
+      for (final c in contentComments) {
+        map[c.id] = c;
+      }
+      final merged = map.values.where((c) => !c.isModerated).toList();
+      merged.sort((a, b) => b.createdAt.compareTo(a.createdAt));
+      controller.add(merged);
+    }
+
+    controller = StreamController<List<Comment>>.broadcast(
+      onListen: () {
+        // Stream from posts/{postId}/comments
+        try {
+          subPosts = _firestore
+              .collection('posts')
+              .doc(postId)
+              .collection('comments')
+              .orderBy('createdAt', descending: true)
+              .snapshots()
+              .listen(
+                (snap) {
+                  postComments = snap.docs.map((doc) => Comment.fromFirestore(doc)).toList();
+                  emitMerged();
+                },
+                onError: (e) {
+                  // Silently ignore if collection doesn't exist under posts
+                  debugPrint('[CommentService] posts sub notice: $e');
+                },
+              );
+        } catch (_) {}
+
+        // Stream from content/{postId}/comments (standard reels location)
+        try {
+          subContent = _firestore
+              .collection('content')
+              .doc(postId)
+              .collection('comments')
+              .orderBy('createdAt', descending: true)
+              .snapshots()
+              .listen(
+                (snap) {
+                  contentComments = snap.docs.map((doc) => Comment.fromFirestore(doc)).toList();
+                  emitMerged();
+                },
+                onError: (e) {
+                  // Silently ignore if collection doesn't exist under content
+                  debugPrint('[CommentService] content sub notice: $e');
+                },
+              );
+        } catch (_) {}
+      },
+      onCancel: () {
+        subPosts?.cancel();
+        subContent?.cancel();
+      },
+    );
+
+    return controller.stream;
   }
 
   Future<void> addComment(
@@ -187,26 +228,29 @@ class CommentService {
         .collection('comments')
         .doc(commentId);
 
-    batch.set(commentRef, finalComment.toMap());
-    batch.set(contentCommentRef, finalComment.toMap());
-    batch.set(userCommentRef, {
-      'commentId': commentId,
-      'postId': comment.postId,
-      'content': comment.content,
-      'createdAt': FieldValue.serverTimestamp(),
-    });
     if (postExists) {
+      batch.set(commentRef, finalComment.toMap());
       batch.update(postRef, {
         'commentCount': FieldValue.increment(1),
         'updatedAt': FieldValue.serverTimestamp(),
       });
     }
     if (contentExists) {
+      batch.set(contentCommentRef, finalComment.toMap());
       batch.update(contentRef, {
         'commentCount': FieldValue.increment(1),
         'updatedAt': FieldValue.serverTimestamp(),
       });
     }
+    if (!postExists && !contentExists) {
+      batch.set(contentCommentRef, finalComment.toMap());
+    }
+    batch.set(userCommentRef, {
+      'commentId': commentId,
+      'postId': comment.postId,
+      'content': comment.content,
+      'createdAt': FieldValue.serverTimestamp(),
+    });
 
     await batch.commit();
 

@@ -212,6 +212,179 @@ class YouTubeApiClient {
       return [];
     }
   }
+
+  // ── YouTube Live Streaming API ─────────────────────────────────────────
+
+  /// Creates a Live Broadcast on YouTube
+  Future<youtube.LiveBroadcast> createLiveBroadcast({
+    required String title,
+    String description = '',
+    DateTime? scheduledStartTime,
+    String privacyStatus = 'public',
+  }) async {
+    final client = await _getAuthClient();
+    if (client == null) throw Exception('Not authenticated with YouTube');
+
+    final ytApi = youtube.YouTubeApi(client);
+    final startTime = (scheduledStartTime ?? DateTime.now().add(const Duration(minutes: 2))).toUtc();
+
+    final broadcast = youtube.LiveBroadcast()
+      ..snippet = (youtube.LiveBroadcastSnippet()
+        ..title = title
+        ..description = description
+        ..scheduledStartTime = startTime)
+      ..status = (youtube.LiveBroadcastStatus()..privacyStatus = privacyStatus)
+      ..contentDetails = (youtube.LiveBroadcastContentDetails()
+        ..enableAutoStart = true
+        ..enableAutoStop = true
+        ..recordFromStart = true);
+
+    try {
+      final res = await ytApi.liveBroadcasts.insert(
+        broadcast,
+        ['snippet', 'status', 'contentDetails'],
+      ).timeout(const Duration(seconds: 20));
+      return res;
+    } catch (e) {
+      if (kDebugMode) print('Error creating YouTube live broadcast: $e');
+      throw Exception('Failed to create YouTube Live broadcast: $e');
+    }
+  }
+
+  /// Creates a Live Stream (video ingestion stream with RTMP server URL and key)
+  Future<youtube.LiveStream> createLiveStream({
+    required String title,
+    String resolution = '1080p',
+    String frameRate = '30fps',
+  }) async {
+    final client = await _getAuthClient();
+    if (client == null) throw Exception('Not authenticated with YouTube');
+
+    final ytApi = youtube.YouTubeApi(client);
+
+    final stream = youtube.LiveStream()
+      ..snippet = (youtube.LiveStreamSnippet()..title = '$title Stream')
+      ..cdn = (youtube.CdnSettings()
+        ..ingestionType = 'rtmp'
+        ..resolution = resolution
+        ..frameRate = frameRate);
+
+    try {
+      final res = await ytApi.liveStreams.insert(
+        stream,
+        ['snippet', 'cdn'],
+      ).timeout(const Duration(seconds: 20));
+      return res;
+    } catch (e) {
+      if (kDebugMode) print('Error creating YouTube live stream: $e');
+      throw Exception('Failed to create YouTube Live stream: $e');
+    }
+  }
+
+  /// Binds the broadcast to the stream to establish the RTMP pipeline
+  Future<youtube.LiveBroadcast> bindBroadcastToStream({
+    required String broadcastId,
+    required String streamId,
+  }) async {
+    final client = await _getAuthClient();
+    if (client == null) throw Exception('Not authenticated with YouTube');
+
+    final ytApi = youtube.YouTubeApi(client);
+
+    try {
+      final res = await ytApi.liveBroadcasts.bind(
+        broadcastId,
+        ['id', 'contentDetails'],
+        streamId: streamId,
+      ).timeout(const Duration(seconds: 20));
+      return res;
+    } catch (e) {
+      if (kDebugMode) print('Error binding YouTube broadcast to stream: $e');
+      throw Exception('Failed to bind broadcast to stream: $e');
+    }
+  }
+
+  /// Complete setup: Creates a broadcast, creates a stream, binds them,
+  /// and returns the RTMP ingest endpoint and stream key ready for LiveKit egress.
+  Future<YouTubeLiveBroadcastDetails> setupFullLiveStream({
+    required String title,
+    String description = '',
+    DateTime? scheduledStartTime,
+    String privacyStatus = 'public',
+  }) async {
+    final broadcast = await createLiveBroadcast(
+      title: title,
+      description: description,
+      scheduledStartTime: scheduledStartTime,
+      privacyStatus: privacyStatus,
+    );
+
+    final broadcastId = broadcast.id ?? '';
+    if (broadcastId.isEmpty) throw Exception('YouTube broadcast ID was empty');
+
+    final stream = await createLiveStream(title: title);
+    final streamId = stream.id ?? '';
+    final rtmpAddress = stream.cdn?.ingestionInfo?.ingestionAddress ?? 'rtmp://a.rtmp.youtube.com/live2';
+    final streamKey = stream.cdn?.ingestionInfo?.streamName ?? '';
+
+    if (streamId.isNotEmpty) {
+      await bindBroadcastToStream(broadcastId: broadcastId, streamId: streamId);
+    }
+
+    return YouTubeLiveBroadcastDetails(
+      broadcastId: broadcastId,
+      streamId: streamId,
+      rtmpIngestUrl: rtmpAddress,
+      streamKey: streamKey,
+      title: title,
+      scheduledStartTime: scheduledStartTime ?? DateTime.now(),
+      status: broadcast.status?.lifeCycleStatus ?? 'ready',
+    );
+  }
+
+  /// Transitions a broadcast's lifecycle: 'testing', 'live', or 'complete'
+  Future<void> transitionBroadcast({
+    required String broadcastId,
+    required String status,
+  }) async {
+    final client = await _getAuthClient();
+    if (client == null) throw Exception('Not authenticated with YouTube');
+
+    final ytApi = youtube.YouTubeApi(client);
+
+    try {
+      await ytApi.liveBroadcasts.transition(
+        status,
+        broadcastId,
+        ['status'],
+      ).timeout(const Duration(seconds: 20));
+    } catch (e) {
+      if (kDebugMode) print('Error transitioning YouTube broadcast to $status: $e');
+    }
+  }
+}
+
+/// Metadata and RTMP connection details for an active or scheduled YouTube Live stream
+class YouTubeLiveBroadcastDetails {
+  final String broadcastId;
+  final String streamId;
+  final String rtmpIngestUrl;
+  final String streamKey;
+  final String title;
+  final DateTime scheduledStartTime;
+  final String status;
+
+  const YouTubeLiveBroadcastDetails({
+    required this.broadcastId,
+    required this.streamId,
+    required this.rtmpIngestUrl,
+    required this.streamKey,
+    required this.title,
+    required this.scheduledStartTime,
+    required this.status,
+  });
+
+  String get fullRtmpUrl => '$rtmpIngestUrl/$streamKey';
 }
 
 final youtubeApiClientProvider = Provider((ref) {

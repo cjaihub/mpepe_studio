@@ -34,7 +34,7 @@ service firebase.storage {
 
     // ─── User avatars: users/{uid}/avatar.* ──────────────────────────────────
     match /users/{uid}/avatar/{fileName} {
-      allow read: if isSignedIn();
+      allow read: if true;
       allow write: if isOwner(uid) && isValidImageType() && isUnder50MB();
       allow delete: if isOwner(uid);
     }
@@ -77,7 +77,7 @@ service firebase.storage {
 
     // ─── Published posts / reels: content/{uid}/** (upload_service) ─────────
     match /content/{uid}/{allPaths=**} {
-      allow read: if isSignedIn();
+      allow read: if true;
       allow create, update: if isOwner(uid) && (isValidImageType() || isValidVideoType()) && isUnder200MB();
       allow delete: if isOwner(uid);
     }
@@ -99,7 +99,7 @@ service firebase.storage {
 
     // ─── Stories media: stories/{fileName} (create_story_sheet) ──────────────
     match /stories/{fileName} {
-      allow read: if isSignedIn();
+      allow read: if true;
       allow create: if isSignedIn() && (isValidImageType() || isValidVideoType()) && isUnder200MB();
     }
 
@@ -133,7 +133,7 @@ service firebase.storage {
 
     // ─── AR effects: assets written by Cloud Functions, read by the app ─────
     match /ar_effects/{effectId}/{fileName} {
-      allow read: if isSignedIn();
+      allow read: if true;
       allow write: if false;
     }
 

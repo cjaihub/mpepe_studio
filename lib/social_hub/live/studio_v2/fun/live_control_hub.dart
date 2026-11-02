@@ -17,6 +17,7 @@ import 'package:go_router/go_router.dart';
 import '../../../../backend/live_studio/contracts/studio_contracts.dart';
 import '../../../../backend/live_studio/contracts/studio_ports.dart';
 import '../../../../backend/live_studio/fun/studio_fun.dart';
+import '../../../../backend/live_studio/pool/studio_pool.dart';
 import '../../../../backend/live_studio/media/livekit_studio_room.dart';
 import '../../../../backend/live_studio/roles/roles.dart';
 import '../../../../backend/live_studio/session/studio_session_controller.dart';
@@ -65,6 +66,7 @@ class LiveControlHub extends ConsumerStatefulWidget {
 class _LiveControlHubState extends ConsumerState<LiveControlHub> {
   late final List<(String, IconData)> _tabs = [
     if (widget.isManager) ('Fun', Icons.celebration_rounded),
+    ('Face & Looks', Icons.face_retouching_natural_rounded),
     if (widget.onStage && widget.room is LiveKitStudioRoom) ('Voice', Icons.graphic_eq_rounded),
     if (widget.isHost) ('Broadcast', Icons.cell_tower_rounded),
     ('View', Icons.visibility_rounded),
@@ -112,6 +114,7 @@ class _LiveControlHubState extends ConsumerState<LiveControlHub> {
                 key: ValueKey(name),
                 child: switch (name) {
                   'Fun' => _FunTab(streamId: widget.streamId),
+                  'Face & Looks' => _FaceAndLooksTab(streamId: widget.streamId),
                   'Voice' => _VoiceTab(room: widget.room! as LiveKitStudioRoom),
                   'Broadcast' => _BroadcastTab(streamId: widget.streamId),
                   _ => _ViewTab(streamId: widget.streamId),
@@ -279,7 +282,26 @@ class _FunTabState extends ConsumerState<_FunTab> {
     final pollOpen = fun.poll?.acceptingAt(now) ?? false;
     final timerOn = fun.timerEndsAtMs != null && fun.timerEndsAtMs! > now;
     final id = widget.streamId;
+    final pool = ref.watch(studioPoolProvider(id)).value;
+    final poolActive = pool != null && !pool.isClosed;
+
     return ListView(padding: const EdgeInsets.only(bottom: 16), shrinkWrap: true, children: [
+      _Card(
+        icon: Icons.sports_baseball,
+        title: poolActive ? '8-Ball Pool (Active)' : '8-Ball Pool Arena',
+        trailing: poolActive
+            ? _button('Close Table', Icons.close_rounded, _busy ? null : () => ref.read(studioPoolApiProvider).closeMatch(id), primary: false)
+            : _button('Launch Table', Icons.play_arrow_rounded, _busy ? null : () {
+                Navigator.of(context).pop();
+                ref.read(studioPoolApiProvider).openMatch(id, bestOf: 1);
+              }),
+        child: Text(
+          poolActive
+              ? 'Match in progress: ${pool.p1Name} vs ${pool.p2Name ?? "Waiting for P2"} (Score: ${pool.p1Score} - ${pool.p2Score})'
+              : 'Launch regulation 8-ball billiards. Viewers who join as Player 2 get dedicated live split-camera view!',
+          style: _input.copyWith(fontSize: 12, color: LiveStudioWorld.textDim),
+        ),
+      ),
       _Card(
         icon: Icons.poll_rounded,
         title: pollOpen ? 'Poll running' : 'Poll',
@@ -672,5 +694,258 @@ class _VoiceTabState extends State<_VoiceTab> {
         ]),
       ),
     ]);
+  }
+}
+
+class _FaceAndLooksTab extends StatefulWidget {
+  const _FaceAndLooksTab({required this.streamId});
+  final String streamId;
+
+  @override
+  State<_FaceAndLooksTab> createState() => _FaceAndLooksTabState();
+}
+
+class _FaceAndLooksTabState extends State<_FaceAndLooksTab> {
+  String _selectedLook = 'Clean Pro';
+  String _selectedCategory = 'Glasses';
+  String? _selectedEffect = 'Neon Cat-Eye';
+
+  static const List<Map<String, dynamic>> _looks = [
+    {'name': 'Clean Pro', 'color': Color(0xFF0C4FA8), 'desc': 'Studio Balanced'},
+    {'name': 'Teal & Warm', 'color': Color(0xFF009688), 'desc': 'Cinematic Duo'},
+    {'name': 'Golden Hour', 'color': Color(0xFFFFA000), 'desc': 'Sunset Glow'},
+    {'name': 'Moody Noir', 'color': Color(0xFF424242), 'desc': 'High Contrast Film'},
+    {'name': 'Velvet Pop', 'color': Color(0xFFFF2D87), 'desc': 'Vibrant Accent'},
+  ];
+
+  static const Map<String, List<Map<String, dynamic>>> _effects = {
+    'Glasses': [
+      {'name': 'Neon Cat-Eye', 'icon': Icons.visibility_rounded, 'desc': 'Glow Edge'},
+      {'name': 'Aviator Gold', 'icon': Icons.face_retouching_natural_rounded, 'desc': 'Classic Metal'},
+      {'name': 'Cyber Shades', 'icon': Icons.lens_blur_rounded, 'desc': 'Hologram Visor'},
+      {'name': 'Retro Specs', 'icon': Icons.center_focus_strong_rounded, 'desc': 'Tortoise Shell'},
+    ],
+    'Caps & Hats': [
+      {'name': 'Snapback Cap', 'icon': Icons.sports_baseball_rounded, 'desc': 'Street Style'},
+      {'name': 'Golden Halo', 'icon': Icons.wb_sunny_rounded, 'desc': 'Radiant Ring'},
+      {'name': 'Studio Beanie', 'icon': Icons.person_rounded, 'desc': 'Cozy Knit'},
+      {'name': 'Party Crown', 'icon': Icons.military_tech_rounded, 'desc': 'Royal Sparkle'},
+    ],
+    'Wigs & Hair': [
+      {'name': 'Cyber Violet', 'icon': Icons.auto_awesome_rounded, 'desc': 'Neon Wave'},
+      {'name': 'Platinum Bob', 'icon': Icons.face_rounded, 'desc': 'Sleek Cut'},
+      {'name': 'Neon Afro', 'icon': Icons.flare_rounded, 'desc': 'Pulse Volume'},
+      {'name': 'Crimson Fade', 'icon': Icons.brush_rounded, 'desc': 'Sunset Ombré'},
+    ],
+    'Masks & FX': [
+      {'name': 'Glitter Dust', 'icon': Icons.star_rounded, 'desc': 'Face Shimmer'},
+      {'name': 'Studio Glow', 'icon': Icons.light_mode_rounded, 'desc': 'Soft Key Light'},
+      {'name': 'Anime Sparkle', 'icon': Icons.auto_fix_high_rounded, 'desc': 'Eye Twinkle'},
+      {'name': 'Cyber Visor', 'icon': Icons.smart_toy_rounded, 'desc': 'HUD Overlay'},
+    ],
+  };
+
+  @override
+  Widget build(BuildContext context) {
+    final catEffects = _effects[_selectedCategory] ?? const [];
+    return ListView(
+      padding: const EdgeInsets.only(bottom: 24),
+      shrinkWrap: true,
+      children: [
+        _Card(
+          icon: Icons.palette_rounded,
+          title: 'Oneova Looks',
+          trailing: Text(
+            _selectedLook,
+            style: LiveStudioType.s(12, FontWeight.w700, LiveStudioAccent.blue),
+          ),
+          child: SizedBox(
+            height: 80,
+            child: ListView.separated(
+              scrollDirection: Axis.horizontal,
+              itemCount: _looks.length,
+              separatorBuilder: (_, _) => const SizedBox(width: 8),
+              itemBuilder: (context, i) {
+                final look = _looks[i];
+                final isSelected = look['name'] == _selectedLook;
+                final col = look['color'] as Color;
+                return GestureDetector(
+                  onTap: () {
+                    HapticFeedback.selectionClick();
+                    setState(() => _selectedLook = look['name'] as String);
+                  },
+                  child: AnimatedContainer(
+                    duration: const Duration(milliseconds: 250),
+                    width: 90,
+                    padding: const EdgeInsets.all(8),
+                    decoration: BoxDecoration(
+                      color: isSelected ? col.withValues(alpha: 0.22) : LiveStudioWorld.surface3,
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(
+                        color: isSelected ? col : LiveStudioWorld.nameplateBorder,
+                        width: isSelected ? 1.5 : 1.0,
+                      ),
+                    ),
+                    child: Column(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Container(
+                          width: 22,
+                          height: 22,
+                          decoration: BoxDecoration(
+                            color: col,
+                            shape: BoxShape.circle,
+                            border: Border.all(color: Colors.white, width: 1.5),
+                          ),
+                          child: isSelected
+                              ? const Icon(Icons.check, size: 14, color: Colors.white)
+                              : null,
+                        ),
+                        const SizedBox(height: 6),
+                        Text(
+                          look['name'] as String,
+                          style: LiveStudioType.s(11, FontWeight.w700, LiveStudioWorld.textHigh),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ],
+                    ),
+                  ),
+                );
+              },
+            ),
+          ),
+        ),
+        _Card(
+          icon: Icons.face_retouching_natural_rounded,
+          title: 'Live AR Face Effects',
+          trailing: _selectedEffect != null
+              ? GestureDetector(
+                  onTap: () {
+                    HapticFeedback.lightImpact();
+                    setState(() => _selectedEffect = null);
+                  },
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                    decoration: BoxDecoration(
+                      color: LiveStudioWorld.surface3,
+                      borderRadius: BorderRadius.circular(999),
+                    ),
+                    child: Text('Clear', style: LiveStudioType.s(11, FontWeight.w600, LiveStudioWorld.textDim)),
+                  ),
+                )
+              : null,
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              SingleChildScrollView(
+                scrollDirection: Axis.horizontal,
+                child: Row(
+                  children: _effects.keys.map((cat) {
+                    final isCat = cat == _selectedCategory;
+                    return Padding(
+                      padding: const EdgeInsets.only(right: 6, bottom: 8),
+                      child: GestureDetector(
+                        onTap: () {
+                          HapticFeedback.selectionClick();
+                          setState(() => _selectedCategory = cat);
+                        },
+                        child: AnimatedContainer(
+                          duration: const Duration(milliseconds: 200),
+                          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+                          decoration: BoxDecoration(
+                            color: isCat ? LiveStudioAccent.pink : LiveStudioWorld.surface3,
+                            borderRadius: BorderRadius.circular(999),
+                          ),
+                          child: Text(
+                            cat,
+                            style: LiveStudioType.s(
+                              11,
+                              isCat ? FontWeight.w800 : FontWeight.w600,
+                              isCat ? LiveStudioAccent.white : LiveStudioWorld.textMedium,
+                            ),
+                          ),
+                        ),
+                      ),
+                    );
+                  }).toList(),
+                ),
+              ),
+              const SizedBox(height: 6),
+              GridView.builder(
+                shrinkWrap: true,
+                physics: const NeverScrollableScrollPhysics(),
+                itemCount: catEffects.length,
+                gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+                  crossAxisCount: 2,
+                  crossAxisSpacing: 8,
+                  mainAxisSpacing: 8,
+                  childAspectRatio: 2.3,
+                ),
+                itemBuilder: (context, i) {
+                  final eff = catEffects[i];
+                  final name = eff['name'] as String;
+                  final isSel = _selectedEffect == name;
+                  return GestureDetector(
+                    onTap: () {
+                      HapticFeedback.selectionClick();
+                      setState(() {
+                        _selectedEffect = isSel ? null : name;
+                      });
+                    },
+                    child: AnimatedContainer(
+                      duration: const Duration(milliseconds: 220),
+                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                      decoration: BoxDecoration(
+                        color: isSel ? LiveStudioAccent.pink.withValues(alpha: 0.18) : LiveStudioWorld.surface3,
+                        borderRadius: BorderRadius.circular(12),
+                        border: Border.all(
+                          color: isSel ? LiveStudioAccent.pink : LiveStudioWorld.nameplateBorder,
+                          width: isSel ? 1.5 : 1.0,
+                        ),
+                      ),
+                      child: Row(
+                        children: [
+                          Icon(
+                            eff['icon'] as IconData,
+                            size: 20,
+                            color: isSel ? LiveStudioAccent.pink : LiveStudioWorld.textMedium,
+                          ),
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              mainAxisAlignment: MainAxisAlignment.center,
+                              children: [
+                                Text(
+                                  name,
+                                  style: LiveStudioType.s(
+                                    12,
+                                    isSel ? FontWeight.w800 : FontWeight.w600,
+                                    isSel ? LiveStudioAccent.white : LiveStudioWorld.textHigh,
+                                  ),
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                ),
+                                Text(
+                                  eff['desc'] as String,
+                                  style: LiveStudioType.s(10, FontWeight.w500, LiveStudioWorld.textDim),
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                ),
+                              ],
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  );
+                },
+              ),
+            ],
+          ),
+        ),
+      ],
+    );
   }
 }

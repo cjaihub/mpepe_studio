@@ -65,7 +65,18 @@ class _LiveVoiceModeScreenState extends ConsumerState<LiveVoiceModeScreen> {
                     Expanded(
                       child: Text(
                         liveState.currentError!,
-                        style: GoogleFonts.inter(color: Colors.white, fontWeight: FontWeight.w700),
+                        style: GoogleFonts.inter(color: Colors.white, fontWeight: FontWeight.w700, fontSize: 13),
+                      ),
+                    ),
+                    TextButton(
+                      onPressed: () => notifier.connect(),
+                      style: TextButton.styleFrom(
+                        backgroundColor: Colors.white,
+                        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                      ),
+                      child: Text(
+                        'Retry',
+                        style: GoogleFonts.inter(color: AppColors.brandPink, fontWeight: FontWeight.w700, fontSize: 12),
                       ),
                     ),
                   ],
@@ -77,6 +88,16 @@ class _LiveVoiceModeScreenState extends ConsumerState<LiveVoiceModeScreen> {
             ),
             
             _buildVisualizer(context, liveState.state),
+            if (liveState.heldByOtherApp)
+              Padding(
+                padding: const EdgeInsets.only(top: 10),
+                child: Row(mainAxisAlignment: MainAxisAlignment.center, children: [
+                  Icon(Icons.mic_external_off_rounded, size: 14, color: context.textMuted),
+                  const SizedBox(width: 6),
+                  Text('Another app is using the mic. Ova resumes when it\'s free.',
+                      style: GoogleFonts.inter(fontSize: 12, color: context.textMuted)),
+                ]),
+              ),
 
             Padding(
               padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 32),

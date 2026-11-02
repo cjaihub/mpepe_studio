@@ -3,6 +3,7 @@ import 'package:video_player/video_player.dart';
 import 'package:visibility_detector/visibility_detector.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:oneova/shared/widgets/animated_loading_indicator.dart';
+import 'services/reel_prefetcher.dart';
 
 class FeedVideoPlayer extends StatefulWidget {
   final String videoUrl;
@@ -23,9 +24,8 @@ class FeedVideoPlayer extends StatefulWidget {
 }
 
 class _FeedVideoPlayerState extends State<FeedVideoPlayer> {
-  late VideoPlayerController _controller;
+  VideoPlayerController? _controller;
   bool _isInitialized = false;
-  bool _hasError = false;
 
   @override
   void initState() {
@@ -34,41 +34,47 @@ class _FeedVideoPlayerState extends State<FeedVideoPlayer> {
   }
 
   Future<void> _initializePlayer() async {
-    _controller = VideoPlayerController.networkUrl(Uri.parse(widget.videoUrl))
-      ..setLooping(true);
     try {
-      await _controller.initialize();
+      if (widget.videoUrl.isEmpty) return;
+      final cached = await ReelPrefetcher.videoCache.getFileFromCache(widget.videoUrl);
+      VideoPlayerController ctrl;
+      if (cached != null && await cached.file.exists() && await cached.file.length() > 0) {
+        ctrl = VideoPlayerController.file(cached.file)..setLooping(true);
+      } else {
+        ctrl = VideoPlayerController.networkUrl(Uri.parse(widget.videoUrl))..setLooping(true);
+      }
+      await ctrl.initialize();
       if (mounted) {
         setState(() {
+          _controller = ctrl;
           _isInitialized = true;
         });
+      } else {
+        await ctrl.dispose();
       }
     } catch (e) {
-      // Network/403 errors: silently degrade to thumbnail placeholder.
-      if (mounted) {
-        setState(() {
-          _hasError = true;
-        });
-      }
+      // Network/format error: gracefully degrade to thumbnail placeholder.
+      debugPrint('[FeedVideoPlayer] initialize error: $e');
     }
   }
 
   @override
   void dispose() {
-    _controller.dispose();
+    _controller?.dispose();
     super.dispose();
   }
 
   void _handleVisibilityChanged(VisibilityInfo info) {
-    if (!_isInitialized) return;
+    final ctrl = _controller;
+    if (ctrl == null || !_isInitialized) return;
 
     if (info.visibleFraction > 0.7) {
-      if (!_controller.value.isPlaying) {
-        _controller.play();
+      if (!ctrl.value.isPlaying) {
+        ctrl.play();
       }
     } else {
-      if (_controller.value.isPlaying) {
-        _controller.pause();
+      if (ctrl.value.isPlaying) {
+        ctrl.pause();
       }
     }
   }
@@ -97,16 +103,17 @@ class _FeedVideoPlayerState extends State<FeedVideoPlayer> {
                 ),
               
               // Top layer: VideoPlayer
-              ValueListenableBuilder(
-                valueListenable: _controller,
-                builder: (context, VideoPlayerValue value, child) {
-                  return AnimatedOpacity(
-                    opacity: value.isInitialized && value.isPlaying ? 1.0 : 0.0,
-                    duration: const Duration(milliseconds: 200),
-                    child: value.isInitialized ? VideoPlayer(_controller) : const SizedBox.shrink(),
-                  );
-                },
-              ),
+              if (_controller != null && _isInitialized)
+                ValueListenableBuilder<VideoPlayerValue>(
+                  valueListenable: _controller!,
+                  builder: (context, VideoPlayerValue value, child) {
+                    return AnimatedOpacity(
+                      opacity: value.isInitialized && value.isPlaying ? 1.0 : 0.0,
+                      duration: const Duration(milliseconds: 200),
+                      child: value.isInitialized ? VideoPlayer(_controller!) : const SizedBox.shrink(),
+                    );
+                  },
+                ),
 
               // Overlay: Processing Status
               if (widget.processingStatus != null && widget.processingStatus != 'complete')

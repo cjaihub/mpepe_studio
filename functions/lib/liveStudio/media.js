@@ -42,7 +42,7 @@ function streamIdArg(data) {
     return (0, shared_1.requireString)(data === null || data === void 0 ? void 0 : data.streamId, 'streamId', 128);
 }
 /** Host starts a v2 live. Returns `{streamId, token, url, role}`. */
-exports.lsStart = (0, https_1.onCall)({ secrets: shared_1.LIVEKIT_SECRETS }, async (req) => {
+exports.lsStart = (0, https_1.onCall)({ secrets: shared_1.LIVEKIT_SECRETS, memory: '512MiB' }, async (req) => {
     var _a;
     var _b;
     const uid = (0, shared_1.requireUid)(req);
@@ -91,7 +91,7 @@ exports.lsStart = (0, https_1.onCall)({ secrets: shared_1.LIVEKIT_SECRETS }, asy
  * `e2ee` is `{key, keyIndex}` (the stream's shared media key, base64) or
  * null when LIVE_STUDIO_E2EE is off. See security.ts / security_logic.ts.
  */
-exports.lsToken = (0, https_1.onCall)({ secrets: shared_1.LIVEKIT_SECRETS }, async (req) => {
+exports.lsToken = (0, https_1.onCall)({ secrets: shared_1.LIVEKIT_SECRETS, memory: '512MiB' }, async (req) => {
     var _a;
     const uid = (0, shared_1.requireUid)(req);
     const streamId = streamIdArg(req.data);

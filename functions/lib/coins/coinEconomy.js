@@ -64,6 +64,7 @@ const db = () => (0, firestore_1.getFirestore)();
 const PACKAGE = 'com.oneova.app';
 /** Play product id → coins credited (bonus included). */
 exports.COIN_PACKS = {
+    coins_10: 10,
     coins_70: 70,
     coins_350: 350,
     coins_700: 720,

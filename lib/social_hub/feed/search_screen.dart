@@ -5,6 +5,7 @@ import '../../../backend/social/models/search_models.dart';
 import '../../../backend/social/services/search_service.dart';
 import '../../../backend/moderation/services/content_safety_moderation_engine.dart';
 import 'package:oneova/shared/theme/app_theme.dart';
+import '../../../shared/widgets/oneova_voice_typing_button.dart';
 
 class SearchScreen extends ConsumerStatefulWidget {
   const SearchScreen({super.key});
@@ -129,15 +130,24 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
               hintText: 'Search creators, videos, sounds...',
               hintStyle: TextStyle(color: context.textMuted),
               prefixIcon: Icon(Icons.search, color: context.textMuted),
-              suffixIcon: _query.isNotEmpty
-                  ? IconButton(
+              suffixIcon: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  OneovaVoiceTypingButton(
+                    controller: _searchController,
+                    onChanged: _onSearchChanged,
+                    tooltip: 'Voice search',
+                  ),
+                  if (_query.isNotEmpty)
+                    IconButton(
                       icon: Icon(Icons.clear, color: context.textMuted, size: 18),
                       onPressed: () {
                         _searchController.clear();
                         _onSearchChanged('');
                       },
-                    )
-                  : null,
+                    ),
+                ],
+              ),
               border: InputBorder.none,
               contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
             ),

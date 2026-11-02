@@ -61,6 +61,9 @@ class ActiveCallScreen extends ConsumerStatefulWidget {
 class _ActiveCallScreenState extends ConsumerState<ActiveCallScreen> {
   final RTCVideoRenderer _localRenderer = RTCVideoRenderer();
   bool _localReady = false;
+  String? _boundLocalStreamId;
+  String? _boundLocalVideoTrackId;
+  int _boundLocalRev = -1;
   bool _controlsVisible = true;
   bool _swapped = false;
   bool _closing = false;
@@ -78,7 +81,7 @@ class _ActiveCallScreenState extends ConsumerState<ActiveCallScreen> {
     _localRenderer.initialize().then((_) {
       if (!mounted) return;
       setState(() => _localReady = true);
-      _bindLocal(ref.read(callMediaServiceProvider).localStream);
+      _bindLocal(ref.read(callMediaServiceProvider));
     });
     WidgetsBinding.instance.addPostFrameCallback((_) => _resumeIfNeeded());
   }
@@ -106,12 +109,32 @@ class _ActiveCallScreenState extends ConsumerState<ActiveCallScreen> {
     }
   }
 
-  void _bindLocal(MediaStream? stream) {
+  Future<void> _bindLocal(CallMediaState media) async {
     if (!_localReady) return;
-    if (_localRenderer.srcObject?.id != stream?.id) {
-      _localRenderer.srcObject = stream;
-      if (mounted) setState(() {});
+    final stream = media.localStream;
+    final videoTrack = stream?.getVideoTracks().firstOrNull;
+    final nextStreamId = stream?.id;
+    final nextTrackId = videoTrack?.id;
+    if (_boundLocalStreamId == nextStreamId &&
+        _boundLocalVideoTrackId == nextTrackId &&
+        _boundLocalRev == media.streamRevision) {
+      return;
     }
+    _boundLocalStreamId = nextStreamId;
+    _boundLocalVideoTrackId = nextTrackId;
+    _boundLocalRev = media.streamRevision;
+    try {
+      if (stream != null && videoTrack != null) {
+        await _localRenderer.setSrcObject(stream: stream, trackId: videoTrack.id);
+      } else {
+        _localRenderer.srcObject = stream;
+      }
+    } catch (_) {
+      try {
+        _localRenderer.srcObject = stream;
+      } catch (_) {}
+    }
+    if (mounted) setState(() {});
   }
 
   void _scheduleHide() {
@@ -146,8 +169,12 @@ class _ActiveCallScreenState extends ConsumerState<ActiveCallScreen> {
     ActiveCallScreen.isVisible.value = false;
     _hideControls?.cancel();
     _soundToastTimer?.cancel();
-    _localRenderer.srcObject = null;
-    _localRenderer.dispose();
+    try {
+      _localRenderer.srcObject = null;
+    } catch (_) {}
+    try {
+      _localRenderer.dispose();
+    } catch (_) {}
     super.dispose();
   }
 
@@ -170,7 +197,7 @@ class _ActiveCallScreenState extends ConsumerState<ActiveCallScreen> {
     final room = ref.watch(callRoomControllerProvider);
     final controller = ref.read(activeCallControllerProvider.notifier);
 
-    ref.listen<CallMediaState>(callMediaServiceProvider, (_, m) => _bindLocal(m.localStream));
+    ref.listen<CallMediaState>(callMediaServiceProvider, (_, m) => _bindLocal(m));
     ref.listen<CallSoundEvent?>(callRoomControllerProvider.select((r) => r.lastSound), (prev, next) {
       if (next == null || next.id == prev?.id) return;
       HapticFeedback.lightImpact();
@@ -215,9 +242,22 @@ class _ActiveCallScreenState extends ConsumerState<ActiveCallScreen> {
       fallbackAvatar: widget.isCaller ? widget.otherUserAvatar : null,
     );
     final joinedRemotes = s.remoteParticipants.where((p) => p.status == ParticipantStatus.joined).toList();
-    final showVideoStage = (s.phase == CallPhase.connected || s.phase == CallPhase.reconnecting) &&
-        (media.isVideoOn || joinedRemotes.any((p) => !p.isVideoMuted));
+    final anyRemoteVideo = joinedRemotes.any(
+          (p) => !p.isVideoMuted && (mesh.peers[p.userId]?.hasRemoteVideo ?? true),
+        ) ||
+        mesh.peers.values.any((p) => p.hasRemoteVideo);
+    final showVideoStage = (s.phase == CallPhase.outgoing ||
+            s.phase == CallPhase.connecting ||
+            s.phase == CallPhase.connected ||
+            s.phase == CallPhase.reconnecting) &&
+        (media.isVideoOn || anyRemoteVideo);
     final isGroup = s.call?.isGroup ?? false;
+    final hasRemoteInStage = joinedRemotes.isNotEmpty || mesh.peers.isNotEmpty;
+    final showPipSelf = showVideoStage &&
+        !isGroup &&
+        hasRemoteInStage &&
+        room.layout != CallLayout.split &&
+        !(room.hideSelfView && !_swapped);
     // Android system PiP (auto-entered by the controller for video calls).
     final tiny = CallPipService.inPip.value || MediaQuery.sizeOf(context).width < 320;
 
@@ -251,10 +291,10 @@ class _ActiveCallScreenState extends ConsumerState<ActiveCallScreen> {
                               ? _spotlight(s, mesh, media, room)
                               : _groupGrid(s, mesh, media, room))
                           : _oneToOneStage(s, mesh, media, head, room))
-                      : _audioStage(s, head),
+                      : _audioStage(s, media, head),
                 ),
-                if (showVideoStage && !isGroup && !(room.hideSelfView && !_swapped)) _localPreview(media, mesh, s, room),
-                _topBar(s, head, onDark: showVideoStage),
+                if (showPipSelf) _localPreview(media, mesh, s, room),
+                _topBar(s, media, room, head, onDark: showVideoStage),
                 if (room.music != null && s.isBusy) _musicPill(room.music!, onDark: showVideoStage),
                 if (_soundToast != null) _soundToastView(_soundToast!),
                 if (s.phase == CallPhase.connected && mesh.worstQuality == CallQuality.poor)
@@ -449,9 +489,10 @@ class _ActiveCallScreenState extends ConsumerState<ActiveCallScreen> {
 
   // ───────────────────────── Stages ─────────────────────────
 
-  Widget _audioStage(ActiveCallState s, ({String name, String? avatar}) head) {
+  Widget _audioStage(ActiveCallState s, CallMediaState media, ({String name, String? avatar}) head) {
     final ringing = s.phase == CallPhase.outgoing || s.phase == CallPhase.incoming;
     final isGroup = s.call?.isGroup ?? false;
+    final controller = ref.read(activeCallControllerProvider.notifier);
     return DecoratedBox(
       decoration: BoxDecoration(
         gradient: LinearGradient(
@@ -488,6 +529,46 @@ class _ActiveCallScreenState extends ConsumerState<ActiveCallScreen> {
             _statusLine(s, color: context.textSecondary),
             const SizedBox(height: 10),
             CallEncryptedChip(frameEncrypted: ref.watch(webrtcConnectionManagerProvider).allFrameEncrypted),
+            if (s.isBusy) ...[
+              const SizedBox(height: 12),
+              GestureDetector(
+                onTap: controller.toggleVoiceEnhance,
+                child: Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+                  decoration: BoxDecoration(
+                    color: media.isVoiceEnhanced
+                        ? AppColors.brandBlue.withValues(alpha: context.isDark ? 0.24 : 0.1)
+                        : context.surfaceMid,
+                    borderRadius: BorderRadius.circular(AppRadius.full),
+                    border: Border.all(
+                      color: media.isVoiceEnhanced
+                          ? AppColors.brandBlue.withValues(alpha: 0.55)
+                          : context.border,
+                      width: 1,
+                    ),
+                  ),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(
+                        Icons.graphic_eq_rounded,
+                        size: 13,
+                        color: media.isVoiceEnhanced ? AppColors.brandBlue : context.textMuted,
+                      ),
+                      const SizedBox(width: 5),
+                      Text(
+                        media.isVoiceEnhanced ? 'HD Voice Clean · On' : 'Voice Clean · Off',
+                        style: GoogleFonts.inter(
+                          fontSize: 10.5,
+                          fontWeight: FontWeight.w600,
+                          color: media.isVoiceEnhanced ? AppColors.brandBlue : context.textSecondary,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ],
           ],
         ).animate().fadeIn(duration: 250.ms).slideY(begin: 0.04, end: 0),
       ),
@@ -547,6 +628,12 @@ class _ActiveCallScreenState extends ConsumerState<ActiveCallScreen> {
     return text;
   }
 
+  bool _isRemoteVideoActive(CallParticipant? remote, PeerState? peer) {
+    if (peer == null) return false;
+    if (remote != null && remote.isVideoMuted) return false;
+    return peer.hasRemoteVideo || peer.renderer.srcObject != null;
+  }
+
   Widget _videoOrAvatar({
     required RTCVideoRenderer? renderer,
     required bool videoOn,
@@ -554,7 +641,7 @@ class _ActiveCallScreenState extends ConsumerState<ActiveCallScreen> {
     String? avatar,
     bool mirror = false,
   }) {
-    if (renderer != null && videoOn) {
+    if (renderer != null && videoOn && renderer.renderVideo) {
       return RTCVideoView(
         renderer,
         mirror: mirror,
@@ -568,6 +655,13 @@ class _ActiveCallScreenState extends ConsumerState<ActiveCallScreen> {
     );
   }
 
+  PeerState? _primaryPeer(ActiveCallState s, WebRTCMeshState mesh, CallParticipant? joinedRemote) {
+    if (joinedRemote != null && mesh.peers.containsKey(joinedRemote.userId)) {
+      return mesh.peers[joinedRemote.userId];
+    }
+    return mesh.peers.values.firstOrNull;
+  }
+
   Widget _oneToOneStage(
     ActiveCallState s,
     WebRTCMeshState mesh,
@@ -576,10 +670,100 @@ class _ActiveCallScreenState extends ConsumerState<ActiveCallScreen> {
     CallRoomState room,
   ) {
     final remote = s.remoteParticipants.where((p) => p.status == ParticipantStatus.joined).firstOrNull;
-    final peer = remote == null ? null : mesh.peers[remote.userId];
+    final peer = _primaryPeer(s, mesh, remote);
+    final remoteVideoOn = _isRemoteVideoActive(remote, peer);
+    final localMirror = media.isFrontCamera && room.mirrorSelfView;
+
+    // Outgoing / connecting before the other person joins: show our live camera
+    // right away with a sleek floating recipient badge instead of a dark void.
+    if (remote == null && peer == null) {
+      return Stack(
+        fit: StackFit.expand,
+        children: [
+          _videoOrAvatar(
+            renderer: _localReady ? _localRenderer : null,
+            videoOn: media.isVideoOn,
+            name: 'You',
+            mirror: localMirror,
+          ),
+          DecoratedBox(
+            decoration: BoxDecoration(
+              gradient: LinearGradient(
+                begin: Alignment.topCenter,
+                end: Alignment.bottomCenter,
+                colors: [
+                  AppColors.brandBlack.withValues(alpha: 0.45),
+                  Colors.transparent,
+                  AppColors.brandBlack.withValues(alpha: 0.55),
+                ],
+              ),
+            ),
+          ),
+          SafeArea(
+            child: Align(
+              alignment: const Alignment(0, -0.45),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  RingingAvatar(
+                    url: head.avatar,
+                    name: head.name,
+                    pulsing: s.phase == CallPhase.outgoing,
+                    size: 76,
+                  ),
+                  const SizedBox(height: 12),
+                  Text(
+                    head.name,
+                    style: GoogleFonts.inter(
+                      fontSize: 18,
+                      fontWeight: FontWeight.w700,
+                      color: AppColors.brandWhite,
+                    ),
+                  ),
+                  const SizedBox(height: 4),
+                  _statusLine(s, color: AppColors.brandWhite.withValues(alpha: 0.85)),
+                ],
+              ),
+            ),
+          ),
+        ],
+      );
+    }
+
+    // 50/50 Dual Split-Screen Camera Exchange: both cameras visible full-width
+    // in real time so both users see each other and their own camera together.
+    if (room.layout == CallLayout.split) {
+      final remotePane = _splitPane(
+        renderer: peer?.renderer,
+        videoOn: remoteVideoOn,
+        name: remote?.name.isNotEmpty == true ? remote!.name : head.name,
+        avatar: remote?.avatar ?? head.avatar,
+        muted: remote?.isAudioMuted ?? false,
+        isSelf: false,
+      );
+      final localPane = _splitPane(
+        renderer: _localReady ? _localRenderer : null,
+        videoOn: media.isVideoOn,
+        name: 'You',
+        muted: media.isAudioMuted,
+        mirror: localMirror,
+        isSelf: true,
+        canFlip: media.isVideoOn,
+      );
+      final top = _swapped ? localPane : remotePane;
+      final bottom = _swapped ? remotePane : localPane;
+      return Column(
+        children: [
+          Expanded(child: top),
+          Container(height: 1, color: AppColors.brandWhite.withValues(alpha: 0.16)),
+          Expanded(child: bottom),
+        ],
+      );
+    }
+
     final remoteView = _videoOrAvatar(
       renderer: peer?.renderer,
-      videoOn: remote != null && !remote.isVideoMuted,
+      videoOn: remoteVideoOn,
       name: head.name,
       avatar: head.avatar,
     );
@@ -587,21 +771,117 @@ class _ActiveCallScreenState extends ConsumerState<ActiveCallScreen> {
       renderer: _localReady ? _localRenderer : null,
       videoOn: media.isVideoOn,
       name: 'You',
-      mirror: media.isFrontCamera && room.mirrorSelfView,
+      mirror: localMirror,
     );
     return _swapped ? localView : remoteView;
   }
 
+  Widget _splitPane({
+    required RTCVideoRenderer? renderer,
+    required bool videoOn,
+    required String name,
+    String? avatar,
+    bool muted = false,
+    bool mirror = false,
+    bool isSelf = false,
+    bool canFlip = false,
+  }) {
+    final controller = ref.read(activeCallControllerProvider.notifier);
+    return Stack(
+      fit: StackFit.expand,
+      children: [
+        _videoOrAvatar(renderer: renderer, videoOn: videoOn, name: name, avatar: avatar, mirror: mirror),
+        Positioned(
+          left: 12,
+          bottom: isSelf ? MediaQuery.paddingOf(context).bottom + 92 : 10,
+          child: Container(
+            padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 4),
+            decoration: BoxDecoration(
+              color: AppColors.brandBlack.withValues(alpha: 0.52),
+              borderRadius: BorderRadius.circular(AppRadius.full),
+              border: Border.all(color: AppColors.brandWhite.withValues(alpha: 0.14), width: 1),
+            ),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                if (muted) ...[
+                  const Icon(Icons.mic_off_rounded, size: 12, color: AppColors.brandPink),
+                  const SizedBox(width: 4),
+                ],
+                Text(
+                  isSelf ? 'You' : name.split(' ').first,
+                  style: GoogleFonts.inter(fontSize: 11, fontWeight: FontWeight.w600, color: AppColors.brandWhite),
+                ),
+              ],
+            ),
+          ),
+        ),
+        if (isSelf)
+          Positioned(
+            right: 12,
+            bottom: MediaQuery.paddingOf(context).bottom + 90,
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                _cameraMiniAction(
+                  icon: Icons.swap_vert_rounded,
+                  tooltip: 'Swap top and bottom cameras',
+                  onTap: () {
+                    HapticFeedback.selectionClick();
+                    setState(() => _swapped = !_swapped);
+                  },
+                ),
+                if (canFlip) ...[
+                  const SizedBox(width: 6),
+                  _cameraMiniAction(
+                    icon: Icons.flip_camera_ios_rounded,
+                    tooltip: 'Switch front/rear camera',
+                    onTap: controller.switchCamera,
+                  ),
+                ],
+              ],
+            ),
+          ),
+      ],
+    );
+  }
+
+  Widget _cameraMiniAction({
+    required IconData icon,
+    required String tooltip,
+    required VoidCallback onTap,
+  }) {
+    return Semantics(
+      button: true,
+      label: tooltip,
+      child: GestureDetector(
+        onTap: onTap,
+        child: Container(
+          width: 30,
+          height: 30,
+          decoration: BoxDecoration(
+            color: AppColors.brandBlack.withValues(alpha: 0.56),
+            shape: BoxShape.circle,
+            border: Border.all(color: AppColors.brandWhite.withValues(alpha: 0.2), width: 1),
+          ),
+          child: Icon(icon, size: 15, color: AppColors.brandWhite),
+        ),
+      ),
+    );
+  }
+
   Widget _localPreview(CallMediaState media, WebRTCMeshState mesh, ActiveCallState s, CallRoomState room) {
     final size = MediaQuery.sizeOf(context);
-    const w = 104.0, h = 150.0;
+    const w = 108.0, h = 154.0;
     final offset = _pipOffset ?? Offset(size.width - w - 14, MediaQuery.paddingOf(context).top + 64);
     final remote = s.remoteParticipants.where((p) => p.status == ParticipantStatus.joined).firstOrNull;
-    final peer = remote == null ? null : mesh.peers[remote.userId];
+    final peer = _primaryPeer(s, mesh, remote);
+    final remoteVideoOn = _isRemoteVideoActive(remote, peer);
+    final controller = ref.read(activeCallControllerProvider.notifier);
     final child = _swapped
         ? _videoOrAvatar(
             renderer: peer?.renderer,
-            videoOn: remote != null && !remote.isVideoMuted,
+            videoOn: remoteVideoOn,
             name: remote?.name ?? '',
             avatar: remote?.avatar,
           )
@@ -629,7 +909,42 @@ class _ActiveCallScreenState extends ConsumerState<ActiveCallScreen> {
             border: Border.all(color: AppColors.brandWhite.withValues(alpha: 0.25), width: 1),
             boxShadow: AppShadows.md,
           ),
-          child: child,
+          child: Stack(
+            fit: StackFit.expand,
+            children: [
+              child,
+              Positioned(
+                top: 6,
+                right: 6,
+                child: Container(
+                  width: 22,
+                  height: 22,
+                  decoration: BoxDecoration(
+                    color: AppColors.brandBlack.withValues(alpha: 0.5),
+                    shape: BoxShape.circle,
+                  ),
+                  child: const Icon(Icons.swap_horiz_rounded, size: 13, color: AppColors.brandWhite),
+                ),
+              ),
+              if (!_swapped && media.isVideoOn)
+                Positioned(
+                  bottom: 6,
+                  right: 6,
+                  child: GestureDetector(
+                    onTap: controller.switchCamera,
+                    child: Container(
+                      width: 24,
+                      height: 24,
+                      decoration: BoxDecoration(
+                        color: AppColors.brandBlue.withValues(alpha: 0.85),
+                        shape: BoxShape.circle,
+                      ),
+                      child: const Icon(Icons.flip_camera_ios_rounded, size: 13, color: AppColors.brandWhite),
+                    ),
+                  ),
+                ),
+            ],
+          ),
         ),
       ).animate().fadeIn(duration: 250.ms).scale(begin: const Offset(0.92, 0.92)),
     );
@@ -643,15 +958,18 @@ class _ActiveCallScreenState extends ConsumerState<ActiveCallScreen> {
         mirror: media.isFrontCamera && room.mirrorSelfView,
       );
 
-  Widget _remoteTile(CallParticipant p, WebRTCMeshState mesh) => _tile(
-        name: p.name,
-        avatar: p.avatar,
-        renderer: mesh.peers[p.userId]?.renderer,
-        videoOn: p.status == ParticipantStatus.joined && !p.isVideoMuted,
-        muted: p.isAudioMuted,
-        ringing: p.status == ParticipantStatus.ringing,
-        link: mesh.peers[p.userId]?.link,
-      );
+  Widget _remoteTile(CallParticipant p, WebRTCMeshState mesh) {
+    final peer = mesh.peers[p.userId];
+    return _tile(
+      name: p.name,
+      avatar: p.avatar,
+      renderer: peer?.renderer,
+      videoOn: p.status == ParticipantStatus.joined && _isRemoteVideoActive(p, peer),
+      muted: p.isAudioMuted,
+      ringing: p.status == ParticipantStatus.ringing,
+      link: peer?.link,
+    );
+  }
 
   /// Group call, one big tile (the pinned person, else the first one in)
   /// with everyone else in a strip.
@@ -772,12 +1090,12 @@ class _ActiveCallScreenState extends ConsumerState<ActiveCallScreen> {
 
   Widget _pipView(ActiveCallState s, WebRTCMeshState mesh, ({String name, String? avatar}) head) {
     final remote = s.remoteParticipants.where((p) => p.status == ParticipantStatus.joined).firstOrNull;
-    final peer = remote == null ? null : mesh.peers[remote.userId];
+    final peer = _primaryPeer(s, mesh, remote);
     return ColoredBox(
       color: AppColors.brandBlack,
       child: _videoOrAvatar(
         renderer: peer?.renderer,
-        videoOn: remote != null && !remote.isVideoMuted,
+        videoOn: _isRemoteVideoActive(remote, peer),
         name: head.name,
         avatar: head.avatar,
       ),
@@ -786,9 +1104,18 @@ class _ActiveCallScreenState extends ConsumerState<ActiveCallScreen> {
 
   // ───────────────────────── Chrome ─────────────────────────
 
-  Widget _topBar(ActiveCallState s, ({String name, String? avatar}) head, {required bool onDark}) {
+  Widget _topBar(
+    ActiveCallState s,
+    CallMediaState media,
+    CallRoomState room,
+    ({String name, String? avatar}) head, {
+    required bool onDark,
+  }) {
     final fg = onDark ? AppColors.brandWhite : context.textPrimary;
     final canInvite = s.isBusy && s.phase != CallPhase.outgoing && s.call != null;
+    final isOneToOneVideo = onDark &&
+        !(s.call?.isGroup ?? false) &&
+        (s.phase == CallPhase.connected || s.phase == CallPhase.reconnecting);
     return SafeArea(
       child: AnimatedOpacity(
         opacity: _controlsVisible || !onDark ? 1 : 0,
@@ -818,6 +1145,23 @@ class _ActiveCallScreenState extends ConsumerState<ActiveCallScreen> {
                       )
                     : const SizedBox.shrink(),
               ),
+              if (isOneToOneVideo)
+                IconButton(
+                  tooltip: room.layout == CallLayout.split ? 'Picture-in-picture view' : 'Dual split-screen cameras',
+                  icon: Icon(
+                    room.layout == CallLayout.split
+                        ? Icons.picture_in_picture_alt_rounded
+                        : Icons.vertical_split_rounded,
+                    color: room.layout == CallLayout.split ? AppColors.brandPink : fg,
+                    size: 21,
+                  ),
+                  onPressed: () {
+                    HapticFeedback.selectionClick();
+                    ref.read(callRoomControllerProvider.notifier).setLayout(
+                          room.layout == CallLayout.split ? CallLayout.grid : CallLayout.split,
+                        );
+                  },
+                ),
               if (s.call != null && (s.phase == CallPhase.connected || s.phase == CallPhase.reconnecting))
                 IconButton(
                   tooltip: 'Effects, sounds, music and people',

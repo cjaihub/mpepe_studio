@@ -1,9 +1,9 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:googleapis/gmail/v1.dart' as gmail;
 import 'package:googleapis/youtube/v3.dart' as yt;
 import 'package:oneova/backend/connections/linked_accounts.dart';
 import 'package:oneova/backend/inbox/platform_inbox.dart';
+import 'package:oneova/social_hub/gmail/gmail_service.dart';
 
 void main() {
   group('PlatformInboxItem.fromSocialMessage', () {
@@ -45,34 +45,31 @@ void main() {
     });
   });
 
-  test('fromGmail reads sender, subject, snippet and unread label', () {
-    final m = gmail.Message(
-      id: 'g1',
-      threadId: 't1',
-      snippet: 'Your invoice &amp; receipt',
-      internalDate: '${DateTime(2026, 10, 21).millisecondsSinceEpoch}',
-      labelIds: ['INBOX', 'UNREAD'],
-      payload: gmail.MessagePart(headers: [
-        gmail.MessagePartHeader(name: 'From', value: '"Jane Doe" <jane@example.com>'),
-        gmail.MessagePartHeader(name: 'Subject', value: 'October invoice'),
-      ]),
-    );
+  test('fromGmail reads sender, subject, snippet and unread flag', () {
+    final m = GmailMessage.fromMap({
+      'id': 'g1',
+      'threadId': 't1',
+      'from': '"Jane Doe" <jane@example.com>',
+      'subject': 'October invoice',
+      'snippet': 'Your invoice &amp; receipt',
+      'internalDate': '${DateTime(2026, 10, 21).millisecondsSinceEpoch}',
+      'unread': true,
+    });
     final i = PlatformInboxItem.fromGmail(m);
     expect(i.platform, LinkedPlatform.gmail);
     expect(i.kind, InboxItemKind.email);
     expect(i.senderName, 'Jane Doe');
     expect(i.title, 'October invoice');
     expect(i.preview, 'Your invoice & receipt');
+    expect(i.timestamp, DateTime(2026, 10, 21));
     expect(i.isRead, isFalse);
     expect(i.targetId, 't1');
     expect(i.delivered, isFalse);
 
-    final plain = PlatformInboxItem.fromGmail(gmail.Message(
-      id: 'g2',
-      payload: gmail.MessagePart(headers: [gmail.MessagePartHeader(name: 'From', value: 'bot@example.com')]),
-    ));
+    final plain = PlatformInboxItem.fromGmail(GmailMessage.fromMap({'id': 'g2', 'from': 'bot@example.com'}));
     expect(plain.senderName, 'bot@example.com');
     expect(plain.isRead, isTrue);
+    expect(plain.timestamp, DateTime.fromMillisecondsSinceEpoch(0));
   });
 
   test('fromYoutubeThread maps the top-level comment', () {

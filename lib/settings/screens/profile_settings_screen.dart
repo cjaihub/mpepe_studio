@@ -21,6 +21,10 @@ import '../widgets/oneova_about_account_sheet.dart';
 import '../widgets/oneova_profile_qr_sheet.dart';
 import '../widgets/oneova_verification_request_sheet.dart';
 import '../widgets/settings_kit.dart';
+import '../../auth/widgets/profile_completion_reminder_card.dart';
+import '../widgets/oneova_ai_bio_sheet.dart';
+import '../../shared/widgets/oneova_voice_typing_button.dart';
+import '../../shared/location/oneova_location_detector.dart';
 
 /// Oneova Profile 2.0 Settings Screen
 ///
@@ -51,6 +55,9 @@ class _ProfileSettingsScreenState extends ConsumerState<ProfileSettingsScreen> {
   final _bizPhoneController = TextEditingController();
   final _bizHoursController = TextEditingController();
   final _bizShopUrlController = TextEditingController();
+  final _bizLegalNameController = TextEditingController();
+  final _bizRegNumberController = TextEditingController();
+  final _bizCurrencyController = TextEditingController();
 
   bool _initialized = false;
   Timer? _debounce;
@@ -66,25 +73,51 @@ class _ProfileSettingsScreenState extends ConsumerState<ProfileSettingsScreen> {
   bool _isUploadingAvatar = false;
   bool _isUploadingCover = false;
 
+  final _categorySearchController = TextEditingController();
+  String _categorySearchQuery = '';
+
   final List<String> _commonPronouns = ['he/him', 'she/her', 'they/them', 'he/they', 'she/they'];
 
   final List<String> _creatorCategories = [
     'Afrobeats & Dance',
-    'Music & Audio',
-    'Film & Video',
-    'Fashion & Beauty',
-    'Comedy & Skits',
-    'Tech & Gaming',
-    'Business & Biz Pro',
-    'Fitness & Health',
-    'Visual Arts',
-    'Education',
+    'Music & Audio Production',
+    'Film, Cinema & Video',
+    'Fashion, Style & Beauty',
+    'Comedy, Standup & Skits',
+    'Tech, AI & Gaming',
+    'Business, Startups & Biz Pro',
+    'Fitness, Wellness & Health',
+    'Visual Arts & Illustration',
+    'Education, Science & Learning',
+    'Food, Cooking & Culinary',
+    'Travel, Nature & Exploration',
+    'Photography & Digital Media',
+    'News, Culture & Commentary',
+    'DIY, Crafts & Architecture',
+    'Lifestyle, Vlogs & Daily',
+    'Sports, Fitness & Athletics',
+    'Podcasting, Radio & Voice',
+    'Automotive & Motor Sports',
+    'Pets, Animals & Wildlife',
+    'Real Estate & Interior Design',
+    'Books, Literature & Poetry',
+    'Animation, VFX & 3D',
+    'DJ, Club & Electronic Music',
+    'Web3, Crypto & Fintech',
+    'E-Commerce & Digital Products',
+    'Event & Live Entertainment',
+    'Health, Medicine & Mental Care',
+    'Law, Advocacy & Social Impact',
+    'Graphic Design & UI/UX',
+    'Parenting, Family & Kids',
+    'Spiritual, Faith & Philosophy',
   ];
 
   @override
   void dispose() {
     _debounce?.cancel();
     _usernameDebounce?.cancel();
+    _categorySearchController.dispose();
     _displayNameController.dispose();
     _usernameController.dispose();
     _bioController.dispose();
@@ -93,6 +126,9 @@ class _ProfileSettingsScreenState extends ConsumerState<ProfileSettingsScreen> {
     _bizPhoneController.dispose();
     _bizHoursController.dispose();
     _bizShopUrlController.dispose();
+    _bizLegalNameController.dispose();
+    _bizRegNumberController.dispose();
+    _bizCurrencyController.dispose();
     super.dispose();
   }
 
@@ -155,6 +191,9 @@ class _ProfileSettingsScreenState extends ConsumerState<ProfileSettingsScreen> {
         'phone': _bizPhoneController.text.trim(),
         'hours': _bizHoursController.text.trim(),
         'shopUrl': _bizShopUrlController.text.trim(),
+        'legalName': _bizLegalNameController.text.trim(),
+        'regNumber': _bizRegNumberController.text.trim(),
+        'currency': _bizCurrencyController.text.trim(),
       },
     };
 
@@ -185,10 +224,125 @@ class _ProfileSettingsScreenState extends ConsumerState<ProfileSettingsScreen> {
     });
   }
 
-  Future<void> _pickAndUploadImage({required bool isCover}) async {
+  Future<void> _showPhotoOptionsSheet({required bool isCover, String? currentPhotoUrl}) async {
+    final hasPhoto = currentPhotoUrl != null && currentPhotoUrl.trim().isNotEmpty;
+
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: context.surface,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(AppRadius.xl)),
+      ),
+      builder: (ctx) => SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.symmetric(vertical: 14),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Container(
+                width: 38,
+                height: 4,
+                margin: const EdgeInsets.only(bottom: 12),
+                decoration: BoxDecoration(color: context.border, borderRadius: BorderRadius.circular(2)),
+              ),
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 6),
+                child: Row(
+                  children: [
+                    Text(
+                      isCover ? 'Update Cover Photo' : 'Update Profile Photo',
+                      style: GoogleFonts.inter(
+                        fontSize: 15,
+                        fontWeight: FontWeight.w800,
+                        color: ctx.textPrimary,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 8),
+              ListTile(
+                leading: Container(
+                  padding: const EdgeInsets.all(8),
+                  decoration: BoxDecoration(
+                    color: AppColors.brandBlue.withValues(alpha: 0.12),
+                    shape: BoxShape.circle,
+                  ),
+                  child: const Icon(Icons.camera_alt_rounded, size: 20, color: AppColors.brandBlue),
+                ),
+                title: Text('Take Photo', style: GoogleFonts.inter(fontSize: 13.5, fontWeight: FontWeight.w600, color: ctx.textPrimary)),
+                subtitle: Text('Capture with device camera', style: GoogleFonts.inter(fontSize: 11.5, color: ctx.textSecondary)),
+                onTap: () {
+                  Navigator.pop(ctx);
+                  _pickAndUploadImage(isCover: isCover, source: ImageSource.camera);
+                },
+              ),
+              ListTile(
+                leading: Container(
+                  padding: const EdgeInsets.all(8),
+                  decoration: BoxDecoration(
+                    color: AppColors.brandBlue.withValues(alpha: 0.12),
+                    shape: BoxShape.circle,
+                  ),
+                  child: const Icon(Icons.photo_library_rounded, size: 20, color: AppColors.brandBlue),
+                ),
+                title: Text('Choose from Gallery', style: GoogleFonts.inter(fontSize: 13.5, fontWeight: FontWeight.w600, color: ctx.textPrimary)),
+                subtitle: Text('Select from your photo library', style: GoogleFonts.inter(fontSize: 11.5, color: ctx.textSecondary)),
+                onTap: () {
+                  Navigator.pop(ctx);
+                  _pickAndUploadImage(isCover: isCover, source: ImageSource.gallery);
+                },
+              ),
+              if (hasPhoto)
+                ListTile(
+                  leading: Container(
+                    padding: const EdgeInsets.all(8),
+                    decoration: BoxDecoration(
+                      color: AppColors.brandPink.withValues(alpha: 0.12),
+                      shape: BoxShape.circle,
+                    ),
+                    child: const Icon(Icons.delete_outline_rounded, size: 20, color: AppColors.brandPink),
+                  ),
+                  title: Text('Remove Photo', style: GoogleFonts.inter(fontSize: 13.5, fontWeight: FontWeight.w600, color: AppColors.brandPink)),
+                  subtitle: Text('Reset to default Oneova styling', style: GoogleFonts.inter(fontSize: 11.5, color: ctx.textSecondary)),
+                  onTap: () {
+                    Navigator.pop(ctx);
+                    _removePhoto(isCover: isCover);
+                  },
+                ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Future<void> _removePhoto({required bool isCover}) async {
+    final uid = FirebaseAuth.instance.currentUser?.uid;
+    if (uid == null) return;
+    final fieldKey = isCover ? 'coverPhotoUrl' : 'profilePhotoUrl';
+
+    HapticFeedback.mediumImpact();
+    await ref.read(userProvider.notifier).updateUserProfile(uid, {fieldKey: ''});
+    ref.read(settingsProvider.notifier).updateSetting('profile', fieldKey, '');
+    if (!isCover) {
+      await FirebaseAuth.instance.currentUser?.updatePhotoURL(null);
+    }
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('${isCover ? "Cover" : "Profile"} photo removed'),
+          backgroundColor: AppColors.brandBlue,
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+    }
+  }
+
+  Future<void> _pickAndUploadImage({required bool isCover, required ImageSource source}) async {
     final picker = ImagePicker();
     final picked = await picker.pickImage(
-      source: ImageSource.gallery,
+      source: source,
       imageQuality: isCover ? 85 : 90,
       maxWidth: isCover ? 1920 : 800,
     );
@@ -217,6 +371,9 @@ class _ProfileSettingsScreenState extends ConsumerState<ProfileSettingsScreen> {
         final fieldKey = isCover ? 'coverPhotoUrl' : 'profilePhotoUrl';
         await ref.read(userProvider.notifier).updateUserProfile(uid, {fieldKey: url});
         ref.read(settingsProvider.notifier).updateSetting('profile', fieldKey, url);
+        if (!isCover) {
+          await FirebaseAuth.instance.currentUser?.updatePhotoURL(url);
+        }
 
         HapticFeedback.mediumImpact();
         if (mounted) {
@@ -309,6 +466,7 @@ class _ProfileSettingsScreenState extends ConsumerState<ProfileSettingsScreen> {
               decoration: InputDecoration(
                 hintText: 'e.g. YouTube Channel, Merch, Spotify',
                 hintStyle: GoogleFonts.inter(fontSize: 12.5, color: ctx.textMuted),
+                suffixIcon: OneovaVoiceTypingButton(controller: titleController),
                 filled: true,
                 fillColor: ctx.surfaceMid,
                 isDense: true,
@@ -448,6 +606,9 @@ class _ProfileSettingsScreenState extends ConsumerState<ProfileSettingsScreen> {
             _bizPhoneController.text = biz['phone'] ?? '';
             _bizHoursController.text = biz['hours'] ?? '';
             _bizShopUrlController.text = biz['shopUrl'] ?? '';
+            _bizLegalNameController.text = biz['legalName'] ?? '';
+            _bizRegNumberController.text = biz['regNumber'] ?? '';
+            _bizCurrencyController.text = biz['currency'] ?? '';
 
             _lastSavedProfile = profile;
             _initialized = true;
@@ -463,6 +624,10 @@ class _ProfileSettingsScreenState extends ConsumerState<ProfileSettingsScreen> {
           return ListView(
             padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
             children: [
+              // 0. Algorithmic Profile Completion Reminder Card (auto-calculates % and missing inputs)
+              const ProfileCompletionReminderCard(),
+              const SizedBox(height: 14),
+
               // 1. Cover & Avatar Visual Branding Block
               _buildCoverAndAvatarHeader(context, coverUrl: coverUrl, avatarUrl: avatarUrl),
               const SizedBox(height: 20),
@@ -478,7 +643,14 @@ class _ProfileSettingsScreenState extends ConsumerState<ProfileSettingsScreen> {
                     controller: _displayNameController,
                     onChanged: (_) => _onFieldChanged(profile),
                     style: GoogleFonts.inter(fontSize: 13.0, fontWeight: FontWeight.w600, color: context.textPrimary),
-                    decoration: _inputDecoration(context, hint: 'Official Creator Name'),
+                    decoration: _inputDecoration(
+                      context,
+                      hint: 'Official Creator Name',
+                      suffixIcon: OneovaVoiceTypingButton(
+                        controller: _displayNameController,
+                        onChanged: (_) => _onFieldChanged(profile),
+                      ),
+                    ),
                   ),
                   const SizedBox(height: 16),
 
@@ -549,7 +721,64 @@ class _ProfileSettingsScreenState extends ConsumerState<ProfileSettingsScreen> {
                   ),
                   const SizedBox(height: 16),
 
-                  _buildInputLabel('CREATOR BIO'),
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      _buildInputLabel('CREATOR BIO'),
+                      InkWell(
+                        onTap: () {
+                          HapticFeedback.lightImpact();
+                          OneovaAiBioSheet.show(
+                            context,
+                            currentDisplayName: _displayNameController.text,
+                            currentUsername: _usernameController.text,
+                            currentCategory: selectedCategory,
+                            accountType: selectedAccountType,
+                            location: _locationController.text,
+                            pronouns: selectedPronoun,
+                            currentBio: _bioController.text,
+                            onBioSelected: (newBio) {
+                              _bioController.text = newBio;
+                              _onFieldChanged(profile);
+                            },
+                          );
+                        },
+                        borderRadius: BorderRadius.circular(AppRadius.full),
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                          decoration: BoxDecoration(
+                            gradient: const LinearGradient(
+                              colors: [AppColors.brandBlue, AppColors.brandPink],
+                            ),
+                            borderRadius: BorderRadius.circular(AppRadius.full),
+                            boxShadow: [
+                              BoxShadow(
+                                color: AppColors.brandPink.withValues(alpha: 0.3),
+                                blurRadius: 6,
+                                offset: const Offset(0, 2),
+                              ),
+                            ],
+                          ),
+                          child: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              const Icon(Icons.auto_awesome_rounded, size: 12, color: Colors.white),
+                              const SizedBox(width: 4),
+                              Text(
+                                'AI Bio Assist',
+                                style: GoogleFonts.inter(
+                                  fontSize: 10.5,
+                                  fontWeight: FontWeight.w700,
+                                  color: Colors.white,
+                                  letterSpacing: 0.2,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
                   const SizedBox(height: 6),
                   TextField(
                     controller: _bioController,
@@ -557,47 +786,177 @@ class _ProfileSettingsScreenState extends ConsumerState<ProfileSettingsScreen> {
                     maxLines: 3,
                     maxLength: 150,
                     style: GoogleFonts.inter(fontSize: 13.0, color: context.textPrimary, height: 1.4),
-                    decoration: _inputDecoration(context, hint: 'Tell your audience about your style and studio vision...'),
+                    decoration: _inputDecoration(
+                      context,
+                      hint: 'Tell your audience about your style and studio vision...',
+                      suffixIcon: OneovaVoiceTypingButton(
+                        controller: _bioController,
+                        onChanged: (_) => _onFieldChanged(profile),
+                        showTranslateAction: true,
+                      ),
+                    ),
                   ),
                 ],
               ),
               const SizedBox(height: 16),
 
-              // 3. Category & Creator Niche
-              _buildGroupContainer(
-                context,
-                title: 'CATEGORY & NICHE',
-                children: [
-                  Text(
-                    'Select the primary industry category for your profile recommendation algorithm:',
-                    style: GoogleFonts.inter(fontSize: 11.5, color: context.textSecondary),
-                  ),
-                  const SizedBox(height: 10),
-                  Wrap(
-                    spacing: 8,
-                    runSpacing: 8,
-                    children: _creatorCategories.map((cat) {
-                      final isSelected = selectedCategory == cat;
-                      return ChoiceChip(
-                        label: Text(cat),
-                        selected: isSelected,
-                        onSelected: (selected) {
-                          final next = selected ? cat : '';
-                          settingsWrite(ref, category: 'profile', current: profile, key: 'category', value: next, label: 'Category');
-                        },
-                        selectedColor: AppColors.brandBlue,
-                        backgroundColor: context.surfaceMid,
-                        labelStyle: GoogleFonts.inter(
-                          fontSize: 11.5,
-                          fontWeight: FontWeight.w600,
-                          color: isSelected ? Colors.white : context.textPrimary,
+              // 3. Category & Creator Niche (with real-time search & custom categories)
+              Builder(
+                builder: (context) {
+                  final query = _categorySearchQuery.trim().toLowerCase();
+                  final filtered = _creatorCategories.where((cat) {
+                    if (query.isEmpty) return true;
+                    return cat.toLowerCase().contains(query);
+                  }).toList();
+                  final exactMatch = filtered.any((cat) => cat.toLowerCase() == query);
+
+                  return _buildGroupContainer(
+                    context,
+                    title: 'CATEGORY & NICHE',
+                    children: [
+                      Text(
+                        'Select or search the primary industry niche for your profile recommendation algorithm and discovery badge:',
+                        style: GoogleFonts.inter(fontSize: 11.5, color: context.textSecondary),
+                      ),
+                      if (selectedCategory.isNotEmpty) ...[
+                        const SizedBox(height: 10),
+                        Row(
+                          children: [
+                            Text(
+                              'Active Category:',
+                              style: GoogleFonts.inter(fontSize: 11, fontWeight: FontWeight.w600, color: context.textMuted),
+                            ),
+                            const SizedBox(width: 8),
+                            Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                              decoration: BoxDecoration(
+                                color: AppColors.brandBlue.withValues(alpha: 0.12),
+                                borderRadius: BorderRadius.circular(AppRadius.full),
+                                border: Border.all(color: AppColors.brandBlue, width: 1.0),
+                              ),
+                              child: Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  const Icon(Icons.check_circle_rounded, size: 12, color: AppColors.brandBlue),
+                                  const SizedBox(width: 4),
+                                  Text(
+                                    selectedCategory,
+                                    style: GoogleFonts.inter(fontSize: 11.5, fontWeight: FontWeight.w700, color: AppColors.brandBlue),
+                                  ),
+                                  const SizedBox(width: 4),
+                                  InkWell(
+                                    onTap: () {
+                                      settingsWrite(ref, category: 'profile', current: profile, key: 'category', value: '', label: 'Clear Category');
+                                      final uid = FirebaseAuth.instance.currentUser?.uid;
+                                      if (uid != null) {
+                                        ref.read(userProvider.notifier).updateUserProfile(uid, {'category': ''});
+                                      }
+                                    },
+                                    child: const Icon(Icons.close_rounded, size: 13, color: AppColors.brandBlue),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ],
                         ),
-                        side: BorderSide(color: isSelected ? AppColors.brandBlue : context.border, width: 1.0),
-                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(AppRadius.sm)),
-                      );
-                    }).toList(),
-                  ),
-                ],
+                      ],
+                      const SizedBox(height: 12),
+                      TextField(
+                        controller: _categorySearchController,
+                        onChanged: (val) => setState(() => _categorySearchQuery = val),
+                        style: GoogleFonts.inter(fontSize: 12.5, color: context.textPrimary),
+                        decoration: InputDecoration(
+                          isDense: true,
+                          hintText: 'Search categories or type custom niche…',
+                          hintStyle: GoogleFonts.inter(fontSize: 12.0, color: context.textMuted),
+                          prefixIcon: const Icon(Icons.search_rounded, size: 18, color: AppColors.brandBlue),
+                          suffixIcon: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              OneovaVoiceTypingButton(
+                                controller: _categorySearchController,
+                                onChanged: (val) => setState(() => _categorySearchQuery = val),
+                              ),
+                              if (_categorySearchQuery.isNotEmpty)
+                                IconButton(
+                                  icon: const Icon(Icons.close_rounded, size: 16),
+                                  onPressed: () {
+                                    _categorySearchController.clear();
+                                    setState(() => _categorySearchQuery = '');
+                                  },
+                                ),
+                            ],
+                          ),
+                          filled: true,
+                          fillColor: context.surfaceMid,
+                          contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                          border: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(AppRadius.sm),
+                            borderSide: BorderSide(color: context.border, width: 1.0),
+                          ),
+                          enabledBorder: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(AppRadius.sm),
+                            borderSide: BorderSide(color: context.border, width: 1.0),
+                          ),
+                          focusedBorder: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(AppRadius.sm),
+                            borderSide: const BorderSide(color: AppColors.brandBlue, width: 1.5),
+                          ),
+                        ),
+                      ),
+                      const SizedBox(height: 10),
+                      Wrap(
+                        spacing: 8,
+                        runSpacing: 8,
+                        children: [
+                          if (_categorySearchQuery.trim().isNotEmpty && !exactMatch)
+                            ActionChip(
+                              avatar: const Icon(Icons.add_rounded, size: 15, color: Colors.white),
+                              label: Text('Use custom: "${_categorySearchQuery.trim()}"'),
+                              backgroundColor: AppColors.brandPink,
+                              labelStyle: GoogleFonts.inter(fontSize: 11.5, fontWeight: FontWeight.w700, color: Colors.white),
+                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(AppRadius.sm)),
+                              side: BorderSide.none,
+                              onPressed: () {
+                                final custom = _categorySearchQuery.trim();
+                                settingsWrite(ref, category: 'profile', current: profile, key: 'category', value: custom, label: 'Category');
+                                final uid = FirebaseAuth.instance.currentUser?.uid;
+                                if (uid != null) {
+                                  ref.read(userProvider.notifier).updateUserProfile(uid, {'category': custom});
+                                }
+                                HapticFeedback.lightImpact();
+                              },
+                            ),
+                          ...filtered.map((cat) {
+                            final isSelected = selectedCategory == cat;
+                            return ChoiceChip(
+                              label: Text(cat),
+                              selected: isSelected,
+                              onSelected: (selected) {
+                                final next = selected ? cat : '';
+                                settingsWrite(ref, category: 'profile', current: profile, key: 'category', value: next, label: 'Category');
+                                final uid = FirebaseAuth.instance.currentUser?.uid;
+                                if (uid != null) {
+                                  ref.read(userProvider.notifier).updateUserProfile(uid, {'category': next});
+                                }
+                                HapticFeedback.lightImpact();
+                              },
+                              selectedColor: AppColors.brandBlue,
+                              backgroundColor: context.surfaceMid,
+                              labelStyle: GoogleFonts.inter(
+                                fontSize: 11.5,
+                                fontWeight: FontWeight.w600,
+                                color: isSelected ? Colors.white : context.textPrimary,
+                              ),
+                              side: BorderSide(color: isSelected ? AppColors.brandBlue : context.border, width: 1.0),
+                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(AppRadius.sm)),
+                            );
+                          }),
+                        ],
+                      ),
+                    ],
+                  );
+                },
               ),
               const SizedBox(height: 16),
 
@@ -640,6 +999,110 @@ class _ProfileSettingsScreenState extends ConsumerState<ProfileSettingsScreen> {
                     const SizedBox(height: 16),
                     const Divider(height: 1),
                     const SizedBox(height: 16),
+                    // Auto-Detect Business Details action banner
+                    Container(
+                      padding: const EdgeInsets.all(12),
+                      decoration: BoxDecoration(
+                        color: AppColors.brandBlue.withValues(alpha: 0.08),
+                        borderRadius: BorderRadius.circular(AppRadius.md),
+                        border: Border.all(color: AppColors.brandBlue.withValues(alpha: 0.25), width: 1.0),
+                      ),
+                      child: Row(
+                        children: [
+                          Container(
+                            padding: const EdgeInsets.all(8),
+                            decoration: BoxDecoration(
+                              color: AppColors.brandBlue.withValues(alpha: 0.15),
+                              shape: BoxShape.circle,
+                            ),
+                            child: const Icon(Icons.auto_fix_high_rounded, size: 18, color: AppColors.brandBlue),
+                          ),
+                          const SizedBox(width: 10),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  'Auto-Detect Business Details',
+                                  style: GoogleFonts.inter(fontSize: 12.5, fontWeight: FontWeight.w700, color: context.textPrimary),
+                                ),
+                                const SizedBox(height: 2),
+                                Text(
+                                  'Fill location, phone dial code & currency automatically from device GPS',
+                                  style: GoogleFonts.inter(fontSize: 11, color: context.textSecondary),
+                                ),
+                              ],
+                            ),
+                          ),
+                          const SizedBox(width: 8),
+                          OneovaAutoLocationButton(
+                            asPill: true,
+                            onLocationDetected: (result) {
+                              _locationController.text = result.formattedLocation;
+                              if (_bizPhoneController.text.trim().isEmpty && result.phoneDialCode != null) {
+                                _bizPhoneController.text = '${result.phoneDialCode} ';
+                              }
+                              if (result.currency != null && result.currency!.isNotEmpty) {
+                                _bizCurrencyController.text = result.currency!;
+                              }
+                              if (_bizHoursController.text.trim().isEmpty) {
+                                _bizHoursController.text = 'Mon - Fri: 9:00 AM - 6:00 PM';
+                              }
+                              _onFieldChanged(profile);
+                            },
+                          ),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(height: 16),
+                    _buildInputLabel('REGISTERED LEGAL BUSINESS NAME'),
+                    const SizedBox(height: 6),
+                    TextField(
+                      controller: _bizLegalNameController,
+                      onChanged: (_) => _onFieldChanged(profile),
+                      style: GoogleFonts.inter(fontSize: 13, color: context.textPrimary),
+                      decoration: _inputDecoration(
+                        context,
+                        hint: 'e.g. Acme Studio Africa Ltd',
+                        suffixIcon: OneovaVoiceTypingButton(
+                          controller: _bizLegalNameController,
+                          onChanged: (_) => _onFieldChanged(profile),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 14),
+                    _buildInputLabel('BUSINESS REGISTRATION / TAX ID'),
+                    const SizedBox(height: 6),
+                    TextField(
+                      controller: _bizRegNumberController,
+                      onChanged: (_) => _onFieldChanged(profile),
+                      style: GoogleFonts.inter(fontSize: 13, color: context.textPrimary),
+                      decoration: _inputDecoration(
+                        context,
+                        hint: 'e.g. RC-1092834 or Tax Identification No.',
+                        suffixIcon: OneovaVoiceTypingButton(
+                          controller: _bizRegNumberController,
+                          onChanged: (_) => _onFieldChanged(profile),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 14),
+                    _buildInputLabel('PRIMARY OPERATING CURRENCY'),
+                    const SizedBox(height: 6),
+                    TextField(
+                      controller: _bizCurrencyController,
+                      onChanged: (_) => _onFieldChanged(profile),
+                      style: GoogleFonts.inter(fontSize: 13, color: context.textPrimary),
+                      decoration: _inputDecoration(
+                        context,
+                        hint: 'e.g. USD, KES, NGN, ZAR, EUR, GBP',
+                        suffixIcon: OneovaVoiceTypingButton(
+                          controller: _bizCurrencyController,
+                          onChanged: (_) => _onFieldChanged(profile),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 14),
                     _buildInputLabel('BUSINESS EMAIL'),
                     const SizedBox(height: 6),
                     TextField(
@@ -647,7 +1110,14 @@ class _ProfileSettingsScreenState extends ConsumerState<ProfileSettingsScreen> {
                       onChanged: (_) => _onFieldChanged(profile),
                       keyboardType: TextInputType.emailAddress,
                       style: GoogleFonts.inter(fontSize: 13, color: context.textPrimary),
-                      decoration: _inputDecoration(context, hint: 'contact@business.com'),
+                      decoration: _inputDecoration(
+                        context,
+                        hint: 'contact@business.com',
+                        suffixIcon: OneovaVoiceTypingButton(
+                          controller: _bizEmailController,
+                          onChanged: (_) => _onFieldChanged(profile),
+                        ),
+                      ),
                     ),
                     const SizedBox(height: 14),
                     _buildInputLabel('BUSINESS PHONE / WHATSAPP'),
@@ -657,7 +1127,14 @@ class _ProfileSettingsScreenState extends ConsumerState<ProfileSettingsScreen> {
                       onChanged: (_) => _onFieldChanged(profile),
                       keyboardType: TextInputType.phone,
                       style: GoogleFonts.inter(fontSize: 13, color: context.textPrimary),
-                      decoration: _inputDecoration(context, hint: '+1 (555) 000-0000'),
+                      decoration: _inputDecoration(
+                        context,
+                        hint: '+1 (555) 000-0000',
+                        suffixIcon: OneovaVoiceTypingButton(
+                          controller: _bizPhoneController,
+                          onChanged: (_) => _onFieldChanged(profile),
+                        ),
+                      ),
                     ),
                     const SizedBox(height: 14),
                     _buildInputLabel('BUSINESS HOURS'),
@@ -666,7 +1143,14 @@ class _ProfileSettingsScreenState extends ConsumerState<ProfileSettingsScreen> {
                       controller: _bizHoursController,
                       onChanged: (_) => _onFieldChanged(profile),
                       style: GoogleFonts.inter(fontSize: 13, color: context.textPrimary),
-                      decoration: _inputDecoration(context, hint: 'Mon - Fri: 9:00 AM - 6:00 PM'),
+                      decoration: _inputDecoration(
+                        context,
+                        hint: 'Mon - Fri: 9:00 AM - 6:00 PM',
+                        suffixIcon: OneovaVoiceTypingButton(
+                          controller: _bizHoursController,
+                          onChanged: (_) => _onFieldChanged(profile),
+                        ),
+                      ),
                     ),
                     const SizedBox(height: 14),
                     _buildInputLabel('CATALOG / SHOP URL'),
@@ -675,7 +1159,79 @@ class _ProfileSettingsScreenState extends ConsumerState<ProfileSettingsScreen> {
                       controller: _bizShopUrlController,
                       onChanged: (_) => _onFieldChanged(profile),
                       style: GoogleFonts.inter(fontSize: 13, color: context.textPrimary),
-                      decoration: _inputDecoration(context, hint: 'https://shop.oneova.app/...'),
+                      decoration: _inputDecoration(
+                        context,
+                        hint: 'https://shop.oneova.app/...',
+                        suffixIcon: OneovaVoiceTypingButton(
+                          controller: _bizShopUrlController,
+                          onChanged: (_) => _onFieldChanged(profile),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 14),
+                    // Business Trust & Verification Card
+                    Container(
+                      padding: const EdgeInsets.all(12),
+                      decoration: BoxDecoration(
+                        color: appUser?.isVerified == true
+                            ? const Color(0xFF10B981).withValues(alpha: 0.1)
+                            : AppColors.brandBlue.withValues(alpha: 0.08),
+                        borderRadius: BorderRadius.circular(AppRadius.md),
+                        border: Border.all(
+                          color: appUser?.isVerified == true
+                              ? const Color(0xFF10B981).withValues(alpha: 0.35)
+                              : AppColors.brandBlue.withValues(alpha: 0.25),
+                          width: 1.0,
+                        ),
+                      ),
+                      child: Row(
+                        children: [
+                          Icon(
+                            appUser?.isVerified == true ? Icons.verified_rounded : Icons.verified_user_outlined,
+                            color: appUser?.isVerified == true ? const Color(0xFF10B981) : AppColors.brandBlue,
+                            size: 22,
+                          ),
+                          const SizedBox(width: 10),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  appUser?.isVerified == true ? 'Verified Business Enterprise' : 'Apply for Business Verification',
+                                  style: GoogleFonts.inter(fontSize: 12.5, fontWeight: FontWeight.w700, color: context.textPrimary),
+                                ),
+                                const SizedBox(height: 2),
+                                Text(
+                                  appUser?.isVerified == true
+                                      ? 'Official Oneova enterprise trust badge active on your profile and shop listings.'
+                                      : 'Submit registration and storefront proof to receive the verified business checkmark.',
+                                  style: GoogleFonts.inter(fontSize: 11, color: context.textSecondary),
+                                ),
+                              ],
+                            ),
+                          ),
+                          if (appUser?.isVerified != true) ...[
+                            const SizedBox(width: 8),
+                            ElevatedButton(
+                              onPressed: () {
+                                if (appUser != null) {
+                                  OneovaVerificationRequestSheet.show(context, appUser, isBusiness: true);
+                                }
+                              },
+                              style: ElevatedButton.styleFrom(
+                                backgroundColor: AppColors.brandBlue,
+                                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(AppRadius.sm)),
+                                elevation: 0,
+                              ),
+                              child: Text(
+                                'Verify',
+                                style: GoogleFonts.inter(fontSize: 11.5, fontWeight: FontWeight.w700, color: Colors.white),
+                              ),
+                            ),
+                          ],
+                        ],
+                      ),
                     ),
                   ],
                 ],
@@ -758,6 +1314,21 @@ class _ProfileSettingsScreenState extends ConsumerState<ProfileSettingsScreen> {
                       context,
                       hint: 'City, Country (e.g. Lagos, Nigeria / London, UK)',
                       prefixIcon: const Icon(Icons.location_on_outlined, size: 18, color: AppColors.brandBlue),
+                      suffixIcon: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          OneovaAutoLocationButton(
+                            controller: _locationController,
+                            onLocationDetected: (result) {
+                              _onFieldChanged(profile);
+                            },
+                          ),
+                          OneovaVoiceTypingButton(
+                            controller: _locationController,
+                            onChanged: (_) => _onFieldChanged(profile),
+                          ),
+                        ],
+                      ),
                     ),
                   ),
                 ],
@@ -864,7 +1435,7 @@ class _ProfileSettingsScreenState extends ConsumerState<ProfileSettingsScreen> {
                 bottom: 8,
                 right: 8,
                 child: InkWell(
-                  onTap: () => _pickAndUploadImage(isCover: true),
+                  onTap: () => _showPhotoOptionsSheet(isCover: true, currentPhotoUrl: coverUrl),
                   borderRadius: BorderRadius.circular(AppRadius.full),
                   child: Container(
                     padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
@@ -917,7 +1488,7 @@ class _ProfileSettingsScreenState extends ConsumerState<ProfileSettingsScreen> {
                       ),
                     ),
                     InkWell(
-                      onTap: () => _pickAndUploadImage(isCover: false),
+                      onTap: () => _showPhotoOptionsSheet(isCover: false, currentPhotoUrl: avatarUrl),
                       borderRadius: BorderRadius.circular(AppRadius.full),
                       child: Container(
                         padding: const EdgeInsets.all(6),

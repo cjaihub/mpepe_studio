@@ -13,6 +13,7 @@ import 'package:path_provider/path_provider.dart';
 import 'package:go_router/go_router.dart';
 import 'package:google_fonts/google_fonts.dart';
 import '../../backend/inbox/providers/presence_service.dart';
+import '../../shared/widgets/live_user_presence_dot.dart';
 import '../../backend/messaging_repository.dart';
 import 'rooms/rooms_views.dart';
 import '../../backend/security/e2e_encryption_service.dart';
@@ -27,6 +28,7 @@ import '../../providers/settings_provider.dart';
 import '../../shared/services/oneova_sound_service.dart';
 import '../../shared/widgets/advanced_voice_interface.dart';
 import '../../shared/widgets/live_recording_waveform.dart';
+import '../../shared/widgets/oneova_voice_typing_button.dart';
 import 'widgets/chat_emoji_gif_panel.dart';
 import 'widgets/chat_location_share.dart';
 import 'widgets/chat_media_bubbles.dart';
@@ -112,7 +114,7 @@ class _ChatDetailScreenState extends ConsumerState<ChatDetailScreen> with Single
 
   // Scrolling, translations and per-chat AI assist (chat_detail_upgrades.dart)
   final ScrollController _listController = ScrollController();
-  bool _bannerCollapsed = false;
+  bool _bannerCollapsed = true;
   bool _awayFromBottom = false;
   String? _latestSeenId;
   List<MessageModel> _lastMessages = const [];
@@ -123,6 +125,7 @@ class _ChatDetailScreenState extends ConsumerState<ChatDetailScreen> with Single
   bool _aiRepliesLoading = false;
   String? _aiRepliesFor;
   bool _aiSummarizing = false;
+  final List<MessageModel> _pendingLocalMessages = [];
 
   void _refresh(VoidCallback fn) {
     if (mounted) setState(fn);
@@ -560,7 +563,11 @@ class _ChatDetailScreenState extends ConsumerState<ChatDetailScreen> with Single
     });
   }
 
-  Widget _buildMediaAttachment(MessageModel message, {bool isMe = false}) {
+  Widget _buildMediaAttachment(
+    MessageModel message, {
+    bool isMe = false,
+    ChatPrefs prefs = const ChatPrefs(),
+  }) {
     if (message.mediaEncrypted && message.mediaUrl != null && !message.mediaUrl!.startsWith('/')) {
       // Decrypt to a local file, then render the plaintext copy.
       return PeerEncryptedMedia(
@@ -568,7 +575,7 @@ class _ChatDetailScreenState extends ConsumerState<ChatDetailScreen> with Single
         peerPublicKey: _chatPartnerPublicKey,
         fileName: message.fileName,
         builder: (context, localPath) =>
-            _buildMediaAttachment(message.copyWith(mediaUrl: localPath), isMe: isMe),
+            _buildMediaAttachment(message.copyWith(mediaUrl: localPath), isMe: isMe, prefs: prefs),
       );
     }
     if (message.mediaType == 'image') {
@@ -639,13 +646,22 @@ class _ChatDetailScreenState extends ConsumerState<ChatDetailScreen> with Single
         ),
       );
     } else if (message.mediaType == 'audio' && message.mediaUrl != null) {
+      final resolvedUrl = message.mediaUrl!;
       return GestureDetector(
         onLongPress: () => _openMediaStudio(message),
         child: InteractiveVoiceNotePlayer(
-          audioUrl: message.mediaUrl!,
+          audioUrl: resolvedUrl,
           initialDuration: message.voiceDuration,
           waveformSamples: message.voiceWaveform,
           isMe: isMe,
+          embedded: true,
+          messageId: message.id,
+          senderUid: message.senderId,
+          autoTranslateVoice: !isMe && prefs.aiEnabled && prefs.aiAutoTranslateVoice,
+          onTranslateVoice: () => _translateVoiceMessage(
+            message,
+            decryptedOrResolvedPath: resolvedUrl,
+          ),
         ),
       );
     }
@@ -819,6 +835,8 @@ class _ChatDetailScreenState extends ConsumerState<ChatDetailScreen> with Single
     String fileName, {
     String? voiceDuration,
     List<double>? voiceWaveform,
+    bool silent = false,
+    String? optimisticId,
   }) async {
     if (_showAttachments) _toggleAttachments();
 
@@ -826,82 +844,94 @@ class _ChatDetailScreenState extends ConsumerState<ChatDetailScreen> with Single
     try {
       fileSize = file.lengthSync();
     } catch (_) {}
-    
-    // Show loading
-    ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-      content: Row(
-        children: [
-          const SizedBox(
-            width: 14,
-            height: 14,
-            child: CircularProgressIndicator(strokeWidth: 2, color: AppColors.brandPink),
-          ),
-          const SizedBox(width: 12),
-          Expanded(
-            child: Text(
-              'Uploading $fileName...',
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
+
+    if (!silent && mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+        content: Row(
+          children: [
+            const SizedBox(
+              width: 14,
+              height: 14,
+              child: CircularProgressIndicator(strokeWidth: 2, color: AppColors.brandPink),
             ),
-          ),
-        ],
-      ),
-      backgroundColor: AppColors.darkSurface,
-      duration: const Duration(seconds: 4),
-    ));
+            const SizedBox(width: 12),
+            Expanded(
+              child: Text(
+                'Uploading $fileName...',
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+              ),
+            ),
+          ],
+        ),
+        backgroundColor: AppColors.brandBlue,
+        duration: const Duration(seconds: 4),
+      ));
+    }
     
     final currentUserId = FirebaseAuth.instance.currentUser?.uid ?? 'guest';
     final repo = ref.read(messagingRepositoryProvider);
     final storage = ref.read(storageServiceProvider);
-    
-    // 1:1 chats: upload only ciphertext under the per-chat key, and keep the
-    // original file name out of the storage path.
-    final peerKey = _e2eeActive ? _chatPartnerPublicKey : null;
-    File toUpload = file;
-    String path = 'chats/${widget.chatId}/attachments/${DateTime.now().millisecondsSinceEpoch}_$fileName';
-    if (peerKey != null) {
-      try {
-        toUpload = await PeerMediaCrypto.encryptForUpload(ref.read(e2eEncryptionServiceProvider), file, peerKey);
-        path = 'chats/${widget.chatId}/attachments/${DateTime.now().millisecondsSinceEpoch}.enc';
-      } catch (e) {
-        debugPrint('Media encryption failed: $e');
+
+    try {
+      // 1:1 chats: upload only ciphertext under the per-chat key, and keep the
+      // original file name out of the storage path.
+      final peerKey = _e2eeActive ? _chatPartnerPublicKey : null;
+      File toUpload = file;
+      String path = 'chats/${widget.chatId}/attachments/${DateTime.now().millisecondsSinceEpoch}_$fileName';
+      if (peerKey != null) {
+        try {
+          toUpload = await PeerMediaCrypto.encryptForUpload(ref.read(e2eEncryptionServiceProvider), file, peerKey);
+          path = 'chats/${widget.chatId}/attachments/${DateTime.now().millisecondsSinceEpoch}.enc';
+        } catch (e) {
+          debugPrint('Media encryption failed: $e');
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+              content: Text('Could not encrypt this file, so it was not sent.'),
+              backgroundColor: AppColors.brandPink,
+            ));
+          }
+          return;
+        }
+      }
+      final downloadUrl = await storage.uploadFile(toUpload, path);
+      if (!identical(toUpload, file)) {
+        toUpload.delete().catchError((_) => toUpload);
+      }
+
+      if (downloadUrl != null) {
+        if (type == 'audio' && peerKey == null) {
+          VoiceAudioDiskCache.seedLocalFile(downloadUrl, file.path);
+        }
+        await repo.sendMessage(
+          widget.chatId, 
+          currentUserId, 
+          '', 
+          mediaUrl: downloadUrl,
+          mediaEncrypted: peerKey != null,
+          mediaType: type,
+          fileName: fileName,
+          fileSize: fileSize,
+          voiceDuration: voiceDuration,
+          voiceWaveform: voiceWaveform,
+          hasVoiceMemo: type == 'audio',
+        );
+        if (!silent && mounted) {
+          ScaffoldMessenger.of(context).hideCurrentSnackBar();
+        }
+      } else {
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-            content: Text('Could not encrypt this file, so it was not sent.'),
+            content: Text('Upload failed. Please check internet connection.'),
             backgroundColor: AppColors.brandPink,
           ));
         }
-        return;
       }
-    }
-    final downloadUrl = await storage.uploadFile(toUpload, path);
-    if (!identical(toUpload, file)) {
-      toUpload.delete().catchError((_) => toUpload);
-    }
-
-    if (downloadUrl != null) {
-      await repo.sendMessage(
-        widget.chatId, 
-        currentUserId, 
-        '', 
-        mediaUrl: downloadUrl,
-        mediaEncrypted: peerKey != null,
-        mediaType: type,
-        fileName: fileName,
-        fileSize: fileSize,
-        voiceDuration: voiceDuration,
-        voiceWaveform: voiceWaveform,
-        hasVoiceMemo: type == 'audio',
-      );
-      if (mounted) {
-        ScaffoldMessenger.of(context).hideCurrentSnackBar();
-      }
-    } else {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-          content: Text('Upload failed. Please check internet connection.'),
-          backgroundColor: AppColors.brandPink,
-        ));
+    } finally {
+      if (optimisticId != null && mounted) {
+        setState(() {
+          _pendingLocalMessages.removeWhere((m) => m.id == optimisticId);
+        });
       }
     }
   }
@@ -919,8 +949,21 @@ class _ChatDetailScreenState extends ConsumerState<ChatDetailScreen> with Single
       _voiceSlide = Offset.zero;
       _recordingDurationSeconds = 0;
 
+      // Zero-cost hardware DSP (AEC + Noise Suppression + Auto-Gain) + compact
+      // 48kbps 24kHz mono AAC-LC (~3x smaller & faster upload than 128kbps stereo).
       await _audioRecorder.start(
-        const RecordConfig(encoder: AudioEncoder.aacLc, bitRate: 128000, sampleRate: 44100), 
+        const RecordConfig(
+          encoder: AudioEncoder.aacLc,
+          bitRate: 48000,
+          sampleRate: 24000,
+          numChannels: 1,
+          echoCancel: true,
+          noiseSuppress: true,
+          autoGain: true,
+          androidConfig: AndroidRecordConfig(
+            audioSource: AndroidAudioSource.voiceCommunication,
+          ),
+        ),
         path: _recordedFilePath!,
       );
 
@@ -932,7 +975,7 @@ class _ChatDetailScreenState extends ConsumerState<ChatDetailScreen> with Single
       });
 
       _amplitudeTimer?.cancel();
-      _amplitudeTimer = Timer.periodic(const Duration(milliseconds: 70), (t) async {
+      _amplitudeTimer = Timer.periodic(const Duration(milliseconds: 65), (t) async {
         try {
           if (_voicePaused) return;
           final amp = await _audioRecorder.getAmplitude();
@@ -940,8 +983,7 @@ class _ChatDetailScreenState extends ConsumerState<ChatDetailScreen> with Single
             setState(() {
               final level = levelFromDb(amp.current);
               _liveLevels.add(level);
-              if (_liveLevels.length > 160) _liveLevels.removeRange(0, _liveLevels.length - 160);
-              // Whole recording (downsampled to 50 bars when sending).
+              if (_liveLevels.length > 120) _liveLevels.removeRange(0, _liveLevels.length - 120);
               if (_recordedWaveformSamples.length < 12000) _recordedWaveformSamples.add(level);
             });
           }
@@ -989,9 +1031,16 @@ class _ChatDetailScreenState extends ConsumerState<ChatDetailScreen> with Single
     _amplitudeTimer?.cancel();
     final currentUserId = FirebaseAuth.instance.currentUser?.uid;
     if (!_isRecordingVoice) return;
-    final path = await _audioRecorder.stop();
-    final durationSecs = _recordingDurationSeconds;
-    final samples = downsampleLevels(_recordedWaveformSamples, 50);
+    String? path;
+    try {
+      if (await _audioRecorder.isRecording()) {
+        path = await _audioRecorder.stop();
+      }
+    } catch (e) {
+      debugPrint('[Chat] audioRecorder stop error: $e');
+    }
+    final durationSecs = _recordingDurationSeconds > 0 ? _recordingDurationSeconds : 1;
+    final samples = downsampleLevels(_recordedWaveformSamples, 24);
 
     setState(() {
       _isRecordingVoice = false;
@@ -1004,16 +1053,44 @@ class _ChatDetailScreenState extends ConsumerState<ChatDetailScreen> with Single
     if (currentUserId != null) {
       ref.read(messagingRepositoryProvider).setRecordingStatus(widget.chatId, currentUserId, false);
     }
-    if (path != null && durationSecs > 0) {
+    if (path != null && File(path).existsSync()) {
       final m = durationSecs ~/ 60;
       final s = (durationSecs % 60).toString().padLeft(2, '0');
       final durationStr = '$m:$s';
-      _uploadFileAndSend(
-        File(path), 
-        'audio', 
-        'voice_note_${DateTime.now().millisecondsSinceEpoch}.m4a',
-        voiceDuration: durationStr,
-        voiceWaveform: samples,
+      final stamp = DateTime.now().millisecondsSinceEpoch;
+      final fileName = 'voice_note_$stamp.m4a';
+      final optimisticId = 'local_vn_$stamp';
+
+      if (mounted) {
+        setState(() {
+          _pendingLocalMessages.insert(
+            0,
+            MessageModel(
+              id: optimisticId,
+              senderId: currentUserId ?? 'guest',
+              text: '',
+              timestamp: Timestamp.now(),
+              readBy: const [],
+              mediaUrl: path,
+              mediaType: 'audio',
+              fileName: fileName,
+              voiceDuration: durationStr,
+              voiceWaveform: samples,
+            ),
+          );
+        });
+      }
+
+      unawaited(
+        _uploadFileAndSend(
+          File(path),
+          'audio',
+          fileName,
+          voiceDuration: durationStr,
+          voiceWaveform: samples,
+          silent: true,
+          optimisticId: optimisticId,
+        ),
       );
     }
   }
@@ -1051,7 +1128,12 @@ class _ChatDetailScreenState extends ConsumerState<ChatDetailScreen> with Single
     _videoSession?.cancel();
     _composerFocus.dispose();
     _messageController.dispose();
-    _audioRecorder.dispose();
+    try {
+      if (_isRecordingVoice) {
+        _audioRecorder.stop().catchError((_) => null);
+      }
+      _audioRecorder.dispose();
+    } catch (_) {}
     _attachmentAnimController.dispose();
     _listController.dispose();
     super.dispose();
@@ -1306,29 +1388,25 @@ class _ChatDetailScreenState extends ConsumerState<ChatDetailScreen> with Single
                     : (user?.username?.isNotEmpty == true ? user!.username! : (chat?.title ?? 'Chat'));
             final avatarUrl = isGroup ? chat?.avatarUrl : (user?.profilePhotoUrl ?? chat?.avatarUrl);
             final verified = chat?.isVerified == true || user?.isVerified == true;
-            final isOnline = otherUserId.isEmpty ? false : (ref.watch(userPresenceProvider(otherUserId)).value ?? false);
+            final presence = otherUserId.isEmpty
+                ? const UserPresence()
+                : (ref.watch(userPresenceDetailsProvider(otherUserId)).value ?? const UserPresence());
             final typing = chat?.typingUsers.where((id) => id != currentUserId).isNotEmpty ?? false;
             final recording = chat?.recordingUsers.where((id) => id != currentUserId).isNotEmpty ?? false;
             final relation = otherUserId.isEmpty
                 ? null
                 : ref.watch(followStateProvider((me: currentUserId, them: otherUserId))).value;
 
-            final String status;
+            final Widget subWidget;
             if (recording) {
-              status = 'recording audio…';
+              subWidget = Text('recording audio…', style: GoogleFonts.inter(color: fg, fontSize: 11.5, fontWeight: FontWeight.w600));
             } else if (typing) {
-              status = 'typing…';
+              subWidget = Text('typing…', style: GoogleFonts.inter(color: fg, fontSize: 11.5, fontWeight: FontWeight.w600));
             } else if (isGroup) {
-              status = '${chat?.participants.length ?? 0} members';
+              subWidget = Text('${chat?.participants.length ?? 0} members', style: GoogleFonts.inter(color: fg.withValues(alpha: 0.8), fontSize: 11.5));
             } else {
-              status = isOnline ? 'Online' : 'Offline';
+              subWidget = LivePresencePill(presence: presence, textColor: fg);
             }
-            final live = typing || recording;
-            final subStyle = GoogleFonts.inter(
-              color: live || isOnline ? fg : fg.withValues(alpha: 0.7),
-              fontSize: 11.5,
-              fontWeight: live || isOnline ? FontWeight.w600 : FontWeight.w400,
-            );
 
             return InkWell(
               borderRadius: BorderRadius.circular(AppRadius.sm),
@@ -1353,18 +1431,14 @@ class _ChatDetailScreenState extends ConsumerState<ChatDetailScreen> with Single
                                     ))
                               : null,
                         ),
-                        if (!isGroup && isOnline)
+                        if (!isGroup)
                           Positioned(
                             bottom: -1,
                             right: -1,
-                            child: Container(
-                              width: 11,
-                              height: 11,
-                              decoration: BoxDecoration(
-                                color: AppColors.brandPink,
-                                shape: BoxShape.circle,
-                                border: Border.all(color: AppColors.brandBlue, width: 2),
-                              ),
+                            child: LiveUserPresenceDot(
+                              presence: presence,
+                              size: 11,
+                              borderColor: AppColors.brandBlue,
                             ),
                           ),
                       ],
@@ -1409,12 +1483,9 @@ class _ChatDetailScreenState extends ConsumerState<ChatDetailScreen> with Single
                               Flexible(
                                 child: AnimatedSwitcher(
                                   duration: const Duration(milliseconds: 200),
-                                  child: Text(
-                                    status,
-                                    key: ValueKey(status),
-                                    maxLines: 1,
-                                    overflow: TextOverflow.ellipsis,
-                                    style: live ? subStyle.copyWith(fontStyle: FontStyle.italic) : subStyle,
+                                  child: KeyedSubtree(
+                                    key: ValueKey('${presence.status.name}_${typing}_$recording'),
+                                    child: subWidget,
                                   ),
                                 ),
                               ),
@@ -1780,6 +1851,7 @@ class _ChatDetailScreenState extends ConsumerState<ChatDetailScreen> with Single
                                 if (currentUserId.isNotEmpty) {
                                   final newMute = !isMuted;
                                   final messenger = ScaffoldMessenger.of(context);
+                                  final bg = context.surfaceMid;
                                   await ref.read(messagingRepositoryProvider).setChatMuted(widget.chatId, currentUserId, newMute);
                                   setModalState(() {});
                                   if (mounted) {
@@ -1787,7 +1859,7 @@ class _ChatDetailScreenState extends ConsumerState<ChatDetailScreen> with Single
                                       SnackBar(
                                         content: Text(newMute ? 'Chat muted' : 'Chat unmuted'),
                                         duration: const Duration(seconds: 2),
-                                        backgroundColor: context.surfaceMid,
+                                        backgroundColor: bg,
                                       ),
                                     );
                                   }
@@ -2088,13 +2160,14 @@ class _ChatDetailScreenState extends ConsumerState<ChatDetailScreen> with Single
                   onTap: () async {
                     Navigator.pop(ctx);
                     final messenger = ScaffoldMessenger.of(context);
+                    final bg = context.surfaceMid;
                     await ref.read(messagingRepositoryProvider).setDisappearingDuration(widget.chatId, secs);
                     onSelected(secs);
                     if (mounted) {
                       messenger.showSnackBar(
                         SnackBar(
                           content: Text('Disappearing messages set to: $label'),
-                          backgroundColor: context.surfaceMid,
+                          backgroundColor: bg,
                           duration: const Duration(seconds: 2),
                         ),
                       );
@@ -2753,10 +2826,22 @@ class _ChatDetailScreenState extends ConsumerState<ChatDetailScreen> with Single
           _decryptPendingMessages(allMessages);
           if (mounted) _runAiAssist(allMessages, prefs);
         });
+        // Merge optimistic local voice notes until their Firestore counterpart arrives.
+        final remoteFileNames = <String>{
+          for (final m in allMessages)
+            if (m.fileName != null && m.fileName!.isNotEmpty) m.fileName!,
+        };
+        final activeOptimistic = _pendingLocalMessages
+            .where((p) => p.fileName == null || !remoteFileNames.contains(p.fileName))
+            .toList();
+        final combinedMessages = activeOptimistic.isEmpty
+            ? allMessages
+            : <MessageModel>[...activeOptimistic, ...allMessages];
+
         // "Delete for me" hides a message on this account only.
         final messages = prefs.hidden.isEmpty
-            ? allMessages
-            : allMessages.where((m) => !prefs.hidden.contains(m.id)).toList();
+            ? combinedMessages
+            : combinedMessages.where((m) => !prefs.hidden.contains(m.id)).toList();
         if (!_awayFromBottom && messages.isNotEmpty) _latestSeenId = messages.first.id;
 
         // Filter messages if search query is active
@@ -2930,17 +3015,23 @@ class _ChatDetailScreenState extends ConsumerState<ChatDetailScreen> with Single
                                 maxWidth: MediaQuery.of(context).size.width * 0.76,
                               ),
                               child: Container(
-                                padding: const EdgeInsets.symmetric(horizontal: 13, vertical: 8.0),
+                                padding: message.mediaType == 'audio' && displayText.isEmpty
+                                    ? const EdgeInsets.symmetric(horizontal: 8, vertical: 5.0)
+                                    : const EdgeInsets.symmetric(horizontal: 13, vertical: 8.0),
                                 decoration: BoxDecoration(
                                   color: isMe ? AppColors.brandBlue : context.surface,
                                   border: isMe
                                       ? null
                                       : Border.all(color: context.border, width: 1.0),
                                   borderRadius: BorderRadius.only(
-                                    topLeft: const Radius.circular(16),
-                                    topRight: const Radius.circular(16),
-                                    bottomLeft: isMe ? const Radius.circular(16) : const Radius.circular(3),
-                                    bottomRight: isMe ? const Radius.circular(3) : const Radius.circular(16),
+                                    topLeft: Radius.circular(message.mediaType == 'audio' ? 14 : 16),
+                                    topRight: Radius.circular(message.mediaType == 'audio' ? 14 : 16),
+                                    bottomLeft: isMe
+                                        ? Radius.circular(message.mediaType == 'audio' ? 14 : 16)
+                                        : const Radius.circular(3),
+                                    bottomRight: isMe
+                                        ? const Radius.circular(3)
+                                        : Radius.circular(message.mediaType == 'audio' ? 14 : 16),
                                   ),
                                   boxShadow: [
                                     BoxShadow(
@@ -3008,7 +3099,7 @@ class _ChatDetailScreenState extends ConsumerState<ChatDetailScreen> with Single
                                         ]),
                                       ),
                                     if (message.mediaUrl != null && message.mediaType != null)
-                                      _buildMediaAttachment(message, isMe: isMe),
+                                      _buildMediaAttachment(message, isMe: isMe, prefs: prefs),
                                     if (displayText.isNotEmpty)
                                       Text(
                                         displayText,
@@ -3022,7 +3113,7 @@ class _ChatDetailScreenState extends ConsumerState<ChatDetailScreen> with Single
                                       ),
                                     if (!isMe) _buildTranslation(message, isMe),
                                     _buildLinkPreview(displayText, isMe: isMe, safety: message.safety),
-                                    const SizedBox(height: 3),
+                                    SizedBox(height: message.mediaType == 'audio' && displayText.isEmpty ? 1.5 : 3),
                                     Row(
                                       mainAxisSize: MainAxisSize.min,
                                       children: [
@@ -3046,17 +3137,19 @@ class _ChatDetailScreenState extends ConsumerState<ChatDetailScreen> with Single
                                           timeStr,
                                           style: GoogleFonts.inter(
                                             color: isMe ? Colors.white70 : context.textMuted,
-                                            fontSize: 10.0,
+                                            fontSize: 9.5,
                                             fontWeight: FontWeight.w500,
                                           ),
                                         ),
                                         if (isMe) ...[
                                           const SizedBox(width: 4),
                                           Icon(
-                                            message.readBy.isNotEmpty
-                                                ? Icons.done_all_rounded
-                                                : Icons.done_rounded,
-                                            size: 13.5,
+                                            message.id.startsWith('local_vn_')
+                                                ? Icons.schedule_rounded
+                                                : (message.readBy.isNotEmpty
+                                                    ? Icons.done_all_rounded
+                                                    : Icons.done_rounded),
+                                            size: message.id.startsWith('local_vn_') ? 11.5 : 13.0,
                                             color: message.readBy.isNotEmpty
                                                 ? AppColors.brandPink
                                                 : Colors.white60,
@@ -3306,6 +3399,17 @@ class _ChatDetailScreenState extends ConsumerState<ChatDetailScreen> with Single
                               ),
                             ),
                           ),
+                          suffixIcon: OneovaVoiceTypingButton(
+                            controller: _messageController,
+                            onChanged: (_) {
+                              setState(() {
+                                _isTyping = _messageController.text.trim().isNotEmpty;
+                              });
+                            },
+                            tooltip: 'Voice typing message',
+                            padding: const EdgeInsets.symmetric(horizontal: 4),
+                            showTranslateAction: true,
+                          ),
                         ),
                       ),
                     ),
@@ -3451,11 +3555,11 @@ class _ChatDetailScreenState extends ConsumerState<ChatDetailScreen> with Single
     final cancelHint = (-_voiceSlide.dx / 120).clamp(0.0, 1.0);
     final lockHint = (-_voiceSlide.dy / 90).clamp(0.0, 1.0);
     return Container(
-      height: 46,
+      height: 38,
       padding: const EdgeInsets.symmetric(horizontal: 8),
       decoration: BoxDecoration(
         color: Color.lerp(context.surfaceMid, AppColors.brandPink.withValues(alpha: 0.18), cancelHint),
-        borderRadius: BorderRadius.circular(24),
+        borderRadius: BorderRadius.circular(20),
         border: Border.all(
           color: _voiceLocked ? AppColors.brandBlue.withValues(alpha: 0.6) : AppColors.brandPink.withValues(alpha: 0.5),
           width: 1,
@@ -3467,19 +3571,19 @@ class _ChatDetailScreenState extends ConsumerState<ChatDetailScreen> with Single
             GestureDetector(
               onTap: _cancelRecording,
               child: const Padding(
-                padding: EdgeInsets.all(4),
-                child: Icon(Icons.delete_outline_rounded, color: AppColors.brandPink, size: 21),
+                padding: EdgeInsets.all(3),
+                child: Icon(Icons.delete_outline_rounded, color: AppColors.brandPink, size: 18),
               ),
             )
           else
             Container(
-              width: 9,
-              height: 9,
-              margin: const EdgeInsets.symmetric(horizontal: 6),
+              width: 7,
+              height: 7,
+              margin: const EdgeInsets.symmetric(horizontal: 5),
               decoration: BoxDecoration(
                 color: AppColors.brandPink,
                 shape: BoxShape.circle,
-                boxShadow: [BoxShadow(color: AppColors.brandPink.withValues(alpha: 0.6), blurRadius: 6)],
+                boxShadow: [BoxShadow(color: AppColors.brandPink.withValues(alpha: 0.55), blurRadius: 4)],
               ),
             ).animate(onPlay: (c) => c.repeat(reverse: true)).fadeOut(duration: 600.ms, begin: 1),
           const SizedBox(width: 4),
@@ -3487,16 +3591,16 @@ class _ChatDetailScreenState extends ConsumerState<ChatDetailScreen> with Single
             time,
             style: GoogleFonts.inter(
               color: context.textPrimary,
-              fontSize: 13,
+              fontSize: 12,
               fontWeight: FontWeight.w700,
               fontFeatures: const [FontFeature.tabularFigures()],
             ),
           ),
-          const SizedBox(width: 8),
+          const SizedBox(width: 7),
           Expanded(
             child: Opacity(
               opacity: 1 - cancelHint * 0.7,
-              child: LiveRecordingWaveform(levels: _liveLevels, paused: _voicePaused, height: 26),
+              child: LiveRecordingWaveform(levels: _liveLevels, paused: _voicePaused, height: 18),
             ),
           ),
           const SizedBox(width: 6),
@@ -3504,13 +3608,13 @@ class _ChatDetailScreenState extends ConsumerState<ChatDetailScreen> with Single
             GestureDetector(
               onTap: _toggleVoicePause,
               child: Container(
-                padding: const EdgeInsets.all(5),
+                padding: const EdgeInsets.all(4),
                 decoration: BoxDecoration(
                   color: AppColors.brandPink.withValues(alpha: 0.15),
                   shape: BoxShape.circle,
                 ),
                 child: Icon(_voicePaused ? Icons.mic_rounded : Icons.pause_rounded,
-                    color: AppColors.brandPink, size: 18),
+                    color: AppColors.brandPink, size: 16),
               ),
             )
           else

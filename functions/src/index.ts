@@ -281,6 +281,7 @@ export * from './securityMail';
 export * from './emailCodes';
 export * from './metaOAuth';
 export * from './gmailUser';
+export * from './voiceTidy';
 export * from './inbox';
 export { aiGateway, generateLiveApiToken } from './aiGateway';
 export { chatAssist } from './chatAssist';
@@ -312,6 +313,7 @@ export { lsMediaKey, lsSecOnIncident, lsSecOnBlock, lsSecOnMemberWrite } from '.
 export { lsSetChatMode, lsSetJoinRequests } from './liveStudio/controls';
 export { lsComment, lsDeleteComment, lsMuteChat, lsReact, lsShare, lsLivekitWebhook, lsGifSearch } from './liveStudio/social';
 export { lsWatch, lsYouTubeSearch } from './liveStudio/watch';
+export { lsPool } from './liveStudio/pool';
 
 // Oneova Looks & Visual Intelligence (§4.5, §8, §10)
 export * from './looks';

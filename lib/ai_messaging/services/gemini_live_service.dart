@@ -5,7 +5,10 @@ import 'package:firebase_remote_config/firebase_remote_config.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_pcm_sound/flutter_pcm_sound.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:flutter/widgets.dart' show AppLifecycleListener;
 import 'package:record/record.dart';
+
+import '../../ova_assistant/services/ova_device_hub.dart';
 
 enum LiveVoiceState {
   disconnected,
@@ -26,12 +29,17 @@ class GeminiLiveState {
   /// on the voice-call microphone source before audio reaches the model.
   final bool voiceEnhanced;
 
+  /// Another app (a phone call, a recorder) has the mic or audio focus:
+  /// the session stays open but our mic is released until it's free again.
+  final bool heldByOtherApp;
+
   GeminiLiveState({
     this.state = LiveVoiceState.disconnected,
     this.transcript = const [],
     this.currentError,
     this.isMuted = false,
     this.voiceEnhanced = true,
+    this.heldByOtherApp = false,
   });
 
   GeminiLiveState copyWith({
@@ -40,6 +48,7 @@ class GeminiLiveState {
     String? currentError,
     bool? isMuted,
     bool? voiceEnhanced,
+    bool? heldByOtherApp,
   }) {
     return GeminiLiveState(
       state: state ?? this.state,
@@ -47,6 +56,7 @@ class GeminiLiveState {
       currentError: currentError ?? this.currentError,
       isMuted: isMuted ?? this.isMuted,
       voiceEnhanced: voiceEnhanced ?? this.voiceEnhanced,
+      heldByOtherApp: heldByOtherApp ?? this.heldByOtherApp,
     );
   }
 }
@@ -57,7 +67,12 @@ class GeminiLiveState {
 /// project's Vertex AI quota, and show up in Firebase AI monitoring.
 class GeminiLiveService extends Notifier<GeminiLiveState> {
   /// Vertex Live model; override with Remote Config `live_voice_model`.
-  static const String defaultModel = 'gemini-live-2.5-flash-preview-native-audio-09-2025';
+  static const String defaultModel = 'gemini-2.0-flash-exp';
+  static const List<String> fallbackModels = [
+    'gemini-2.0-flash-exp',
+    'gemini-2.0-flash',
+    'gemini-live-2.5-flash-preview-native-audio-09-2025',
+  ];
 
   /// Live models are served regionally on Vertex AI.
   static const String location = 'us-central1';
@@ -68,10 +83,23 @@ class GeminiLiveService extends Notifier<GeminiLiveState> {
   StreamSubscription<Uint8List>? _recorderSubscription;
   bool _receiving = false;
 
+  // Audio focus (Android): pause other audio while Live runs, hand the mic
+  // over when a call or another recorder needs it, take it back afterwards.
+  final OvaDeviceHub _hub = OvaDeviceHub();
+  StreamSubscription<String>? _focusSub;
+  AppLifecycleListener? _lifecycle;
+
   @override
   GeminiLiveState build() {
     _initAudio();
-    ref.onDispose(_cleanup);
+    // Leaving the app ends voice mode and frees the mic (no background mic).
+    _lifecycle = AppLifecycleListener(onPause: () {
+      if (_session != null) disconnect();
+    });
+    ref.onDispose(() {
+      _lifecycle?.dispose();
+      _cleanup();
+    });
     return GeminiLiveState();
   }
 
@@ -92,24 +120,67 @@ class GeminiLiveService extends Notifier<GeminiLiveState> {
 
   Future<void> connect() async {
     state = state.copyWith(state: LiveVoiceState.reconnecting, currentError: null);
-    try {
-      final model = FirebaseAI.agentPlatform(location: location).liveGenerativeModel(
-        model: _model(),
-        liveGenerationConfig: LiveGenerationConfig(
-          speechConfig: SpeechConfig(voiceName: 'Aoede'),
-          responseModalities: [ResponseModalities.audio],
-          outputAudioTranscription: AudioTranscriptionConfig(),
-        ),
-      );
-      _session = await model.connect();
-      unawaited(_receive());
-      await _startRecording();
-      state = state.copyWith(state: LiveVoiceState.listening);
-    } catch (e) {
-      if (kDebugMode) debugPrint('Gemini Live connect error: $e');
-      await _cleanup();
-      state = state.copyWith(state: LiveVoiceState.disconnected, currentError: 'Could not start voice mode. Try again.');
+    final candidates = {_model(), ...fallbackModels}.toList();
+    dynamic lastErr;
+
+    for (final candidate in candidates) {
+      try {
+        final model = FirebaseAI.agentPlatform(location: location).liveGenerativeModel(
+          model: candidate,
+          liveGenerationConfig: LiveGenerationConfig(
+            speechConfig: SpeechConfig(voiceName: 'Aoede'),
+            responseModalities: [ResponseModalities.audio],
+            outputAudioTranscription: AudioTranscriptionConfig(),
+          ),
+        );
+        _session = await model.connect();
+        unawaited(_receive());
+        await _hub.acquireAudioFocus();
+        await _focusSub?.cancel();
+        _focusSub = _hub.audioFocusEvents.listen(_onFocus);
+        await _startRecording();
+        state = state.copyWith(state: LiveVoiceState.listening);
+        return;
+      } catch (e) {
+        lastErr = e;
+        if (kDebugMode) debugPrint('[GeminiLiveService] Failed to connect with $candidate: $e');
+      }
     }
+
+    if (kDebugMode) debugPrint('Gemini Live connect error: $lastErr');
+    await _cleanup();
+    state = state.copyWith(state: LiveVoiceState.disconnected, currentError: 'Could not start voice mode. Try again.');
+  }
+
+  void _onFocus(String event) {
+    if (_session == null) return;
+    switch (event) {
+      case 'loss':
+      case 'loss_transient':
+      case 'silenced':
+        unawaited(_releaseMic());
+      case 'gain':
+      case 'unsilenced':
+        if (state.heldByOtherApp) unawaited(_resumeMic());
+    }
+  }
+
+  /// Gives the mic back to whoever needs it; the Live session stays open.
+  Future<void> _releaseMic() async {
+    if (state.heldByOtherApp) return;
+    state = state.copyWith(heldByOtherApp: true);
+    await _recorderSubscription?.cancel();
+    _recorderSubscription = null;
+    try {
+      await _audioRecorder.stop();
+    } catch (_) {}
+  }
+
+  Future<void> _resumeMic() async {
+    if (_session == null) return;
+    state = state.copyWith(heldByOtherApp: false);
+    await _hub.acquireAudioFocus();
+    if (_recorderSubscription == null) await _startRecording();
   }
 
   Future<void> _startRecording() async {
@@ -226,6 +297,14 @@ class GeminiLiveService extends Notifier<GeminiLiveState> {
   Future<void> _cleanup() async {
     final session = _session;
     _session = null;
+    await _focusSub?.cancel();
+    _focusSub = null;
+    unawaited(_hub.releaseAudioFocus());
+    try {
+      if (state.heldByOtherApp) state = state.copyWith(heldByOtherApp: false);
+    } catch (_) {
+      // Provider already disposed.
+    }
     await _recorderSubscription?.cancel();
     _recorderSubscription = null;
     try {

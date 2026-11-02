@@ -22,7 +22,7 @@ exports.verdictFor = verdictFor;
 const URL_RE = /\b((?:https?:\/\/|www\.)[^\s<>"')\]]+|[a-z0-9][a-z0-9-]{1,62}(?:\.[a-z0-9-]{1,62})*\.(?:com|net|org|app|io|co|me|xyz|top|click|link|info|online|site|live|shop|ru|cn|tk|ml|ga|cf|gq|ke|ng|za|tz|ug|gh)\b(?:\/[^\s<>"')\]]*)?)/gi;
 /** Brands people get phished for, by the label that must not be imitated. */
 const PROTECTED = {
-    oneova: ['oneova.com', 'oneova.app', 'mpepe-2b4bd.web.app', 'mpepe-2b4bd.firebaseapp.com'],
+    oneova: ['oneova.com', 'oneova.app', 'oneova.web.app', 'mpepe-2b4bd.web.app', 'mpepe-2b4bd.firebaseapp.com'],
     google: ['google.com', 'youtube.com', 'goo.gl', 'g.co', 'gmail.com'],
     paypal: ['paypal.com', 'paypal.me'],
     safaricom: ['safaricom.co.ke', 'mpesa.co.ke'],

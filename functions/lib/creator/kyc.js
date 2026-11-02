@@ -57,7 +57,7 @@ const firestore_1 = require("firebase-admin/firestore");
 const optionalSecrets_1 = require("../optionalSecrets");
 const payouts_1 = require("./payouts");
 const db = () => (0, firestore_1.getFirestore)();
-const RETURN_URL = 'https://mpepe-2b4bd.web.app/';
+const RETURN_URL = 'https://oneova.web.app/';
 async function stripe() {
     const key = await (0, optionalSecrets_1.optionalSecret)('STRIPE_SECRET_KEY');
     if (!key)

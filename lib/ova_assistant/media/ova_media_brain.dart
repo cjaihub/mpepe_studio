@@ -239,28 +239,43 @@ class OvaMediaBrain {
     }
     var orKey = _brain.openRouterKey;
     if (orKey.isEmpty) orKey = await _vault.getOpenRouterApiKey();
-    if (!OneovaAiGateway.canCall(orKey)) throw const OvaMediaException('no_key');
-    final res = await http
-        .post(
-          OneovaAiGateway.chatUri(orKey),
-          headers: {
-            'Content-Type': 'application/json',
-            'Authorization': 'Bearer ${await OneovaAiGateway.bearer(orKey)}',
-            'HTTP-Referer': 'https://oneova.studio',
-            'X-Title': 'Oneova',
-          },
-          body: jsonEncode({
-            'model': _openRouterModel,
-            'max_tokens': maxTokens,
-            'messages': [
-              {'role': 'system', 'content': system},
-              {'role': 'user', 'content': user},
-            ],
-          }),
-        )
-        .timeout(const Duration(seconds: 25));
-    if (res.statusCode != 200) throw OvaMediaException('Ova error (${res.statusCode}).');
-    return (jsonDecode(res.body)['choices']?[0]?['message']?['content'] as String?)?.trim() ?? '';
+    if (OneovaAiGateway.canCall(orKey)) {
+      final res = await http
+          .post(
+            OneovaAiGateway.chatUri(orKey),
+            headers: {
+              'Content-Type': 'application/json',
+              'Authorization': 'Bearer ${await OneovaAiGateway.bearer(orKey)}',
+              'HTTP-Referer': 'https://oneova.studio',
+              'X-Title': 'Oneova',
+              ...await OneovaAiGateway.appCheckHeader(orKey),
+            },
+            body: jsonEncode({
+              'model': _openRouterModel,
+              'max_tokens': maxTokens,
+              'messages': [
+                {'role': 'system', 'content': system},
+                {'role': 'user', 'content': user},
+              ],
+            }),
+          )
+          .timeout(const Duration(seconds: 15));
+      if (res.statusCode == 200) {
+        if (orKey.isEmpty) OneovaAiGateway.recordProxySuccess();
+        return (jsonDecode(res.body)['choices']?[0]?['message']?['content'] as String?)?.trim() ?? '';
+      }
+      if (orKey.isEmpty) OneovaAiGateway.recordProxyFailure(res.statusCode);
+    }
+    final fallback = await _brain.processRequest(
+      [
+        {'role': 'user', 'content': user},
+      ],
+      userContextPrompt: system,
+    );
+    if (fallback is AiTextResponse && !fallback.isDegraded && fallback.text.trim().isNotEmpty) {
+      return fallback.text.trim();
+    }
+    throw const OvaMediaException('Ova cloud reasoning is temporarily busy. Add an AI key in AI Settings or try again shortly.');
   }
 
   String _kindLabel(OvaMediaKind k) => switch (k) {
@@ -350,6 +365,7 @@ class OvaMediaBrain {
             'Authorization': 'Bearer ${await OneovaAiGateway.bearer(orKey)}',
             'HTTP-Referer': 'https://oneova.studio',
             'X-Title': 'Oneova',
+            ...await OneovaAiGateway.appCheckHeader(orKey),
           },
           body: jsonEncode({
             'model': _openRouterModel,
@@ -366,7 +382,12 @@ class OvaMediaBrain {
           }),
         )
         .timeout(const Duration(seconds: 90));
-    if (res.statusCode != 200) throw OvaMediaException('Ova vision error (${res.statusCode}).');
+    if (res.statusCode != 200) {
+      if (orKey.isEmpty) OneovaAiGateway.recordProxyFailure(res.statusCode);
+      final diag = OneovaAiGateway.classifyHttpFailure(res.statusCode, res.body, usingUserKey: orKey.isNotEmpty);
+      throw OvaMediaException(diag.detail);
+    }
+    if (orKey.isEmpty) OneovaAiGateway.recordProxySuccess();
     final text = (jsonDecode(res.body)['choices']?[0]?['message']?['content'] as String?)?.trim() ?? '';
     if (text.isEmpty) throw const OvaMediaException('Ova could not read this file.');
     return text;

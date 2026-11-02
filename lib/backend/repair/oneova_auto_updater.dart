@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_core/firebase_core.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -36,20 +37,34 @@ final oneOvaAutoUpdaterProvider = Provider<OneOvaAutoUpdater>((ref) {
 /// version against server releases based on the update channel (stable/beta),
 /// and coordinates background staging and notification.
 class OneOvaAutoUpdater {
-  final FirebaseFirestore _firestore = FirebaseFirestore.instance;
+  FirebaseFirestore? get _firestore => Firebase.apps.isNotEmpty ? FirebaseFirestore.instance : null;
 
   static const String currentVersion = '1.0.0';
-  static const int currentBuildNumber = 1;
+  static const int currentBuildNumber = 7;
 
   /// Retrieves the active update channel from `.env` or defaults to 'stable'.
   String get updateChannel {
+    if (!dotenv.isInitialized) return 'stable';
     return dotenv.env['ONEOVA_SYSTEM_UPDATE_CHANNEL']?.trim() ?? 'stable';
   }
 
   /// Checks for an available update on the server.
   Future<AppUpdateInfo> checkForUpdates() async {
     try {
-      final docRef = _firestore.collection('system_config').doc('app_version');
+      final fs = _firestore;
+      if (fs == null) {
+        return const AppUpdateInfo(
+          hasUpdate: false,
+          currentVersion: currentVersion,
+          latestVersion: currentVersion,
+          latestBuildNumber: currentBuildNumber,
+          channel: 'stable',
+          releaseNotes: 'No updates available',
+          downloadUrl: '',
+          isMandatory: false,
+        );
+      }
+      final docRef = fs.collection('system_config').doc('app_version');
       final snapshot = await docRef.get();
 
       if (!snapshot.exists || snapshot.data() == null) {

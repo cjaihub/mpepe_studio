@@ -16,6 +16,7 @@ import 'gift_picker_modal.dart';
 import 'gif_picker_sheet.dart';
 import '../../../backend/giphy_service.dart';
 import 'package:oneova/shared/widgets/animated_loading_indicator.dart';
+import '../../../shared/widgets/oneova_voice_typing_button.dart';
 
 class CommentsBottomSheet extends ConsumerStatefulWidget {
   final String postId;
@@ -904,6 +905,14 @@ class _CommentsBottomSheetState extends ConsumerState<CommentsBottomSheet> {
                             ),
                             onSubmitted: (_) => _postComment(),
                           ),
+                        ),
+                        OneovaVoiceTypingButton(
+                          controller: _commentController,
+                          onChanged: (_) => setState(() {}),
+                          iconSize: 20,
+                          padding: const EdgeInsets.symmetric(horizontal: 4),
+                          tooltip: 'Voice typing comment',
+                          showTranslateAction: true,
                         ),
                         // GIF Button
                         IconButton(

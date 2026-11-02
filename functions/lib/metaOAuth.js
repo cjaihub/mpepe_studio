@@ -230,7 +230,7 @@ exports.metaDeletionStatus = (0, https_1.onRequest)(async (req, res) => {
         title: 'Your data was deleted',
         message: `Confirmation code <b>${code}</b>. Oneova removed your Facebook, Instagram and WhatsApp connection data` +
             (at ? ` on ${at.toUTCString()}` : '') +
-            '. Your Oneova account itself is not deleted; to delete it, email <b>privacy@oneova.app</b> (see mpepe-2b4bd.web.app/deletion).',
+            '. Your Oneova account itself is not deleted; to delete it, email <b>privacy@oneova.app</b> (see oneova.web.app/deletion).',
         tone: 'ok',
     }));
 });

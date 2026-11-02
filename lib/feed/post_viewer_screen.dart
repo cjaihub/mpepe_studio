@@ -92,7 +92,7 @@ class _PostViewerScreenState extends ConsumerState<PostViewerScreen> {
   }
 
   Future<void> _share(Content c) async {
-    ShareSheet.show(context, postId: c.id, authorId: c.authorId);
+    ShareSheet.show(context, postId: c.id, authorId: c.authorId, content: c);
   }
 
   @override

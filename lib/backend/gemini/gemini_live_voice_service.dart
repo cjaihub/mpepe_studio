@@ -6,8 +6,11 @@ import 'package:flutter_tts/flutter_tts.dart';
 import 'package:http/http.dart' as http;
 import 'package:firebase_ai/firebase_ai.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:firebase_core/firebase_core.dart';
 
+import '../ai_brain_service.dart';
 import '../security/oneova_ai_gateway.dart';
+import '../security/secure_api_key_vault.dart';
 import '../repair/oneova_self_repair_engine.dart';
 import '../repair/oneova_auto_updater.dart';
 
@@ -135,10 +138,10 @@ class GeminiLiveVoiceService extends Notifier<GeminiLiveVoiceState> {
     }
 
     // ─────────────────────────────────────────────────────────────────
-    // Query Gemini Live AI Core
+    // Query Gemini Live AI Core (Multi-Provider Cascade)
     // ─────────────────────────────────────────────────────────────────
     try {
-      final user = FirebaseAuth.instance.currentUser;
+      final user = Firebase.apps.isNotEmpty ? FirebaseAuth.instance.currentUser : null;
       final userName = user?.displayName ?? 'Creator';
 
       final systemPrompt = '''
@@ -152,55 +155,135 @@ Rules:
 
       String responseText = '';
 
-      // Gemini on Vertex AI through Firebase AI Logic: authorized by
-      // Firebase (App Check + Auth), no API key in the app.
-      try {
-        final ai = FirebaseAI.agentPlatform(location: 'us-central1').generativeModel(
-          model: 'gemini-2.5-flash',
-          systemInstruction: Content.system(systemPrompt),
-          generationConfig: GenerationConfig(temperature: 0.7, maxOutputTokens: 256),
-        );
-        final res = await ai.generateContent([Content.text(cleanInput)]).timeout(const Duration(seconds: 15));
-        responseText = res.text ?? '';
-      } catch (e) {
-        debugPrint('[GeminiLiveVoice] Vertex AI error: $e');
+      // 1. User's personal Gemini key if saved in SecureKeyVault
+      final vault = ref.read(secureKeyVaultProvider);
+      final gKey = await vault.getGeminiApiKey();
+      if (gKey.isNotEmpty) {
+        final model = await vault.getPreferredGeminiModel();
+        try {
+          final res = await http
+              .post(
+                Uri.parse(
+                  'https://generativelanguage.googleapis.com/v1beta/models/$model:generateContent?key=$gKey',
+                ),
+                headers: {'Content-Type': 'application/json'},
+                body: jsonEncode({
+                  'systemInstruction': {
+                    'parts': [
+                      {'text': systemPrompt}
+                    ]
+                  },
+                  'contents': [
+                    {
+                      'role': 'user',
+                      'parts': [
+                        {'text': cleanInput}
+                      ]
+                    }
+                  ],
+                  'generationConfig': {'temperature': 0.7, 'maxOutputTokens': 256},
+                }),
+              )
+              .timeout(const Duration(seconds: 10));
+          if (res.statusCode == 200) {
+            final parts = (jsonDecode(res.body)['candidates']?[0]?['content']?['parts'] as List?) ?? const [];
+            responseText = parts.map((p) => (p is Map ? p['text'] : '') ?? '').join().trim();
+          }
+        } catch (e) {
+          debugPrint('[GeminiLiveVoice] Direct Gemini key error: $e');
+        }
       }
 
-      // Second path: the signed-in server proxy (also keyless for the app).
+      // 2. Keyless Firebase AI Logic (Google AI gemini-2.5-flash -> Vertex AI gemini-2.5-flash)
+      if (responseText.isEmpty && Firebase.apps.isNotEmpty) {
+        for (final (useVertex, modelName) in const [
+          (false, 'gemini-2.5-flash'),
+          (false, 'gemini-2.0-flash'),
+          (true, 'gemini-2.5-flash'),
+        ]) {
+          try {
+            final ai = (useVertex
+                    ? FirebaseAI.agentPlatform(location: 'us-central1')
+                    : FirebaseAI.googleAI())
+                .generativeModel(
+              model: modelName,
+              systemInstruction: Content.system(systemPrompt),
+              generationConfig: GenerationConfig(temperature: 0.7, maxOutputTokens: 256),
+            );
+            final res = await ai.generateContent([Content.text(cleanInput)]).timeout(const Duration(seconds: 10));
+            responseText = res.text?.trim() ?? '';
+            if (responseText.isNotEmpty) break;
+          } catch (e) {
+            debugPrint('[GeminiLiveVoice] FirebaseAI($modelName) error: $e');
+          }
+        }
+      }
+
+      // 3. Signed-in Oneova server proxy (`aiProxy`) with App Check + 5xx cooldown
       if (responseText.isEmpty && OneovaAiGateway.canCall('')) {
-        final res = await http
-            .post(
-              OneovaAiGateway.chatUri(''),
-              headers: {
-                'Content-Type': 'application/json',
-                'Authorization': 'Bearer ${await OneovaAiGateway.bearer('')}',
-              },
-              body: jsonEncode({
-                'model': 'google/gemini-2.5-flash',
-                'messages': [
-                  {'role': 'system', 'content': systemPrompt},
-                  {'role': 'user', 'content': cleanInput},
-                ],
-                'max_tokens': 256,
-              }),
-            )
-            .timeout(const Duration(seconds: 12));
-        if (res.statusCode == 200) {
-          final data = jsonDecode(res.body);
-          responseText = data['choices']?[0]?['message']?['content'] ?? '';
+        try {
+          final res = await http
+              .post(
+                OneovaAiGateway.chatUri(''),
+                headers: {
+                  'Content-Type': 'application/json',
+                  'Authorization': 'Bearer ${await OneovaAiGateway.bearer('')}',
+                  'HTTP-Referer': 'https://oneova.app',
+                  'X-Title': 'Oneova',
+                  ...await OneovaAiGateway.appCheckHeader(''),
+                },
+                body: jsonEncode({
+                  'model': 'google/gemini-2.5-flash',
+                  'messages': [
+                    {'role': 'system', 'content': systemPrompt},
+                    {'role': 'user', 'content': cleanInput},
+                  ],
+                  'max_tokens': 256,
+                }),
+              )
+              .timeout(const Duration(seconds: 10));
+          if (res.statusCode == 200) {
+            OneovaAiGateway.recordProxySuccess();
+            final data = jsonDecode(res.body);
+            responseText = data['choices']?[0]?['message']?['content']?.toString().trim() ?? '';
+          } else {
+            OneovaAiGateway.recordProxyFailure(res.statusCode);
+          }
+        } catch (e) {
+          debugPrint('[GeminiLiveVoice] Proxy error: $e');
+        }
+      }
+
+      // 4. Local Ova synthesis fallback via AIBrainService
+      if (responseText.isEmpty) {
+        final fallback = await ref.read(aiBrainProvider).processRequest(
+          [
+            {'role': 'user', 'content': cleanInput}
+          ],
+          taskType: 'audio',
+          userContextPrompt: systemPrompt,
+        );
+        if (fallback is AiTextResponse && fallback.text.trim().isNotEmpty) {
+          final lines = fallback.text
+              .split('\n')
+              .map((l) => l.trim())
+              .where((l) => l.isNotEmpty && !l.startsWith('#') && !l.startsWith('|'))
+              .take(2)
+              .join(' ');
+          responseText = lines.isNotEmpty
+              ? lines
+              : 'I am ready in Local Ova mode. Try voice commands like open camera, go live, or run health check.';
         }
       }
 
       if (responseText.isEmpty) {
-        responseText = user == null
-            ? 'Please sign in so I can help you.'
-            : 'Sorry, I could not reach Ova just now. Please try again in a moment.';
+        responseText = 'I am here in Local Ova mode. Ask me to open camera, go live, or run a system health check.';
       }
 
       // Clean markdown tags for spoken audio
       final cleanSpoken = responseText
-          .replaceAll(RegExp(r'[*#_`]'), '')
-          .replaceAll(RegExp(r'\[.*?\]\(.*?\)'), '')
+          .replaceAll(RegExp(r'[*#_`|]'), '')
+          .replaceAll(RegExp(r'\[(.*?)\]\(.*?\)'), r'$1')
           .trim();
 
       state = state.copyWith(
@@ -225,7 +308,7 @@ Rules:
       statusMessage: 'Checking your account…',
     );
 
-    final uid = FirebaseAuth.instance.currentUser?.uid;
+    final uid = Firebase.apps.isNotEmpty ? FirebaseAuth.instance.currentUser?.uid : null;
     String repairSummary = '';
 
     // 1. Repair Profile

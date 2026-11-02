@@ -165,7 +165,6 @@ exports.aiGateway = (0, https_1.onCall)(async (request) => {
     if (!prompt) {
         throw new https_1.HttpsError('invalid-argument', 'Missing prompt.');
     }
-    const ai = (0, vertexAi_1.vertexAi)();
     // Add system instruction
     let chatHistory = [
         { role: 'user', parts: [{ text: "System Instructions: You are a helpful AI assistant. Use tools to satisfy the user's request. Only answer based on what the tools provide." }] },
@@ -176,8 +175,7 @@ exports.aiGateway = (0, https_1.onCall)(async (request) => {
     }
     chatHistory.push({ role: 'user', parts: [{ text: prompt }] });
     try {
-        let response = await ai.models.generateContent({
-            model: 'gemini-2.5-flash',
+        let response = await (0, vertexAi_1.generateVertexContent)({
             contents: chatHistory,
             config: {
                 tools: applicationTools,
@@ -250,8 +248,7 @@ exports.aiGateway = (0, https_1.onCall)(async (request) => {
                 role: 'user',
                 parts: [{ functionResponse: { name, response: toolResult } }]
             });
-            response = await ai.models.generateContent({
-                model: 'gemini-2.5-flash',
+            response = await (0, vertexAi_1.generateVertexContent)({
                 contents: chatHistory,
                 config: {
                     tools: applicationTools,
@@ -319,11 +316,9 @@ async function handleComposeMessage(userId, data) {
             break;
         default: prompt = `Improve this text: "${currentText}"`;
     }
-    const ai = (0, vertexAi_1.vertexAi)();
     const systemInstruction = "You are an AI messaging assistant. Provide ONLY the suggested text. Do NOT include explanations, markdown blocks, or conversational filler like 'Here is the improved text:'. Just the text itself. Ensure you refuse to process requests that clearly fall under sensitive topics (e.g. financial, medical, legal, security).";
     try {
-        const response = await ai.models.generateContent({
-            model: 'gemini-2.5-flash',
+        const response = await (0, vertexAi_1.generateVertexContent)({
             contents: [
                 { role: 'user', parts: [{ text: `System: ${systemInstruction}\n\nTask: ${prompt}` }] }
             ],

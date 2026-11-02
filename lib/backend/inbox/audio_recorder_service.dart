@@ -18,6 +18,12 @@ class AudioRecorderService {
 
   Future<void> startRecording() async {
     if (await hasPermission()) {
+      try {
+        if (await _audioRecorder.isRecording()) {
+          await _audioRecorder.stop();
+        }
+      } catch (_) {}
+
       final tempDir = await getTemporaryDirectory();
       _currentRecordPath = '${tempDir.path}/voice_message_${const Uuid().v4()}.m4a';
       

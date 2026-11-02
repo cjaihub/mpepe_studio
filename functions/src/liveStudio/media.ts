@@ -77,7 +77,7 @@ function streamIdArg(data: unknown): string {
 }
 
 /** Host starts a v2 live. Returns `{streamId, token, url, role}`. */
-export const lsStart = onCall({ secrets: LIVEKIT_SECRETS }, async (req) => {
+export const lsStart = onCall({ secrets: LIVEKIT_SECRETS, memory: '512MiB' }, async (req) => {
   const uid = requireUid(req);
   const data = (req.data ?? {}) as {
     title?: unknown;
@@ -149,7 +149,7 @@ export const lsStart = onCall({ secrets: LIVEKIT_SECRETS }, async (req) => {
  * `e2ee` is `{key, keyIndex}` (the stream's shared media key, base64) or
  * null when LIVE_STUDIO_E2EE is off. See security.ts / security_logic.ts.
  */
-export const lsToken = onCall({ secrets: LIVEKIT_SECRETS }, async (req) => {
+export const lsToken = onCall({ secrets: LIVEKIT_SECRETS, memory: '512MiB' }, async (req) => {
   const uid = requireUid(req);
   const streamId = streamIdArg(req.data);
   const state = await loadState(streamId);

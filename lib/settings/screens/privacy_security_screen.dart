@@ -13,6 +13,7 @@ import '../../shared/undo/undo_manager.dart';
 import '../../shared/undo/undo_snackbar.dart';
 import '../../auth/screens/oneova_pin_screen.dart';
 import '../../auth/services/oneova_biometrics_service.dart';
+import '../../auth/services/oneova_biometric_lock_service.dart';
 import '../../backend/social/repositories/relationship_repository.dart';
 import '../widgets/settings_kit.dart';
 
@@ -174,6 +175,7 @@ class _PrivacySecurityScreenState extends ConsumerState<PrivacySecurityScreen> {
           name: 'Enable Biometrics',
         );
         ref.read(undoManagerProvider.notifier).executeAndRegister(command);
+        ref.read(oneovaBiometricLockServiceProvider).setLockEnabled(true);
 
         await _loadBiometricDiagnostics();
 
@@ -269,6 +271,7 @@ class _PrivacySecurityScreenState extends ConsumerState<PrivacySecurityScreen> {
             name: 'Disable Biometrics',
           );
           ref.read(undoManagerProvider.notifier).executeAndRegister(command);
+          ref.read(oneovaBiometricLockServiceProvider).setLockEnabled(false);
           await _loadBiometricDiagnostics();
           if (mounted) {
             UndoSnackbar.show(context, ref, 'Biometrics disabled');

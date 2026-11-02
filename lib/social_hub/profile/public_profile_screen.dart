@@ -363,7 +363,14 @@ class _PublicProfileScreenState extends ConsumerState<PublicProfileScreen>
           backgroundColor: topBarBg,
           leading: IconButton(
               icon: Icon(Icons.arrow_back, color: topBarFg),
-              onPressed: () => context.pop()),
+              onPressed: () {
+                HapticFeedback.lightImpact();
+                if (Navigator.of(context).canPop()) {
+                  context.pop();
+                } else {
+                  context.go('/hub/home');
+                }
+              }),
         ),
         body: Center(
           child: Text('Failed to load profile: $e',
@@ -378,7 +385,14 @@ class _PublicProfileScreenState extends ConsumerState<PublicProfileScreen>
               backgroundColor: topBarBg,
               leading: IconButton(
                   icon: Icon(Icons.arrow_back, color: topBarFg),
-                  onPressed: () => context.pop()),
+                  onPressed: () {
+                    HapticFeedback.lightImpact();
+                    if (Navigator.of(context).canPop()) {
+                      context.pop();
+                    } else {
+                      context.go('/hub/home');
+                    }
+                  }),
             ),
             body: Center(
                 child: Text('User not found',
@@ -408,7 +422,14 @@ class _PublicProfileScreenState extends ConsumerState<PublicProfileScreen>
                   pinned: true,
                   leading: IconButton(
                     icon: Icon(Icons.arrow_back, color: topBarFg),
-                    onPressed: () => context.pop(),
+                    onPressed: () {
+                      HapticFeedback.lightImpact();
+                      if (Navigator.of(context).canPop()) {
+                        context.pop();
+                      } else {
+                        context.go('/hub/home');
+                      }
+                    },
                   ),
                   title: Text(
                     '@${user.username ?? user.id.substring(0, 8)}',

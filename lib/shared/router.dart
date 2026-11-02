@@ -8,6 +8,7 @@ import '../shared/theme/app_theme.dart';
 import '../shared/widgets/shared_bottom_nav_bar.dart';
 import 'package:go_router/go_router.dart';
 import '../feed/main_feed_screen.dart';
+import '../backend/social/services/video_playback_manager.dart';
 
 import '../hub/hub_team_screen.dart';
 import '../hub/messaging/chat_detail_screen.dart';
@@ -62,6 +63,7 @@ import '../settings/screens/admin_docs_cms_screen.dart';
 import '../settings/screens/about_screen.dart';
 import '../auth/screens/email_code_screen.dart';
 import '../social_hub/gmail/gmail_screens.dart';
+import '../ai_messaging/screens/live_voice_mode_screen.dart';
 import '../ova_assistant/screens/ova_abilities_screen.dart';
 import '../ova_assistant/screens/ova_setup_screen.dart';
 import '../ova_assistant/screens/ova_trigger_settings_screen.dart';
@@ -122,6 +124,8 @@ import '../social_hub/live/studio_v2/shell/live_studio_v2_screen.dart';
 import '../social_hub/live/studio_v2/gaming/gaming_lives_screen.dart';
 import '../feed/providers/oneova_focus_mode_provider.dart';
 
+export '../backend/social/services/video_playback_manager.dart' show mainFeedRouteObserver;
+
 // StatefulShellRoute shells
 class HubShell extends ConsumerStatefulWidget {
   final StatefulNavigationShell navigationShell;
@@ -136,6 +140,10 @@ class _HubShellState extends ConsumerState<HubShell> {
   void initState() {
     super.initState();
     WidgetsBinding.instance.addPostFrameCallback((_) async {
+      if (!mounted) return;
+      if (widget.navigationShell.currentIndex != 0) {
+        ref.read(videoPlaybackManagerProvider).setScreenActive(false);
+      }
       try {
         final shouldShow = await ref.read(featureTourServiceProvider).shouldShowTour();
         if (shouldShow && mounted) {
@@ -144,6 +152,16 @@ class _HubShellState extends ConsumerState<HubShell> {
         }
       } catch (_) {}
     });
+  }
+
+  @override
+  void didUpdateWidget(HubShell oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    final isReels = widget.navigationShell.currentIndex == 0;
+    final wasReels = oldWidget.navigationShell.currentIndex == 0;
+    if (isReels != wasReels) {
+      ref.read(videoPlaybackManagerProvider).setScreenActive(isReels);
+    }
   }
 
   OneovaTab? get _active {
@@ -162,6 +180,15 @@ class _HubShellState extends ConsumerState<HubShell> {
   @override
   Widget build(BuildContext context) {
     final isFocusMode = ref.watch(oneovaFocusModeProvider);
+    final isHome = widget.navigationShell.currentIndex == 0;
+    final shouldHide = !isHome || isFocusMode;
+
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) {
+        ref.read(oneovaBottomNavVisibleProvider.notifier).setVisible(isHome && !shouldHide);
+      }
+    });
+
     debugPrint('[HubShell build] rendering index: ${widget.navigationShell.currentIndex}, isFocusMode: $isFocusMode');
     return Scaffold(
       extendBody: true,
@@ -185,17 +212,17 @@ class _HubShellState extends ConsumerState<HubShell> {
           ),
         ],
       ),
-      bottomNavigationBar: widget.navigationShell.currentIndex == 2
+      bottomNavigationBar: !isHome
           ? null
           : AnimatedSlide(
-              offset: isFocusMode ? const Offset(0, 1.4) : Offset.zero,
+              offset: shouldHide ? const Offset(0, 1.4) : Offset.zero,
               duration: const Duration(milliseconds: 260),
               curve: Curves.easeInOutCubic,
               child: AnimatedOpacity(
-                opacity: isFocusMode ? 0.0 : 1.0,
+                opacity: shouldHide ? 0.0 : 1.0,
                 duration: const Duration(milliseconds: 220),
                 child: IgnorePointer(
-                  ignoring: isFocusMode,
+                  ignoring: shouldHide,
                   child: OneovaBottomNav(
                     active: _active,
                     onReels: () => widget.navigationShell.goBranch(0, initialLocation: widget.navigationShell.currentIndex == 0),
@@ -314,18 +341,37 @@ class SessionRouteObserver extends NavigatorObserver {
 bool get _isDesktopAgentPlatform => !kIsWeb && (Platform.isMacOS || Platform.isWindows);
 
 /// Sign-in gate shared by the global redirect and per-route guards.
-/// A signed-in account must have passed the two-factor policy on this device
-/// (LoginSecurity); guests (anonymous) may only browse public screens. There
-/// is no debug bypass on phones: debug and release builds behave the same.
+///
+/// Public routes (Reels feed `/hub/home`, discover `/hub/discover`, biz feed,
+/// legal/about, sounds, hashtags) open immediately for everyone—even first-time
+/// installs or guests without an account.
+/// Users log in once and stay logged in permanently.
 String? _authGate(GoRouterState state) {
   final path = state.uri.path;
   if (_isDesktopAgentPlatform) return null; // Desktop agent pairs via secure pairing.
-  // Shared-video links open for anyone.
-  if (path == '/hub/home' && state.uri.queryParameters.containsKey('v')) return null;
+
+  // 1. Public guest routes: open directly to all users without a login wall.
+  final isPublicRoute = LoginSecurity.isGuestRoute(path) ||
+      path == '/hub/home' ||
+      path == '/biz_feed' ||
+      path == '/hub/discover' ||
+      path.startsWith('/sound/') ||
+      path.startsWith('/social/explore') ||
+      path == '/legal' ||
+      path == '/about' ||
+      path == '/privacy' ||
+      path == '/splash' ||
+      path.startsWith('/auth');
+
+  if (isPublicRoute) return null;
+
+  // 2. Protected personal routes: require a valid user account.
   final user = FirebaseAuth.instance.currentUser;
-  if (user == null) return '/auth/main_login';
-  if (user.isAnonymous) return LoginSecurity.isGuestRoute(path) ? null : '/auth/main_login';
-  if (!LoginSecurity.instance.isVerified(user)) return '/auth/main_login';
+  if (user == null || user.isAnonymous) {
+    return '/auth/main_login';
+  }
+
+  // 3. Authenticated user has full persistent access.
   return null;
 }
 
@@ -338,7 +384,11 @@ final routerProvider = Provider<GoRouter>((ref) {
     navigatorKey: rootNavigatorKey,
     debugLogDiagnostics: true,
     initialLocation: isDesktopDebug ? '/desktop_agent' : '/splash',
-    observers: [SessionRouteObserver(ref), OvaPopupObserver()],
+    observers: [
+      SessionRouteObserver(ref),
+      OvaPopupObserver(),
+      mainFeedRouteObserver,
+    ],
     refreshListenable: LoginSecurity.instance,
     errorBuilder: (context, state) => Scaffold(
       backgroundColor: context.bg,
@@ -912,6 +962,12 @@ final routerProvider = Provider<GoRouter>((ref) {
         redirect: _requireAuth,
         builder: (context, state) => const OvaTriggerSettingsScreen(),
       ),
+      // Ova Live: Gemini Live on Vertex AI. Opens only from an explicit tap.
+      GoRoute(
+        path: '/ova/live',
+        redirect: _requireAuth,
+        builder: (context, state) => const LiveVoiceModeScreen(),
+      ),
       GoRoute(
         path: '/ova/abilities',
         redirect: _requireAuth,
@@ -927,15 +983,18 @@ final routerProvider = Provider<GoRouter>((ref) {
           return HubShell(navigationShell: navigationShell);
         },
         branches: [
-          StatefulShellBranch(routes: [GoRoute(
-            path: '/hub/home', 
-            redirect: _requireAuth,
-            builder: (context, state) {
-              final videoId = state.uri.queryParameters['v'];
-              debugPrint('[GoRoute /hub/home builder] building ShortVideoFeedScreen for state: ${state.uri}');
-              return ShortVideoFeedScreen(initialVideoId: videoId);
-            }
-          )]),
+          StatefulShellBranch(
+            observers: [mainFeedRouteObserver],
+            routes: [GoRoute(
+              path: '/hub/home', 
+              redirect: _requireAuth,
+              builder: (context, state) {
+                final videoId = state.uri.queryParameters['v'];
+                debugPrint('[GoRoute /hub/home builder] building ShortVideoFeedScreen for state: ${state.uri}');
+                return ShortVideoFeedScreen(initialVideoId: videoId);
+              }
+            )],
+          ),
           StatefulShellBranch(routes: [GoRoute(
             path: '/upload/global', 
             redirect: _requireAuth,

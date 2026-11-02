@@ -9,6 +9,7 @@ import '../../backend/search/providers/search_providers.dart';
 import '../../backend/social/services/global_hashtag_service.dart';
 import '../../shared/theme/app_theme.dart';
 import 'package:oneova/shared/widgets/animated_loading_indicator.dart';
+import '../widgets/oneova_voice_typing_button.dart';
 
 class GlobalSearchScreen extends ConsumerStatefulWidget {
   const GlobalSearchScreen({super.key});
@@ -111,16 +112,27 @@ class _GlobalSearchScreenState extends ConsumerState<GlobalSearchScreen> {
                 color: topBarFg.withValues(alpha: 0.8),
               ),
               prefixIconConstraints: const BoxConstraints(minWidth: 36, minHeight: 36),
-              suffixIcon: _searchController.text.isNotEmpty
-                  ? IconButton(
+              suffixIcon: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  OneovaVoiceTypingButton(
+                    controller: _searchController,
+                    onChanged: (text) => _onSearchChanged(text),
+                    idleColor: topBarFg.withValues(alpha: 0.8),
+                    activeColor: AppColors.brandPink,
+                    tooltip: 'Voice search',
+                  ),
+                  if (_searchController.text.isNotEmpty)
+                    IconButton(
                       icon: Icon(
                         Icons.close,
                         size: 16,
                         color: topBarFg,
                       ),
                       onPressed: _clearSearch,
-                    )
-                  : null,
+                    ),
+                ],
+              ),
               suffixIconConstraints: const BoxConstraints(minWidth: 36, minHeight: 36),
               border: InputBorder.none,
               isDense: true,

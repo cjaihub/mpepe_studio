@@ -182,7 +182,7 @@ class OvaFloatingDock extends ConsumerStatefulWidget {
 class _OvaFloatingDockState extends ConsumerState<OvaFloatingDock> with WidgetsBindingObserver {
   static const _size = 42.0;
   static const _hiddenPrefixes = [
-    '/splash', '/auth', '/live/setup', '/live/broadcast', '/live/studio', '/call/active', '/create/camera', '/hub/ova_assistant', '/ova',
+    '/splash', '/auth', '/live/setup', '/live/broadcast', '/live/studio', '/call/active', '/create/camera', '/hub/ai', '/hub/ova_assistant', '/ova',
     '/qr_scanner', '/tiktok-callback', '/meta-callback',
   ];
 
@@ -580,22 +580,67 @@ class _OvaFloatingDockState extends ConsumerState<OvaFloatingDock> with WidgetsB
               ),
             ],
             const SizedBox(height: 8),
-            GestureDetector(
-              onTap: () => _openSheet(),
-              child: Container(
-                height: 36,
-                padding: const EdgeInsets.symmetric(horizontal: 12),
-                decoration: BoxDecoration(
-                  color: context.surfaceMid,
-                  borderRadius: BorderRadius.circular(AppRadius.md),
-                  border: Border.all(color: context.border),
+            Row(
+              children: [
+                Expanded(
+                  child: GestureDetector(
+                    onTap: () => _openSheet(),
+                    child: Container(
+                      height: 35,
+                      padding: const EdgeInsets.symmetric(horizontal: 11),
+                      decoration: BoxDecoration(
+                        color: context.surfaceMid,
+                        borderRadius: BorderRadius.circular(AppRadius.md),
+                        border: Border.all(color: context.border),
+                      ),
+                      child: Row(children: [
+                        const Icon(Icons.auto_awesome_rounded, size: 13.5, color: AppColors.brandBlue),
+                        const SizedBox(width: 7),
+                        Expanded(
+                          child: Text(
+                            'Quick ask Ova…',
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: GoogleFonts.inter(fontSize: 12, color: context.textMuted),
+                          ),
+                        ),
+                      ]),
+                    ),
+                  ),
                 ),
-                child: Row(children: [
-                  Icon(Icons.auto_awesome_rounded, size: 14, color: AppColors.brandBlue),
-                  const SizedBox(width: 8),
-                  Text('Ask Ova anything…', style: GoogleFonts.inter(fontSize: 12.5, color: context.textMuted)),
-                ]),
-              ),
+                const SizedBox(width: 6),
+                Tooltip(
+                  message: 'Overlay Voice Mode',
+                  child: InkWell(
+                    borderRadius: BorderRadius.circular(AppRadius.md),
+                    onTap: () => _openSheet(voice: true),
+                    child: Container(
+                      height: 35,
+                      padding: const EdgeInsets.symmetric(horizontal: 10),
+                      decoration: BoxDecoration(
+                        color: AppColors.brandPink.withValues(alpha: context.isDark ? 0.16 : 0.10),
+                        borderRadius: BorderRadius.circular(AppRadius.md),
+                        border: Border.all(color: AppColors.brandPink.withValues(alpha: 0.38)),
+                      ),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          const Icon(Icons.graphic_eq_rounded, size: 14, color: AppColors.brandPink),
+                          const SizedBox(width: 4),
+                          Text(
+                            'Voice',
+                            style: GoogleFonts.inter(
+                              fontSize: 11.5,
+                              fontWeight: FontWeight.w700,
+                              color: AppColors.brandPink,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
+              ],
             ),
           ],
         ),

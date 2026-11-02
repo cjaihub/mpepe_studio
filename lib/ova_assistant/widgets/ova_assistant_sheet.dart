@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:cloud_functions/cloud_functions.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_animate/flutter_animate.dart';
@@ -19,8 +20,14 @@ import '../../shared/location/geo_services.dart';
 import '../../shared/router.dart' show rootNavigatorKey;
 import '../../shared/theme/app_theme.dart';
 import '../core/ova_tool_result.dart';
+import '../main_interface/ova_live_voice_view.dart';
+import '../main_interface/ova_sections_views.dart' show formatRelativeTime;
 import '../services/ova_chat_controller.dart';
+import '../services/ova_shared_history_service.dart';
+import '../services/ova_task_center.dart';
+import '../services/ova_voice_session_controller.dart';
 import 'ova_confirm_card.dart';
+import 'ova_youtube_inline_card.dart';
 import '../services/ova_device_hub.dart';
 import '../media/ova_brand_voice_sheet.dart';
 import '../services/ova_tool_registry.dart';
@@ -101,6 +108,7 @@ class OvaAssistantPanel extends ConsumerStatefulWidget {
   final bool sendInitialPrompt;
   final Uint8List? screenContextBytes;
   final String? screenContextLabel;
+  /// Highlights the mic (never opens it): the user taps to talk.
   final bool autoStartVoice;
   final void Function(String text)? onInsertIntoChat;
 
@@ -138,12 +146,23 @@ class _OvaAssistantPanelState extends ConsumerState<OvaAssistantPanel> {
   final List<double> _voiceLevels = [];
   DateTime? _listenStart;
   bool _speechReady = false;
+
+  /// Pulses the mic for a few seconds when Ova was opened in voice mode.
+  bool _voiceHint = false;
+
+  /// True when the compact Overlay Assistant is in live Voice Mode.
+  bool _voiceMode = false;
+
+  /// Voice typing: the words as heard, kept so the clean-up can be undone.
+  String? _rawDictation;
+  bool _tidying = false;
   Uint8List? _screenBytes;
 
   @override
   void initState() {
     super.initState();
     _screenBytes = widget.screenContextBytes;
+    _voiceMode = widget.autoStartVoice;
     _chat = ref.read(ovaChatProvider)
       ..invocation = widget.invocation
       ..onNavigate = _navigate
@@ -155,15 +174,17 @@ class _OvaAssistantPanelState extends ConsumerState<OvaAssistantPanel> {
         _input.text = widget.initialPrompt!;
       }
     }
-    if (widget.autoStartVoice) {
-      WidgetsBinding.instance.addPostFrameCallback((_) => _toggleVoice());
-    }
   }
 
   @override
   void dispose() {
     _chat.removeListener(_onChat);
     if (_chat.onNavigate == _navigate) _chat.onNavigate = null;
+    if (_voiceMode) {
+      try {
+        ref.read(ovaOverlayVoiceSessionProvider.notifier).endSession();
+      } catch (_) {}
+    }
     _speech.cancel();
     _input.dispose();
     _focus.dispose();
@@ -210,6 +231,10 @@ class _OvaAssistantPanelState extends ConsumerState<OvaAssistantPanel> {
 
   Future<void> _runAction(OvaResultAction a) async {
     HapticFeedback.selectionClick();
+    if (a.url == 'ova://retry_last') {
+      await _chat.retryLast();
+      return;
+    }
     if (a.route != null) {
       _navigate(a.route!);
     } else if (a.url != null && a.url!.startsWith('ova://')) {
@@ -268,6 +293,8 @@ class _OvaAssistantPanelState extends ConsumerState<OvaAssistantPanel> {
     }
     setState(() {
       _listening = true;
+      _voiceHint = false;
+      _rawDictation = null;
       _voiceLevels.clear();
       _listenStart = DateTime.now();
     });
@@ -287,9 +314,43 @@ class _OvaAssistantPanelState extends ConsumerState<OvaAssistantPanel> {
           _input.text = r.recognizedWords;
           _input.selection = TextSelection.collapsed(offset: _input.text.length);
         });
-        if (r.finalResult && r.recognizedWords.trim().isNotEmpty) _send();
+        // Voice typing: words go into the field and get tidied; the user sends.
+        if (r.finalResult && r.recognizedWords.trim().isNotEmpty) _tidyDictation(r.recognizedWords.trim());
       },
     );
+  }
+
+  /// Punctuation, filler words and small fixes via the `voiceTidy` function
+  /// (Vertex AI). Keeps the raw words if that fails; one tap undoes it.
+  Future<void> _tidyDictation(String raw) async {
+    setState(() => _tidying = true);
+    try {
+      final res = await FirebaseFunctions.instance.httpsCallable('voiceTidy').call<Map<String, dynamic>>({'text': raw});
+      final clean = (res.data['text'] as String?)?.trim() ?? '';
+      if (!mounted) return;
+      if (clean.isNotEmpty && clean != raw && _input.text.trim() == raw) {
+        setState(() {
+          _rawDictation = raw;
+          _input.text = clean;
+          _input.selection = TextSelection.collapsed(offset: clean.length);
+        });
+      }
+    } catch (_) {
+      // Raw dictation stays in the field.
+    } finally {
+      if (mounted) setState(() => _tidying = false);
+    }
+  }
+
+  void _undoTidy() {
+    final raw = _rawDictation;
+    if (raw == null) return;
+    HapticFeedback.selectionClick();
+    setState(() {
+      _input.text = raw;
+      _input.selection = TextSelection.collapsed(offset: raw.length);
+      _rawDictation = null;
+    });
   }
 
   void _stopVoice() {
@@ -318,8 +379,23 @@ class _OvaAssistantPanelState extends ConsumerState<OvaAssistantPanel> {
         if (widget.isSheet) _grabber(context),
         _header(context),
         Divider(height: 1, thickness: 1, color: context.border),
-        Flexible(child: _chat.isEmpty ? _emptyState(context) : _conversation(context)),
-        _composer(context),
+        if (_voiceMode)
+          Flexible(
+            child: SingleChildScrollView(
+              child: OvaOverlayVoiceCard(
+                invocation: widget.invocation,
+                onSwitchToText: () {
+                  if (mounted) setState(() => _voiceMode = false);
+                },
+                onCloseOverlay: _close,
+                onNavigateRoute: _navigate,
+              ),
+            ),
+          )
+        else ...[
+          Flexible(child: _chat.isEmpty ? _emptyState(context) : _conversation(context)),
+          _composer(context),
+        ],
       ],
     );
 
@@ -327,7 +403,7 @@ class _OvaAssistantPanelState extends ConsumerState<OvaAssistantPanel> {
     return Padding(
       padding: EdgeInsets.only(bottom: media.viewInsets.bottom),
       child: Container(
-        constraints: BoxConstraints(maxHeight: media.size.height * 0.86),
+        constraints: BoxConstraints(maxHeight: media.size.height * 0.80),
         decoration: BoxDecoration(
           color: context.surface,
           borderRadius: const BorderRadius.vertical(top: Radius.circular(AppRadius.xl)),
@@ -371,32 +447,44 @@ class _OvaAssistantPanelState extends ConsumerState<OvaAssistantPanel> {
   }
 
   Widget _grabber(BuildContext context) => Padding(
-    padding: const EdgeInsets.only(top: 8, bottom: 2),
+    padding: const EdgeInsets.only(top: 7, bottom: 2),
     child: Container(
-      width: 36,
+      width: 34,
       height: 4,
       decoration: BoxDecoration(color: context.border, borderRadius: BorderRadius.circular(AppRadius.full)),
     ),
   );
 
+  void _setVoiceMode(bool enable) {
+    if (_voiceMode == enable) return;
+    HapticFeedback.selectionClick();
+    if (enable && _listening) {
+      _stopVoice();
+    } else if (!enable) {
+      ref.read(ovaOverlayVoiceSessionProvider.notifier).endSession();
+    }
+    setState(() => _voiceMode = enable);
+  }
+
   Widget _header(BuildContext context) {
-    final status = _listening
-        ? 'Listening…'
-        : _chat.busy
-        ? 'Working…'
-        : 'Ready';
+    final status = _voiceMode
+        ? 'Voice overlay'
+        : (_listening
+            ? 'Listening…'
+            : (_chat.busy ? 'Working…' : 'Quick overlay'));
     return SizedBox(
-      height: 50,
+      height: 46,
       child: Row(
         children: [
-          const SizedBox(width: 4),
+          const SizedBox(width: 2),
           IconButton(
             tooltip: widget.isSheet ? 'Close' : 'Back',
+            visualDensity: VisualDensity.compact,
             onPressed: _close,
-            icon: Icon(widget.isSheet ? Icons.keyboard_arrow_down_rounded : Icons.arrow_back_rounded, size: 22, color: context.textPrimary),
+            icon: Icon(widget.isSheet ? Icons.keyboard_arrow_down_rounded : Icons.arrow_back_rounded, size: 21, color: context.textPrimary),
           ),
-          const _OvaMark(size: 28),
-          const SizedBox(width: 10),
+          const _OvaMark(size: 24),
+          const SizedBox(width: 8),
           Expanded(
             child: Column(
               mainAxisAlignment: MainAxisAlignment.center,
@@ -404,42 +492,76 @@ class _OvaAssistantPanelState extends ConsumerState<OvaAssistantPanel> {
               children: [
                 Text(
                   'Ova',
-                  style: GoogleFonts.inter(fontSize: 15, fontWeight: FontWeight.w700, letterSpacing: -0.2, color: context.textPrimary),
+                  style: GoogleFonts.inter(fontSize: 14, fontWeight: FontWeight.w700, letterSpacing: -0.2, color: context.textPrimary),
                 ),
                 Row(
                   children: [
-                    _StatusDot(active: _listening || _chat.busy),
+                    _StatusDot(active: _voiceMode || _listening || _chat.busy),
                     const SizedBox(width: 5),
-                    Text(status, style: GoogleFonts.inter(fontSize: 11, color: context.textMuted)),
+                    Flexible(
+                      child: Text(
+                        status,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: GoogleFonts.inter(fontSize: 10.5, color: context.textMuted),
+                      ),
+                    ),
                   ],
                 ),
               ],
             ),
           ),
-          if (!_chat.isEmpty)
+          // Compact [Chat | Voice] Mode Segmented Switcher
+          Container(
+            height: 28,
+            padding: const EdgeInsets.all(2),
+            decoration: BoxDecoration(
+              color: context.surfaceMid,
+              borderRadius: BorderRadius.circular(AppRadius.full),
+              border: Border.all(color: context.border, width: 1.0),
+            ),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                _OverlayModeChip(
+                  icon: Icons.chat_bubble_outline_rounded,
+                  label: 'Chat',
+                  selected: !_voiceMode,
+                  onTap: () => _setVoiceMode(false),
+                ),
+                _OverlayModeChip(
+                  icon: Icons.graphic_eq_rounded,
+                  label: 'Voice',
+                  selected: _voiceMode,
+                  accent: true,
+                  onTap: () => _setVoiceMode(true),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(width: 4),
+          if (!_voiceMode && !_chat.isEmpty)
             IconButton(
-              tooltip: 'New chat',
+              tooltip: 'Clear quick chat',
+              visualDensity: VisualDensity.compact,
               onPressed: () {
                 HapticFeedback.selectionClick();
                 _chat.reset();
               },
-              icon: Icon(Icons.add_comment_outlined, size: 20, color: context.textSecondary),
+              icon: Icon(Icons.refresh_rounded, size: 18, color: context.textSecondary),
             ),
           if (widget.isSheet)
             IconButton(
-              tooltip: 'Full screen',
-              onPressed: () => _navigate('/hub/ova_assistant'),
-              icon: Icon(Icons.open_in_full_rounded, size: 18, color: context.textSecondary),
+              tooltip: 'Open Ova Main Workspace',
+              visualDensity: VisualDensity.compact,
+              onPressed: () => _navigate('/hub/ai'),
+              icon: Icon(Icons.dashboard_customize_outlined, size: 17, color: context.textSecondary),
             ),
           IconButton(
-            tooltip: 'Brand voice',
-            onPressed: () => showOvaBrandVoiceEditor(context, ref),
-            icon: Icon(Icons.diamond_outlined, size: 19, color: context.textSecondary),
-          ),
-          IconButton(
             tooltip: 'Ova settings',
+            visualDensity: VisualDensity.compact,
             onPressed: () => _navigate('/ova/abilities'),
-            icon: Icon(Icons.tune_rounded, size: 20, color: context.textSecondary),
+            icon: Icon(Icons.tune_rounded, size: 18, color: context.textSecondary),
           ),
           const SizedBox(width: 4),
         ],
@@ -449,6 +571,10 @@ class _OvaAssistantPanelState extends ConsumerState<OvaAssistantPanel> {
 
   Widget _emptyState(BuildContext context) {
     final inv = widget.invocation;
+    final sharedHistory = ref.watch(ovaSharedHistoryProvider);
+    final taskCenter = ref.watch(ovaTaskCenterProvider);
+    final recentShared = sharedHistory.threads.take(2).toList();
+    final recentTasks = taskCenter.tasks.take(2).toList();
     final chips = <_Suggestion>[
       if (inv.contentId != null) const _Suggestion(Icons.favorite_rounded, 'Like this reel', 'like this'),
       if (inv.contentId != null) const _Suggestion(Icons.mode_comment_rounded, 'Comment on this', 'comment ', fill: true),
@@ -458,36 +584,181 @@ class _OvaAssistantPanelState extends ConsumerState<OvaAssistantPanel> {
       const _Suggestion(Icons.call_rounded, 'Call someone', 'call ', fill: true),
       const _Suggestion(Icons.sms_rounded, 'Text someone', 'text  saying ', fill: true),
       const _Suggestion(Icons.timer_rounded, '5 min timer', 'set a timer for 5 minutes'),
-      const _Suggestion(Icons.alarm_rounded, 'Set alarm', 'set an alarm for 7:00 am'),
       const _Suggestion(Icons.flashlight_on_rounded, 'Flashlight', 'flashlight on'),
       const _Suggestion(Icons.my_location_rounded, 'Where am I?', 'where am i'),
       const _Suggestion(Icons.photo_camera_rounded, 'Take a photo', 'take a photo'),
       const _Suggestion(Icons.upload_rounded, 'Post a video', 'upload'),
     ];
     return SingleChildScrollView(
-      padding: const EdgeInsets.fromLTRB(16, 18, 16, 8),
+      padding: const EdgeInsets.fromLTRB(14, 12, 14, 8),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(
-            'How can I help?',
-            style: GoogleFonts.inter(fontSize: 19, fontWeight: FontWeight.w700, letterSpacing: -0.3, color: context.textPrimary),
+          Row(
+            children: [
+              Expanded(
+                child: Text(
+                  'Quick actions on this screen',
+                  style: GoogleFonts.inter(
+                    fontSize: 13.5,
+                    fontWeight: FontWeight.w700,
+                    letterSpacing: -0.2,
+                    color: context.textPrimary,
+                  ),
+                ),
+              ),
+              InkWell(
+                borderRadius: BorderRadius.circular(AppRadius.xs),
+                onTap: () => showOvaBrandVoiceEditor(context, ref),
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      const Icon(Icons.diamond_outlined, size: 13, color: AppColors.brandBlue),
+                      const SizedBox(width: 4),
+                      Text(
+                        'Brand tone',
+                        style: GoogleFonts.inter(
+                          fontSize: 11,
+                          fontWeight: FontWeight.w600,
+                          color: AppColors.brandBlue,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ],
           ),
-          const SizedBox(height: 4),
-          Text(
-            'Ask anything, or tell me to do something on your phone or in Oneova.',
-            style: GoogleFonts.inter(fontSize: 12.5, height: 1.35, color: context.textSecondary),
-          ),
-          const SizedBox(height: 14),
+          const SizedBox(height: 10),
           Wrap(
             spacing: 6,
             runSpacing: 6,
             children: [
               for (var i = 0; i < chips.length; i++)
-                _chip(context, chips[i]).animate(delay: (24 * i).ms).fadeIn(duration: 220.ms).slideY(begin: 0.15, end: 0),
+                _chip(context, chips[i]).animate(delay: (20 * i).ms).fadeIn(duration: 200.ms).slideY(begin: 0.12, end: 0),
             ],
           ),
-          if (_screenBytes != null) ...[const SizedBox(height: 14), _screenPreview(context)],
+          if (recentShared.isNotEmpty || recentTasks.isNotEmpty) ...[
+            const SizedBox(height: 12),
+            Row(
+              children: [
+                Text(
+                  'RECENT ACTIVITY',
+                  style: GoogleFonts.inter(
+                    fontSize: 9.5,
+                    fontWeight: FontWeight.w800,
+                    letterSpacing: 0.8,
+                    color: context.textMuted,
+                  ),
+                ),
+                const Spacer(),
+                if (widget.isSheet)
+                  InkWell(
+                    onTap: () => _navigate('/hub/ai'),
+                    child: Text(
+                      'Open Workspace →',
+                      style: GoogleFonts.inter(
+                        fontSize: 11,
+                        fontWeight: FontWeight.w600,
+                        color: AppColors.brandBlue,
+                      ),
+                    ),
+                  ),
+              ],
+            ),
+            const SizedBox(height: 6),
+            for (final task in recentTasks)
+              Padding(
+                padding: const EdgeInsets.only(bottom: 5),
+                child: Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
+                  decoration: BoxDecoration(
+                    color: context.surfaceMid,
+                    borderRadius: BorderRadius.circular(AppRadius.sm),
+                    border: Border.all(color: context.border, width: 1.0),
+                  ),
+                  child: Row(
+                    children: [
+                      Icon(
+                        task.running
+                            ? Icons.sync_rounded
+                            : (task.status == OvaTaskStatus.failed
+                                ? Icons.error_outline_rounded
+                                : Icons.check_circle_outline_rounded),
+                        size: 13,
+                        color: task.status == OvaTaskStatus.failed
+                            ? AppColors.brandPink
+                            : AppColors.brandBlue,
+                      ),
+                      const SizedBox(width: 7),
+                      Expanded(
+                        child: Text(
+                          task.title,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: GoogleFonts.inter(
+                            fontSize: 11.5,
+                            fontWeight: FontWeight.w600,
+                            color: context.textPrimary,
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 6),
+                      Text(
+                        '${task.source == 'ai_lab' ? 'Main' : 'Overlay'} · ${formatRelativeTime(task.startedAt)}',
+                        style: GoogleFonts.inter(fontSize: 10, color: context.textMuted),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            for (final thread in recentShared)
+              Padding(
+                padding: const EdgeInsets.only(bottom: 5),
+                child: InkWell(
+                  borderRadius: BorderRadius.circular(AppRadius.sm),
+                  onTap: () {
+                    _input.text = thread.title;
+                    _input.selection = TextSelection.collapsed(offset: _input.text.length);
+                    _focus.requestFocus();
+                  },
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
+                    decoration: BoxDecoration(
+                      color: context.surfaceMid,
+                      borderRadius: BorderRadius.circular(AppRadius.sm),
+                      border: Border.all(color: context.border, width: 1.0),
+                    ),
+                    child: Row(
+                      children: [
+                        Icon(thread.source.icon, size: 13, color: AppColors.brandBlue),
+                        const SizedBox(width: 7),
+                        Expanded(
+                          child: Text(
+                            thread.title,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: GoogleFonts.inter(
+                              fontSize: 11.5,
+                              fontWeight: FontWeight.w600,
+                              color: context.textPrimary,
+                            ),
+                          ),
+                        ),
+                        const SizedBox(width: 6),
+                        Text(
+                          '${thread.source.badgeLabel} · ${formatRelativeTime(thread.updatedAt)}',
+                          style: GoogleFonts.inter(fontSize: 10, color: context.textMuted),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+          ],
+          if (_screenBytes != null) ...[const SizedBox(height: 12), _screenPreview(context)],
         ],
       ),
     );
@@ -561,35 +832,46 @@ class _OvaAssistantPanelState extends ConsumerState<OvaAssistantPanel> {
     );
   }
 
-  Widget _userBubble(BuildContext context, OvaItem item) => Align(
-    alignment: Alignment.centerRight,
-    child: ConstrainedBox(
-      constraints: BoxConstraints(maxWidth: MediaQuery.of(context).size.width * 0.78),
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-        decoration: BoxDecoration(
-          gradient: LinearGradient(
-            begin: Alignment.topLeft,
-            end: Alignment.bottomRight,
-            colors: [AppColors.brandBlue, Color.lerp(AppColors.brandBlue, AppColors.brandPink, 0.18)!],
-          ),
-          borderRadius: const BorderRadius.only(
-            topLeft: Radius.circular(AppRadius.md),
-            topRight: Radius.circular(AppRadius.md),
-            bottomLeft: Radius.circular(AppRadius.md),
-            bottomRight: Radius.circular(AppRadius.xs),
-          ),
-          boxShadow: [
-            BoxShadow(color: AppColors.brandBlue.withValues(alpha: 0.28), blurRadius: 12, offset: const Offset(0, 4)),
+  Widget _userBubble(BuildContext context, OvaItem item) {
+    final ytVideoId = OvaYouTubeInlineCard.extractVideoId(item.text);
+    return Align(
+      alignment: Alignment.centerRight,
+      child: ConstrainedBox(
+        constraints: BoxConstraints(maxWidth: MediaQuery.of(context).size.width * 0.85),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.end,
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+              decoration: BoxDecoration(
+                gradient: LinearGradient(
+                  begin: Alignment.topLeft,
+                  end: Alignment.bottomRight,
+                  colors: [AppColors.brandBlue, Color.lerp(AppColors.brandBlue, AppColors.brandPink, 0.18)!],
+                ),
+                borderRadius: const BorderRadius.only(
+                  topLeft: Radius.circular(AppRadius.md),
+                  topRight: Radius.circular(AppRadius.md),
+                  bottomLeft: Radius.circular(AppRadius.md),
+                  bottomRight: Radius.circular(AppRadius.xs),
+                ),
+                boxShadow: [
+                  BoxShadow(color: AppColors.brandBlue.withValues(alpha: 0.28), blurRadius: 12, offset: const Offset(0, 4)),
+                ],
+              ),
+              child: Text(item.text, style: GoogleFonts.inter(fontSize: 13, height: 1.35, color: AppColors.brandWhite)),
+            ),
+            if (ytVideoId != null) OvaYouTubeInlineCard(videoId: ytVideoId),
           ],
         ),
-        child: Text(item.text, style: GoogleFonts.inter(fontSize: 13, height: 1.35, color: AppColors.brandWhite)),
       ),
-    ),
-  );
+    );
+  }
 
   Widget _assistantText(BuildContext context, OvaItem item) {
     final style = GoogleFonts.inter(fontSize: 13, height: 1.4, color: context.textPrimary);
+    final ytVideoId = OvaYouTubeInlineCard.extractVideoId(item.text);
     return Row(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -624,6 +906,7 @@ class _OvaAssistantPanelState extends ConsumerState<OvaAssistantPanel> {
                   tableHead: style.copyWith(fontSize: 12, fontWeight: FontWeight.w700),
                 ),
               ),
+              if (ytVideoId != null) OvaYouTubeInlineCard(videoId: ytVideoId),
               if (!item.streaming && item.text.trim().isNotEmpty)
                 Padding(
                   padding: const EdgeInsets.only(top: 4),
@@ -838,26 +1121,56 @@ class _OvaAssistantPanelState extends ConsumerState<OvaAssistantPanel> {
 
   Widget _noticeCard(BuildContext context, OvaItem item) {
     final r = item.result;
+    final isInfo = r?.ok == true;
+    final accent = isInfo ? AppColors.brandBlue : AppColors.brandPink;
     return _cardShell(
       context,
-      borderColor: AppColors.brandPink.withValues(alpha: 0.35),
-      fill: AppColors.brandPink.withValues(alpha: 0.06),
+      borderColor: accent.withValues(alpha: 0.35),
+      fill: accent.withValues(alpha: 0.06),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Row(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Icon(r?.icon ?? Icons.info_outline_rounded, size: 16, color: AppColors.brandPink),
+              Icon(r?.icon ?? Icons.info_outline_rounded, size: 15, color: accent),
               const SizedBox(width: 8),
               Expanded(
-                child: Text(item.text, style: GoogleFonts.inter(fontSize: 12.5, height: 1.35, color: context.textPrimary)),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    if (r?.title != null && r!.title!.trim().isNotEmpty) ...[
+                      Text(
+                        r.title!,
+                        style: GoogleFonts.inter(
+                          fontSize: 11,
+                          fontWeight: FontWeight.w800,
+                          letterSpacing: 0.2,
+                          color: accent,
+                        ),
+                      ),
+                      const SizedBox(height: 2),
+                    ],
+                    Text(
+                      item.text,
+                      style: GoogleFonts.inter(
+                        fontSize: 12,
+                        height: 1.35,
+                        color: context.textSecondary,
+                      ),
+                    ),
+                  ],
+                ),
               ),
             ],
           ),
           if (r != null && r.actions.isNotEmpty) ...[
             const SizedBox(height: 8),
-            Wrap(spacing: 6, children: [for (final a in r.actions) _actionPill(context, a.icon, a.label, () => _runAction(a))]),
+            Wrap(
+              spacing: 6,
+              runSpacing: 6,
+              children: [for (final a in r.actions) _actionPill(context, a.icon, a.label, () => _runAction(a))],
+            ),
           ],
         ],
       ),
@@ -957,6 +1270,22 @@ class _OvaAssistantPanelState extends ConsumerState<OvaAssistantPanel> {
         children: [
           if (_screenBytes != null && !_chat.isEmpty) ...[_screenPreview(context), const SizedBox(height: 8)],
           if (_listening) ...[_liveListeningStrip(context), const SizedBox(height: 8)],
+          if (_tidying || _rawDictation != null)
+            Padding(
+              padding: const EdgeInsets.only(bottom: 6),
+              child: Row(children: [
+                Icon(_tidying ? Icons.auto_fix_high_rounded : Icons.check_circle_rounded, size: 13, color: AppColors.brandBlue),
+                const SizedBox(width: 6),
+                Text(_tidying ? 'Cleaning up what you said…' : 'Cleaned up',
+                    style: GoogleFonts.inter(fontSize: 11.5, color: context.textSecondary)),
+                const Spacer(),
+                if (_rawDictation != null)
+                  GestureDetector(
+                    onTap: _undoTidy,
+                    child: Text('Undo', style: GoogleFonts.inter(fontSize: 11.5, fontWeight: FontWeight.w700, color: AppColors.brandBlue)),
+                  ),
+              ]),
+            ),
           Row(
             crossAxisAlignment: CrossAxisAlignment.end,
             children: [
@@ -968,12 +1297,12 @@ class _OvaAssistantPanelState extends ConsumerState<OvaAssistantPanel> {
                   maxLines: 4,
                   textInputAction: TextInputAction.send,
                   onSubmitted: (_) => _send(),
-                  onChanged: (_) => setState(() {}),
+                  onChanged: (_) => setState(() => _rawDictation = null),
                   style: GoogleFonts.inter(fontSize: 13, color: context.textPrimary),
                   cursorColor: AppColors.brandBlue,
                   decoration: InputDecoration(
                     isDense: true,
-                    hintText: _listening ? 'Listening…' : 'Ask Ova or give a command',
+                    hintText: _listening ? 'Listening… speak naturally' : (_voiceHint ? 'Tap the mic to talk' : 'Ask Ova or give a command'),
                     hintStyle: GoogleFonts.inter(fontSize: 13, color: context.textMuted),
                     filled: true,
                     fillColor: context.surfaceMid,
@@ -997,17 +1326,17 @@ class _OvaAssistantPanelState extends ConsumerState<OvaAssistantPanel> {
               _roundButton(
                 icon: _listening ? Icons.stop_rounded : Icons.mic_rounded,
                 color: _listening ? AppColors.brandPink : context.surfaceMid,
-                iconColor: _listening ? Colors.white : context.textPrimary,
+                iconColor: _listening ? AppColors.brandWhite : context.textPrimary,
                 border: !_listening,
-                tooltip: _listening ? 'Stop listening' : 'Speak',
+                tooltip: _listening ? 'Stop listening' : 'Dictate',
                 onTap: _toggleVoice,
-                pulse: _listening,
+                pulse: _listening || _voiceHint,
               ),
               const SizedBox(width: 6),
               _roundButton(
                 icon: busy ? Icons.stop_circle_outlined : Icons.arrow_upward_rounded,
                 color: busy || _input.text.trim().isNotEmpty ? AppColors.brandBlue : AppColors.brandBlue.withValues(alpha: 0.35),
-                iconColor: Colors.white,
+                iconColor: AppColors.brandWhite,
                 tooltip: busy ? 'Stop' : 'Send',
                 onTap: busy
                     ? () {
@@ -1197,5 +1526,58 @@ class _StatusDot extends StatelessWidget {
     );
     if (!active) return dot;
     return dot.animate(onPlay: (c) => c.repeat(reverse: true)).fade(begin: 1, end: 0.35, duration: 650.ms);
+  }
+}
+
+/// Compact pill segment inside the `[Chat | Voice]` switcher in Ova Overlay Assistant.
+class _OverlayModeChip extends StatelessWidget {
+  final IconData icon;
+  final String label;
+  final bool selected;
+  final bool accent;
+  final VoidCallback onTap;
+
+  const _OverlayModeChip({
+    required this.icon,
+    required this.label,
+    required this.selected,
+    this.accent = false,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final activeBg = accent ? AppColors.brandPink : AppColors.brandBlue;
+    return GestureDetector(
+      behavior: HitTestBehavior.opaque,
+      onTap: onTap,
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 160),
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+        decoration: BoxDecoration(
+          color: selected ? activeBg : AppColors.brandWhite.withValues(alpha: 0),
+          borderRadius: BorderRadius.circular(AppRadius.full),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(
+              icon,
+              size: 12,
+              color: selected ? AppColors.brandWhite : context.textSecondary,
+            ),
+            const SizedBox(width: 4),
+            Text(
+              label,
+              style: GoogleFonts.inter(
+                fontSize: 10.5,
+                fontWeight: selected ? FontWeight.w700 : FontWeight.w600,
+                color: selected ? AppColors.brandWhite : context.textSecondary,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
   }
 }

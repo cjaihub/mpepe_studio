@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_core/firebase_core.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../models/moderation_models.dart';
@@ -235,5 +236,5 @@ class ContentSafetyModerationEngine {
 
 /// Provider for ContentSafetyModerationEngine
 final contentSafetyModerationEngineProvider = Provider<ContentSafetyModerationEngine>((ref) {
-  return ContentSafetyModerationEngine(FirebaseFirestore.instance);
+  return ContentSafetyModerationEngine(Firebase.apps.isNotEmpty ? FirebaseFirestore.instance : null);
 });

@@ -19,6 +19,8 @@ import 'package:go_router/go_router.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:image_picker/image_picker.dart';
 
+import '../../../backend/live/models/live_models.dart';
+import '../../../backend/live/services/live_service.dart';
 import '../../../backend/live_studio/contracts/studio_contracts.dart';
 import '../../../backend/live_studio/contracts/studio_ports.dart';
 import '../../../backend/live_studio/fun/studio_fun.dart';
@@ -247,9 +249,9 @@ class _LiveSetupWizardScreenState extends ConsumerState<LiveSetupWizardScreen> {
       await Future<void>.delayed(const Duration(milliseconds: 750));
     }
     try {
-      final id = await start;
+      final res = await start;
       if (!mounted) return;
-      context.pushReplacement('/live/studio2/$id');
+      context.pushReplacement(res.route);
     } catch (e) {
       if (!mounted) return;
       setState(() {
@@ -262,7 +264,7 @@ class _LiveSetupWizardScreenState extends ConsumerState<LiveSetupWizardScreen> {
     }
   }
 
-  Future<String> _start() async {
+  Future<({String id, String route})> _start() async {
     final uid = FirebaseAuth.instance.currentUser?.uid;
     if (uid == null) throw StateError('Sign in to go live.');
     final cfg = _cfg;
@@ -271,41 +273,79 @@ class _LiveSetupWizardScreenState extends ConsumerState<LiveSetupWizardScreen> {
     // Remember this layout for next time (lsSetSettings with no stream).
     unawaited(_quiet(() => ref.read(studioSettingsApiProvider).save(null, partial)));
 
-    final started = await ref.read(studioMediaApiProvider).start(
-          cfg.effectiveTitle,
-          settings: partial,
-          gaming: cfg.mode == LiveSetupMode.game,
-          gameTitle: cfg.mode == LiveSetupMode.game ? cfg.gameTitle : null,
-          category: cfg.mode == LiveSetupMode.game ? null : cfg.category,
-          coverUrl: coverUrl,
+    // 1. Solo Mode (Classic full-screen vertical live):
+    // Starts directly in Firestore via WebRTC mesh with zero cloud function latency or billing dependencies.
+    if (cfg.mode == LiveSetupMode.solo) {
+      final stream = await ref.read(liveServiceProvider).startStream(
+            title: cfg.effectiveTitle,
+            type: LiveStreamType.singleHost,
+            stageScene: LiveStageScene.holographicStage,
+            category: cfg.category,
+            audienceMode: cfg.audience.wire,
+            allowGuestRequests: cfg.acceptsRequests,
+            layoutMode: 'classic',
+          );
+      return (id: stream.id, route: '/live/viewer/${stream.id}');
+    }
+
+    // 2. Studio / Game Mode: Try LiveKit Studio v2 with instant direct fallback
+    StudioStartResult? started;
+    try {
+      started = await ref.read(studioMediaApiProvider).start(
+            cfg.effectiveTitle,
+            settings: partial,
+            gaming: cfg.mode == LiveSetupMode.game,
+            gameTitle: cfg.mode == LiveSetupMode.game ? cfg.gameTitle : null,
+            category: cfg.mode == LiveSetupMode.game ? null : cfg.category,
+            coverUrl: coverUrl,
+            audienceMode: cfg.audience.wire,
+            allowGuestRequests: cfg.acceptsRequests,
+          ).timeout(const Duration(seconds: 4));
+    } catch (e) {
+      debugPrint('[LiveSetup] LiveKit/Cloud Functions start unavailable: $e. Falling back to direct live...');
+    }
+
+    if (started != null && started.streamId.isNotEmpty) {
+      final id = started.streamId;
+      ref.read(studioStartCredentialsProvider)[id] = started.credentials;
+      ref.read(studioStartMediaProvider)[id] = (mic: cfg.micOn, camera: cfg.cameraOn);
+
+      final call = ref.read(studioCallPortProvider);
+      unawaited(_quiet(() => call.call(StudioSecurityWire.setJoinRequests, {'streamId': id, 'open': cfg.acceptsRequests})));
+      if (cfg.chatMode != LiveChatMode.open) {
+        unawaited(_quiet(() => call.call(StudioSecurityWire.setChatMode, {
+              'streamId': id,
+              'mode': cfg.chatMode.wire,
+              if (cfg.chatMode == LiveChatMode.slow) 'slowSeconds': cfg.slowSeconds,
+            })));
+      }
+      // 1080p recording and/or real-time restream (lsBroadcast egress).
+      final dests = _destinations ?? const <LiveDestination>[];
+      final restream = cfg.restream && dests.any((d) => d.enabled);
+      if (cfg.record || restream) {
+        unawaited(_quiet(() => ref.read(studioBroadcastApiProvider).start(
+              id,
+              record: cfg.record,
+              restream: restream,
+              frame: cfg.landscape ? 'landscape' : 'portrait',
+            )));
+      }
+      return (id: id, route: '/live/studio2/$id');
+    }
+
+    // Direct Firestore Live Stream fallback (always works, zero-cost, instant):
+    final layoutMode = cfg.mode == LiveSetupMode.studio ? 'studio' : 'classic';
+    final stream = await ref.read(liveServiceProvider).startStream(
+          title: cfg.effectiveTitle,
+          type: cfg.mode == LiveSetupMode.game ? LiveStreamType.screenShare : LiveStreamType.singleHost,
+          stageScene: LiveStageScene.holographicStage,
+          category: cfg.category,
           audienceMode: cfg.audience.wire,
           allowGuestRequests: cfg.acceptsRequests,
+          layoutMode: layoutMode,
         );
-    final id = started.streamId;
-    ref.read(studioStartCredentialsProvider)[id] = started.credentials;
-    ref.read(studioStartMediaProvider)[id] = (mic: cfg.micOn, camera: cfg.cameraOn);
 
-    final call = ref.read(studioCallPortProvider);
-    unawaited(_quiet(() => call.call(StudioSecurityWire.setJoinRequests, {'streamId': id, 'open': cfg.acceptsRequests})));
-    if (cfg.chatMode != LiveChatMode.open) {
-      unawaited(_quiet(() => call.call(StudioSecurityWire.setChatMode, {
-            'streamId': id,
-            'mode': cfg.chatMode.wire,
-            if (cfg.chatMode == LiveChatMode.slow) 'slowSeconds': cfg.slowSeconds,
-          })));
-    }
-    // 1080p recording and/or real-time restream (lsBroadcast egress).
-    final dests = _destinations ?? const <LiveDestination>[];
-    final restream = cfg.restream && dests.any((d) => d.enabled);
-    if (cfg.record || restream) {
-      unawaited(_quiet(() => ref.read(studioBroadcastApiProvider).start(
-            id,
-            record: cfg.record,
-            restream: restream,
-            frame: cfg.landscape ? 'landscape' : 'portrait',
-          )));
-    }
-    return id;
+    return (id: stream.id, route: '/live/viewer/${stream.id}');
   }
 
   static Future<void> _quiet(Future<Object?> Function() f) async {

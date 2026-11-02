@@ -5,6 +5,7 @@ import 'package:google_fonts/google_fonts.dart';
 import '../../../backend/social/models/social_profile.dart';
 import '../../../backend/social/services/global_hashtag_service.dart';
 import '../../../shared/theme/app_theme.dart';
+import '../../../shared/widgets/oneova_voice_typing_button.dart';
 import '../services/post_search_service.dart';
 
 class CaptionEditor extends StatefulWidget {
@@ -205,6 +206,15 @@ class _CaptionEditorState extends State<CaptionEditor> {
                   );
                 },
               ),
+              const SizedBox(width: 4),
+              OneovaVoiceTypingButton(
+                controller: widget.titleController,
+                onChanged: (_) => widget.onChanged?.call(),
+                tooltip: 'Dictate title',
+                iconSize: 15,
+                padding: const EdgeInsets.symmetric(horizontal: 4),
+                showTranslateAction: true,
+              ),
             ],
           ),
           const SizedBox(height: 6),
@@ -258,6 +268,15 @@ class _CaptionEditorState extends State<CaptionEditor> {
                     ),
                   );
                 },
+              ),
+              const SizedBox(width: 4),
+              OneovaVoiceTypingButton(
+                controller: widget.captionController,
+                onChanged: (_) => widget.onChanged?.call(),
+                tooltip: 'Dictate caption & hashtags',
+                iconSize: 15,
+                padding: const EdgeInsets.symmetric(horizontal: 4),
+                showTranslateAction: true,
               ),
             ],
           ),

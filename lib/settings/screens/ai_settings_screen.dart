@@ -1,19 +1,24 @@
-import 'package:flutter/foundation.dart';
 import 'dart:async';
+
+import 'package:firebase_auth/firebase_auth.dart';
+import 'package:firebase_core/firebase_core.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
-import '../../shared/theme/app_theme.dart';
-import '../../shared/widgets/components.dart';
+import 'package:google_fonts/google_fonts.dart';
+
+import '../../backend/ai_brain_service.dart';
+import '../../backend/repair/oneova_auto_updater.dart';
+import '../../backend/repair/oneova_self_repair_engine.dart';
+import '../../backend/security/oneova_ai_gateway.dart';
+import '../../backend/security/secure_api_key_vault.dart';
 import '../../providers/settings_provider.dart';
-import '../commands/update_setting_command.dart';
+import '../../shared/theme/app_theme.dart';
 import '../../shared/undo/undo_manager.dart';
 import '../../shared/undo/undo_snackbar.dart';
-import 'package:firebase_auth/firebase_auth.dart';
-import 'package:google_fonts/google_fonts.dart';
-import '../../backend/security/secure_api_key_vault.dart';
-import '../../backend/repair/oneova_self_repair_engine.dart';
-import '../../backend/repair/oneova_auto_updater.dart';
+import '../../shared/widgets/components.dart';
+import '../commands/update_setting_command.dart';
 import '../widgets/settings_kit.dart';
 
 class AiSettingsScreen extends ConsumerStatefulWidget {
@@ -27,6 +32,9 @@ class _AiSettingsScreenState extends ConsumerState<AiSettingsScreen> {
   Timer? _sliderDebounce;
   double? _pendingSliderValue;
   double? _sliderOldValue;
+  bool _testingConnection = false;
+  String? _connectionStatusLabel;
+  bool? _connectionLiveCloud;
 
   @override
   void dispose() {
@@ -54,6 +62,92 @@ class _AiSettingsScreenState extends ConsumerState<AiSettingsScreen> {
     });
   }
 
+  Future<void> _testAiConnection() async {
+    if (_testingConnection) return;
+    HapticFeedback.lightImpact();
+    setState(() {
+      _testingConnection = true;
+      _connectionStatusLabel = 'Testing live AI Brain connection…';
+    });
+
+    OneovaAiGateway.resetCooldown();
+    final sw = Stopwatch()..start();
+    try {
+      final res = await ref.read(aiBrainProvider).processRequest(
+        const [
+          {'role': 'user', 'content': 'Reply with OK.'},
+        ],
+      );
+      sw.stop();
+      if (!mounted) return;
+      if (res is AiTextResponse) {
+        final live = !res.isDegraded;
+        setState(() {
+          _testingConnection = false;
+          _connectionLiveCloud = live;
+          _connectionStatusLabel = live
+              ? 'Live Cloud AI Connected (${sw.elapsedMilliseconds}ms)'
+              : '${res.diagnostic!.badgeLabel} (${sw.elapsedMilliseconds}ms) — ${res.diagnostic!.detail}';
+        });
+      } else {
+        setState(() {
+          _testingConnection = false;
+          _connectionLiveCloud = true;
+          _connectionStatusLabel = 'Live Cloud AI Connected (${sw.elapsedMilliseconds}ms)';
+        });
+      }
+    } catch (e) {
+      sw.stop();
+      if (!mounted) return;
+      setState(() {
+        _testingConnection = false;
+        _connectionLiveCloud = false;
+        _connectionStatusLabel = 'Local Ova Active — $e';
+      });
+    }
+  }
+
+  Future<bool> _confirmClearKey(BuildContext context, String providerLabel) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: context.surface,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(AppRadius.lg),
+          side: BorderSide(color: context.border, width: 1.0),
+        ),
+        title: Text(
+          'Clear $providerLabel Key?',
+          style: GoogleFonts.inter(
+            fontSize: 15.5,
+            fontWeight: FontWeight.w700,
+            color: context.textPrimary,
+          ),
+        ),
+        content: Text(
+          'This removes your saved $providerLabel API key from hardware storage. Ova will automatically use other configured providers or Local Ova mode.',
+          style: GoogleFonts.inter(fontSize: 12.5, height: 1.38, color: context.textSecondary),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: Text('Cancel', style: GoogleFonts.inter(color: context.textSecondary, fontWeight: FontWeight.w600)),
+          ),
+          ElevatedButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: AppColors.brandPink,
+              foregroundColor: AppColors.brandWhite,
+              minimumSize: const Size(88, 38),
+            ),
+            child: Text('Clear Key', style: GoogleFonts.inter(fontSize: 12.5, fontWeight: FontWeight.w700)),
+          ),
+        ],
+      ),
+    );
+    return confirmed == true;
+  }
+
   @override
   Widget build(BuildContext context) {
     final settingsAsync = ref.watch(settingsProvider);
@@ -61,9 +155,16 @@ class _AiSettingsScreenState extends ConsumerState<AiSettingsScreen> {
     return Scaffold(
       backgroundColor: context.bg,
       appBar: AppBar(
+        toolbarHeight: 50,
         title: Row(
           children: [
-            Text('AI Assistant Settings', style: AppTheme.h2Style.copyWith(color: context.topBarFg)),
+            Flexible(
+              child: Text(
+                'AI Assistant Settings',
+                style: AppTheme.h2Style.copyWith(color: context.topBarFg),
+                overflow: TextOverflow.ellipsis,
+              ),
+            ),
             const SizedBox(width: 8),
             const SettingsSaveIndicator(),
           ],
@@ -76,8 +177,10 @@ class _AiSettingsScreenState extends ConsumerState<AiSettingsScreen> {
         ),
       ),
       body: settingsAsync.when(
-        loading: () => const Center(child: CircularProgressIndicator()),
-        error: (e, s) => Center(child: Text('Error: $e')),
+        loading: () => const Center(child: CircularProgressIndicator(color: AppColors.brandBlue)),
+        error: (e, s) => Center(
+          child: Text('Error loading settings: $e', style: GoogleFonts.inter(color: context.textPrimary)),
+        ),
         data: (settings) {
           final aiSettings = settings['ai'] as Map<String, dynamic>? ?? {};
 
@@ -86,87 +189,122 @@ class _AiSettingsScreenState extends ConsumerState<AiSettingsScreen> {
           final updater = ref.watch(oneOvaAutoUpdaterProvider);
 
           return ListView(
-            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 24),
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 20),
             children: [
               _buildSettingsGroup(
                 context,
-                'Ova & account check',
+                'Ova Brain & Credentials',
                 [
-                  // Bring-your-own key is a developer option only.
-                  if (kDebugMode) ...[
-                    _buildGeminiKeyTile(context, vault),
-                    Divider(height: 1, indent: 20, endIndent: 20, color: Theme.of(context).colorScheme.outline.withValues(alpha: 0.1)),
-                  ],
+                  _buildGeminiKeyTile(context, vault),
+                  Divider(height: 1, indent: 20, endIndent: 20, color: context.border),
+                  _buildOpenRouterKeyTile(context, vault),
+                  Divider(height: 1, indent: 20, endIndent: 20, color: context.border),
+                  _buildConnectionTestTile(context),
+                  Divider(height: 1, indent: 20, endIndent: 20, color: context.border),
                   _buildSelfRepairTile(context, repairEngine),
-                  Divider(height: 1, indent: 20, endIndent: 20, color: Theme.of(context).colorScheme.outline.withValues(alpha: 0.1)),
+                  Divider(height: 1, indent: 20, endIndent: 20, color: context.border),
                   _buildAutoUpdateTile(context, updater),
                 ],
               ),
-              const SizedBox(height: 24),
+              const SizedBox(height: 20),
               _buildSettingsGroup(
                 context,
                 'Model Selection',
                 [
-                  _buildDropdown(context, aiSettings, Icons.psychology, 'Default Model', 'defaultModel',
-                      ['gemini-2.5-flash', 'gemini-1.5-pro', 'gpt-4o', 'claude-3-opus'], true),
-                  _buildDropdown(context, aiSettings, Icons.record_voice_over, 'Assistant Tone', 'assistantTone',
-                      ['Professional', 'Casual', 'Creative', 'Direct'], false),
+                  _buildDropdown(
+                    context,
+                    aiSettings,
+                    Icons.psychology,
+                    'Default Model',
+                    'defaultModel',
+                    const [
+                      'gemini-2.5-flash',
+                      'gemini-2.0-flash',
+                      'google/gemini-2.5-flash',
+                      'gpt-4o',
+                      'claude-3.5-sonnet',
+                    ],
+                    true,
+                    onApplied: (newVal) {
+                      if (newVal.startsWith('gemini-')) {
+                        vault.setPreferredGeminiModel(newVal);
+                      } else {
+                        vault.setPreferredOpenRouterModel(newVal);
+                      }
+                    },
+                  ),
+                  _buildDropdown(
+                    context,
+                    aiSettings,
+                    Icons.record_voice_over,
+                    'Assistant Tone',
+                    'assistantTone',
+                    const ['Professional', 'Casual', 'Creative', 'Direct'],
+                    false,
+                  ),
                 ],
               ),
-              const SizedBox(height: 24),
+              const SizedBox(height: 20),
               _buildSettingsGroup(
                 context,
                 'Automation',
                 [
-                  _buildSlider(context, aiSettings, Icons.speed, 'Automation Aggressiveness', 'autoAggressiveness', false),
+                  _buildSlider(
+                    context,
+                    aiSettings,
+                    Icons.speed,
+                    'Automation Aggressiveness',
+                    'autoAggressiveness',
+                    false,
+                  ),
                 ],
               ),
-              const SizedBox(height: 24),
+              const SizedBox(height: 20),
               _buildSettingsGroup(
                 context,
                 'System-Wide Ova Assistant & Triggers',
                 [
                   ListTile(
-                    contentPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 6),
+                    contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
                     leading: Container(
-                      padding: const EdgeInsets.all(10),
+                      padding: const EdgeInsets.all(9),
                       decoration: BoxDecoration(
                         color: AppColors.brandBlue.withValues(alpha: 0.12),
-                        borderRadius: BorderRadius.circular(12),
+                        borderRadius: BorderRadius.circular(AppRadius.sm),
                       ),
-                      child: const Icon(Icons.picture_in_picture_alt_rounded, color: AppColors.brandBlue, size: 22),
+                      child: const Icon(Icons.picture_in_picture_alt_rounded, color: AppColors.brandBlue, size: 20),
                     ),
                     title: Text(
                       'Ways to open Ova',
-                      style: TextStyle(fontWeight: FontWeight.bold, color: Theme.of(context).colorScheme.onSurface, fontSize: 14),
+                      style: GoogleFonts.inter(fontWeight: FontWeight.w700, color: context.textPrimary, fontSize: 13.5),
                     ),
                     subtitle: Text(
                       'Draw "O", button shortcut, lock screen, over other apps',
-                      style: TextStyle(fontSize: 12, color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.6)),
+                      style: GoogleFonts.inter(fontSize: 11.5, color: context.textSecondary),
                     ),
-                    trailing: const Icon(Icons.arrow_forward_ios_rounded, size: 16),
+                    trailing: Icon(Icons.arrow_forward_ios_rounded, size: 15, color: context.textMuted),
                     onTap: () => context.push('/ova/triggers'),
                   ),
-                  const Divider(height: 1, indent: 20, endIndent: 20),
+                  Divider(height: 1, indent: 20, endIndent: 20, color: context.border),
                   ListTile(
-                    contentPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 6),
+                    contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
                     leading: Container(
-                      padding: const EdgeInsets.all(10),
+                      padding: const EdgeInsets.all(9),
                       decoration: BoxDecoration(
                         color: AppColors.brandPink.withValues(alpha: 0.12),
-                        borderRadius: BorderRadius.circular(12),
+                        borderRadius: BorderRadius.circular(AppRadius.sm),
                       ),
-                      child: const Icon(Icons.accessibility_new_rounded, color: AppColors.brandPink, size: 22),
+                      child: const Icon(Icons.accessibility_new_rounded, color: AppColors.brandPink, size: 20),
                     ),
                     title: Text(
                       'Accessibility Device Control & Permissions',
-                      style: TextStyle(fontWeight: FontWeight.bold, color: Theme.of(context).colorScheme.onSurface, fontSize: 14),
+                      style: GoogleFonts.inter(fontWeight: FontWeight.w700, color: context.textPrimary, fontSize: 13.5),
                     ),
                     subtitle: Text(
                       'Grant permissions to tap, type, scroll, and navigate apps',
-                      style: TextStyle(fontSize: 12, color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.6)),
+                      style: GoogleFonts.inter(fontSize: 11.5, color: context.textSecondary),
                     ),
-                    trailing: const Icon(Icons.arrow_forward_ios_rounded, size: 16),
+                    trailing: Icon(Icons.arrow_forward_ios_rounded, size: 15, color: context.textMuted),
                     onTap: () => context.push('/ova/setup'),
                   ),
                 ],
@@ -183,14 +321,14 @@ class _AiSettingsScreenState extends ConsumerState<AiSettingsScreen> {
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Padding(
-          padding: const EdgeInsets.only(left: 16, bottom: 12),
+          padding: const EdgeInsets.only(left: 8, bottom: 8),
           child: Text(
             title,
-            style: TextStyle(
-              color: Theme.of(context).colorScheme.primary,
+            style: GoogleFonts.inter(
+              color: AppColors.brandBlue,
               fontWeight: FontWeight.w800,
-              fontSize: 14,
-              letterSpacing: 0.5,
+              fontSize: 13,
+              letterSpacing: 0.2,
             ),
           ),
         ),
@@ -202,33 +340,46 @@ class _AiSettingsScreenState extends ConsumerState<AiSettingsScreen> {
     );
   }
 
-  Widget _buildDropdown(BuildContext context, Map<String, dynamic> aiSettings, IconData icon, String title, String key, List<String> options, bool showDivider) {
+  Widget _buildDropdown(
+    BuildContext context,
+    Map<String, dynamic> aiSettings,
+    IconData icon,
+    String title,
+    String key,
+    List<String> options,
+    bool showDivider, {
+    void Function(String)? onApplied,
+  }) {
     String oldValue = aiSettings[key]?.toString() ?? options.first;
     if (!options.contains(oldValue)) oldValue = options.first;
 
     return Column(
       children: [
         ListTile(
-          contentPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
+          contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
           leading: Container(
-            padding: const EdgeInsets.all(10),
+            padding: const EdgeInsets.all(9),
             decoration: BoxDecoration(
-              color: Theme.of(context).colorScheme.primary.withValues(alpha: 0.1),
-              borderRadius: BorderRadius.circular(12),
+              color: AppColors.brandBlue.withValues(alpha: 0.10),
+              borderRadius: BorderRadius.circular(AppRadius.sm),
             ),
-            child: Icon(icon, color: Theme.of(context).colorScheme.primary, size: 22),
+            child: Icon(icon, color: AppColors.brandBlue, size: 20),
           ),
-          title: Text(title, style: TextStyle(fontWeight: FontWeight.bold, color: Theme.of(context).colorScheme.onSurface, fontSize: 15)),
+          title: Text(
+            title,
+            style: GoogleFonts.inter(fontWeight: FontWeight.w700, color: context.textPrimary, fontSize: 13.5),
+          ),
           trailing: DropdownButton<String>(
             value: oldValue,
             underline: const SizedBox(),
             dropdownColor: context.surface,
-            style: TextStyle(color: context.textPrimary, fontWeight: FontWeight.bold),
+            style: GoogleFonts.inter(color: context.textPrimary, fontWeight: FontWeight.w600, fontSize: 12.5),
             items: options.map((String opt) {
               return DropdownMenuItem<String>(value: opt, child: Text(opt));
             }).toList(),
             onChanged: (newVal) {
               if (newVal != null && newVal != oldValue) {
+                onApplied?.call(newVal);
                 final command = UpdateSettingCommand(
                   ref: ref,
                   category: 'ai',
@@ -242,50 +393,66 @@ class _AiSettingsScreenState extends ConsumerState<AiSettingsScreen> {
             },
           ),
         ),
-        if (showDivider)
-          Divider(height: 1, color: Theme.of(context).colorScheme.outline.withValues(alpha: 0.1), indent: 70, endIndent: 20),
+        if (showDivider) Divider(height: 1, color: context.border, indent: 64, endIndent: 20),
       ],
     );
   }
 
-  Widget _buildSlider(BuildContext context, Map<String, dynamic> aiSettings, IconData icon, String title, String key, bool showDivider) {
-    // Use pending value for live responsiveness, fall back to persisted value
+  Widget _buildSlider(
+    BuildContext context,
+    Map<String, dynamic> aiSettings,
+    IconData icon,
+    String title,
+    String key,
+    bool showDivider,
+  ) {
     final persistedValue = (aiSettings[key] as num?)?.toDouble() ?? 0.5;
     final displayValue = _pendingSliderValue ?? persistedValue;
 
     return Column(
       children: [
         Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Row(
                 children: [
                   Container(
-                    padding: const EdgeInsets.all(10),
+                    padding: const EdgeInsets.all(9),
                     decoration: BoxDecoration(
-                      color: Theme.of(context).colorScheme.primary.withValues(alpha: 0.1),
-                      borderRadius: BorderRadius.circular(12),
+                      color: AppColors.brandBlue.withValues(alpha: 0.10),
+                      borderRadius: BorderRadius.circular(AppRadius.sm),
                     ),
-                    child: Icon(icon, color: Theme.of(context).colorScheme.primary, size: 22),
+                    child: Icon(icon, color: AppColors.brandBlue, size: 20),
                   ),
-                  const SizedBox(width: 16),
+                  const SizedBox(width: 12),
                   Expanded(
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        Text(title, style: TextStyle(fontWeight: FontWeight.bold, color: Theme.of(context).colorScheme.onSurface, fontSize: 15)),
+                        Text(
+                          title,
+                          style: GoogleFonts.inter(
+                            fontWeight: FontWeight.w700,
+                            color: context.textPrimary,
+                            fontSize: 13.5,
+                          ),
+                        ),
                         Text(
                           '${(displayValue * 100).round()}%',
-                          style: TextStyle(color: Theme.of(context).colorScheme.primary, fontWeight: FontWeight.w600, fontSize: 13),
+                          style: GoogleFonts.inter(
+                            color: AppColors.brandBlue,
+                            fontWeight: FontWeight.w600,
+                            fontSize: 12,
+                          ),
                         ),
                       ],
                     ),
                   ),
                 ],
               ),
-              const SizedBox(height: 12),
+              const SizedBox(height: 8),
               SliderTheme(
                 data: SliderTheme.of(context).copyWith(
                   activeTrackColor: AppColors.brandBlue,
@@ -308,15 +475,14 @@ class _AiSettingsScreenState extends ConsumerState<AiSettingsScreen> {
               Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
-                  Text('Conservative', style: TextStyle(fontSize: 11, color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.5))),
-                  Text('Aggressive', style: TextStyle(fontSize: 11, color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.5))),
+                  Text('Conservative', style: GoogleFonts.inter(fontSize: 11, color: context.textMuted)),
+                  Text('Aggressive', style: GoogleFonts.inter(fontSize: 11, color: context.textMuted)),
                 ],
               ),
             ],
           ),
         ),
-        if (showDivider)
-          Divider(height: 1, color: Theme.of(context).colorScheme.outline.withValues(alpha: 0.1), indent: 70, endIndent: 20),
+        if (showDivider) Divider(height: 1, color: context.border, indent: 64, endIndent: 20),
       ],
     );
   }
@@ -329,97 +495,210 @@ class _AiSettingsScreenState extends ConsumerState<AiSettingsScreen> {
         final hasKey = key.isNotEmpty;
 
         return ListTile(
-          contentPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
+          contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
           leading: Container(
-            padding: const EdgeInsets.all(10),
+            padding: const EdgeInsets.all(9),
             decoration: BoxDecoration(
               color: AppColors.brandBlue.withValues(alpha: 0.12),
-              borderRadius: BorderRadius.circular(12),
+              borderRadius: BorderRadius.circular(AppRadius.sm),
             ),
-            child: const Icon(Icons.key_rounded, color: AppColors.brandBlue, size: 22),
+            child: const Icon(Icons.key_rounded, color: AppColors.brandBlue, size: 20),
           ),
           title: Text(
-            'Google Gemini API Key (Hardware Vault)',
-            style: TextStyle(fontWeight: FontWeight.bold, color: Theme.of(context).colorScheme.onSurface, fontSize: 14),
+            'Google Gemini API Key',
+            style: GoogleFonts.inter(fontWeight: FontWeight.w700, color: context.textPrimary, fontSize: 13.5),
           ),
           subtitle: Text(
-            hasKey ? 'Secured in Keystore: ${vault.maskKey(key)}' : 'Using .env or OpenRouter fallback',
-            style: TextStyle(fontSize: 12, color: hasKey ? Colors.green : Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.6)),
+            hasKey
+                ? 'Active in Hardware Vault · ${vault.maskKey(key)}'
+                : 'Optional personal key (AI Studio) for direct Gemini 3.8 Flash',
+            style: GoogleFonts.inter(
+              fontSize: 11.5,
+              color: hasKey ? AppColors.brandBlue : context.textSecondary,
+              fontWeight: hasKey ? FontWeight.w600 : FontWeight.w400,
+            ),
           ),
-          trailing: const Icon(Icons.arrow_forward_ios_rounded, size: 16),
-          onTap: () => _showGeminiKeyDialog(context, vault, key),
+          trailing: Icon(Icons.arrow_forward_ios_rounded, size: 15, color: context.textMuted),
+          onTap: () => _showKeyVaultSheet(
+            context,
+            title: 'Google Gemini API Key',
+            hint: 'AIzaSy...',
+            helperText: 'Saved in Android Keystore / iOS Keychain. Calls Gemini 3.8 Flash directly.',
+            currentKey: key,
+            providerLabel: 'Gemini',
+            onSave: (val) async {
+              await vault.storeGeminiApiKey(val);
+              OneovaAiGateway.resetCooldown();
+            },
+          ),
         );
       },
     );
   }
 
+  Widget _buildOpenRouterKeyTile(BuildContext context, SecureKeyVault vault) {
+    return FutureBuilder<String>(
+      future: vault.getOpenRouterApiKey(),
+      builder: (context, snapshot) {
+        final key = snapshot.data ?? '';
+        final hasKey = key.isNotEmpty;
+
+        return ListTile(
+          contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+          leading: Container(
+            padding: const EdgeInsets.all(9),
+            decoration: BoxDecoration(
+              color: AppColors.brandPink.withValues(alpha: 0.12),
+              borderRadius: BorderRadius.circular(AppRadius.sm),
+            ),
+            child: const Icon(Icons.hub_rounded, color: AppColors.brandPink, size: 20),
+          ),
+          title: Text(
+            'OpenRouter API Key',
+            style: GoogleFonts.inter(fontWeight: FontWeight.w700, color: context.textPrimary, fontSize: 13.5),
+          ),
+          subtitle: Text(
+            hasKey
+                ? 'Active in Hardware Vault · ${vault.maskKey(key)}'
+                : 'Optional multi-model key (Gemini, Claude, GPT-4o, Llama)',
+            style: GoogleFonts.inter(
+              fontSize: 11.5,
+              color: hasKey ? AppColors.brandBlue : context.textSecondary,
+              fontWeight: hasKey ? FontWeight.w600 : FontWeight.w400,
+            ),
+          ),
+          trailing: Icon(Icons.arrow_forward_ios_rounded, size: 15, color: context.textMuted),
+          onTap: () => _showKeyVaultSheet(
+            context,
+            title: 'OpenRouter API Key',
+            hint: 'sk-or-v1-...',
+            helperText: 'Saved in Android Keystore / iOS Keychain. Bypasses cloud proxy congestion.',
+            currentKey: key,
+            providerLabel: 'OpenRouter',
+            onSave: (val) async {
+              await vault.storeOpenRouterApiKey(val);
+              ref.read(aiBrainProvider).setApiKey(val);
+              OneovaAiGateway.resetCooldown();
+            },
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _buildConnectionTestTile(BuildContext context) {
+    final statusColor = _connectionLiveCloud == null
+        ? context.textSecondary
+        : (_connectionLiveCloud! ? AppColors.brandBlue : AppColors.brandPink);
+
+    return ListTile(
+      contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+      leading: Container(
+        padding: const EdgeInsets.all(9),
+        decoration: BoxDecoration(
+          color: AppColors.brandBlue.withValues(alpha: 0.12),
+          borderRadius: BorderRadius.circular(AppRadius.sm),
+        ),
+        child: _testingConnection
+            ? const SizedBox(
+                width: 20,
+                height: 20,
+                child: CircularProgressIndicator(strokeWidth: 2, color: AppColors.brandBlue),
+              )
+            : const Icon(Icons.network_check_rounded, color: AppColors.brandBlue, size: 20),
+      ),
+      title: Text(
+        'Test AI Brain Connection',
+        style: GoogleFonts.inter(fontWeight: FontWeight.w700, color: context.textPrimary, fontSize: 13.5),
+      ),
+      subtitle: Text(
+        _connectionStatusLabel ?? 'Verify live Cloud AI latency & reset proxy cooldown',
+        style: GoogleFonts.inter(
+          fontSize: 11.5,
+          color: statusColor,
+          fontWeight: _connectionStatusLabel != null ? FontWeight.w600 : FontWeight.w400,
+        ),
+      ),
+      trailing: Icon(Icons.refresh_rounded, size: 18, color: AppColors.brandBlue),
+      onTap: _testAiConnection,
+    );
+  }
+
   Widget _buildSelfRepairTile(BuildContext context, OneOvaSelfRepairEngine repairEngine) {
     return ListTile(
-      contentPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
+      contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
       leading: Container(
-        padding: const EdgeInsets.all(10),
+        padding: const EdgeInsets.all(9),
         decoration: BoxDecoration(
           color: AppColors.brandPink.withValues(alpha: 0.12),
-          borderRadius: BorderRadius.circular(12),
+          borderRadius: BorderRadius.circular(AppRadius.sm),
         ),
-        child: const Icon(Icons.healing_rounded, color: AppColors.brandPink, size: 22),
+        child: const Icon(Icons.healing_rounded, color: AppColors.brandPink, size: 20),
       ),
       title: Text(
         'Autonomous Diagnostics & Self-Repair',
-        style: TextStyle(fontWeight: FontWeight.bold, color: Theme.of(context).colorScheme.onSurface, fontSize: 14),
+        style: GoogleFonts.inter(fontWeight: FontWeight.w700, color: context.textPrimary, fontSize: 13.5),
       ),
       subtitle: Text(
         'Scan health, heal backend schemas & flush broken caches',
-        style: TextStyle(fontSize: 12, color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.6)),
+        style: GoogleFonts.inter(fontSize: 11.5, color: context.textSecondary),
       ),
-      trailing: const Icon(Icons.arrow_forward_ios_rounded, size: 16),
+      trailing: Icon(Icons.arrow_forward_ios_rounded, size: 15, color: context.textMuted),
       onTap: () => _runSelfRepairModal(context, repairEngine),
     );
   }
 
   Widget _buildAutoUpdateTile(BuildContext context, OneOvaAutoUpdater updater) {
     return ListTile(
-      contentPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
+      contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
       leading: Container(
-        padding: const EdgeInsets.all(10),
+        padding: const EdgeInsets.all(9),
         decoration: BoxDecoration(
           color: AppColors.brandBlue.withValues(alpha: 0.12),
-          borderRadius: BorderRadius.circular(12),
+          borderRadius: BorderRadius.circular(AppRadius.sm),
         ),
-        child: const Icon(Icons.system_update_rounded, color: AppColors.brandBlue, size: 22),
+        child: const Icon(Icons.system_update_rounded, color: AppColors.brandBlue, size: 20),
       ),
       title: Text(
         'Background Updates & Version Sync',
-        style: TextStyle(fontWeight: FontWeight.bold, color: Theme.of(context).colorScheme.onSurface, fontSize: 14),
+        style: GoogleFonts.inter(fontWeight: FontWeight.w700, color: context.textPrimary, fontSize: 13.5),
       ),
       subtitle: Text(
         'v${OneOvaAutoUpdater.currentVersion}+${OneOvaAutoUpdater.currentBuildNumber} • ${updater.updateChannel} channel',
-        style: TextStyle(fontSize: 12, color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.6)),
+        style: GoogleFonts.inter(fontSize: 11.5, color: context.textSecondary),
       ),
-      trailing: const Icon(Icons.arrow_forward_ios_rounded, size: 16),
+      trailing: Icon(Icons.arrow_forward_ios_rounded, size: 15, color: context.textMuted),
       onTap: () => _showUpdateDialog(context, updater),
     );
   }
 
-  void _showGeminiKeyDialog(BuildContext context, SecureKeyVault vault, String currentKey) {
+  void _showKeyVaultSheet(
+    BuildContext context, {
+    required String title,
+    required String hint,
+    required String helperText,
+    required String currentKey,
+    required String providerLabel,
+    required Future<void> Function(String) onSave,
+  }) {
     final controller = TextEditingController(text: currentKey);
 
     showModalBottomSheet(
       context: context,
-      backgroundColor: Colors.transparent,
+      backgroundColor: AppColors.brandBlack.withValues(alpha: 0),
       isScrollControlled: true,
       builder: (ctx) {
         return Container(
           padding: EdgeInsets.only(
             left: 20,
             right: 20,
-            top: 20,
-            bottom: MediaQuery.of(ctx).viewInsets.bottom + 24,
+            top: 16,
+            bottom: MediaQuery.of(ctx).viewInsets.bottom + 20,
           ),
           decoration: BoxDecoration(
             color: context.surface,
-            borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
-            border: Border.all(color: AppColors.brandBlue.withValues(alpha: 0.3)),
+            borderRadius: const BorderRadius.vertical(top: Radius.circular(AppRadius.xl)),
+            border: Border.all(color: context.border, width: 1.0),
           ),
           child: SafeArea(
             child: Column(
@@ -428,77 +707,110 @@ class _AiSettingsScreenState extends ConsumerState<AiSettingsScreen> {
               children: [
                 Center(
                   child: Container(
-                    width: 44,
-                    height: 4.5,
+                    width: 38,
+                    height: 4,
                     decoration: BoxDecoration(
-                      color: AppColors.brandPink.withValues(alpha: 0.6),
-                      borderRadius: BorderRadius.circular(3),
+                      color: context.border,
+                      borderRadius: BorderRadius.circular(AppRadius.full),
                     ),
                   ),
                 ),
-                const SizedBox(height: 16),
+                const SizedBox(height: 14),
                 Row(
                   children: [
-                    const Icon(Icons.key_rounded, color: AppColors.brandBlue, size: 22),
+                    const Icon(Icons.key_rounded, color: AppColors.brandBlue, size: 20),
                     const SizedBox(width: 8),
-                    Text(
-                      'Gemini API Key Configuration',
-                      style: GoogleFonts.inter(fontSize: 16, fontWeight: FontWeight.w800, color: context.textPrimary),
+                    Expanded(
+                      child: Text(
+                        title,
+                        style: GoogleFonts.inter(
+                          fontSize: 15.5,
+                          fontWeight: FontWeight.w800,
+                          color: context.textPrimary,
+                        ),
+                      ),
                     ),
                   ],
                 ),
-                const SizedBox(height: 6),
+                const SizedBox(height: 5),
                 Text(
-                  'Stored in Android Keystore / iOS Keychain. Never transmitted to unverified endpoints.',
-                  style: GoogleFonts.inter(fontSize: 12, color: context.textSecondary),
+                  helperText,
+                  style: GoogleFonts.inter(fontSize: 12, height: 1.35, color: context.textSecondary),
                 ),
-                const SizedBox(height: 16),
+                const SizedBox(height: 14),
                 TextField(
                   controller: controller,
                   obscureText: true,
-                  style: TextStyle(color: context.textPrimary, fontSize: 13),
+                  style: GoogleFonts.inter(color: context.textPrimary, fontSize: 13),
                   decoration: InputDecoration(
-                    labelText: 'Gemini API Key',
-                    hintText: 'AIzaSy...',
+                    isDense: true,
+                    contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                    labelText: title,
+                    hintText: hint,
                     filled: true,
                     fillColor: context.surfaceMid,
-                    border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
+                    enabledBorder: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(AppRadius.sm),
+                      borderSide: BorderSide(color: context.border, width: 1.0),
+                    ),
+                    focusedBorder: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(AppRadius.sm),
+                      borderSide: const BorderSide(color: AppColors.brandBlue, width: 1.0),
+                    ),
                   ),
                 ),
-                const SizedBox(height: 16),
+                const SizedBox(height: 14),
                 Row(
                   children: [
-                    if (currentKey.isNotEmpty)
+                    if (currentKey.isNotEmpty) ...[
                       Expanded(
-                        child: OutlinedButton(
+                        child: SizedBox(
+                          height: 40,
+                          child: OutlinedButton(
+                            onPressed: () async {
+                              final ok = await _confirmClearKey(context, providerLabel);
+                              if (!ok) return;
+                              await onSave('');
+                              if (ctx.mounted) {
+                                Navigator.pop(ctx);
+                                setState(() {});
+                              }
+                            },
+                            style: OutlinedButton.styleFrom(
+                              foregroundColor: AppColors.brandPink,
+                              side: BorderSide(color: AppColors.brandPink.withValues(alpha: 0.5), width: 1.0),
+                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(AppRadius.sm)),
+                            ),
+                            child: Text('Clear Key', style: GoogleFonts.inter(fontSize: 12.5, fontWeight: FontWeight.w700)),
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 10),
+                    ],
+                    Expanded(
+                      flex: 2,
+                      child: SizedBox(
+                        height: 40,
+                        child: ElevatedButton(
                           onPressed: () async {
-                            await vault.storeGeminiApiKey('');
+                            HapticFeedback.lightImpact();
+                            final text = controller.text.trim();
+                            await onSave(text);
                             if (ctx.mounted) {
                               Navigator.pop(ctx);
                               setState(() {});
                             }
                           },
-                          style: OutlinedButton.styleFrom(foregroundColor: Colors.redAccent),
-                          child: const Text('Clear Key'),
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: AppColors.brandBlue,
+                            foregroundColor: AppColors.brandWhite,
+                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(AppRadius.sm)),
+                          ),
+                          child: Text(
+                            'Save to Keystore',
+                            style: GoogleFonts.inter(fontSize: 12.5, fontWeight: FontWeight.w700),
+                          ),
                         ),
-                      ),
-                    if (currentKey.isNotEmpty) const SizedBox(width: 12),
-                    Expanded(
-                      flex: 2,
-                      child: ElevatedButton(
-                        onPressed: () async {
-                          final text = controller.text.trim();
-                          await vault.storeGeminiApiKey(text);
-                          if (ctx.mounted) {
-                            Navigator.pop(ctx);
-                            setState(() {});
-                          }
-                        },
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: AppColors.brandBlue,
-                          foregroundColor: Colors.white,
-                        ),
-                        child: const Text('Save to Keystore'),
                       ),
                     ),
                   ],
@@ -514,20 +826,21 @@ class _AiSettingsScreenState extends ConsumerState<AiSettingsScreen> {
   void _runSelfRepairModal(BuildContext context, OneOvaSelfRepairEngine repairEngine) {
     showModalBottomSheet(
       context: context,
-      backgroundColor: Colors.transparent,
+      backgroundColor: AppColors.brandBlack.withValues(alpha: 0),
       isScrollControlled: true,
       builder: (ctx) {
         return Container(
-          padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 20),
+          padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 18),
           decoration: BoxDecoration(
             color: context.surface,
-            borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
-            border: Border.all(color: AppColors.brandPink.withValues(alpha: 0.3)),
+            borderRadius: const BorderRadius.vertical(top: Radius.circular(AppRadius.xl)),
+            border: Border.all(color: context.border, width: 1.0),
           ),
           child: SafeArea(
             child: FutureBuilder<SystemHealthReport>(
               future: () async {
-                final uid = FirebaseAuth.instance.currentUser?.uid;
+                OneovaAiGateway.resetCooldown();
+                final uid = Firebase.apps.isNotEmpty ? FirebaseAuth.instance.currentUser?.uid : null;
                 if (uid != null) await repairEngine.repairUserProfile(uid);
                 await repairEngine.repairInterfaceAndCache();
                 return await repairEngine.runSystemHealthScan();
@@ -537,18 +850,21 @@ class _AiSettingsScreenState extends ConsumerState<AiSettingsScreen> {
                   return Column(
                     mainAxisSize: MainAxisSize.min,
                     children: [
-                      const SizedBox(height: 20),
+                      const SizedBox(height: 18),
                       const CircularProgressIndicator(color: AppColors.brandPink),
-                      const SizedBox(height: 16),
-                      Text('Running Autonomous Diagnostics & Healer…', style: GoogleFonts.inter(fontSize: 14, fontWeight: FontWeight.w600, color: context.textPrimary)),
-                      const SizedBox(height: 20),
+                      const SizedBox(height: 14),
+                      Text(
+                        'Running Autonomous Diagnostics & Healer…',
+                        style: GoogleFonts.inter(fontSize: 13.5, fontWeight: FontWeight.w600, color: context.textPrimary),
+                      ),
+                      const SizedBox(height: 18),
                     ],
                   );
                 }
 
                 final report = snapshot.data;
                 if (report == null) {
-                  return Text('Diagnostics failed to complete.', style: TextStyle(color: context.textPrimary));
+                  return Text('Diagnostics failed to complete.', style: GoogleFonts.inter(color: context.textPrimary));
                 }
 
                 return Column(
@@ -557,11 +873,11 @@ class _AiSettingsScreenState extends ConsumerState<AiSettingsScreen> {
                   children: [
                     Center(
                       child: Container(
-                        width: 44,
-                        height: 4.5,
+                        width: 38,
+                        height: 4,
                         decoration: BoxDecoration(
-                          color: AppColors.brandPink.withValues(alpha: 0.6),
-                          borderRadius: BorderRadius.circular(3),
+                          color: context.border,
+                          borderRadius: BorderRadius.circular(AppRadius.full),
                         ),
                       ),
                     ),
@@ -569,38 +885,61 @@ class _AiSettingsScreenState extends ConsumerState<AiSettingsScreen> {
                     Row(
                       mainAxisAlignment: MainAxisAlignment.spaceBetween,
                       children: [
-                        Text('System Health & Repair', style: GoogleFonts.inter(fontSize: 16, fontWeight: FontWeight.w800, color: context.textPrimary)),
+                        Text(
+                          'System Health & Repair',
+                          style: GoogleFonts.inter(fontSize: 15.5, fontWeight: FontWeight.w800, color: context.textPrimary),
+                        ),
                         Container(
                           padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
                           decoration: BoxDecoration(
-                            color: Colors.green.withValues(alpha: 0.15),
-                            borderRadius: BorderRadius.circular(8),
+                            color: AppColors.brandBlue.withValues(alpha: 0.14),
+                            borderRadius: BorderRadius.circular(AppRadius.sm),
                           ),
-                          child: Text('${report.overallScore}% Score', style: const TextStyle(color: Colors.green, fontWeight: FontWeight.w800, fontSize: 12)),
+                          child: Text(
+                            '${report.overallScore}% Score',
+                            style: GoogleFonts.inter(color: AppColors.brandBlue, fontWeight: FontWeight.w800, fontSize: 11.5),
+                          ),
                         ),
                       ],
                     ),
-                    const SizedBox(height: 14),
-                    ...report.checks.map((item) => Padding(
-                          padding: const EdgeInsets.symmetric(vertical: 4),
-                          child: Row(
-                            children: [
-                              const Icon(Icons.check_circle_rounded, color: Colors.green, size: 16),
-                              const SizedBox(width: 8),
-                              Expanded(
-                                child: Text(item.component, style: TextStyle(fontSize: 12.5, fontWeight: FontWeight.w600, color: context.textPrimary)),
+                    const SizedBox(height: 12),
+                    ...report.checks.map(
+                      (item) => Padding(
+                        padding: const EdgeInsets.symmetric(vertical: 4),
+                        child: Row(
+                          children: [
+                            const Icon(Icons.check_circle_rounded, color: AppColors.brandBlue, size: 15),
+                            const SizedBox(width: 8),
+                            Expanded(
+                              child: Text(
+                                item.component,
+                                style: GoogleFonts.inter(
+                                  fontSize: 12.5,
+                                  fontWeight: FontWeight.w600,
+                                  color: context.textPrimary,
+                                ),
                               ),
-                              Text(item.latencyMs > 0 ? '${item.latencyMs}ms' : 'OK', style: TextStyle(fontSize: 11, color: context.textMuted)),
-                            ],
-                          ),
-                        )),
-                    const SizedBox(height: 16),
+                            ),
+                            Text(
+                              item.latencyMs > 0 ? '${item.latencyMs}ms' : 'OK',
+                              style: GoogleFonts.inter(fontSize: 11, color: context.textMuted),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 14),
                     SizedBox(
                       width: double.infinity,
+                      height: 40,
                       child: ElevatedButton(
                         onPressed: () => Navigator.pop(ctx),
-                        style: ElevatedButton.styleFrom(backgroundColor: AppColors.brandBlue, foregroundColor: Colors.white),
-                        child: const Text('Close Diagnostics'),
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: AppColors.brandBlue,
+                          foregroundColor: AppColors.brandWhite,
+                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(AppRadius.sm)),
+                        ),
+                        child: Text('Close Diagnostics', style: GoogleFonts.inter(fontSize: 12.5, fontWeight: FontWeight.w700)),
                       ),
                     ),
                   ],
@@ -622,36 +961,54 @@ class _AiSettingsScreenState extends ConsumerState<AiSettingsScreen> {
       builder: (ctx) {
         return AlertDialog(
           backgroundColor: context.surface,
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(AppRadius.lg),
+            side: BorderSide(color: context.border, width: 1.0),
+          ),
           title: Row(
             children: [
-              const Icon(Icons.system_update_rounded, color: AppColors.brandBlue, size: 22),
+              const Icon(Icons.system_update_rounded, color: AppColors.brandBlue, size: 20),
               const SizedBox(width: 8),
-              Text('Oneova App Updates', style: TextStyle(color: context.textPrimary, fontSize: 16, fontWeight: FontWeight.w800)),
+              Text(
+                'Oneova App Updates',
+                style: GoogleFonts.inter(color: context.textPrimary, fontSize: 15.5, fontWeight: FontWeight.w800),
+              ),
             ],
           ),
           content: Column(
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Text('Installed Version: v${info.currentVersion}+${OneOvaAutoUpdater.currentBuildNumber}', style: TextStyle(fontSize: 13, color: context.textSecondary)),
-              Text('Channel: ${info.channel}', style: TextStyle(fontSize: 13, color: context.textSecondary)),
+              Text(
+                'Installed Version: v${info.currentVersion}+${OneOvaAutoUpdater.currentBuildNumber}',
+                style: GoogleFonts.inter(fontSize: 12.5, color: context.textSecondary),
+              ),
+              Text(
+                'Channel: ${info.channel}',
+                style: GoogleFonts.inter(fontSize: 12.5, color: context.textSecondary),
+              ),
               const SizedBox(height: 10),
               Container(
                 padding: const EdgeInsets.all(10),
                 decoration: BoxDecoration(
                   color: context.surfaceMid,
-                  borderRadius: BorderRadius.circular(10),
+                  borderRadius: BorderRadius.circular(AppRadius.sm),
+                  border: Border.all(color: context.border, width: 1.0),
                 ),
                 child: Row(
                   children: [
-                    Icon(info.hasUpdate ? Icons.notification_important_rounded : Icons.check_circle_rounded,
-                        color: info.hasUpdate ? AppColors.brandPink : Colors.green, size: 20),
+                    Icon(
+                      info.hasUpdate ? Icons.notification_important_rounded : Icons.check_circle_rounded,
+                      color: info.hasUpdate ? AppColors.brandPink : AppColors.brandBlue,
+                      size: 18,
+                    ),
                     const SizedBox(width: 8),
                     Expanded(
                       child: Text(
-                        info.hasUpdate ? 'Upgrade available: v${info.latestVersion}' : 'Up to date with server registry.',
-                        style: TextStyle(fontSize: 12, fontWeight: FontWeight.w700, color: context.textPrimary),
+                        info.hasUpdate
+                            ? 'Upgrade available: v${info.latestVersion}'
+                            : 'Up to date with server registry.',
+                        style: GoogleFonts.inter(fontSize: 12, fontWeight: FontWeight.w700, color: context.textPrimary),
                       ),
                     ),
                   ],
@@ -659,14 +1016,14 @@ class _AiSettingsScreenState extends ConsumerState<AiSettingsScreen> {
               ),
               if (info.hasUpdate) ...[
                 const SizedBox(height: 8),
-                Text(info.releaseNotes, style: TextStyle(fontSize: 12, color: context.textSecondary)),
+                Text(info.releaseNotes, style: GoogleFonts.inter(fontSize: 12, color: context.textSecondary)),
               ],
             ],
           ),
           actions: [
             TextButton(
               onPressed: () => Navigator.pop(ctx),
-              child: const Text('Dismiss'),
+              child: Text('Dismiss', style: GoogleFonts.inter(color: AppColors.brandBlue, fontWeight: FontWeight.w700)),
             ),
           ],
         );

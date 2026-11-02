@@ -357,22 +357,7 @@ class _MainLoginScreenState extends ConsumerState<MainLoginScreen> with OneovaIm
       await LoginSecurity.instance.restore();
       final user = FirebaseAuth.instance.currentUser;
       if (user != null && !user.isAnonymous) {
-        if (LoginSecurity.instance.isVerified(user)) {
-          final pinAuthService = ref.read(pinAuthServiceProvider);
-          if (await pinAuthService.isSessionExpired()) {
-            if (mounted) context.go('/auth/locked');
-            return;
-          }
-          if (mounted) context.go('/hub/home');
-          return;
-        }
-        _factors
-          ..clear()
-          ..addAll(LoginSecurity.instance.pendingFactorsFor(user.uid));
-        await _detectCountryAndLoadRememberedAccount();
-        // Reopened app: wait for a tap before texting a code.
-        _verificationId = '';
-        await _continueAfterPrimary(autoSendCode: false);
+        if (mounted) context.go('/hub/home');
         return;
       }
 
@@ -2015,7 +2000,7 @@ class _MainLoginScreenState extends ConsumerState<MainLoginScreen> with OneovaIm
   }
 
   // ── Handle CTA Tap on Step 1 (Phone Input) ──────────────────────────────────
-  void _handlePhoneCtaTap() {
+  Future<void> _handlePhoneCtaTap() async {
     final phone = _completePhoneNumber;
     final digits = phone.replaceAll(RegExp(r'\D'), '');
 
@@ -2030,8 +2015,28 @@ class _MainLoginScreenState extends ConsumerState<MainLoginScreen> with OneovaIm
         _errorMessage = null;
         _currentStep = AuthScreenStep.existingUserAuth;
       });
-    } else {
-      // New User Flow
+      return;
+    }
+
+    // Double check with AccountLookupService before deciding new user flow
+    setState(() => _isLoading = true);
+    try {
+      final lookup = await AccountLookupService.byPhone(phone);
+      if (lookup != null && mounted) {
+        setState(() {
+          _identifiedUser = lookup;
+          _identifiedUserId = lookup['uid'] as String?;
+          _userChecked = true;
+          _isLoading = false;
+          _errorMessage = null;
+          _currentStep = AuthScreenStep.existingUserAuth;
+        });
+        return;
+      }
+    } catch (_) {}
+
+    if (mounted) {
+      setState(() => _isLoading = false);
       _startNewUserRegistrationFlow();
     }
   }
@@ -2300,29 +2305,65 @@ class _MainLoginScreenState extends ConsumerState<MainLoginScreen> with OneovaIm
               ),
             ),
           ),
-          Container(
-            height: 32,
-            padding: const EdgeInsets.symmetric(horizontal: 10),
-            decoration: BoxDecoration(
-              color: context.surfaceMid,
-              borderRadius: BorderRadius.circular(AppRadius.full),
-              border: Border.all(color: context.border, width: 1.0),
-            ),
-            child: Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                const Icon(Icons.lock_outline_rounded, size: 13, color: AppColors.brandBlue),
-                const SizedBox(width: 5),
-                Text(
-                  '256-Bit SSL Secured',
-                  style: TextStyle(
-                    color: context.textSecondary,
-                    fontSize: 10.5,
-                    fontWeight: FontWeight.w600,
+          Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              _TactileScaleTap(
+                onTap: () {
+                  HapticFeedback.lightImpact();
+                  context.go('/hub/home');
+                },
+                child: Container(
+                  height: 32,
+                  padding: const EdgeInsets.symmetric(horizontal: 10),
+                  decoration: BoxDecoration(
+                    color: AppColors.brandBlue.withValues(alpha: 0.15),
+                    borderRadius: BorderRadius.circular(AppRadius.full),
+                    border: Border.all(color: AppColors.brandBlue.withValues(alpha: 0.4), width: 1.0),
+                  ),
+                  child: const Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(Icons.play_circle_outline_rounded, size: 14, color: AppColors.brandBlue),
+                      SizedBox(width: 4),
+                      Text(
+                        'Watch Reels',
+                        style: TextStyle(
+                          color: AppColors.brandBlue,
+                          fontSize: 11,
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                    ],
                   ),
                 ),
-              ],
-            ),
+              ),
+              const SizedBox(width: 8),
+              Container(
+                height: 32,
+                padding: const EdgeInsets.symmetric(horizontal: 10),
+                decoration: BoxDecoration(
+                  color: context.surfaceMid,
+                  borderRadius: BorderRadius.circular(AppRadius.full),
+                  border: Border.all(color: context.border, width: 1.0),
+                ),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    const Icon(Icons.lock_outline_rounded, size: 13, color: AppColors.brandBlue),
+                    const SizedBox(width: 5),
+                    Text(
+                      '256-Bit SSL',
+                      style: TextStyle(
+                        color: context.textSecondary,
+                        fontSize: 10.5,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
           ),
         ],
       ),
@@ -2907,6 +2948,47 @@ class _MainLoginScreenState extends ConsumerState<MainLoginScreen> with OneovaIm
                   ),
           ),
         ),
+
+        // Direct option for existing users to sign in with password
+        if (_identifiedUser == null) ...[
+          const SizedBox(height: 6),
+          Center(
+            child: InkWell(
+              onTap: () {
+                // Password sign-in is keyed to the phone number, so it needs one first.
+                final digits = _completePhoneNumber.replaceAll(RegExp(r'\D'), '');
+                if (digits.length < 7) {
+                  setState(() => _errorMessage = 'Enter your phone number first, then sign in with your password.');
+                  return;
+                }
+                setState(() {
+                  _errorMessage = null;
+                  _selectedExistingAuthMethod = 0;
+                  _currentStep = AuthScreenStep.existingUserAuth;
+                });
+              },
+              borderRadius: BorderRadius.circular(AppRadius.xs),
+              child: const Padding(
+                padding: EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(Icons.lock_outline_rounded, size: 13, color: AppColors.brandBlue),
+                    SizedBox(width: 4),
+                    Text(
+                      'Have an account? Sign in with password',
+                      style: TextStyle(
+                        color: AppColors.brandBlue,
+                        fontSize: 11.5,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        ],
 
         const SizedBox(height: 10),
         Row(

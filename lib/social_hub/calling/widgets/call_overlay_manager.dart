@@ -209,8 +209,14 @@ class _MiniCallWindowState extends ConsumerState<_MiniCallWindow> {
     final controller = ref.read(activeCallControllerProvider.notifier);
     final head = callHeadline(s);
     final remote = s.remoteParticipants.where((p) => p.status == ParticipantStatus.joined).firstOrNull;
-    final renderer = remote == null ? null : mesh.peers[remote.userId]?.renderer;
-    final showVideo = renderer != null && remote != null && !remote.isVideoMuted;
+    final peer = remote != null && mesh.peers.containsKey(remote.userId)
+        ? mesh.peers[remote.userId]
+        : mesh.peers.values.firstOrNull;
+    final renderer = peer?.renderer;
+    final showVideo = renderer != null &&
+        renderer.renderVideo &&
+        (peer?.hasRemoteVideo ?? false) &&
+        !(remote?.isVideoMuted ?? false);
 
     final size = MediaQuery.sizeOf(context);
     const w = 132.0;

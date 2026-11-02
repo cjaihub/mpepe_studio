@@ -1,10 +1,13 @@
 import 'dart:io';
+import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:firebase_storage/firebase_storage.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:video_compress/video_compress.dart';
 import '../../backend/connections/linked_accounts.dart';
 import '../../youtube_manager/services/youtube_account_store.dart';
+import '../../youtube_manager/services/youtube_upload_service.dart';
 import '../models/connected_destination.dart';
 import '../models/omnichannel_upload_task.dart';
 import 'dart:async';
@@ -121,10 +124,52 @@ class OmnichannelUploadEngine extends Notifier<List<OmnichannelUploadTask>> {
     try {
       final ext = task.file.path.split('.').last.toLowerCase();
       final isVideo = _videoExtensions.contains(ext);
-      final storagePath = 'content/$uid/${DateTime.now().millisecondsSinceEpoch}_${task.id}.$ext';
+
+      File fileToUpload = task.file;
+      String? thumbnailUrl;
+      int? videoWidth;
+      int? videoHeight;
+      int? durationMs;
+
+      // Enhanced MP4 optimization & thumbnail generation for zero-lag streaming
+      if (isVideo) {
+        try {
+          final thumb = await VideoCompress.getFileThumbnail(
+            task.file.path,
+            quality: 75,
+            position: -1,
+          );
+          if (await thumb.exists()) {
+            final thumbPath = 'content/$uid/thumbnails/${DateTime.now().millisecondsSinceEpoch}_${task.id}.jpg';
+            final thumbUpload = await FirebaseStorage.instance.ref(thumbPath).putFile(
+                  thumb,
+                  SettableMetadata(contentType: 'image/jpeg'),
+                );
+            thumbnailUrl = await thumbUpload.ref.getDownloadURL();
+          }
+
+          final compressed = await VideoCompress.compressVideo(
+            task.file.path,
+            quality: VideoQuality.MediumQuality,
+            deleteOrigin: false,
+            includeAudio: true,
+          );
+          if (compressed != null && compressed.file != null && await compressed.file!.exists()) {
+            fileToUpload = compressed.file!;
+            videoWidth = compressed.width;
+            videoHeight = compressed.height;
+            durationMs = compressed.duration?.toInt();
+          }
+        } catch (e) {
+          debugPrint('[UploadEngine] video compression fallback to original: $e');
+        }
+      }
+
+      final uploadExt = fileToUpload.path.split('.').last.toLowerCase();
+      final storagePath = 'content/$uid/${DateTime.now().millisecondsSinceEpoch}_${task.id}.$uploadExt';
       final upload = FirebaseStorage.instance.ref(storagePath).putFile(
-            task.file,
-            SettableMetadata(contentType: isVideo ? 'video/$ext' : 'image/$ext'),
+            fileToUpload,
+            SettableMetadata(contentType: isVideo ? 'video/$uploadExt' : 'image/$uploadExt'),
           );
       _storageUploads[task.id] = upload;
 
@@ -144,6 +189,30 @@ class OmnichannelUploadEngine extends Notifier<List<OmnichannelUploadTask>> {
         ...RegExp(r'#(\w+)').allMatches(caption).map((m) => m.group(1)!.toLowerCase()),
       }.toList();
 
+      // Dispatch to external platforms: YouTube
+      String? youtubeVideoId;
+      String? youtubeWatchUrl;
+      final hasYouTube = task.selectedDestinations.any((d) => d.platform == PlatformType.youtube);
+      if (hasYouTube && isVideo) {
+        try {
+          final authClient = await ref.read(ytAccountStoreProvider.notifier).getActiveAuthClient();
+          if (authClient != null) {
+            final ytUploader = YouTubeUploadService(authClient);
+            final ytResult = await ytUploader.uploadVideo(
+              videoFile: task.file,
+              title: task.title.trim().isEmpty ? 'New Video' : task.title.trim(),
+              description: caption,
+              tags: hashtags,
+              isShort: task.title.toLowerCase().contains('short') || caption.toLowerCase().contains('#short'),
+            );
+            youtubeVideoId = ytResult.videoId;
+            youtubeWatchUrl = ytResult.watchUrl;
+          }
+        } catch (e) {
+          // Keep Oneova upload even if external platform API quota or network fails
+        }
+      }
+
       final doc = FirebaseFirestore.instance.collection('content').doc();
       await doc.set({
         'id': doc.id,
@@ -151,6 +220,15 @@ class OmnichannelUploadEngine extends Notifier<List<OmnichannelUploadTask>> {
         'description': caption,
         'type': isVideo ? 'short_video' : 'photo',
         'mediaUrl': mediaUrl,
+        'mediaMetadata': {
+          'thumbnailUrl': ?thumbnailUrl,
+          'width': ?videoWidth,
+          'height': ?videoHeight,
+          'durationMs': ?durationMs,
+          'aspectRatio': (videoWidth != null && videoHeight != null && videoHeight > 0)
+              ? videoWidth / videoHeight
+              : 9 / 16,
+        },
         'hashtags': hashtags,
         'visibility': 'public',
         'viewCount': 0,
@@ -163,6 +241,8 @@ class OmnichannelUploadEngine extends Notifier<List<OmnichannelUploadTask>> {
         'permissions': {'allowComments': true, 'allowDuet': true, 'allowStitch': true, 'allowDownload': true},
         'crossPublishChannels': ['internal', ...task.selectedDestinations.map((d) => d.platform.name)],
         'crossPublishTargets': task.selectedDestinations.map((d) => {'platform': d.platform.name, 'id': d.id, 'name': d.name}).toList(),
+        'youtubeVideoId': ?youtubeVideoId,
+        'youtubeWatchUrl': ?youtubeWatchUrl,
         'createdAt': FieldValue.serverTimestamp(),
       });
 

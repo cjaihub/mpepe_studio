@@ -186,6 +186,24 @@ for (const [action, actorRole, targetRole, onStage, expected] of MOD_ROWS) {
     assert.deepEqual(r.placement, { kind: 'overflow' });
     assert.deepEqual(r.stage.overflow, ['o1', 'g']);
 });
+(0, node_test_1.test)('stage cap: 10 people (host + 6 wall + 3 overflow), then full', () => {
+    const nine = stage({ wall: ['a', 'b', 'c', 'd', 'e', 'f'], overflow: ['o1', 'o2'] });
+    assert.equal((0, roles_logic_1.stageCount)(nine), 9);
+    assert.equal((0, roles_logic_1.stageIsFull)(nine), false);
+    const ten = (0, roles_logic_1.placeOnStage)(nine, 'o3', NOW, 'host').stage;
+    assert.equal((0, roles_logic_1.stageCount)(ten), 10);
+    assert.equal((0, roles_logic_1.stageIsFull)(ten), true);
+    assert.throws(() => (0, roles_logic_1.placeOnStage)(ten, 'g', NOW, 'host'), (e) => e instanceof roles_logic_1.RolesError && e.code === 'failed-precondition');
+    // Someone already on a full stage stays a no-op.
+    assert.deepEqual((0, roles_logic_1.placeOnStage)(ten, 'a', NOW, 'host').placement, { kind: 'already' });
+});
+(0, node_test_1.test)('requestJoinDecision: refused when the stage is full', () => {
+    const base = { role: 'viewer', blocked: false, status: 'live', allowGuestRequests: true };
+    assert.equal((0, roles_logic_1.requestJoinDecision)(Object.assign(Object.assign({}, base), { onStage: 9 })).ok, true);
+    const d = (0, roles_logic_1.requestJoinDecision)(Object.assign(Object.assign({}, base), { onStage: 10 }));
+    assert.equal(d.ok, false);
+    assert.equal(!d.ok && d.code, 'failed-precondition');
+});
 (0, node_test_1.test)('placeOnStage: already on stage is a no-op', () => {
     const s = stage({ wall: ['g', null, null, null, null, null] });
     const r = (0, roles_logic_1.placeOnStage)(s, 'g', NOW, 'host');

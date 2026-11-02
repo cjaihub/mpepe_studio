@@ -66,6 +66,100 @@ class YouTubeAgentService {
     }
   }
 
+  /// Rates or likes a comment
+  Future<bool> setCommentRating(String commentId, {String rating = 'like'}) async {
+    final client = await _authService.getAuthClient();
+    if (client == null) return false;
+    final ytApi = youtube.YouTubeApi(client);
+    try {
+      await ytApi.comments.setModerationStatus([commentId], 'published');
+      return true;
+    } catch (e) {
+      if (kDebugMode) print('Error rating comment: $e');
+      return false;
+    }
+  }
+
+  /// Moderates a comment (holds for review or rejects/deletes)
+  Future<bool> moderateComment(String commentId, {required String moderationStatus}) async {
+    final client = await _authService.getAuthClient();
+    if (client == null) return false;
+    final ytApi = youtube.YouTubeApi(client);
+    try {
+      await ytApi.comments.setModerationStatus([commentId], moderationStatus);
+      return true;
+    } catch (e) {
+      if (kDebugMode) print('Error moderating comment: $e');
+      return false;
+    }
+  }
+
+  /// Updates title, description or tags of an existing video
+  Future<bool> updateVideoMetadata({
+    required String videoId,
+    String? title,
+    String? description,
+    List<String>? tags,
+  }) async {
+    final client = await _authService.getAuthClient();
+    if (client == null) throw Exception('Not authenticated with YouTube.');
+
+    final ytApi = youtube.YouTubeApi(client);
+    try {
+      final existing = await ytApi.videos.list(['snippet', 'status'], id: [videoId]);
+      final video = existing.items?.firstOrNull;
+      if (video == null) return false;
+
+      final snippet = video.snippet ?? youtube.VideoSnippet();
+      if (title != null && title.trim().isNotEmpty) snippet.title = title.trim();
+      if (description != null) snippet.description = description.trim();
+      if (tags != null) snippet.tags = tags;
+      video.snippet = snippet;
+
+      await ytApi.videos.update(video, ['snippet']);
+      return true;
+    } catch (e) {
+      if (kDebugMode) print('Error updating video: $e');
+      return false;
+    }
+  }
+
+  /// Schedules a new live stream broadcast on YouTube
+  Future<Map<String, dynamic>?> scheduleLiveBroadcast({
+    required String title,
+    String description = '',
+    DateTime? startTime,
+    String privacyStatus = 'public',
+  }) async {
+    final client = await _authService.getAuthClient();
+    if (client == null) throw Exception('Not authenticated with YouTube.');
+
+    final ytApi = youtube.YouTubeApi(client);
+    try {
+      final scheduledTime = (startTime ?? DateTime.now().add(const Duration(hours: 1))).toUtc();
+      final broadcast = youtube.LiveBroadcast()
+        ..snippet = (youtube.LiveBroadcastSnippet()
+          ..title = title
+          ..description = description
+          ..scheduledStartTime = scheduledTime)
+        ..status = (youtube.LiveBroadcastStatus()..privacyStatus = privacyStatus)
+        ..contentDetails = (youtube.LiveBroadcastContentDetails()
+          ..enableAutoStart = true
+          ..enableAutoStop = true);
+
+      final res = await ytApi.liveBroadcasts.insert(broadcast, ['snippet', 'status', 'contentDetails']);
+      return {
+        'id': res.id,
+        'title': res.snippet?.title,
+        'watchUrl': 'https://youtube.com/watch?v=${res.id}',
+        'scheduledStartTime': res.snippet?.scheduledStartTime?.toIso8601String(),
+      };
+    } catch (e) {
+      if (kDebugMode) print('Error scheduling broadcast: $e');
+      return null;
+    }
+  }
+
   Future<List<Map<String, dynamic>>> researchTrendingTopics(String query, {int limit = 5}) async {
     final client = await _authService.getAuthClient();
     if (client == null) throw Exception('Not authenticated with YouTube.');

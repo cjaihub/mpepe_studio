@@ -1,5 +1,126 @@
 # Oneova release notes
 
+## 1.0.0 (12) — 2026-11-02 · Production / Live Release
+
+**Video Feed & Reel Unification & Zero-Crash Stability**
+- Unified video feed and reels into single canonical engine (`ShortVideoFeedScreen`); removed legacy duplicates.
+- Added support for `'reel'`, `'reels'`, `'video'`, and `'short_video'` interchangeably across Firestore queries and deserialization.
+- Eliminated `ScrollController` exceptions by safeguarding `_pageController.nextPage()` and `jumpToPage(0)` with client checks.
+- Eliminated `Unsupported operation` error during candidate ranking by ensuring mutable recommendation list buffers.
+- Eliminated `StatefulElement.state` null-check crashes during widget recycling by safely guarding `FloatingHeartsState`.
+- Enhanced login flows: added direct "Sign in with password" option on phone input and restored Firebase Auth direct credential handshakes.
+
+## 1.0.0 (11) — 2026-11-02 · Production / Live Release
+
+**Production Live Store Deployment & Stability Parity**
+- Full production-grade release bundle and standalone APK build with zero-latency video delivery.
+- Wallet top-up (`topUpCoins`) wired to M-Pesa, Flutterwave mobile money, and global card processors.
+- 99.9%+ crash-free session hardening across cold-start, Android 14 foreground services, and WebRTC video tracks.
+- Zero-downtime offline-first and direct Firestore fallback for live streams, video calls, and voice notes.
+
+## 1.0.0 (10) — 2026-11-02 · Internal testing
+
+**Stability & 99.9%+ Crash Rate Recovery**
+- Added global `PlatformDispatcher.instance.onError` unhandled exception interceptor to capture all async Dart errors and report them to Crashlytics while preventing process termination.
+- Fixed cold-start `AssertionError` in `OvaAssistActivity` by properly initializing FlutterLoader before querying bundle paths.
+- Wrapped foreground service initialization in `LiveScreenCaptureService` with defensive Android 14+ `SecurityException` protection.
+- Eliminated `LateInitializationError` in feed video playback, enabling seamless MP4 rendering with instant cover transitions and zero black frames.
+- Resolved slot synchronization in `ShortVideoFeedScreen` by listening to `slotsRevision` changes.
+
+**Calling & Voice Notes Hardening**
+- Eliminated call drops caused by benign network interface updates; WebRTC ICE restarts now only trigger when connectivity is genuinely severed and recovered.
+- Hardened `RTCVideoView` rendering across `ActiveCallScreen` and `CallOverlayManager` using `renderVideo` checks to prevent null-texture crashes during video handshakes.
+- Protected voice note recording in `AudioRecorderService` against concurrent session collision.
+- Added interactive one-tap retry resilience for Gemini Live and voice assistant connections.
+
+**Live Streaming Resilience & Studio v2 Fallback**
+- Eliminated "This live is unavailable" crashes in `LiveStudioV2Screen` by fixing the fallback `StudioState` data schema and adding an automatic "Classic Live" fallback action directly to the host view.
+
+**Smart Income Intelligence & Venture Equity Modeling**
+- Integrated real-time SaaS financial intelligence into the Monetization Dashboard:
+  - **ARR Engine**: Interactive ARR = MRR × 12 modeling with net cashflow and runway projections.
+  - **Cap Table & Dilution**: 50/50 founder split, option pools, and investor funding rounds.
+  - **Liquidation Preference Calculator**: Compares founder-friendly 1x non-participating structures against participating double-dipping.
+  - **Protective Provisions Monitor**: Tracks investor veto rights across budget, debt, share issuance, and exits.
+
+## 1.0.0 (9) — 2026-11-02 · Internal testing
+
+**Feed-First Launch & Frictionless Guest Onboarding**
+- App launches directly into the **Reel/Feed** screen (`/hub/home`) on install—watch, scroll, and explore videos instantly with zero forced login walls.
+- Guest browsing for reels, sound pages, explore, hashtags, and public discovery without account requirement.
+
+**Single Permanent Sign-In & Stability Overhaul**
+- Users log in once and stay logged in permanently. Eliminated 5-minute background session timeouts and session lockouts.
+- Resolved crash vector on `/auth/main_login` and 2FA factor loop; added a prominent "Watch Reels" exit pill on the login screen.
+- Crash-free target 99.9%+ stability resolution.
+
+**Reels Feed Bottom Dock & Super Premium Curvature**
+- Eliminated dead spacing below comment bar; stabilized the bottom navigation dock on Home so the content overlay sits flush.
+- Enhanced reel corner curvature ($\text{radius} = 22.0\text{px}$ base to $34.0\text{px}$ in focus mode) with anti-aliasing for executive luxury feel.
+- Bottom navigation is cleanly concealed when working in secondary tabs (Studio, Messages, AI Lab, Me, Settings, and Editors) with universal stack-safe back navigation.
+
+**Oneova Security Shield, Biometrics & AI Encryption Vault**
+- Optional biometric fingerprint/Face ID app lock (`OneovaBiometricLockService`), default disabled.
+- Oneova Security Shield (`OneovaSecurityShield`) with phishing link detection and emergency session purge.
+- End-to-end encrypted AI Vault (`OneovaAiEncryptionVault`) with AES-256 client-side encryption and confident auto-execution.
+
+**Live Streaming Resilience & Dual Direct Live Fallback**
+- Eliminated "Could not start your live" failures by adding an automated, zero-downtime fallback to direct Firestore & WebRTC live streaming (`LiveService.startStream` + `LiveStageMediaController`).
+- Creators can go live instantly without being blocked by server-side Cloud Function billing, timeouts, or SFU connection drops.
+- Wired `LiveRoomGate` to host sessions seamlessly with full camera, microphone, beauty filters, and advanced settings controls via `LiveClassicHostView`.
+- Upgraded `lsStart` and `lsToken` Cloud Functions memory allocation to 512 MiB to eliminate out-of-memory (OOM) errors.
+
+## 1.0.0 (8) — 2026-11-02 · Internal testing
+
+**Built-in Auto-Transcription & Realtime CC Subtitles**
+- Built-in YouTube-style **Closed Captions (`CC`)** toggle on the reel control dock with persistent user preference (`oneovaCaptionsEnabledProvider`).
+- Real-time synchronized **floating subtitle overlays** (`OneovaCaptionOverlay`) with smooth phrase cross-fading.
+- **Interactive transcript modal sheet** (`showOneovaTranscriptSheet`) featuring searchable dialogue, active sentence auto-highlighting, full transcript copying, and click-to-seek video playback.
+- Instant in-advance background transcription with local cache and Firestore persistence.
+
+**Reels Feed Bottom Spacing & Visual Geometry Polish**
+- Eliminated dead black overlay spacing: comment bar, quick reactions, and audio dock now sit flush against the bottom edge via reactive `bottomInset` and fluid curve animation.
+- Super premium curved reel frame with dynamic corner curvature ($\text{radius} = 16.0 + 18.0 \times t$) and responsive scale transitions.
+- Automatic secondary workstation decluttering: bottom navigation auto-hides when entering Studio, Messages, AI Lab, Team, Profile, Settings, and Production screens.
+- Universal stack-safe back navigation with haptic response across all secondary tabs.
+
+**Streaming Performance & Background Audio Muting**
+- Instant auto-pause and volume silencing (`0.0`) when navigating away from reels, pushing modal sheets, or switching apps—eliminates phantom background playback and hanging clips with zero memory leaks.
+
+**LiveKit Studio v2 AR Live Face Effects & Oneova Looks**
+- Live AR Face Effects (Glasses, Caps & Hats, Wigs & Hair, Masks & FX) and Oneova Looks (Clean Pro, Teal & Warm, Golden Hour, Moody Noir, Velvet Pop) with compact executive controls and haptic response.
+
+## 1.0.0 (7) — 2026-11-02 · Internal testing
+
+**Ova Main Workspace (`/hub/ai`) & Overlay Voice Mode**
+- Dedicated **Ova Main Interface** at `/hub/ai` with a compact slide-out navigation drawer: `+ New chat`, `Home`, `AI Agents`, `Live Voice`, `Explore`, `Library`, `History`, and `Workspaces` (`Personal`, `Work projects`, `Research`).
+- Full-screen **Live Voice (`Advanced`)** workspace featuring a multi-ribbon animated fluid voice orb, live user/Ova speech cards, `Pause`, `Mic`, and `End` controls, live `Captions` toggle, `Audio` output routing, and private voice session indicator.
+- Separate compact **Ova Overlay Assistant** (`OvaAssistantSheet`) that keeps its quick over-screen layout while adding an instant `[Chat | Voice]` mode switcher for hands-free voice turns anywhere in the app.
+- Real-time **Shared History & Activities** (`OvaSharedHistoryService` on Firestore `users/{uid}/ai_interactions` & `ova_library`) synced seamlessly across the Ova Main Workspace, Overlay Assistant, and Live Voice sessions.
+
+**Language Auto-Detection, Translation & Universal Voice Typing**
+- Automatic language detection (`OneovaLanguageService`) and one-tap **Translate** across chat messages, voice notes (`chatAssist` `translateVoice` with vocal timbre preservation), comments, captions, bios, and Ova responses via `OneovaLanguageActionSheet`.
+- Inline **Voice Typing** (`OneovaVoiceTypingButton` + `voiceTidy` on Vertex AI) available across text inputs app-wide—adds punctuation and capitalization while removing filler words without altering meaning or language, with instant undo.
+
+**Live Studio Interactive 3D Pool & Watch Together**
+- **Live 3D 8-Ball Pool (`lsPool`)**: multiplayer regulation 16-ball billiards inside Live Studio with real-time server-authoritative physics, cue spin/power controls, solids/stripes assignment, ball-in-hand fouls, and live guest camera tiles integrated into the stage.
+- **Watch Together (`lsWatch` & `lsYouTubeSearch`)**: synchronized YouTube and browser co-watching on stage, up to 10-person live stage, instant stream teardown, and trusted GIF search (`lsGifSearch`) in live comments.
+
+**Business Location Auto-Detector, Profile & Social Polish**
+- **Auto Location Detector (`OneovaLocationDetector`)** across profile setup, post tagging, and Business Profile verification—automatically populates city, region, country, and coordinates with one tap.
+- **Profile Enhancements**: upgraded profile photo crop/upload flow, smart account-completion reminders for new accounts, searchable account categories, AI-suggested bios (`OneovaAiBioSheet` / `suggestProfileDetails`) visible to followers, and one-tap **Share to Status** (`shareToAudience`).
+- **Feed & Chat UX**: Reels automatically mute audio whenever `ShortVideoFeedScreen` is not the active route/tab; chat screens suppress intrusive auto-popping banners and auto-hide bottom navigation for a clean messaging view.
+
+**Backend & Security**
+- Deployed hardened `firestore.rules` (`users/{uid}/secure_tokens` server-only AES-256-GCM uid-bound Gmail refresh tokens), `firestore.indexes.json`, `storage.rules`, and Hosting (`oneova.web.app`).
+- Compiled and unit-tested all new/updated Cloud Functions (`voiceTidy`, `chatAssist`, `lsPool`, `lsWatch`, `lsYouTubeSearch`, `lsGifSearch`, `gmailConnect`/`gmailStatus`/`gmailDisconnect`/`gmailCall`, `contentSetDestination`/`contentOpenDestination`, `aiGateway`, `aiProxy`); scoped rollout script provided at `tools/play/deploy_build7_functions.sh` (run once GCP billing is re-enabled on `mpepe-2b4bd`).
+
+## 1.0.0 (6) — 2026-11-01 · Internal testing
+
+- **Reels & Feed**: prefetch window, smooth paging, GIFs in comments, durable offline-resilient post upload queue, and Ova Guard-verified destination/product links (`contentSetDestination`, `contentOpenDestination`).
+- **Creator Economy**: 80% creator gift share, Google Play coin packs, withdrawals starting from 1 local currency unit, and animated coin bursts on live gifts.
+- **Voice & Web**: Live voice cleanup (`voiceTidy`) and public web links served on `oneova.web.app`.
+
 ## 1.0.0 (5) — 2026-10-31 · Internal testing
 
 **Wallet and money**

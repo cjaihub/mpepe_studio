@@ -189,14 +189,18 @@ class Content {
 
   factory Content.fromFirestore(DocumentSnapshot doc) {
     final data = doc.data() as Map<String, dynamic>? ?? {};
+    final rawType = (data['type'] as String?)?.toLowerCase();
+    final parsedType = (rawType == 'reel' || rawType == 'reels' || rawType == 'video' || rawType == 'short_video')
+        ? ContentType.short_video
+        : ContentType.values.firstWhere(
+            (e) => e.name.toLowerCase() == rawType,
+            orElse: () => ContentType.short_video,
+          );
     return Content(
       id: doc.id,
       authorId: data['authorId'] ?? '',
       description: data['description'] ?? '',
-      type: ContentType.values.firstWhere(
-        (e) => e.name == data['type'],
-        orElse: () => ContentType.short_video,
-      ),
+      type: parsedType,
       mediaUrl: data['mediaUrl'] ?? '',
       mediaMetadata: MediaMetadata.fromMap(data['mediaMetadata'] as Map<String, dynamic>?),
       hashtags: List<String>.from(data['hashtags'] ?? []),

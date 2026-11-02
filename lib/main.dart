@@ -1,4 +1,5 @@
 import 'dart:io';
+import 'dart:ui';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -20,7 +21,6 @@ import 'backend/notifications/services/rich_notification_renderer.dart';
 import 'backend/user_profile_completion_service.dart';
 import 'social_hub/coins/incoming_gift_overlay.dart';
 import 'package:media_kit/media_kit.dart';
-import 'package:firebase_auth/firebase_auth.dart';
 import 'shared/notifications/notification_overlay_manager.dart';
 import 'desktop_agent/desktop_agent_app.dart';
 import 'backend/inbox/providers/presence_service.dart';
@@ -79,12 +79,16 @@ void main() async {
   // Dev/test builds only (--dart-define=USE_EMULATORS=<host>).
   await connectFirebaseEmulatorsIfRequested();
 
-  // Crashlytics: capture all Flutter framework errors
+  // Crashlytics: capture all Flutter framework errors and asynchronous Dart errors
   try {
     FlutterError.onError = (details) {
       // Keep the full stack in logcat so build errors can be traced.
       FlutterError.presentError(details);
       FirebaseCrashlytics.instance.recordFlutterFatalError(details);
+    };
+    PlatformDispatcher.instance.onError = (error, stack) {
+      FirebaseCrashlytics.instance.recordError(error, stack, fatal: false);
+      return true; // Prevents uncaught async exceptions from terminating the app process
     };
   } catch (e) {
     debugPrint('Crashlytics notice: $e');
@@ -198,20 +202,6 @@ class _OneOvaAppState extends ConsumerState<OneOvaApp> with WidgetsBindingObserv
       try {
         ref.read(presenceServiceProvider).setOnline();
       } catch (_) {}
-      // Only lock authenticated sessions
-      if (FirebaseAuth.instance.currentUser == null) return;
-      // Never lock someone out of a ringing or ongoing call.
-      if (ref.read(activeCallControllerProvider).isLive) return;
-      SharedPreferences.getInstance().then((prefs) {
-        final lastActive = prefs.getInt('last_active_time');
-        if (lastActive == null) return;
-        final elapsed = DateTime.now()
-            .difference(DateTime.fromMillisecondsSinceEpoch(lastActive));
-        // 5-minute session timeout — locks from any screen inside the app
-        if (elapsed.inMinutes >= 5) {
-          ref.read(routerProvider).go('/auth/main_login');
-        }
-      });
     }
   }
 

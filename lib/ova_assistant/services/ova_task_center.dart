@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:firebase_core/firebase_core.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -86,7 +87,11 @@ class OvaTaskCenter extends Notifier<OvaTaskState> {
 
   @override
   OvaTaskState build() {
-    _authSub = FirebaseAuth.instance.authStateChanges().listen(_watchAiLab);
+    if (Firebase.apps.isNotEmpty) {
+      try {
+        _authSub = FirebaseAuth.instance.authStateChanges().listen(_watchAiLab);
+      } catch (_) {}
+    }
     ref.onDispose(() {
       _flashTimer?.cancel();
       _authSub?.cancel();
