@@ -23,10 +23,12 @@ class StudioTimeline extends StatefulWidget {
   final String? selectedTextId;
   final String? selectedAudioId;
   final String? selectedEffectId;
+  final String? selectedOverlayId;
   final ValueChanged<String?> onSelectClip;
   final ValueChanged<String?> onSelectText;
   final ValueChanged<String?> onSelectAudio;
   final ValueChanged<String?>? onSelectEffect;
+  final ValueChanged<String?>? onSelectOverlay;
 
   /// Live trim while dragging a handle (not yet committed to history).
   final void Function(StudioClip clip) onTrimPreview;
@@ -35,6 +37,7 @@ class StudioTimeline extends StatefulWidget {
   final VoidCallback onAddAudio;
   final VoidCallback onAddText;
   final VoidCallback? onAddEffect;
+  final VoidCallback? onAddOverlay;
   final VoidCallback onCover;
   final VoidCallback onToggleMuteAll;
 
@@ -46,16 +49,19 @@ class StudioTimeline extends StatefulWidget {
     required this.selectedTextId,
     required this.selectedAudioId,
     this.selectedEffectId,
+    this.selectedOverlayId,
     required this.onSelectClip,
     required this.onSelectText,
     required this.onSelectAudio,
     this.onSelectEffect,
+    this.onSelectOverlay,
     required this.onTrimPreview,
     required this.onTrimCommit,
     required this.onAddClip,
     required this.onAddAudio,
     required this.onAddText,
     this.onAddEffect,
+    this.onAddOverlay,
     required this.onCover,
     required this.onToggleMuteAll,
   });
@@ -158,6 +164,10 @@ class _StudioTimelineState extends State<StudioTimeline> {
                       SizedBox(height: _rowH, child: _textRow(half)),
                       const SizedBox(height: 4),
                       SizedBox(height: _rowH, child: _audioRow(half)),
+                      if (widget.onSelectOverlay != null) ...[
+                        const SizedBox(height: 4),
+                        SizedBox(height: _rowH - 4, child: _overlayRow(half)),
+                      ],
                       if (widget.onSelectEffect != null) ...[
                         const SizedBox(height: 4),
                         SizedBox(height: _rowH - 4, child: _effectRow(half)),
@@ -386,6 +396,32 @@ class _StudioTimelineState extends State<StudioTimeline> {
                   ),
                 ),
             ],
+          ),
+        ),
+    ]);
+  }
+
+  Widget _overlayRow(double half) {
+    final p = widget.project;
+    if (p.overlays.isEmpty) {
+      return Padding(
+        padding: EdgeInsets.only(left: half),
+        child: _addChip(Icons.picture_in_picture_alt_rounded, 'Add overlay', widget.onAddOverlay ?? () {}),
+      );
+    }
+    return Stack(children: [
+      for (final o in p.overlays)
+        Positioned(
+          left: half + _x(o.offsetMs),
+          width: math.max(18, _x(o.durationMs)),
+          top: 0,
+          bottom: 0,
+          child: _trackChip(
+            label: o.isImage ? 'Photo overlay' : 'Video overlay',
+            icon: o.isImage ? Icons.image_outlined : Icons.picture_in_picture_alt_rounded,
+            color: AppColors.brandBlue,
+            selected: o.id == widget.selectedOverlayId,
+            onTap: () => widget.onSelectOverlay!(o.id == widget.selectedOverlayId ? null : o.id),
           ),
         ),
     ]);

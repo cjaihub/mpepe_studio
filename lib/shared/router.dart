@@ -667,7 +667,7 @@ final routerProvider = Provider<GoRouter>((ref) {
       GoRoute(
         path: '/create/studio',
         redirect: _requireAuth,
-        builder: (context, state) => const StudioHomeScreen(),
+        builder: (context, state) => StudioHomeScreen(initialTool: state.uri.queryParameters['tool']),
       ),
       GoRoute(
         path: '/create/studio/picker',

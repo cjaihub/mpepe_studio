@@ -210,6 +210,14 @@ class OneovaMediaEngine {
   static Future<String> reverse(String path, {required String out, required int startMs, required int endMs, int fps = 30, int maxSide = 1280}) =>
       _call<String>('reverse', {'path': path, 'out': out, 'startMs': startMs, 'endMs': endMs, 'fps': fps, 'maxSide': maxSide});
 
+  /// Camera path of [startMs, endMs]: source times and cumulative shift (x, y
+  /// as fractions of the frame). Progress on [progress].
+  static Future<(List<int>, List<double>, List<double>)> motion(String path, {required int startMs, required int endMs, int fps = 8}) async {
+    final m = await _call<Map<dynamic, dynamic>>('motion', {'path': path, 'startMs': startMs, 'endMs': endMs, 'fps': fps});
+    List<double> d(String k) => (m[k] as List).map((e) => (e as num).toDouble()).toList();
+    return ((m['timesMs'] as List).map((e) => (e as num).toInt()).toList(), d('x'), d('y'));
+  }
+
   /// Beat times (ms) and tempo of the sound in [path].
   static Future<(List<int>, double)> beats(String path, {int maxMs = 600000}) async {
     final m = await _call<Map<dynamic, dynamic>>('beats', {'path': path, 'maxMs': maxMs});

@@ -6,6 +6,7 @@ import 'package:media_kit/media_kit.dart';
 import 'package:video_player/video_player.dart';
 
 import '../models/studio_project.dart';
+import 'studio_voice_preview.dart';
 
 /// Plays a [StudioProject] timeline in the editor: walks clip to clip (videos
 /// through one controller per source file, photos on a wall clock), honours
@@ -25,6 +26,17 @@ class StudioPlayback extends ChangeNotifier {
   int posMs = 0;
   bool playing = false;
 
+  /// One player per picture-in-picture video layer.
+  final Map<String, VideoPlayerController> _overlays = {};
+  final Set<String> _overlayPending = {};
+
+  /// Player of overlay [o], once it has opened.
+  VideoPlayerController? overlayController(StudioOverlay o) => o.isImage ? null : _overlays[o.id];
+
+  /// Plays a clip's cleaned sound (Clean voice) in place of its own.
+  Player? _voice;
+  String? _voicePath;
+
   StudioPlayback(this._project);
 
   StudioProject get project => _project;
@@ -39,6 +51,17 @@ class StudioPlayback extends ChangeNotifier {
   /// Swap in an edited project; keeps the playhead where it is.
   void update(StudioProject p) {
     _project = p;
+    final ovIds = p.overlays.map((o) => o.id).toSet();
+    for (final id in _overlays.keys.toList()) {
+      if (!ovIds.contains(id)) _overlays.remove(id)?.dispose();
+    }
+    for (final c in p.clips) {
+      if (c.voiceClean > 0 && StudioVoicePreview.ready(c) == null) {
+        StudioVoicePreview.prepare(c, onReady: () {
+          if (!_disposed && playing) _startAt(posMs);
+        });
+      }
+    }
     final paths = p.clips.where((c) => !c.isImage).map((c) => c.path).toSet();
     for (final path in _videos.keys.toList()) {
       if (!paths.contains(path)) _videos.remove(path)?.dispose();
@@ -103,6 +126,7 @@ class StudioPlayback extends ChangeNotifier {
     final c = await _ensure(clip.path);
     if (c == null || token != _seekToken) return;
     await c.seekTo(Duration(milliseconds: clip.sourceMsAt(posMs - _project.clipStartMs(idx))));
+    _syncOverlays(force: true);
     if (!_disposed) notifyListeners();
   }
 
@@ -123,6 +147,10 @@ class StudioPlayback extends ChangeNotifier {
     _ticker?.cancel();
     for (final c in _videos.values) {
       if (c.value.isPlaying) await c.pause();
+    }
+    await _voice?.pause();
+    for (final o in _overlays.values) {
+      if (o.value.isPlaying) await o.pause();
     }
     for (final id in _audioPlaying.toList()) {
       await _audio[id]?.pause();
@@ -146,8 +174,12 @@ class StudioPlayback extends ChangeNotifier {
       if (c == null || !playing || _activeIndex != idx) return;
       await c.seekTo(Duration(milliseconds: clip.sourceMsAt(local)));
       await c.setPlaybackSpeed(clip.speed);
-      await c.setVolume(clip.muted ? 0 : clip.volume.clamp(0.0, 1.0));
+      final cleaned = clip.muted ? null : StudioVoicePreview.ready(clip);
+      await c.setVolume(clip.muted || cleaned != null ? 0 : clip.volume.clamp(0.0, 1.0));
+      await _startVoice(cleaned, clip, local);
       if (playing && _activeIndex == idx) await c.play();
+    } else {
+      await _voice?.pause();
     }
     for (final id in _audioPlaying.toList()) {
       await _audio[id]?.pause();
@@ -172,8 +204,10 @@ class StudioPlayback extends ChangeNotifier {
       final src = c.value.position.inMilliseconds;
       posMs = clipStart + ((src - clip.startMs) / clip.speed).round().clamp(0, clip.outDurationMs);
       reachedEnd = src >= clip.endMs - 35 || (c.value.isCompleted && !c.value.isPlaying);
+      _syncVoice(clip, src);
     }
     _syncAudio();
+    _syncOverlays();
     if (reachedEnd) {
       if (idx + 1 >= _project.clips.length) {
         posMs = durationMs;
@@ -183,6 +217,79 @@ class StudioPlayback extends ChangeNotifier {
       _startAt(_project.clipStartMs(idx + 1));
     }
     notifyListeners();
+  }
+
+  Future<void> _startVoice(String? path, StudioClip clip, int local) async {
+    if (path == null) {
+      await _voice?.pause();
+      return;
+    }
+    final v = _voice ??= Player();
+    if (_voicePath != path) {
+      await v.open(Media(path), play: false);
+      _voicePath = path;
+    }
+    await v.seek(Duration(milliseconds: clip.sourceMsAt(local)));
+    await v.setRate(clip.speed);
+    await v.setVolume((clip.volume * 100).clamp(0, 100).toDouble());
+    if (playing) await v.play();
+  }
+
+  /// Keeps the cleaned sound within ~120 ms of the picture.
+  void _syncVoice(StudioClip clip, int srcMs) {
+    final v = _voice;
+    if (v == null || _voicePath == null || !v.state.playing) return;
+    final drift = (v.state.position.inMilliseconds - srcMs).abs();
+    if (drift > 120) v.seek(Duration(milliseconds: srcMs));
+  }
+
+  /// Opens, plays, pauses and re-syncs overlay players for the playhead.
+  void _syncOverlays({bool force = false}) {
+    for (final o in _project.overlays) {
+      if (o.isImage) continue;
+      final inRange = posMs >= o.offsetMs && posMs < o.endOnTimeline;
+      final c = _overlays[o.id];
+      if (c == null) {
+        if (inRange && _overlayPending.add(o.id)) {
+          () async {
+            try {
+              final v = VideoPlayerController.file(File(o.path));
+              await v.initialize();
+              if (_disposed || !_project.overlays.any((x) => x.id == o.id)) {
+                await v.dispose();
+                return;
+              }
+              _overlays[o.id] = v;
+              _syncOverlays(force: true);
+              notifyListeners();
+            } catch (e) {
+              debugPrint('[StudioPlayback] cannot open overlay ${o.path}: $e');
+            } finally {
+              _overlayPending.remove(o.id);
+            }
+          }();
+        }
+        continue;
+      }
+      if (!inRange) {
+        if (c.value.isPlaying) c.pause();
+        continue;
+      }
+      final target = o.startMs + posMs - o.offsetMs;
+      final drift = (c.value.position.inMilliseconds - target).abs();
+      c.setVolume(o.muted ? 0 : o.volume.clamp(0.0, 1.0));
+      if (playing) {
+        if (!c.value.isPlaying) {
+          c.seekTo(Duration(milliseconds: target));
+          c.play();
+        } else if (drift > 150) {
+          c.seekTo(Duration(milliseconds: target));
+        }
+      } else if (force || drift > 40) {
+        if (c.value.isPlaying) c.pause();
+        c.seekTo(Duration(milliseconds: target));
+      }
+    }
   }
 
   void _syncAudio() {
@@ -215,6 +322,11 @@ class StudioPlayback extends ChangeNotifier {
     for (final p in _audio.values) {
       p.dispose();
     }
+    _voice?.dispose();
+    for (final o in _overlays.values) {
+      o.dispose();
+    }
+    _overlays.clear();
     _videos.clear();
     _audio.clear();
     super.dispose();

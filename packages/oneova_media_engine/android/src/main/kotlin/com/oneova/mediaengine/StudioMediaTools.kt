@@ -155,8 +155,177 @@ internal object StudioMediaTools {
         return mapOf("path" to out, "width" to (w / 2 * 2), "height" to (h / 2 * 2), "durationMs" to duration)
     }
 
-    /** Frames of [startMs, endMs] played backwards (no sound). */
+    /** [startMs, endMs] played backwards, picture and sound. */
     fun reverse(path: String, out: String, startMs: Long, endMs: Long, fps: Int, maxSide: Int, onProgress: (Double) -> Unit): String {
+        val videoOnly = "$out.video.mp4"
+        reverseVideo(path, videoOnly, startMs, endMs, fps, maxSide) { onProgress(it * 0.85) }
+        val audio = try {
+            reversedAacSamples(path, startMs, endMs)
+        } catch (e: Exception) {
+            null
+        }
+        if (audio == null) {
+            File(videoOnly).renameTo(File(out))
+            return out
+        }
+        try {
+            muxWithAudio(videoOnly, audio, out)
+        } finally {
+            File(videoOnly).delete()
+        }
+        onProgress(1.0)
+        return out
+    }
+
+    private class EncodedAudio(val format: MediaFormat, val samples: List<Pair<ByteArray, MediaCodec.BufferInfo>>)
+
+    /** Decodes the audio of [startMs, endMs] to PCM, reverses it, re-encodes AAC. Null if there is no sound. */
+    private fun reversedAacSamples(path: String, startMs: Long, endMs: Long): EncodedAudio? {
+        val ex = MediaExtractor()
+        ex.setDataSource(path)
+        var idx = -1
+        for (i in 0 until ex.trackCount) {
+            if (ex.getTrackFormat(i).getString(MediaFormat.KEY_MIME)?.startsWith("audio/") == true) { idx = i; break }
+        }
+        if (idx < 0) { ex.release(); return null }
+        val inFormat = ex.getTrackFormat(idx)
+        ex.selectTrack(idx)
+        ex.seekTo(startMs * 1000, MediaExtractor.SEEK_TO_PREVIOUS_SYNC)
+        val dec = MediaCodec.createDecoderByType(inFormat.getString(MediaFormat.KEY_MIME)!!)
+        dec.configure(inFormat, null, null, 0)
+        dec.start()
+        var rate = inFormat.getInteger(MediaFormat.KEY_SAMPLE_RATE)
+        var channels = inFormat.getInteger(MediaFormat.KEY_CHANNEL_COUNT)
+        val pcm = java.io.ByteArrayOutputStream()
+        val info = MediaCodec.BufferInfo()
+        var inDone = false
+        var outDone = false
+        try {
+            while (!outDone) {
+                if (!inDone) {
+                    val ii = dec.dequeueInputBuffer(5000)
+                    if (ii >= 0) {
+                        val size = ex.readSampleData(dec.getInputBuffer(ii)!!, 0)
+                        if (size < 0 || ex.sampleTime > endMs * 1000 + 200_000) {
+                            dec.queueInputBuffer(ii, 0, 0, 0, MediaCodec.BUFFER_FLAG_END_OF_STREAM)
+                            inDone = true
+                        } else {
+                            dec.queueInputBuffer(ii, 0, size, ex.sampleTime, 0)
+                            ex.advance()
+                        }
+                    }
+                }
+                val oi = dec.dequeueOutputBuffer(info, 5000)
+                if (oi == MediaCodec.INFO_OUTPUT_FORMAT_CHANGED) {
+                    rate = dec.outputFormat.getInteger(MediaFormat.KEY_SAMPLE_RATE)
+                    channels = dec.outputFormat.getInteger(MediaFormat.KEY_CHANNEL_COUNT)
+                } else if (oi >= 0) {
+                    val buf = dec.getOutputBuffer(oi)!!
+                    val frameBytes = 2 * channels
+                    val t = info.presentationTimeUs
+                    // Keep only the samples inside the range (whole frames).
+                    val bytesPerUs = rate * frameBytes / 1_000_000.0
+                    var from = 0
+                    var to = info.size
+                    if (t < startMs * 1000) from = (((startMs * 1000 - t) * bytesPerUs).toInt() / frameBytes * frameBytes).coerceAtMost(info.size)
+                    val endUs = endMs * 1000
+                    if (t + info.size / bytesPerUs > endUs) to = (((endUs - t) * bytesPerUs).toInt() / frameBytes * frameBytes).coerceIn(from, info.size)
+                    if (to > from) {
+                        val chunk = ByteArray(to - from)
+                        buf.position(info.offset + from)
+                        buf.get(chunk)
+                        pcm.write(chunk)
+                    }
+                    dec.releaseOutputBuffer(oi, false)
+                    if (info.flags and MediaCodec.BUFFER_FLAG_END_OF_STREAM != 0) outDone = true
+                }
+            }
+        } finally {
+            dec.stop(); dec.release(); ex.release()
+        }
+        val raw = pcm.toByteArray()
+        val frameBytes = 2 * channels
+        val frames = raw.size / frameBytes
+        if (frames == 0) return null
+        val rev = ByteArray(frames * frameBytes)
+        for (f in 0 until frames) System.arraycopy(raw, (frames - 1 - f) * frameBytes, rev, f * frameBytes, frameBytes)
+
+        val outFormat = MediaFormat.createAudioFormat(MediaFormat.MIMETYPE_AUDIO_AAC, rate, channels).apply {
+            setInteger(MediaFormat.KEY_AAC_PROFILE, MediaCodecInfo.CodecProfileLevel.AACObjectLC)
+            setInteger(MediaFormat.KEY_BIT_RATE, 128_000)
+            setInteger(MediaFormat.KEY_MAX_INPUT_SIZE, 16384)
+        }
+        val enc = MediaCodec.createEncoderByType(MediaFormat.MIMETYPE_AUDIO_AAC)
+        enc.configure(outFormat, null, null, MediaCodec.CONFIGURE_FLAG_ENCODE)
+        enc.start()
+        val samples = ArrayList<Pair<ByteArray, MediaCodec.BufferInfo>>()
+        var encFormat: MediaFormat? = null
+        var pos = 0
+        var eosSent = false
+        try {
+            while (true) {
+                if (!eosSent) {
+                    val ii = enc.dequeueInputBuffer(5000)
+                    if (ii >= 0) {
+                        val ib = enc.getInputBuffer(ii)!!
+                        val n = min(ib.capacity() / frameBytes * frameBytes, rev.size - pos)
+                        val pts = (pos / frameBytes) * 1_000_000L / rate
+                        if (n <= 0) {
+                            enc.queueInputBuffer(ii, 0, 0, pts, MediaCodec.BUFFER_FLAG_END_OF_STREAM)
+                            eosSent = true
+                        } else {
+                            ib.clear(); ib.put(rev, pos, n)
+                            enc.queueInputBuffer(ii, 0, n, pts, 0)
+                            pos += n
+                        }
+                    }
+                }
+                val oi = enc.dequeueOutputBuffer(info, 5000)
+                if (oi == MediaCodec.INFO_OUTPUT_FORMAT_CHANGED) {
+                    encFormat = enc.outputFormat
+                } else if (oi >= 0) {
+                    if (info.flags and MediaCodec.BUFFER_FLAG_CODEC_CONFIG == 0 && info.size > 0) {
+                        val b = ByteArray(info.size)
+                        val ob = enc.getOutputBuffer(oi)!!
+                        ob.position(info.offset); ob.get(b)
+                        samples.add(b to MediaCodec.BufferInfo().apply { set(0, b.size, info.presentationTimeUs, info.flags) })
+                    }
+                    enc.releaseOutputBuffer(oi, false)
+                    if (info.flags and MediaCodec.BUFFER_FLAG_END_OF_STREAM != 0) break
+                }
+            }
+        } finally {
+            enc.stop(); enc.release()
+        }
+        return encFormat?.let { EncodedAudio(it, samples) }
+    }
+
+    private fun muxWithAudio(videoPath: String, audio: EncodedAudio, out: String) {
+        val ex = MediaExtractor()
+        ex.setDataSource(videoPath)
+        ex.selectTrack(0)
+        val muxer = MediaMuxer(out, MediaMuxer.OutputFormat.MUXER_OUTPUT_MPEG_4)
+        try {
+            val v = muxer.addTrack(ex.getTrackFormat(0))
+            val a = muxer.addTrack(audio.format)
+            muxer.start()
+            val buf = ByteBuffer.allocate(4 * 1024 * 1024)
+            val info = MediaCodec.BufferInfo()
+            while (true) {
+                val n = ex.readSampleData(buf, 0)
+                if (n < 0) break
+                info.set(0, n, ex.sampleTime, if (ex.sampleFlags and MediaExtractor.SAMPLE_FLAG_SYNC != 0) MediaCodec.BUFFER_FLAG_KEY_FRAME else 0)
+                muxer.writeSampleData(v, buf, info)
+                ex.advance()
+            }
+            for ((bytes, bi) in audio.samples) muxer.writeSampleData(a, ByteBuffer.wrap(bytes), bi)
+            muxer.stop()
+        } finally {
+            muxer.release(); ex.release()
+        }
+    }
+
+    private fun reverseVideo(path: String, out: String, startMs: Long, endMs: Long, fps: Int, maxSide: Int, onProgress: (Double) -> Unit): String {
         val r = MediaMetadataRetriever()
         try {
             r.setDataSource(path)
@@ -184,6 +353,86 @@ internal object StudioMediaTools {
         } finally {
             r.release()
         }
+    }
+
+    /**
+     * Camera path for Stabilize: frames every 1000/[fps] ms of [startMs, endMs]
+     * at 160 px, global shift between neighbours by block matching, summed.
+     * Returns times (source ms) and cumulative x/y as fractions of the frame.
+     */
+    fun motion(path: String, startMs: Long, endMs: Long, fps: Int, onProgress: (Double) -> Unit): Map<String, Any> {
+        val r = MediaMetadataRetriever()
+        val times = ArrayList<Long>()
+        val xs = ArrayList<Double>()
+        val ys = ArrayList<Double>()
+        try {
+            r.setDataSource(path)
+            val step = 1000L / fps.coerceIn(2, 15)
+            val count = ((endMs - startMs) / step).toInt().coerceIn(1, 450)
+            val stride = max(step, (endMs - startMs) / count)
+            var prev: IntArray? = null
+            var pw = 0
+            var ph = 0
+            var cx = 0.0
+            var cy = 0.0
+            var t = startMs
+            var i = 0
+            while (t <= endMs) {
+                val bmp = (if (Build.VERSION.SDK_INT >= 27) {
+                    r.getScaledFrameAtTime(t * 1000, MediaMetadataRetriever.OPTION_CLOSEST, 160, 160)
+                } else {
+                    r.getFrameAtTime(t * 1000, MediaMetadataRetriever.OPTION_CLOSEST)?.let { Bitmap.createScaledBitmap(it, 160, max(1, 160 * it.height / it.width), true) }
+                })
+                if (bmp != null) {
+                    val w = bmp.width
+                    val h = bmp.height
+                    val px = IntArray(w * h)
+                    bmp.getPixels(px, 0, w, 0, 0, w, h)
+                    bmp.recycle()
+                    val luma = IntArray(w * h) { k -> val c = px[k]; ((c shr 16 and 255) * 77 + (c shr 8 and 255) * 150 + (c and 255) * 29) shr 8 }
+                    val p = prev
+                    if (p != null && pw == w && ph == h) {
+                        val (dx, dy) = shift(p, luma, w, h)
+                        cx += dx.toDouble() / w
+                        cy += dy.toDouble() / h
+                    }
+                    prev = luma; pw = w; ph = h
+                    times.add(t); xs.add(cx); ys.add(cy)
+                }
+                i++
+                onProgress(i.toDouble() / (count + 1))
+                t += stride
+            }
+        } finally {
+            r.release()
+        }
+        return mapOf("timesMs" to times, "x" to xs, "y" to ys)
+    }
+
+    /** Shift of [b] relative to [a] (pixels) that best lines them up. */
+    private fun shift(a: IntArray, b: IntArray, w: Int, h: Int): Pair<Int, Int> {
+        val range = 10
+        var best = Long.MAX_VALUE
+        var bx = 0
+        var by = 0
+        for (dy in -range..range) {
+            for (dx in -range..range) {
+                var sad = 0L
+                var y = range
+                while (y < h - range) {
+                    var x = range
+                    val row = y * w
+                    val row2 = (y + dy) * w
+                    while (x < w - range) {
+                        sad += abs(a[row + x] - b[row2 + x + dx])
+                        x += 2
+                    }
+                    y += 2
+                }
+                if (sad < best) { best = sad; bx = dx; by = dy }
+            }
+        }
+        return bx to by
     }
 
     /**
@@ -378,5 +627,58 @@ internal class VoiceCleanProcessor(private val amount: Float) : BaseAudioProcess
     override fun onFlush(streamMetadata: AudioProcessor.StreamMetadata) {
         env = 0f
         gain = 1f
+    }
+}
+
+
+/**
+ * Stabilize: zoom in and shift each frame by the keyframed correction
+ * (clip-local output ms; x/y are fractions of the frame, y down).
+ */
+internal class StabilizeTransformation(
+    private val zoom: Float,
+    private val keysMs: LongArray,
+    private val xs: FloatArray,
+    private val ys: FloatArray,
+) : androidx.media3.effect.MatrixTransformation {
+    private var baseUs = Long.MIN_VALUE
+
+    override fun getMatrix(presentationTimeUs: Long): android.graphics.Matrix {
+        if (baseUs == Long.MIN_VALUE) baseUs = presentationTimeUs
+        val ms = (presentationTimeUs - baseUs) / 1000
+        var dx = 0f
+        var dy = 0f
+        if (keysMs.isNotEmpty()) {
+            var i = 0
+            while (i < keysMs.size - 1 && keysMs[i + 1] <= ms) i++
+            val j = (i + 1).coerceAtMost(keysMs.size - 1)
+            val span = (keysMs[j] - keysMs[i]).toFloat()
+            val k = if (j == i || span <= 0f) 0f else ((ms - keysMs[i]) / span).coerceIn(0f, 1f)
+            dx = xs[i] + (xs[j] - xs[i]) * k
+            dy = ys[i] + (ys[j] - ys[i]) * k
+        }
+        // NDC spans 2 units, y up.
+        return android.graphics.Matrix().apply {
+            postScale(zoom, zoom)
+            postTranslate(dx * 2f * zoom, -dy * 2f * zoom)
+        }
+    }
+
+    companion object {
+        fun fromMap(m: Map<String, Any?>?): StabilizeTransformation? {
+            if (m == null) return null
+            fun fl(v: Any?): FloatArray = when (v) {
+                is FloatArray -> v
+                is DoubleArray -> FloatArray(v.size) { v[it].toFloat() }
+                is List<*> -> v.map { (it as Number).toFloat() }.toFloatArray()
+                else -> FloatArray(0)
+            }
+            val keys = (m["keysMs"] as? List<*>)?.map { (it as Number).toLong() }?.toLongArray() ?: return null
+            val xs = fl(m["x"])
+            val ys = fl(m["y"])
+            if (xs.size != keys.size || ys.size != keys.size) return null
+            val zoom = (m["zoom"] as? Number)?.toFloat() ?: 1.1f
+            return StabilizeTransformation(zoom, keys, xs, ys)
+        }
     }
 }

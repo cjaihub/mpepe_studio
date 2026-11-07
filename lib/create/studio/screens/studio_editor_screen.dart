@@ -26,6 +26,7 @@ import '../services/studio_playback.dart';
 import '../services/studio_project_store.dart';
 import '../services/studio_publisher.dart';
 import '../services/studio_renderer.dart';
+import '../services/studio_stabilizer.dart';
 import '../services/studio_text_painter.dart';
 import '../widgets/studio_export_sheet.dart';
 import '../widgets/studio_panels.dart';
@@ -48,7 +49,7 @@ class StudioEditorArgs {
   const StudioEditorArgs({required this.project, this.target = StudioTarget.post, this.initialTool});
 }
 
-enum _Panel { none, clip, audio, text, captions, filters, looks, effects, retouch, voice, adjust, aspect, speed, volume, transform, crop, duration, audioVolume }
+enum _Panel { none, clip, audio, text, captions, filters, looks, effects, retouch, voice, stabilize, overlay, adjust, aspect, speed, volume, transform, crop, duration, audioVolume }
 
 /// Studio editor: preview, timeline and the tools that change the export.
 class StudioEditorScreen extends ConsumerStatefulWidget {
@@ -69,6 +70,7 @@ class _StudioEditorScreenState extends ConsumerState<StudioEditorScreen> {
   String? _textId;
   String? _audioId;
   String? _effectId;
+  String? _overlayId;
   _Panel _panel = _Panel.none;
   bool _fullscreen = false;
   Timer? _autosave;
@@ -191,6 +193,39 @@ class _StudioEditorScreenState extends ConsumerState<StudioEditorScreen> {
   StudioText? get _text => _p.texts.where((t) => t.id == _textId).firstOrNull;
   StudioAudio? get _audio => _p.audios.where((a) => a.id == _audioId).firstOrNull;
   StudioEffect? get _effect => _p.effects.where((e) => e.id == _effectId).firstOrNull;
+  StudioOverlay? get _overlay => _p.overlays.where((o) => o.id == _overlayId).firstOrNull;
+
+  void _replaceOverlay(StudioOverlay o, {bool live = false}) {
+    final list = [for (final x in _p.overlays) x.id == o.id ? o : x];
+    live ? _live(_p.copyWith(overlays: list)) : _set(_p.copyWith(overlays: list));
+  }
+
+  void _selectOverlay(String? id) => setState(() {
+        _overlayId = id;
+        _clipId = null;
+        _textId = null;
+        _audioId = null;
+        _effectId = null;
+        _panel = id == null ? _Panel.none : _Panel.overlay;
+      });
+
+  /// Picture-in-picture: a photo or video placed over the main track at the playhead.
+  Future<void> _addOverlay() async {
+    _pb.pause();
+    final res = await context.push<StudioPickResult>('/create/studio/picker?mode=${_isPhoto ? 'photo' : 'any'}&multi=0');
+    if (res == null || res.picks.isEmpty || !mounted) return;
+    final imported = await studioImportWithProgress(context, res.picks, allowVideo: !_isPhoto);
+    if (imported == null || imported.clips.isEmpty || !mounted) {
+      if (imported?.message != null) _toast(imported!.message!);
+      return;
+    }
+    final start = _isPhoto ? 0 : _pb.posMs;
+    final room = _isPhoto ? null : math.max(500, _p.durationMs - start);
+    final o = StudioOverlay.fromClip(imported.clips.first, offsetMs: start, maxMs: room);
+    _set(_p.copyWith(overlays: [..._p.overlays, o]));
+    _selectOverlay(o.id);
+    _toast('Drag to place it, pinch to resize and rotate');
+  }
 
   void _replaceClip(StudioClip c, {bool live = false}) {
     final clips = [for (final x in _p.clips) x.id == c.id ? c : x];
@@ -664,7 +699,37 @@ class _StudioEditorScreenState extends ConsumerState<StudioEditorScreen> {
     if (reversed == null || !mounted) return;
     _replaceClip(reversed);
     _pb.warmUp();
-    _toast('Clip reversed (its sound was left out)');
+    _toast('Clip reversed');
+  }
+
+  Future<void> _openStabilize() async {
+    final c = _clip;
+    if (c == null || c.isImage) {
+      _toast('Stabilize works on video clips');
+      return;
+    }
+    _pb.pause();
+    if (StudioStabilizer.cached(c) == null) {
+      final m = await runStudioTask<StudioMotion>(
+        context,
+        title: 'Measuring camera shake',
+        describeError: (e) => e is MediaEngineException ? e.message : '$e',
+        task: (onProgress) async {
+          final sub = OneovaMediaEngine.progress.listen(onProgress);
+          try {
+            return await StudioStabilizer.analyse(c);
+          } finally {
+            await sub.cancel();
+          }
+        },
+      );
+      if (m == null || !mounted) return;
+    }
+    if (c.stabilize == 0) _replaceClip(c.copyWith(stabilize: 0.5));
+    setState(() {
+      _clipId = c.id;
+      _panel = _Panel.stabilize;
+    });
   }
 
   Future<void> _detectBeats() async {
@@ -874,7 +939,7 @@ class _StudioEditorScreenState extends ConsumerState<StudioEditorScreen> {
               if (!_fullscreen) _controls(),
               if (!_fullscreen && !_isPhoto)
                 SizedBox(
-                  height: 182,
+                  height: 208,
                   child: StudioTimeline(
                     playback: _pb,
                     project: _p,
@@ -915,6 +980,9 @@ class _StudioEditorScreenState extends ConsumerState<StudioEditorScreen> {
                       _effectId = null;
                       _panel = _Panel.effects;
                     }),
+                    selectedOverlayId: _overlayId,
+                    onSelectOverlay: _selectOverlay,
+                    onAddOverlay: _addOverlay,
                     onTrimPreview: (c) => _replaceClip(c, live: true),
                     onTrimCommit: _commit,
                     onAddClip: _addClips,
@@ -1034,6 +1102,12 @@ class _StudioEditorScreenState extends ConsumerState<StudioEditorScreen> {
                     if (current != null) _replaceText(current.copyWith(size: size, rotation: rotation));
                   },
                   onEditText: _editText,
+                  selectedOverlayId: _overlayId,
+                  onSelectOverlay: _selectOverlay,
+                  onMoveOverlay: (o, x, y, sc, rot) {
+                    final current = _p.overlays.where((e) => e.id == o.id).firstOrNull;
+                    if (current != null) _replaceOverlay(current.copyWith(x: x, y: y, scale: sc, rotation: rot));
+                  },
                 ),
         ),
       ),
@@ -1113,6 +1187,7 @@ class _StudioEditorScreenState extends ConsumerState<StudioEditorScreen> {
         _textId = null;
         _audioId = null;
         _effectId = null;
+        _overlayId = null;
       });
 
   Widget _bottom() {
@@ -1169,6 +1244,102 @@ class _StudioEditorScreenState extends ConsumerState<StudioEditorScreen> {
           },
           onDone: () => setState(() => _panel = _isPhoto ? _Panel.none : _Panel.clip),
         );
+      case _Panel.overlay:
+        final o = _overlay;
+        if (o == null) return _mainBar();
+        return StudioPanel(
+          title: o.isImage ? 'Photo overlay' : 'Video overlay',
+          onDone: () => _selectOverlay(null),
+          action: Row(mainAxisSize: MainAxisSize.min, children: [
+            if (!_isPhoto) ...[
+              StudioTextAction(
+                icon: Icons.start_rounded,
+                label: 'Start',
+                onTap: () => _replaceOverlay(o.copyWith(offsetMs: math.min(_pb.posMs, math.max(0, _p.durationMs - 300)))),
+              ),
+              StudioTextAction(
+                icon: Icons.keyboard_tab_rounded,
+                label: 'End',
+                onTap: () {
+                  final len = _pb.posMs - o.offsetMs;
+                  if (len < 300) {
+                    _toast('Move the playhead inside the overlay');
+                    return;
+                  }
+                  _replaceOverlay(o.isImage ? o.copyWith(imageDurationMs: len) : o.copyWith(endMs: math.min(o.sourceDurationMs, o.startMs + len)));
+                },
+              ),
+            ],
+            StudioTextAction(
+              icon: Icons.delete_outline_rounded,
+              label: 'Delete',
+              onTap: () {
+                _set(_p.copyWith(overlays: [..._p.overlays]..removeWhere((x) => x.id == o.id)));
+                _selectOverlay(null);
+              },
+            ),
+          ]),
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(16, 4, 16, 10),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                StudioSliderRow(
+                  label: 'Size',
+                  value: o.scale * 100,
+                  min: 8,
+                  max: 150,
+                  format: (v) => '${v.round()}%',
+                  onChanged: (v) => _replaceOverlay(o.copyWith(scale: v / 100), live: true),
+                  onChangeEnd: (_) => _commit(),
+                ),
+                StudioSliderRow(
+                  label: 'Opacity',
+                  value: o.opacity * 100,
+                  min: 5,
+                  max: 100,
+                  format: (v) => '${v.round()}%',
+                  onChanged: (v) => _replaceOverlay(o.copyWith(opacity: v / 100), live: true),
+                  onChangeEnd: (_) => _commit(),
+                ),
+                StudioSliderRow(
+                  label: 'Rotate',
+                  value: o.rotation,
+                  min: -180,
+                  max: 180,
+                  format: (v) => '${v.round()}°',
+                  onChanged: (v) => _replaceOverlay(o.copyWith(rotation: v.roundToDouble()), live: true),
+                  onChangeEnd: (_) => _commit(),
+                ),
+                if (!o.isImage && o.hasAudio)
+                  StudioSliderRow(
+                    label: 'Volume',
+                    value: o.muted ? 0 : o.volume * 100,
+                    min: 0,
+                    max: 200,
+                    format: (v) => '${v.round()}%',
+                    onChanged: (v) => _replaceOverlay(o.copyWith(volume: v / 100, muted: v == 0), live: true),
+                    onChangeEnd: (_) => _commit(),
+                  ),
+              ],
+            ),
+          ),
+        );
+      case _Panel.stabilize:
+        if (clip == null || clip.isImage) return _mainBar();
+        return StudioSliderPanel(
+          title: 'Stabilize',
+          label: 'Strength',
+          value: clip.stabilize * 100,
+          min: 0,
+          max: 100,
+          format: (v) => v == 0 ? 'Off' : '${v.round()}',
+          onLive: (v) => _replaceClip(clip.copyWith(stabilize: v / 100), live: true),
+          onCommit: _commit,
+          onDone: () => setState(() => _panel = _Panel.clip),
+          footer: Text('Smooths handheld shake. Stronger settings zoom in a little more to hide the edges.',
+              style: GoogleFonts.inter(color: context.textMuted, fontSize: 11.5)),
+        );
       case _Panel.voice:
         if (clip == null || clip.isImage) return _mainBar();
         return StudioSliderPanel(
@@ -1181,7 +1352,7 @@ class _StudioEditorScreenState extends ConsumerState<StudioEditorScreen> {
           onLive: (v) => _replaceClip(clip.copyWith(voiceClean: v / 100), live: true),
           onCommit: _commit,
           onDone: () => setState(() => _panel = _Panel.clip),
-          footer: Text('Cuts rumble and background hiss, evens out loud and quiet parts. You hear it in the export.',
+          footer: Text('Cuts rumble and background hiss, evens out loud and quiet parts. The preview switches to the cleaned sound a moment after you let go.',
               style: GoogleFonts.inter(color: context.textMuted, fontSize: 11.5)),
         );
       case _Panel.effects:
@@ -1345,6 +1516,7 @@ class _StudioEditorScreenState extends ConsumerState<StudioEditorScreen> {
         StudioToolButton(icon: Icons.auto_fix_high_rounded, label: 'Effects', onTap: () => setState(() => _panel = _Panel.effects)),
         StudioToolButton(icon: Icons.title_rounded, label: 'Text', onTap: () => _addText()),
         StudioToolButton(icon: Icons.emoji_emotions_outlined, label: 'Stickers', onTap: _addSticker),
+        StudioToolButton(icon: Icons.picture_in_picture_alt_rounded, label: 'Overlay', onTap: _addOverlay),
         StudioToolButton(icon: Icons.aspect_ratio_rounded, label: 'Canvas', onTap: () => setState(() => _panel = _Panel.aspect)),
         StudioToolButton(icon: Icons.add_photo_alternate_outlined, label: 'Replace', onTap: _replace),
       ]);
@@ -1359,6 +1531,7 @@ class _StudioEditorScreenState extends ConsumerState<StudioEditorScreen> {
       StudioToolButton(icon: Icons.movie_filter_outlined, label: 'Looks', onTap: () => _openClipPanel(_Panel.looks)),
       StudioToolButton(icon: Icons.auto_awesome_outlined, label: 'Filters', onTap: () => _openClipPanel(_Panel.filters)),
       StudioToolButton(icon: Icons.tune_rounded, label: 'Adjust', onTap: () => _openClipPanel(_Panel.adjust)),
+      StudioToolButton(icon: Icons.picture_in_picture_alt_rounded, label: 'Overlay', onTap: _addOverlay),
       StudioToolButton(icon: Icons.emoji_emotions_outlined, label: 'Stickers', onTap: _addSticker),
       StudioToolButton(icon: Icons.aspect_ratio_rounded, label: 'Canvas', onTap: () => setState(() => _panel = _Panel.aspect)),
     ]);
@@ -1381,6 +1554,7 @@ class _StudioEditorScreenState extends ConsumerState<StudioEditorScreen> {
       StudioToolButton(icon: Icons.swap_horiz_rounded, label: 'Replace', onTap: _replace),
       if (video) StudioToolButton(icon: Icons.pause_presentation_outlined, label: 'Freeze', onTap: _freeze),
       if (video) StudioToolButton(icon: Icons.fast_rewind_rounded, label: 'Reverse', onTap: _reverse),
+      if (video) StudioToolButton(icon: Icons.video_stable_rounded, label: 'Stabilize', onTap: _openStabilize),
       if (video && clip.hasAudio) StudioToolButton(icon: Icons.record_voice_over_outlined, label: 'Clean voice', onTap: () => setState(() => _panel = _Panel.voice)),
       if (video) StudioToolButton(icon: Icons.graphic_eq_rounded, label: 'Extract audio', onTap: _extractAudio),
       if (video)

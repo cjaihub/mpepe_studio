@@ -13,8 +13,8 @@ class StudioClipTools {
   /// Longest clip that can be reversed (frames are decoded one by one).
   static const maxReverseMs = 60000;
 
-  /// A backwards copy of [c]'s trimmed range, as a new clip with its edits kept
-  /// (sound is dropped: reversed speech is rarely wanted).
+  /// A backwards copy of [c]'s trimmed range (picture and sound), as a new
+  /// clip with its edits kept.
   static Future<StudioClip> reverse(StudioClip c) async {
     if (c.isImage) throw const MediaEngineException('photo', 'Reverse works on video clips.');
     if (c.endMs - c.startMs > maxReverseMs) {
@@ -32,7 +32,7 @@ class StudioClipTools {
     );
     final probe = await OneovaMediaEngine.probe(out);
     final dur = probe.duration.inMilliseconds;
-    return StudioClip.create(path: out, isImage: false, durationMs: dur, width: probe.width, height: probe.height, fps: fps.toDouble(), hasAudio: false)
+    return StudioClip.create(path: out, isImage: false, durationMs: dur, width: probe.width, height: probe.height, fps: fps.toDouble(), hasAudio: probe.hasAudio)
         .copyWith(
       id: c.id,
       speed: c.speed,
@@ -44,6 +44,8 @@ class StudioClipTools {
       retouch: c.retouch,
       fill: c.fill,
       zoom: c.zoom,
+      volume: c.volume,
+      muted: c.muted,
     );
   }
 

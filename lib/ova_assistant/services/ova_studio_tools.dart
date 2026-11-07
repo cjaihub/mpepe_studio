@@ -62,7 +62,8 @@ class OvaStudioTools {
               '- add_text: text, optional name = text template (id or style word like neon, bold, elegant, karaoke), start_s, end_s, value = vertical position -0.9 (top) .. 0.9 (bottom)\n'
               '- caption_style: name = a caption style (${StudioTextTemplates.inCategory('Captions').map((t) => t.id).join('|')})\n'
               '- add_effect: name = ${StudioEffects.all.map((e) => e.id).join('|')}; start_s, end_s; value = strength 0-1\n'
-              '- voice_clean: value 0-1 cleans speech (rumble, hiss, levels); reverse: clip number, plays it backwards; beat_sync: cuts clips to the music beat\n'
+              '- voice_clean: value 0-1 cleans speech (rumble, hiss, levels); reverse: clip number, plays it backwards; beat_sync: cuts clips to the music beat; stabilize: value 0-1 smooths camera shake\n'
+              '- add_overlay: picture-in-picture of the newest gallery video (name = photo for a photo), start_s, value = size 0.08-1.5; clear_overlays\n'
               '- clear_effects, clear_text, rename (text)\n'
               'Omit clip to apply to every clip.',
           properties: {

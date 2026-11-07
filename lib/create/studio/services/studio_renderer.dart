@@ -16,8 +16,10 @@ import 'studio_effects.dart';
 import 'studio_faces.dart';
 import 'studio_looks.dart';
 import 'studio_project_store.dart';
+import 'studio_stabilizer.dart';
 import 'studio_text_animator.dart';
 import 'studio_text_painter.dart';
+import 'studio_voice_preview.dart';
 
 /// Video output picked in the export sheet.
 class StudioVideoSettings {
@@ -90,8 +92,51 @@ class StudioRenderer {
     return _TextLayerRender(frames, sampleMs, samples);
   }
 
+  /// Bitmaps and keyframes of a picture-in-picture layer, at its size on a
+  /// canvas [canvas] wide. Video frames are pulled at the export rate.
+  static Future<_TextLayerRender> _renderOverlay(StudioOverlay o, Size canvas, String dir, int fps) async {
+    final w = math.max(2, (o.scale * canvas.width).round());
+    final h = math.max(2, (w / o.aspect).round());
+    if (o.isImage) {
+      final bytes = await File(o.path).readAsBytes();
+      final codec = await ui.instantiateImageCodec(bytes, targetWidth: w, targetHeight: h);
+      final frame = await codec.getNextFrame();
+      final png = await frame.image.toByteData(format: ui.ImageByteFormat.png);
+      frame.image.dispose();
+      final out = File('$dir/overlay_${o.id}.png');
+      await out.writeAsBytes(png!.buffer.asUint8List(), flush: true);
+      return _TextLayerRender([out.path], 1e9, Float32List.fromList([o.opacity, 1, 1, 0, 0, o.rotation, 0]));
+    }
+    final dur = math.max(1, o.durationMs);
+    // At most 1800 frames (a minute at 30 fps); longer layers use fewer.
+    final rate = math.min(fps, math.max(5, (1800 * 1000 / dur).floor()));
+    final step = 1000 / rate;
+    final times = [for (var t = 0.0; t < dur; t += step) o.startMs + t.round()];
+    final paths = await OneovaMediaEngine.frames(o.path, timesMs: times, outDir: '$dir/ov_${o.id}', maxSide: math.max(w, h));
+    final frames = <String>[];
+    for (final p in paths) {
+      frames.add(p.isNotEmpty ? p : (frames.isNotEmpty ? frames.last : ''));
+    }
+    final firstGood = frames.firstWhere((p) => p.isNotEmpty, orElse: () => '');
+    if (firstGood.isEmpty) throw const MediaEngineException('overlay', 'Could not read the overlay video.');
+    for (var i = 0; i < frames.length; i++) {
+      if (frames[i].isEmpty) frames[i] = firstGood;
+    }
+    final samples = Float32List(frames.length * 7);
+    for (var i = 0; i < frames.length; i++) {
+      final k = i * 7;
+      samples[k] = o.opacity;
+      samples[k + 1] = 1;
+      samples[k + 2] = 1;
+      samples[k + 5] = o.rotation;
+      samples[k + 6] = i.toDouble();
+    }
+    return _TextLayerRender(frames, step, samples);
+  }
+
   /// Renders a video project to an MP4 and returns its path.
   static Future<String> exportVideo(StudioProject project, StudioVideoSettings s) async {
+    await StudioVoicePreview.idle();
     final work = await StudioProjectStore.dir('render/${project.id}');
     final size = studioCanvasSize(project.canvasAspect, s.shortSide);
     await StudioTextPainter.ensureFonts(project.texts);
@@ -101,12 +146,32 @@ class StudioRenderer {
       layers[t.id] = await _renderText(t, size, work.path, sampleMs);
     }
 
+    final overlayLayers = <String, _TextLayerRender>{};
+    for (final o in project.overlays) {
+      overlayLayers[o.id] = await _renderOverlay(o, size, work.path, s.fps > 0 ? math.min(30, s.fps) : 30);
+    }
+
     final lookSpecs = <String, Map<String, Object?>>{};
     final clips = <Map<String, Object?>>[];
     var clipStart = 0;
     for (final c in project.clips) {
       final clipEnd = clipStart + c.outDurationMs;
       final overlays = <Map<String, Object?>>[];
+      // Picture-in-picture layers sit under the text.
+      for (final o in project.overlays) {
+        if (o.endOnTimeline <= clipStart || o.offsetMs >= clipEnd) continue;
+        final r = overlayLayers[o.id]!;
+        overlays.add({
+          'frames': r.frames,
+          'x': o.x,
+          'y': -o.y,
+          'startMs': math.max(0, o.offsetMs - clipStart),
+          'endMs': math.min(o.endOnTimeline, clipEnd) - clipStart,
+          'layerOffsetMs': clipStart - o.offsetMs,
+          if (r.samples != null) 'sampleMs': r.sampleMs,
+          if (r.samples != null) 'samples': r.samples,
+        });
+      }
       for (final t in project.texts) {
         if (t.endMs <= clipStart || t.startMs >= clipEnd) continue;
         final layer = StudioTextPainter.measure(t, size.width);
@@ -136,6 +201,14 @@ class StudioRenderer {
         }
         retouch = StudioFaceTracker.exportSpec(c, track);
       }
+      Map<String, Object?>? stabilize;
+      if (!c.isImage && c.stabilize > 0) {
+        try {
+          stabilize = StudioStabilizer.plan(c, await StudioStabilizer.analyse(c))?.toExport();
+        } catch (e) {
+          debugPrint('[StudioRenderer] stabilize analysis failed: $e');
+        }
+      }
       final look = StudioLooks.forClip(c);
       Map<String, Object?>? lookSpec;
       if (look != null) lookSpec = lookSpecs[look.id] ??= await StudioLooks.exportSpec(look);
@@ -153,6 +226,7 @@ class StudioRenderer {
         if (!StudioColor.isIdentity(matrix)) 'matrix': matrix,
         'look': ?lookSpec,
         'retouch': ?retouch,
+        'stabilize': ?stabilize,
         if (!c.crop.isFull) 'crop': c.crop.toJson(),
         'rotation': c.rotation,
         'flipH': c.flipH,
@@ -175,6 +249,16 @@ class StudioRenderer {
             'endMs': a.startMs + math.min(a.durationMs, total - a.offsetMs),
             'offsetMs': a.offsetMs,
             'volume': a.volume,
+          },
+      // Overlay video sound.
+      for (final o in project.overlays)
+        if (!o.isImage && o.hasAudio && !o.muted && o.offsetMs < total)
+          {
+            'path': o.path,
+            'startMs': o.startMs,
+            'endMs': o.startMs + math.min(o.durationMs, total - o.offsetMs),
+            'offsetMs': o.offsetMs,
+            'volume': o.volume,
           },
     ];
 
@@ -276,6 +360,29 @@ class StudioRenderer {
     await _paintGraded(canvas, size, clip, src, look, shaders ? lookProgram : null);
     for (var i = 0; i < fxLayers.length; i++) {
       canvas.restore();
+    }
+    for (final o in project.overlays) {
+      final ow = o.scale * size.width, oh = ow / o.aspect;
+      String src = o.path;
+      if (!o.isImage) {
+        final dir = await StudioProjectStore.dir('render/${project.id}');
+        src = await OneovaMediaEngine.frame(o.path, ms: o.startMs, out: '${dir.path}/ovstill_${o.id}.jpg', maxSide: math.max(ow, oh).round());
+      }
+      final codec = await ui.instantiateImageCodec(await File(src).readAsBytes(), targetWidth: math.max(2, ow.round()));
+      final img = (await codec.getNextFrame()).image;
+      canvas.save();
+      canvas.translate((o.x + 1) / 2 * size.width, (o.y + 1) / 2 * size.height);
+      if (o.rotation != 0) canvas.rotate(o.rotation * math.pi / 180);
+      canvas.drawImageRect(
+        img,
+        Rect.fromLTWH(0, 0, img.width.toDouble(), img.height.toDouble()),
+        Rect.fromCenter(center: Offset.zero, width: ow, height: oh),
+        Paint()
+          ..filterQuality = FilterQuality.high
+          ..color = AppColors.brandBlack.withValues(alpha: o.opacity.clamp(0.0, 1.0)),
+      );
+      canvas.restore();
+      img.dispose();
     }
     for (final t in project.texts) {
       final layer = StudioTextPainter.measure(t, size.width);

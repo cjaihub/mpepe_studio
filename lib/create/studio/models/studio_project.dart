@@ -236,6 +236,9 @@ class StudioClip {
 
   /// Voice clean-up strength 0..1 (rumble cut, gate, presence, compressor), applied in the export.
   final double voiceClean;
+
+  /// Stabilize strength 0..1 (camera path smoothed, slight zoom).
+  final double stabilize;
   final String filterId;
   final double filterIntensity;
 
@@ -267,6 +270,7 @@ class StudioClip {
     this.volume = 1,
     this.muted = false,
     this.voiceClean = 0,
+    this.stabilize = 0,
     this.filterId = 'none',
     this.filterIntensity = 1,
     this.lookId = 'none',
@@ -337,6 +341,7 @@ class StudioClip {
     double? volume,
     bool? muted,
     double? voiceClean,
+    double? stabilize,
     String? filterId,
     double? filterIntensity,
     String? lookId,
@@ -366,6 +371,7 @@ class StudioClip {
         volume: volume ?? this.volume,
         muted: muted ?? this.muted,
         voiceClean: voiceClean ?? this.voiceClean,
+        stabilize: stabilize ?? this.stabilize,
         filterId: filterId ?? this.filterId,
         filterIntensity: filterIntensity ?? this.filterIntensity,
         lookId: lookId ?? this.lookId,
@@ -396,6 +402,7 @@ class StudioClip {
         'volume': volume,
         'muted': muted,
         'voiceClean': voiceClean,
+        'stabilize': stabilize,
         'filterId': filterId,
         'filterIntensity': filterIntensity,
         'lookId': lookId,
@@ -426,6 +433,7 @@ class StudioClip {
         volume: (m['volume'] as num?)?.toDouble() ?? 1,
         muted: m['muted'] == true,
         voiceClean: (m['voiceClean'] as num?)?.toDouble() ?? 0,
+        stabilize: (m['stabilize'] as num?)?.toDouble() ?? 0,
         filterId: m['filterId'] as String? ?? 'none',
         filterIntensity: (m['filterIntensity'] as num?)?.toDouble() ?? 1,
         lookId: m['lookId'] as String? ?? 'none',
@@ -658,6 +666,161 @@ class StudioText {
   }
 }
 
+/// A picture-in-picture layer: a photo or video placed over the main track.
+class StudioOverlay {
+  final String id;
+  final String path;
+  final bool isImage;
+  final int sourceDurationMs;
+  final int sourceWidth;
+  final int sourceHeight;
+  final bool hasAudio;
+
+  /// Source trim (video).
+  final int startMs;
+  final int endMs;
+
+  /// Timeline start and, for photos, how long it shows.
+  final int offsetMs;
+  final int imageDurationMs;
+
+  /// Center, -1..1 (y down), like text layers.
+  final double x;
+  final double y;
+
+  /// Width as a fraction of the canvas width.
+  final double scale;
+  final double rotation;
+  final double opacity;
+  final double volume;
+  final bool muted;
+
+  const StudioOverlay({
+    required this.id,
+    required this.path,
+    required this.isImage,
+    required this.sourceDurationMs,
+    required this.sourceWidth,
+    required this.sourceHeight,
+    this.hasAudio = false,
+    this.startMs = 0,
+    this.endMs = 0,
+    this.offsetMs = 0,
+    this.imageDurationMs = 3000,
+    this.x = 0.45,
+    this.y = -0.45,
+    this.scale = 0.4,
+    this.rotation = 0,
+    this.opacity = 1,
+    this.volume = 1,
+    this.muted = false,
+  });
+
+  factory StudioOverlay.fromClip(StudioClip c, {required int offsetMs, int? maxMs}) {
+    final src = c.isImage ? 0 : c.endMs - c.startMs;
+    final int end = c.isImage ? 0 : c.startMs + (maxMs == null ? src : math.min(src, maxMs));
+    return StudioOverlay(
+      id: _uuid.v4(),
+      path: c.path,
+      isImage: c.isImage,
+      sourceDurationMs: c.sourceDurationMs,
+      sourceWidth: c.sourceWidth,
+      sourceHeight: c.sourceHeight,
+      hasAudio: c.hasAudio,
+      startMs: c.startMs,
+      endMs: end,
+      offsetMs: offsetMs,
+      imageDurationMs: maxMs == null ? 3000 : math.min(3000, maxMs).toInt(),
+    );
+  }
+
+  int get durationMs => isImage ? imageDurationMs : endMs - startMs;
+  int get endOnTimeline => offsetMs + durationMs;
+
+  /// Source width / height.
+  double get aspect => sourceWidth <= 0 || sourceHeight <= 0 ? 16 / 9 : sourceWidth / sourceHeight;
+
+  StudioOverlay copyWith({
+    int? startMs,
+    int? endMs,
+    int? offsetMs,
+    int? imageDurationMs,
+    double? x,
+    double? y,
+    double? scale,
+    double? rotation,
+    double? opacity,
+    double? volume,
+    bool? muted,
+  }) =>
+      StudioOverlay(
+        id: id,
+        path: path,
+        isImage: isImage,
+        sourceDurationMs: sourceDurationMs,
+        sourceWidth: sourceWidth,
+        sourceHeight: sourceHeight,
+        hasAudio: hasAudio,
+        startMs: startMs ?? this.startMs,
+        endMs: endMs ?? this.endMs,
+        offsetMs: offsetMs ?? this.offsetMs,
+        imageDurationMs: imageDurationMs ?? this.imageDurationMs,
+        x: x ?? this.x,
+        y: y ?? this.y,
+        scale: scale ?? this.scale,
+        rotation: rotation ?? this.rotation,
+        opacity: opacity ?? this.opacity,
+        volume: volume ?? this.volume,
+        muted: muted ?? this.muted,
+      );
+
+  Map<String, dynamic> toJson() => {
+        'id': id,
+        'path': path,
+        'isImage': isImage,
+        'sourceDurationMs': sourceDurationMs,
+        'sourceWidth': sourceWidth,
+        'sourceHeight': sourceHeight,
+        'hasAudio': hasAudio,
+        'startMs': startMs,
+        'endMs': endMs,
+        'offsetMs': offsetMs,
+        'imageDurationMs': imageDurationMs,
+        'x': x,
+        'y': y,
+        'scale': scale,
+        'rotation': rotation,
+        'opacity': opacity,
+        'volume': volume,
+        'muted': muted,
+      };
+
+  factory StudioOverlay.fromJson(Map<String, dynamic> m) {
+    double d(String k, double def) => (m[k] as num?)?.toDouble() ?? def;
+    int i(String k, int def) => (m[k] as num?)?.toInt() ?? def;
+    return StudioOverlay(
+      id: m['id'] as String,
+      path: m['path'] as String,
+      isImage: m['isImage'] == true,
+      sourceDurationMs: i('sourceDurationMs', 0),
+      sourceWidth: i('sourceWidth', 0),
+      sourceHeight: i('sourceHeight', 0),
+      hasAudio: m['hasAudio'] == true,
+      startMs: i('startMs', 0),
+      endMs: i('endMs', 0),
+      offsetMs: i('offsetMs', 0),
+      imageDurationMs: i('imageDurationMs', 3000),
+      x: d('x', 0.45),
+      y: d('y', -0.45),
+      scale: d('scale', 0.4),
+      rotation: d('rotation', 0),
+      opacity: d('opacity', 1),
+      volume: d('volume', 1),
+      muted: m['muted'] == true,
+    );
+  }
+}
+
 /// A timed visual effect over the whole frame (`StudioEffects` catalog),
 /// baked into exports by the native Studio FX shader.
 class StudioEffect {
@@ -798,6 +961,7 @@ class StudioProject {
   final List<StudioText> texts;
   final List<StudioAudio> audios;
   final List<StudioEffect> effects;
+  final List<StudioOverlay> overlays;
 
   /// Output time of the cover frame.
   final int coverMs;
@@ -817,6 +981,7 @@ class StudioProject {
     this.texts = const [],
     this.audios = const [],
     this.effects = const [],
+    this.overlays = const [],
     this.coverMs = 0,
     this.thumbnailPath,
     this.exportShortSide = 0,
@@ -879,6 +1044,7 @@ class StudioProject {
     List<StudioText>? texts,
     List<StudioAudio>? audios,
     List<StudioEffect>? effects,
+    List<StudioOverlay>? overlays,
     int? coverMs,
     String? thumbnailPath,
     int? exportShortSide,
@@ -895,6 +1061,7 @@ class StudioProject {
         texts: texts ?? this.texts,
         audios: audios ?? this.audios,
         effects: effects ?? this.effects,
+        overlays: overlays ?? this.overlays,
         coverMs: coverMs ?? this.coverMs,
         thumbnailPath: thumbnailPath ?? this.thumbnailPath,
         exportShortSide: exportShortSide ?? this.exportShortSide,
@@ -911,6 +1078,7 @@ class StudioProject {
         'texts': texts.map((t) => t.toJson()).toList(),
         'audios': audios.map((a) => a.toJson()).toList(),
         'effects': effects.map((e) => e.toJson()).toList(),
+        'overlays': overlays.map((o) => o.toJson()).toList(),
         'coverMs': coverMs,
         'thumbnailPath': thumbnailPath,
         'exportShortSide': exportShortSide,
@@ -927,6 +1095,7 @@ class StudioProject {
         texts: [for (final t in (m['texts'] as List? ?? const [])) StudioText.fromJson((t as Map).cast<String, dynamic>())],
         audios: [for (final a in (m['audios'] as List? ?? const [])) StudioAudio.fromJson((a as Map).cast<String, dynamic>())],
         effects: [for (final e in (m['effects'] as List? ?? const [])) StudioEffect.fromJson((e as Map).cast<String, dynamic>())],
+        overlays: [for (final o in (m['overlays'] as List? ?? const [])) StudioOverlay.fromJson((o as Map).cast<String, dynamic>())],
         coverMs: (m['coverMs'] as num?)?.toInt() ?? 0,
         thumbnailPath: m['thumbnailPath'] as String?,
         exportShortSide: (m['exportShortSide'] as num?)?.toInt() ?? 0,

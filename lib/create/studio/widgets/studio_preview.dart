@@ -11,6 +11,7 @@ import '../services/studio_effects.dart';
 import '../services/studio_faces.dart';
 import '../services/studio_looks.dart';
 import '../services/studio_playback.dart';
+import '../services/studio_stabilizer.dart';
 import '../services/studio_text_painter.dart';
 import 'studio_text_widgets.dart';
 
@@ -23,6 +24,11 @@ class StudioPreview extends StatelessWidget {
   final ValueChanged<String?> onSelectText;
   final void Function(StudioText text, double x, double y) onMoveText;
   final ValueChanged<StudioText> onEditText;
+
+  /// Picture-in-picture layer selection and moves.
+  final String? selectedOverlayId;
+  final ValueChanged<String?>? onSelectOverlay;
+  final void Function(StudioOverlay overlay, double x, double y, double scale, double rotation)? onMoveOverlay;
 
   /// Pinch on a layer: new size and rotation.
   final void Function(StudioText text, double size, double rotation)? onTransformText;
@@ -39,6 +45,9 @@ class StudioPreview extends StatelessWidget {
     required this.onMoveText,
     required this.onEditText,
     this.onTransformText,
+    this.selectedOverlayId,
+    this.onSelectOverlay,
+    this.onMoveOverlay,
     this.showAllText = false,
   });
 
@@ -85,6 +94,17 @@ class StudioPreview extends StatelessWidget {
                     fit: StackFit.expand,
                     children: [
                       frame,
+                      for (final o in project.overlays)
+                        if (showAllText || (pos >= o.offsetMs && pos < o.endOnTimeline))
+                          _DraggableOverlay(
+                            key: ValueKey('ov_${o.id}'),
+                            overlay: o,
+                            canvas: Size(w, h),
+                            controller: playback.overlayController(o),
+                            selected: o.id == selectedOverlayId,
+                            onTap: () => onSelectOverlay?.call(o.id),
+                            onChange: (x, y, sc, rot) => onMoveOverlay?.call(o, x, y, sc, rot),
+                          ),
                       for (final t in texts)
                         _DraggableText(
                           key: ValueKey(t.id),
@@ -134,6 +154,20 @@ class StudioClipView extends StatelessWidget {
       media = const ColoredBox(color: AppColors.brandBlack);
     }
     media = SizedBox(width: sw, height: sh, child: media);
+    // Stabilize: same zoom and per-frame shift as the export.
+    final plan = uncropped ? null : StudioStabilizer.plan(clip);
+    if (plan != null) {
+      final (dx, dy) = plan.at(localMs);
+      media = ClipRect(
+        child: Transform(
+          alignment: Alignment.center,
+          transform: Matrix4.identity()
+            ..translateByDouble(dx * plan.zoom * sw, dy * plan.zoom * sh, 0, 1)
+            ..scaleByDouble(plan.zoom, plan.zoom, 1, 1),
+          child: media,
+        ),
+      );
+    }
 
     final crop = uncropped ? const StudioCrop() : clip.crop;
     final cw = sw * (crop.r - crop.l);
@@ -248,6 +282,107 @@ class _DraggableTextState extends State<_DraggableText> {
           }
         },
         child: StudioAnimatedTextLayer(text: t, canvas: c, ms: widget.ms, selected: widget.selected),
+      ),
+    );
+  }
+}
+
+
+/// A picture-in-picture layer: drag to move, pinch to resize and rotate.
+class _DraggableOverlay extends StatefulWidget {
+  final StudioOverlay overlay;
+  final Size canvas;
+  final VideoPlayerController? controller;
+  final bool selected;
+  final VoidCallback onTap;
+  final void Function(double x, double y, double scale, double rotation) onChange;
+
+  const _DraggableOverlay({
+    super.key,
+    required this.overlay,
+    required this.canvas,
+    required this.controller,
+    required this.selected,
+    required this.onTap,
+    required this.onChange,
+  });
+
+  @override
+  State<_DraggableOverlay> createState() => _DraggableOverlayState();
+}
+
+class _DraggableOverlayState extends State<_DraggableOverlay> {
+  Offset? _center;
+  double? _scale;
+  double? _rotation;
+  double _startScale = 0;
+  double _startRotation = 0;
+
+  @override
+  Widget build(BuildContext context) {
+    final o = widget.overlay;
+    final c = widget.canvas;
+    final scale = _scale ?? o.scale;
+    final rotation = _rotation ?? o.rotation;
+    final w = scale * c.width;
+    final h = w / o.aspect;
+    final center = _center ?? Offset((o.x + 1) / 2 * c.width, (o.y + 1) / 2 * c.height);
+    Widget media;
+    if (o.isImage) {
+      media = Image.file(File(o.path), fit: BoxFit.fill, cacheWidth: 1080, gaplessPlayback: true);
+    } else if (widget.controller != null && widget.controller!.value.isInitialized) {
+      media = VideoPlayer(widget.controller!);
+    } else {
+      media = const ColoredBox(color: AppColors.brandBlack);
+    }
+    return Positioned(
+      left: center.dx - w / 2,
+      top: center.dy - h / 2,
+      width: w,
+      height: h,
+      child: GestureDetector(
+        onTap: widget.onTap,
+        onScaleStart: (_) {
+          _startScale = o.scale;
+          _startRotation = o.rotation;
+          setState(() => _center = center);
+        },
+        onScaleUpdate: (d) => setState(() {
+          _center = (_center ?? center) + d.focalPointDelta;
+          if (d.pointerCount > 1) {
+            _scale = (_startScale * d.scale).clamp(0.08, 1.5);
+            _rotation = _startRotation + d.rotation * 180 / math.pi;
+          }
+        }),
+        onScaleEnd: (_) {
+          final p = _center ?? center;
+          final sc = _scale ?? o.scale;
+          final rot = _rotation ?? o.rotation;
+          setState(() {
+            _center = null;
+            _scale = null;
+            _rotation = null;
+          });
+          widget.onChange(
+            (p.dx / c.width * 2 - 1).clamp(-1.5, 1.5),
+            (p.dy / c.height * 2 - 1).clamp(-1.5, 1.5),
+            sc,
+            (rot * 10).roundToDouble() / 10,
+          );
+        },
+        child: Transform.rotate(
+          angle: rotation * math.pi / 180,
+          child: Opacity(
+            opacity: o.opacity.clamp(0.0, 1.0),
+            child: DecoratedBox(
+              position: DecorationPosition.foreground,
+              decoration: BoxDecoration(
+                border: widget.selected ? Border.all(color: AppColors.brandWhite.withValues(alpha: 0.9), width: 1) : null,
+              ),
+              child: media,
+            ),
+          ),
+        ),
       ),
     );
   }

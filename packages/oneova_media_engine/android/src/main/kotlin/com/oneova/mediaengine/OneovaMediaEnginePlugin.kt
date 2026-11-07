@@ -111,6 +111,15 @@ class OneovaMediaEnginePlugin : FlutterPlugin, MethodChannel.MethodCallHandler {
                     onProgress = ::postProgress,
                 )
             }
+            "motion" -> background(result) {
+                StudioMediaTools.motion(
+                    call.argument<String>("path")!!,
+                    (call.argument<Number>("startMs") ?: 0).toLong(),
+                    (call.argument<Number>("endMs") ?: 0).toLong(),
+                    call.argument<Int>("fps") ?: 8,
+                    ::postProgress,
+                )
+            }
             "beats" -> background(result) {
                 StudioMediaTools.beats(call.argument<String>("path")!!, (call.argument<Number>("maxMs") ?: 600000).toLong())
             }

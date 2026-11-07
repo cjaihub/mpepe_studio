@@ -20,6 +20,7 @@ import 'studio_media.dart';
 import 'studio_project_store.dart';
 import 'studio_publisher.dart';
 import 'studio_renderer.dart';
+import 'studio_stabilizer.dart';
 import 'studio_text_templates.dart';
 import '../widgets/studio_export_sheet.dart';
 
@@ -59,7 +60,7 @@ class StudioAgent {
     final kind = p.isPhoto ? 'photo' : 'video';
     return '"${p.title}" (id ${p.id.substring(0, 8)}, $kind, ${p.clips.length} clip${p.clips.length == 1 ? '' : 's'}'
         '${p.isPhoto ? '' : ', ${secs}s'}, ${p.aspect.label}, ${p.texts.where((t) => t.isCaption).length} captions, '
-        '${p.texts.where((t) => !t.isCaption).length} text layers, ${p.effects.length} effects)';
+        '${p.texts.where((t) => !t.isCaption).length} text layers, ${p.effects.length} effects, ${p.overlays.length} overlays)';
   }
 
   /// New project from the newest [count] gallery items.
@@ -104,7 +105,7 @@ class StudioAgent {
   static const editActions = [
     'look', 'filter', 'adjust', 'retouch', 'beauty', 'speed', 'volume', 'mute', 'unmute', 'trim', 'aspect', 'fill', //
     'add_text', 'add_effect', 'clear_effects', 'clear_text', 'caption_style', 'rename', //
-    'voice_clean', 'reverse', 'beat_sync',
+    'voice_clean', 'reverse', 'beat_sync', 'stabilize', 'add_overlay', 'clear_overlays',
   ];
 
   Future<StudioAgentResult> edit(
@@ -221,6 +222,39 @@ class StudioAgent {
         final k = (v ?? 0.6).clamp(0.0, 1.0);
         p = _mapClips(p, clip, (c) => c.isImage ? c : c.copyWith(voiceClean: k));
         done = k == 0 ? 'Turned voice clean-up off' : 'Voice clean-up at ${(k * 100).round()}%';
+      case 'add_overlay':
+        // Newest gallery photo (name = photo) or video as picture-in-picture.
+        final photoLayer = name == 'photo' || p.isPhoto;
+        final perm = await PhotoManager.requestPermissionExtend();
+        if (!perm.hasAccess) return const StudioAgentResult(false, 'Oneova needs gallery access to add an overlay.');
+        final paths = await PhotoManager.getAssetPathList(type: photoLayer ? RequestType.image : RequestType.video, onlyAll: true);
+        final assets = paths.isEmpty ? const <AssetEntity>[] : await paths.first.getAssetListPaged(page: 0, size: 1);
+        final file = assets.isEmpty ? null : (await assets.first.originFile ?? await assets.first.file);
+        if (file == null) return const StudioAgentResult(false, 'No media found in the gallery for the overlay.');
+        final imported = await StudioMedia.importPicks([
+          StudioPick(path: file.path, isImage: photoLayer, durationMs: assets.first.videoDuration.inMilliseconds, width: 0, height: 0, endMs: 0),
+        ], allowVideo: !p.isPhoto);
+        if (imported.clips.isEmpty) return StudioAgentResult(false, imported.message ?? 'Could not open that media.');
+        final at = p.isPhoto ? 0 : ms(startS, 0);
+        var o = StudioOverlay.fromClip(imported.clips.first, offsetMs: at, maxMs: p.isPhoto ? null : math.max(500, total - at));
+        if (v != null) o = o.copyWith(scale: v.clamp(0.08, 1.5));
+        p = p.copyWith(overlays: [...p.overlays, o]);
+        done = 'Added the newest ${photoLayer ? 'photo' : 'video'} as an overlay';
+      case 'clear_overlays':
+        p = p.copyWith(overlays: const []);
+        done = 'Removed all overlays';
+      case 'stabilize':
+        final k = (v ?? 0.5).clamp(0.0, 1.0);
+        for (final i in _clipIndexes(p, clip)) {
+          if (p.clips[i].isImage || k == 0) continue;
+          try {
+            await StudioStabilizer.analyse(p.clips[i]);
+          } on MediaEngineException catch (e) {
+            return StudioAgentResult(false, e.message);
+          }
+        }
+        p = _mapClips(p, clip, (c) => c.isImage ? c : c.copyWith(stabilize: k));
+        done = k == 0 ? 'Turned stabilize off' : 'Stabilized at ${(k * 100).round()}%';
       case 'reverse':
         final i = (clip ?? 1) - 1;
         if (i < 0 || i >= p.clips.length || p.clips[i].isImage) return const StudioAgentResult(false, 'Reverse needs a video clip number (clip, from 1).');

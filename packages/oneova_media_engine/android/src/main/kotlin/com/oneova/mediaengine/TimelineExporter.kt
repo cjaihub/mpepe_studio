@@ -87,14 +87,16 @@ internal class TimelineExporter(
         require(clips.isNotEmpty()) { "Nothing to export." }
         val audioOnly = spec["audioOnly"] == true
         val sequences = if (audioOnly) {
-            mutableListOf(speechSequence(clips))
+            mutableListOf(if (spec["cleanVoice"] == true) cleanVoiceSequence(clips[0]) else speechSequence(clips))
         } else {
             val items = clips.map { buildClip(it, width, height, fps) }
             val videoSequence = EditedMediaItemSequence.Builder(items)
                 .experimentalSetForceAudioTrack(true)
                 .build()
             mutableListOf(videoSequence).also { list ->
-                audioSequence(spec.list("audio"))?.let { list.add(it) }
+                // One sequence per track so overlapping tracks (music, voice-over,
+                // overlay sound) mix instead of queueing one after another.
+                for (track in spec.list("audio")) audioSequence(listOf(track))?.let { list.add(it) }
             }
         }
 
@@ -164,6 +166,8 @@ internal class TimelineExporter(
         }.build()
 
         val video = ArrayList<Effect>()
+        // Stabilize works on the full source frame, before crop and rotate.
+        StabilizeTransformation.fromMap(clip.map("stabilize"))?.let { video.add(it) }
         val crop = clip.map("crop")
         if (crop != null) {
             // Normalized 0..1 (top-left origin) -> NDC (-1..1, y up).
@@ -273,6 +277,16 @@ internal class TimelineExporter(
             cursorMs += (end - start).coerceAtLeast(0)
         }
         return builder.build()
+    }
+
+    /** The whole source's sound through [VoiceCleanProcessor] (preview of Clean voice). */
+    private fun cleanVoiceSequence(clip: Map<String, Any?>): EditedMediaItemSequence {
+        val item = MediaItem.fromUri(android.net.Uri.fromFile(File(clip.str("path"))))
+        val edited = EditedMediaItem.Builder(item)
+            .setRemoveVideo(true)
+            .setEffects(Effects(listOf<AudioProcessor>(VoiceCleanProcessor(clip.dbl("voiceClean").toFloat().coerceIn(0f, 1f))), emptyList()))
+            .build()
+        return EditedMediaItemSequence.Builder(setOf(C.TRACK_TYPE_AUDIO)).addItem(edited).build()
     }
 
     /** Clip audio only (trim + speed), mono 16 kHz, silence for photos and silent clips. */

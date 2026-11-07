@@ -21,7 +21,11 @@ import 'studio_media_picker_screen.dart';
 /// Studio landing page: start a video or photo edit, jump straight into a
 /// tool, or reopen a saved project.
 class StudioHomeScreen extends ConsumerWidget {
-  const StudioHomeScreen({super.key});
+  /// Tool to jump into right away (from the create sheet): any editor tool
+  /// id, or 'retouch_photo' for a photo retouch.
+  final String? initialTool;
+
+  const StudioHomeScreen({super.key, this.initialTool});
 
   static Future<void> start(
     BuildContext context, {
@@ -67,6 +71,7 @@ class StudioHomeScreen extends ConsumerWidget {
       ),
       body: CustomScrollView(
         slivers: [
+          if (initialTool != null) SliverToBoxAdapter(child: _AutoStart(tool: initialTool!)),
           SliverPadding(
             padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
             sliver: SliverToBoxAdapter(
@@ -196,19 +201,19 @@ class StudioHomeScreen extends ConsumerWidget {
   }
 
   void _allTools(BuildContext context) {
-    final tools = <(IconData, String, String)>[
-      (Icons.vertical_split_outlined, 'Split & trim', 'Cut clips at the playhead, drag the edges to trim'),
-      (Icons.speed_rounded, 'Speed', '0.25x to 4x'),
-      (Icons.volume_up_outlined, 'Volume & mute', 'Per clip, up to 200%'),
-      (Icons.crop_rounded, 'Crop & transform', 'Free crop, rotate, mirror, zoom, fit or fill'),
-      (Icons.auto_awesome_outlined, 'Filters', '18 looks with intensity'),
-      (Icons.tune_rounded, 'Adjust', 'Brightness, contrast, saturation, exposure, warmth, tint, fade'),
-      (Icons.title_rounded, 'Text & stickers', 'Styles, colors, timing, drag to place'),
-      (Icons.closed_caption_outlined, 'Captions', 'Type, style templates, import .srt'),
-      (Icons.music_note_outlined, 'Audio', 'Add music, extract audio, volume, timing'),
-      (Icons.pause_presentation_outlined, 'Freeze frame', 'Hold a frame for 2s'),
-      (Icons.aspect_ratio_rounded, 'Aspect ratio', '9:16, 1:1, 4:5, 3:4, 16:9'),
-      (Icons.ios_share_rounded, 'Export', '480p to 4K, 24–60 fps, bitrate'),
+    // (icon, name, what it does, editor tool to open, photo project)
+    final tools = <(IconData, String, String, String?, bool)>[
+      (Icons.record_voice_over_outlined, 'Auto captions', 'Word-timed captions in any language, local ones too', 'autocaptions', false),
+      (Icons.title_rounded, 'Text templates', '113 animated templates, fonts, outline, shadow, timing', 'text', false),
+      (Icons.face_retouching_natural_rounded, 'Retouch', 'Smooth skin, even tone, bright eyes, whiter teeth, face shape', 'retouch', false),
+      (Icons.movie_filter_outlined, 'Looks', '25 cinematic, portrait, film and mono grades', 'looks', false),
+      (Icons.auto_fix_high_rounded, 'Effects', '30 timed effects: glitch, VHS, blur, light leak, transitions', 'effects', false),
+      (Icons.auto_awesome_outlined, 'Filters', '18 quick filters with intensity', 'filters', false),
+      (Icons.speed_rounded, 'Speed', '0.25x to 4x per clip', 'speed', false),
+      (Icons.music_note_outlined, 'Audio & beats', 'Music, extract audio, find beats, cut to the beat', 'audio', false),
+      (Icons.crop_rounded, 'Crop & transform', 'Free crop, rotate, mirror, zoom, fit or fill', 'crop', false),
+      (Icons.closed_caption_outlined, 'Captions', 'Type, style, translate, import or save .srt', 'captions', false),
+      (Icons.photo_filter_outlined, 'Photo editor', 'Looks, retouch, effects and text on a photo', 'looks', true),
     ];
     showModalBottomSheet(
       context: context,
@@ -234,7 +239,7 @@ class StudioHomeScreen extends ConsumerWidget {
                 subtitle: Text(t.$3, style: GoogleFonts.inter(color: ctx.textMuted, fontSize: 11.5)),
                 onTap: () {
                   Navigator.pop(ctx);
-                  start(context, photo: false);
+                  start(context, photo: t.$5, tool: t.$4);
                 },
               ),
             const SizedBox(height: 16),
@@ -243,6 +248,30 @@ class StudioHomeScreen extends ConsumerWidget {
       ),
     );
   }
+}
+
+/// Opens the picker for [tool] once, when Studio was opened for a tool.
+class _AutoStart extends StatefulWidget {
+  final String tool;
+  const _AutoStart({required this.tool});
+
+  @override
+  State<_AutoStart> createState() => _AutoStartState();
+}
+
+class _AutoStartState extends State<_AutoStart> {
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      final photo = widget.tool == 'retouch_photo';
+      StudioHomeScreen.start(context, photo: photo, tool: photo ? 'retouch' : widget.tool);
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) => const SizedBox.shrink();
 }
 
 class _HeroCard extends StatelessWidget {
