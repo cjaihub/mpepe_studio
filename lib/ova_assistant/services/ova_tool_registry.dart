@@ -26,6 +26,7 @@ import 'ova_device_control.dart';
 import 'ova_geo_tools.dart';
 import 'ova_instagram_tools.dart';
 import 'ova_memory_tools.dart';
+import 'ova_studio_tools.dart';
 
 /// Screen-level context handed to the assistant by the screen that opened it.
 class OvaInvocationContext {
@@ -233,6 +234,7 @@ class OvaToolRegistry {
         }, required: ['percent']),
         ...OvaGeoTools.instance.specs,
         ...OvaMemoryTools.instance.specs,
+        ...ref.read(ovaStudioToolsProvider).specs,
         OvaToolSpec('device_status', 'Read battery level and charging state.'),
         OvaToolSpec('open_settings', 'Open the phone Settings app.'),
         if (_android) ...ref.read(ovaAndroidToolsProvider).specs,
@@ -352,6 +354,7 @@ class OvaToolRegistry {
           title: 'Run "${s('command')}" on your computer?', detail: 'Sends the command to your paired workstation.',
         );
       default:
+        if (OvaStudioTools.names.contains(name)) return ref.read(ovaStudioToolsProvider).describe(name, a);
         final connected = ref.read(ovaConnectedToolsProvider).describe(name, a);
         if (connected != null) return connected;
         final instagram = ref.read(ovaInstagramToolsProvider).describe(name, a);
@@ -373,6 +376,7 @@ class OvaToolRegistry {
     int i(String k, [int d = 0]) => a[k] is num ? (a[k] as num).toInt() : int.tryParse(s(k)) ?? d;
 
     if (OvaGeoTools.names.contains(name)) return OvaGeoTools.instance.run(name, a);
+    if (OvaStudioTools.names.contains(name)) return ref.read(ovaStudioToolsProvider).run(name, a);
     if (OvaMemoryTools.names.contains(name)) {
       return OvaMemoryTools.instance.run(name, a, device, context != null && context.mounted ? context : null);
     }

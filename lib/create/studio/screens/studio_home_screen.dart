@@ -13,6 +13,7 @@ import '../../../shared/theme/app_theme.dart';
 import '../models/studio_project.dart';
 import '../services/studio_media.dart';
 import '../services/studio_project_store.dart';
+import '../widgets/studio_progress_dialog.dart';
 import '../widgets/studio_ui.dart';
 import 'studio_editor_screen.dart';
 import 'studio_media_picker_screen.dart';
@@ -27,17 +28,21 @@ class StudioHomeScreen extends ConsumerWidget {
     required bool photo,
     String? tool,
     StudioTarget target = StudioTarget.post,
+    StudioAspect aspect = StudioAspect.original,
   }) async {
     final res = await context.push<StudioPickResult>('/create/studio/picker?mode=${photo ? 'photo' : 'any'}&multi=${photo ? 0 : 1}');
     if (res == null || res.picks.isEmpty || !context.mounted) return;
-    final clips = await StudioMedia.clipsFromPicks(res.picks);
-    if (clips.isEmpty || !context.mounted) {
-      if (context.mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Could not open that media.')));
-      }
-      return;
+    final result = await studioImportWithProgress(context, res.picks, allowVideo: !photo);
+    if (!context.mounted || result == null) return;
+    final msg = result.message;
+    if (result.clips.isEmpty || msg != null) {
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg ?? 'Could not open that media.')));
     }
-    final project = StudioProject.create(isPhoto: photo, clips: clips, exportShortSide: res.hd ? 0 : 720);
+    if (result.clips.isEmpty) return;
+    final project = StudioProject.create(isPhoto: photo, clips: result.clips, exportShortSide: res.hd ? 0 : 720).copyWith(
+      aspect: aspect,
+      title: aspect == StudioAspect.portrait ? 'Short' : null,
+    );
     await context.push('/create/studio/editor', extra: StudioEditorArgs(project: project, target: target, initialTool: tool));
   }
 
@@ -71,7 +76,16 @@ class StudioHomeScreen extends ConsumerWidget {
                     flex: 3,
                     child: _HeroCard(
                       icon: Icons.add_rounded,
-                      label: 'New video',
+                      label: 'New Short',
+                      onTap: () => start(context, photo: false, aspect: StudioAspect.portrait),
+                    ),
+                  ),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    flex: 2,
+                    child: _HeroCard(
+                      icon: Icons.movie_creation_outlined,
+                      label: 'Full video',
                       onTap: () => start(context, photo: false),
                     ),
                   ),
@@ -97,11 +111,11 @@ class StudioHomeScreen extends ConsumerWidget {
               childAspectRatio: 0.78,
               children: [
                 _ToolTile(icon: Icons.videocam_outlined, label: 'Camera', onTap: () => context.push('/create/camera?mode=video')),
-                _ToolTile(icon: Icons.closed_caption_outlined, label: 'Captions', onTap: () => start(context, photo: false, tool: 'captions')),
+                _ToolTile(icon: Icons.record_voice_over_outlined, label: 'Auto captions', onTap: () => start(context, photo: false, tool: 'autocaptions')),
                 _ToolTile(icon: Icons.photo_filter_outlined, label: 'Photo editor', onTap: () => start(context, photo: true, tool: 'filters')),
                 _ToolTile(icon: Icons.image_outlined, label: 'Cover maker', onTap: () => _coverMaker(context)),
-                _ToolTile(icon: Icons.auto_awesome_outlined, label: 'Filters', onTap: () => start(context, photo: false, tool: 'filters')),
-                _ToolTile(icon: Icons.speed_rounded, label: 'Speed', onTap: () => start(context, photo: false, tool: 'speed')),
+                _ToolTile(icon: Icons.movie_filter_outlined, label: 'Looks', onTap: () => start(context, photo: false, tool: 'looks')),
+                _ToolTile(icon: Icons.auto_fix_high_rounded, label: 'Effects', onTap: () => start(context, photo: false, tool: 'effects')),
                 _ToolTile(
                   icon: Icons.amp_stories_outlined,
                   label: 'Story',

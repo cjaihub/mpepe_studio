@@ -9,6 +9,7 @@ import '../../../shared/theme/app_theme.dart';
 import '../models/studio_project.dart';
 import '../services/studio_color.dart';
 import '../services/studio_media.dart';
+import 'studio_text_editor_sheet.dart';
 import 'studio_ui.dart';
 
 /// Header shared by every bottom panel: title, optional action, done check.
@@ -201,7 +202,7 @@ class _FilterTile extends StatelessWidget {
               height: 62,
               decoration: BoxDecoration(
                 borderRadius: BorderRadius.circular(AppRadius.sm),
-                border: Border.all(color: selected ? AppColors.brandBlue : Colors.transparent, width: 2),
+                border: Border.all(color: selected ? AppColors.brandBlue : AppColors.brandBlue.withValues(alpha: 0), width: 2),
               ),
               clipBehavior: Clip.antiAlias,
               child: filter.id == 'none'
@@ -226,7 +227,8 @@ class _FilterTile extends StatelessWidget {
   }
 }
 
-/// Manual color: brightness, contrast, saturation, exposure, warmth, tint, fade.
+/// Manual color and tone: the color matrix keys plus highlights, shadows,
+/// whites, blacks, vibrance, sharpen, grain and vignette (Look engine).
 class StudioAdjustPanel extends StatefulWidget {
   final StudioClip clip;
   final ValueChanged<StudioClip> onLive;
@@ -258,6 +260,14 @@ class _StudioAdjustPanelState extends State<StudioAdjustPanel> {
     'warmth': ('Warmth', Icons.thermostat_rounded),
     'tint': ('Tint', Icons.palette_outlined),
     'fade': ('Fade', Icons.blur_on_rounded),
+    'highlights': ('Highlights', Icons.brightness_high_outlined),
+    'shadows': ('Shadows', Icons.brightness_low_outlined),
+    'whites': ('Whites', Icons.wb_incandescent_outlined),
+    'blacks': ('Blacks', Icons.dark_mode_outlined),
+    'vibrance': ('Vibrance', Icons.color_lens_outlined),
+    'sharpen': ('Sharpen', Icons.details_rounded),
+    'grain': ('Grain', Icons.grain_rounded),
+    'vignette': ('Vignette', Icons.vignette_outlined),
   };
 
   @override
@@ -331,7 +341,7 @@ class _StudioAdjustPanelState extends State<StudioAdjustPanel> {
             child: StudioSliderRow(
               label: _meta[_key]!.$1,
               value: value * 100,
-              min: _key == 'fade' ? 0 : -100,
+              min: _key == 'fade' || StudioAdjust.positiveKeys.contains(_key) ? 0 : -100,
               max: 100,
               format: (v) => '${v.round()}',
               onChanged: (v) => widget.onLive(clip.copyWith(adjust: clip.adjust.withValue(_key, v / 100))),
@@ -716,156 +726,11 @@ StudioCrop studioCropForRatio(StudioClip clip, double? ratio) {
   return StudioCrop(l: 0, t: (1 - h) / 2, r: 1, b: (1 + h) / 2);
 }
 
-/// Text editor sheet: content, style, color, size. Returns null on cancel.
-Future<StudioText?> showStudioTextSheet(BuildContext context, StudioText initial, {String title = 'Text'}) {
-  return showModalBottomSheet<StudioText>(
-    context: context,
-    isScrollControlled: true,
-    backgroundColor: context.surface,
-    shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(AppRadius.xl))),
-    builder: (ctx) => _StudioTextSheet(initial: initial, title: title),
-  );
-}
-
-const studioTextColors = <int>[
-  0xFFFFFFFF,
-  0xFF000000,
-  0xFFFFD60A,
-  0xFFFF2D87,
-  0xFF0C4FA8,
-  0xFF34C759,
-  0xFFFF9F0A,
-  0xFF5AC8FA,
-  0xFFAF52DE,
-];
-
-class _StudioTextSheet extends StatefulWidget {
-  final StudioText initial;
-  final String title;
-  const _StudioTextSheet({required this.initial, required this.title});
-
-  @override
-  State<_StudioTextSheet> createState() => _StudioTextSheetState();
-}
-
-class _StudioTextSheetState extends State<_StudioTextSheet> {
-  late final _controller = TextEditingController(text: widget.initial.text);
-  late StudioText _t = widget.initial;
-
-  @override
-  void dispose() {
-    _controller.dispose();
-    super.dispose();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final bottom = MediaQuery.of(context).viewInsets.bottom;
-    return Padding(
-      padding: EdgeInsets.only(bottom: bottom),
-      child: SafeArea(
-        child: Padding(
-          padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              const StudioSheetHandle(),
-              Row(
-                children: [
-                  Text(widget.title, style: GoogleFonts.inter(color: context.textPrimary, fontSize: 15, fontWeight: FontWeight.w700)),
-                  const Spacer(),
-                  StudioPrimaryButton(
-                    label: 'Done',
-                    onTap: () {
-                      final text = _controller.text.trim();
-                      Navigator.pop(context, text.isEmpty ? null : _t.copyWith(text: text));
-                    },
-                  ),
-                ],
-              ),
-              const SizedBox(height: 10),
-              TextField(
-                controller: _controller,
-                autofocus: true,
-                maxLines: 3,
-                minLines: 1,
-                style: GoogleFonts.inter(color: context.textPrimary, fontSize: 14),
-                decoration: InputDecoration(
-                  isDense: true,
-                  hintText: 'Enter text',
-                  hintStyle: GoogleFonts.inter(color: context.textMuted),
-                  contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-                  filled: true,
-                  fillColor: context.surfaceMid,
-                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(AppRadius.sm), borderSide: BorderSide(color: context.border)),
-                  enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(AppRadius.sm), borderSide: BorderSide(color: context.border)),
-                  focusedBorder: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(AppRadius.sm),
-                    borderSide: const BorderSide(color: AppColors.brandBlue),
-                  ),
-                ),
-              ),
-              if (!widget.initial.isSticker) ...[
-                const SizedBox(height: 12),
-                SizedBox(
-                  height: 34,
-                  child: ListView(
-                    scrollDirection: Axis.horizontal,
-                    children: [
-                      for (final s in StudioTextStyle.values)
-                        Padding(
-                          padding: const EdgeInsets.only(right: 8),
-                          child: ChoiceChip(
-                            label: Text(s.label),
-                            selected: _t.style == s,
-                            visualDensity: VisualDensity.compact,
-                            labelStyle: GoogleFonts.inter(fontSize: 12, fontWeight: FontWeight.w700),
-                            selectedColor: AppColors.brandBlue.withValues(alpha: 0.18),
-                            onSelected: (_) => setState(() => _t = _t.copyWith(style: s)),
-                          ),
-                        ),
-                    ],
-                  ),
-                ),
-                const SizedBox(height: 12),
-                Row(
-                  children: [
-                    for (final c in studioTextColors)
-                      GestureDetector(
-                        onTap: () => setState(() => _t = _t.copyWith(color: c)),
-                        child: Container(
-                          margin: const EdgeInsets.only(right: 8),
-                          width: 26,
-                          height: 26,
-                          decoration: BoxDecoration(
-                            color: Color(c),
-                            shape: BoxShape.circle,
-                            border: Border.all(
-                              color: _t.color == c ? AppColors.brandBlue : context.border,
-                              width: _t.color == c ? 2.5 : 1,
-                            ),
-                          ),
-                        ),
-                      ),
-                  ],
-                ),
-              ],
-              const SizedBox(height: 6),
-              StudioSliderRow(
-                label: 'Size',
-                value: _t.size * 100,
-                min: 2,
-                max: widget.initial.isSticker ? 40 : 18,
-                format: (v) => v.toStringAsFixed(0),
-                onChanged: (v) => setState(() => _t = _t.copyWith(size: v / 100)),
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
+/// Text editor sheet (templates, font, style, animation, layout). Returns
+/// null on cancel. See [showStudioTextEditor] for the full result.
+Future<StudioText?> showStudioTextSheet(BuildContext context, StudioText initial, {String title = 'Text', int maxEndMs = 0}) async {
+  final edit = await showStudioTextEditor(context, initial, title: title, maxEndMs: maxEndMs);
+  return edit?.text;
 }
 
 /// Emoji stickers burned into the video like text layers.

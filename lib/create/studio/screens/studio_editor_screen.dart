@@ -1,8 +1,10 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:io';
 import 'dart:math' as math;
 
 import 'package:file_picker/file_picker.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -15,6 +17,10 @@ import '../../../backend/social/services/story_service.dart';
 import '../../../shared/theme/app_theme.dart';
 import '../../media_preview_screen.dart';
 import '../models/studio_project.dart';
+import '../services/studio_captions.dart';
+import '../services/studio_clip_tools.dart';
+import '../services/studio_effects.dart';
+import '../services/studio_faces.dart';
 import '../services/studio_media.dart';
 import '../services/studio_playback.dart';
 import '../services/studio_project_store.dart';
@@ -24,7 +30,9 @@ import '../services/studio_text_painter.dart';
 import '../widgets/studio_export_sheet.dart';
 import '../widgets/studio_panels.dart';
 import '../widgets/studio_preview.dart';
+import '../widgets/studio_pro_panels.dart';
 import '../widgets/studio_progress_dialog.dart';
+import '../widgets/studio_text_editor_sheet.dart';
 import '../widgets/studio_timeline.dart';
 import '../widgets/studio_ui.dart';
 import 'studio_media_picker_screen.dart';
@@ -33,13 +41,14 @@ class StudioEditorArgs {
   final StudioProject project;
   final StudioTarget target;
 
-  /// Panel to open first ('captions', 'filters', 'speed', 'text', 'audio').
+  /// Panel to open first ('captions', 'autocaptions', 'filters', 'looks',
+  /// 'effects', 'speed', 'text', 'audio', 'crop').
   final String? initialTool;
 
   const StudioEditorArgs({required this.project, this.target = StudioTarget.post, this.initialTool});
 }
 
-enum _Panel { none, clip, audio, text, captions, filters, adjust, aspect, speed, volume, transform, crop, duration, audioVolume }
+enum _Panel { none, clip, audio, text, captions, filters, looks, effects, retouch, voice, adjust, aspect, speed, volume, transform, crop, duration, audioVolume }
 
 /// Studio editor: preview, timeline and the tools that change the export.
 class StudioEditorScreen extends ConsumerStatefulWidget {
@@ -59,6 +68,7 @@ class _StudioEditorScreenState extends ConsumerState<StudioEditorScreen> {
   String? _clipId;
   String? _textId;
   String? _audioId;
+  String? _effectId;
   _Panel _panel = _Panel.none;
   bool _fullscreen = false;
   Timer? _autosave;
@@ -74,8 +84,17 @@ class _StudioEditorScreenState extends ConsumerState<StudioEditorScreen> {
       switch (widget.args.initialTool) {
         case 'captions':
           setState(() => _panel = _Panel.captions);
+        case 'autocaptions':
+          setState(() => _panel = _Panel.captions);
+          _autoCaptions();
         case 'filters':
           _openClipPanel(_Panel.filters);
+        case 'looks':
+          _openClipPanel(_Panel.looks);
+        case 'retouch':
+          _openRetouch();
+        case 'effects':
+          setState(() => _panel = _Panel.effects);
         case 'speed':
           _openClipPanel(_Panel.speed);
         case 'text':
@@ -171,6 +190,7 @@ class _StudioEditorScreenState extends ConsumerState<StudioEditorScreen> {
 
   StudioText? get _text => _p.texts.where((t) => t.id == _textId).firstOrNull;
   StudioAudio? get _audio => _p.audios.where((a) => a.id == _audioId).firstOrNull;
+  StudioEffect? get _effect => _p.effects.where((e) => e.id == _effectId).firstOrNull;
 
   void _replaceClip(StudioClip c, {bool live = false}) {
     final clips = [for (final x in _p.clips) x.id == c.id ? c : x];
@@ -178,6 +198,11 @@ class _StudioEditorScreenState extends ConsumerState<StudioEditorScreen> {
   }
 
   void _replaceText(StudioText t) => _set(_p.copyWith(texts: [for (final x in _p.texts) x.id == t.id ? t : x]));
+
+  void _replaceEffect(StudioEffect e, {bool live = false}) {
+    final list = [for (final x in _p.effects) x.id == e.id ? e : x];
+    live ? _live(_p.copyWith(effects: list)) : _set(_p.copyWith(effects: list));
+  }
 
   void _replaceAudio(StudioAudio a, {bool live = false}) {
     final audios = [for (final x in _p.audios) x.id == a.id ? a : x];
@@ -208,8 +233,12 @@ class _StudioEditorScreenState extends ConsumerState<StudioEditorScreen> {
     _pb.pause();
     final mode = _isPhoto ? 'photo' : 'any';
     final res = await context.push<StudioPickResult>('/create/studio/picker?mode=$mode&multi=${multiple ? 1 : 0}');
-    if (res == null || res.picks.isEmpty) return const [];
-    return StudioMedia.clipsFromPicks(res.picks);
+    if (res == null || res.picks.isEmpty || !mounted) return const [];
+    final result = await studioImportWithProgress(context, res.picks, allowVideo: !_isPhoto);
+    if (result == null) return const [];
+    final msg = result.message;
+    if (msg != null) _toast(msg);
+    return result.clips;
   }
 
   Future<void> _addClips() async {
@@ -389,11 +418,7 @@ class _StudioEditorScreenState extends ConsumerState<StudioEditorScreen> {
     final file = await FilePicker.pickFile(type: FileType.audio);
     if (file?.path == null) return;
     try {
-      final probe = await OneovaMediaEngine.probe(file!.path!);
-      if (!probe.hasAudio || probe.duration.inMilliseconds <= 0) {
-        _toast('That file has no playable audio');
-        return;
-      }
+      final probe = await StudioMedia.probeAudio(file!.path!);
       final remaining = math.max(1000, _p.durationMs - _pb.posMs);
       final a = StudioAudio.create(
         path: file.path!,
@@ -404,6 +429,8 @@ class _StudioEditorScreenState extends ConsumerState<StudioEditorScreen> {
       );
       _set(_p.copyWith(audios: [..._p.audios, a]));
       setState(() => _audioId = a.id);
+    } on StudioMediaException catch (e) {
+      _toast(e.message);
     } catch (e) {
       _toast('Could not read that audio file');
     }
@@ -411,17 +438,282 @@ class _StudioEditorScreenState extends ConsumerState<StudioEditorScreen> {
 
   Future<void> _addText({bool caption = false}) async {
     _pb.pause();
-    final draft = StudioText.create(text: '', startMs: _isPhoto ? 0 : _pb.posMs, endMs: _textEnd, isCaption: caption);
-    final t = await showStudioTextSheet(context, draft, title: caption ? 'Caption' : 'Text');
-    if (t == null) return;
-    _set(_p.copyWith(texts: [..._p.texts, t]));
+    var draft = StudioText.create(text: '', startMs: _isPhoto ? 0 : _pb.posMs, endMs: _textEnd, isCaption: caption);
+    if (caption) {
+      // New captions match the captions already on the timeline.
+      final like = _p.texts.where((t) => t.isCaption).lastOrNull;
+      if (like != null) draft = draft.copyWith(type: like.type, anim: like.anim, size: like.size, y: like.y, templateId: like.templateId);
+    }
+    final edit = await showStudioTextEditor(context, draft, title: caption ? 'Caption' : 'Text', maxEndMs: _isPhoto ? 0 : _p.durationMs);
+    if (edit == null) return;
+    final t = edit.text;
+    _set(_p.copyWith(texts: [..._applyCaptionStyle(_p.texts, t, edit.applyToAllCaptions), t]));
     setState(() => _textId = t.id);
     if (caption && !_isPhoto) _pb.seek(t.endMs);
   }
 
-  Future<void> _editText(StudioText t) async {
-    final edited = await showStudioTextSheet(context, t, title: t.isCaption ? 'Caption' : (t.isSticker ? 'Sticker' : 'Text'));
-    if (edited != null) _replaceText(edited);
+  Future<void> _editText(StudioText t, {int tab = 0}) async {
+    _pb.pause();
+    final edit = await showStudioTextEditor(
+      context,
+      t,
+      title: t.isCaption ? 'Caption' : (t.isSticker ? 'Sticker' : 'Text'),
+      initialTab: tab,
+      maxEndMs: _isPhoto ? 0 : _p.durationMs,
+    );
+    if (edit == null) return;
+    final e = edit.text;
+    final texts = [for (final x in _p.texts) x.id == e.id ? e : x];
+    _set(_p.copyWith(texts: _applyCaptionStyle(texts, e, edit.applyToAllCaptions)));
+  }
+
+  /// Copies [from]'s template, style, animation and size to every caption.
+  List<StudioText> _applyCaptionStyle(List<StudioText> texts, StudioText from, bool apply) {
+    if (!apply || !from.isCaption) return texts;
+    return [
+      for (final x in texts)
+        x.isCaption && x.id != from.id ? x.copyWith(type: from.type, anim: from.anim, size: from.size, y: from.y, templateId: from.templateId) : x,
+    ];
+  }
+
+  /// Auto captions: render the original sound, transcribe it on the server
+  /// (Vertex AI), and lay word-timed captions on the timeline.
+  Future<void> _autoCaptions() async {
+    _pb.pause();
+    if (_isPhoto) return;
+    final hasCaptions = _p.texts.any((t) => t.isCaption);
+    final choice = await showStudioAutoCaptionSheet(context, hasCaptions: hasCaptions);
+    if (choice == null || !mounted) return;
+    final result = await runStudioTask<StudioCaptionResult>(
+      context,
+      title: 'Auto captions',
+      describeError: (e) => e is StudioAiException ? e.message : 'Auto captions stopped: $e',
+      task: (onProgress) => StudioCaptionService.autoCaptions(
+        _p,
+        language: choice.language,
+        templateId: choice.templateId,
+        onProgress: (p, _) => onProgress(p),
+      ),
+    );
+    if (result == null || !mounted) return;
+    final captions = result.captions;
+    final notice = StudioCaptionService.supportNotice(result.languageName, result.support, captions: true);
+    if (result.support == StudioLanguageSupport.unsupported) {
+      await _notice('Language not supported yet', notice!);
+      return;
+    }
+    if (captions.isEmpty) {
+      _toast('No speech found in the original sound');
+      return;
+    }
+    final kept = choice.replaceExisting ? _p.texts.where((t) => !t.isCaption) : _p.texts;
+    _set(_p.copyWith(texts: [...kept, ...captions]));
+    setState(() {
+      _panel = _Panel.captions;
+      _textId = null;
+    });
+    if (notice != null || result.lowConfidence > 0) {
+      final unsure = result.lowConfidence > 0 ? ' ${result.lowConfidence} caption${result.lowConfidence == 1 ? '' : 's'} may be unclear.' : '';
+      await _notice('${captions.length} captions in ${result.languageName}', '${notice ?? 'Check the captions before posting.'}$unsure');
+    } else {
+      _toast('${captions.length} captions · ${result.languageName}');
+    }
+  }
+
+  Future<void> _notice(String title, String message) => showDialog<void>(
+        context: context,
+        builder: (c) => AlertDialog(
+          backgroundColor: c.surface,
+          title: Text(title, style: GoogleFonts.inter(color: c.textPrimary, fontSize: 16, fontWeight: FontWeight.w700)),
+          content: Text(message, style: GoogleFonts.inter(color: c.textSecondary, fontSize: 13, height: 1.4)),
+          actions: [TextButton(onPressed: () => Navigator.pop(c), child: const Text('OK'))],
+        ),
+      );
+
+  /// Translates every caption, or just [only].
+  Future<void> _translate({StudioText? only}) async {
+    _pb.pause();
+    final targets = only != null ? [only] : _p.texts.where((t) => t.isCaption).toList();
+    if (targets.isEmpty) {
+      _toast(only == null ? 'Add captions first' : 'Pick a text layer');
+      return;
+    }
+    final lang = await showStudioLanguagePicker(context);
+    if (lang == null || !mounted) return;
+    final res = await runStudioTask<(List<String>, StudioLanguageSupport)>(
+      context,
+      title: 'Translating to ${lang.name}',
+      describeError: (e) => e is StudioAiException ? e.message : 'Translation stopped: $e',
+      task: (onProgress) async {
+        onProgress(0.2);
+        return StudioCaptionService.translate([for (final t in targets) t.text], lang.code);
+      },
+    );
+    if (res == null || !mounted) return;
+    final (out, support) = res;
+    final notice = StudioCaptionService.supportNotice(lang.name, support, captions: false);
+    if (support == StudioLanguageSupport.unsupported) {
+      await _notice('Language not supported yet', notice!);
+      return;
+    }
+    final byId = {for (var i = 0; i < targets.length; i++) targets[i].id: out[i]};
+    _set(_p.copyWith(texts: [
+      for (final t in _p.texts)
+        if (byId.containsKey(t.id)) _translated(t, byId[t.id]!, lang.code) else t,
+    ]));
+    if (notice != null || lang.limited) {
+      await _notice('Translated to ${lang.name}', notice ?? StudioCaptionService.supportNotice(lang.name, StudioLanguageSupport.limited, captions: false)!);
+    } else {
+      _toast(only == null ? '${targets.length} captions in ${lang.name}' : 'Translated to ${lang.name}');
+    }
+  }
+
+  /// [t] with new text; word timing is spread evenly over the caption so
+  /// word highlights keep working in the new language.
+  StudioText _translated(StudioText t, String text, String lang) {
+    final words = text.trim().split(RegExp(r'\s+')).where((w) => w.isNotEmpty).toList();
+    final timed = t.words.isEmpty || words.isEmpty
+        ? const <StudioWord>[]
+        : [
+            for (var i = 0; i < words.length; i++)
+              StudioWord(
+                words[i],
+                t.startMs + ((t.endMs - t.startMs) * i / words.length).round(),
+                t.startMs + ((t.endMs - t.startMs) * (i + 1) / words.length).round(),
+              ),
+          ];
+    return t.copyWith(text: text, lang: lang, words: timed);
+  }
+
+  /// Saves the captions as an .srt file the user picks a place for.
+  Future<void> _exportSrt() async {
+    final caps = _p.texts.where((t) => t.isCaption).toList()..sort((a, b) => a.startMs.compareTo(b.startMs));
+    if (caps.isEmpty) {
+      _toast('Add captions first');
+      return;
+    }
+    String ts(int ms) {
+      final h = ms ~/ 3600000, m = (ms ~/ 60000) % 60, s = (ms ~/ 1000) % 60, f = ms % 1000;
+      String two(int v) => v.toString().padLeft(2, '0');
+      return '${two(h)}:${two(m)}:${two(s)},${f.toString().padLeft(3, '0')}';
+    }
+
+    final b = StringBuffer();
+    for (var i = 0; i < caps.length; i++) {
+      b
+        ..writeln(i + 1)
+        ..writeln('${ts(caps[i].startMs)} --> ${ts(caps[i].endMs)}')
+        ..writeln(caps[i].text)
+        ..writeln();
+    }
+    final name = '${_p.title.replaceAll(RegExp(r'[^A-Za-z0-9_-]+'), '_')}_captions.srt';
+    try {
+      final saved = await FilePicker.saveFile(fileName: name, bytes: Uint8List.fromList(utf8.encode(b.toString())));
+      if (saved != null) _toast('Captions saved');
+    } catch (e) {
+      _toast('Could not save the captions file');
+    }
+  }
+
+  /// Faces found per clip id (null = still looking).
+  final Map<String, bool?> _faces = {};
+
+  Future<void> _openRetouch() async {
+    final c = _clip;
+    if (c == null) return;
+    _openClipPanel(_Panel.retouch);
+    final cached = StudioFaceTracker.cached(c);
+    if (cached != null) {
+      setState(() => _faces[c.id] = cached.hasFaces);
+      return;
+    }
+    setState(() => _faces[c.id] = null);
+    try {
+      final t = await StudioFaceTracker.track(c);
+      if (mounted) setState(() => _faces[c.id] = t.hasFaces);
+    } catch (e) {
+      debugPrint('[StudioEditor] face tracking failed: $e');
+      if (mounted) setState(() => _faces[c.id] = false);
+    }
+  }
+
+  Future<void> _reverse() async {
+    final c = _clip;
+    if (c == null || c.isImage) {
+      _toast('Reverse works on video clips');
+      return;
+    }
+    if (c.endMs - c.startMs > StudioClipTools.maxReverseMs) {
+      _toast('Trim the clip to 60 seconds or less to reverse it');
+      return;
+    }
+    _pb.pause();
+    final reversed = await runStudioTask<StudioClip>(
+      context,
+      title: 'Reversing clip',
+      describeError: (e) => e is MediaEngineException ? e.message : '$e',
+      task: (onProgress) async {
+        final sub = OneovaMediaEngine.progress.listen(onProgress);
+        try {
+          return await StudioClipTools.reverse(c);
+        } finally {
+          await sub.cancel();
+        }
+      },
+    );
+    if (reversed == null || !mounted) return;
+    _replaceClip(reversed);
+    _pb.warmUp();
+    _toast('Clip reversed (its sound was left out)');
+  }
+
+  Future<void> _detectBeats() async {
+    final a = _audio;
+    if (a == null) {
+      _toast('Pick an audio track first');
+      return;
+    }
+    _pb.pause();
+    final withBeats = await runStudioTask<StudioAudio>(
+      context,
+      title: 'Finding beats',
+      describeError: (e) => e is MediaEngineException ? e.message : '$e',
+      task: (onProgress) async {
+        onProgress(0.3);
+        return StudioClipTools.detectBeats(a);
+      },
+    );
+    if (withBeats == null || !mounted) return;
+    _replaceAudio(withBeats);
+    final n = withBeats.timelineBeats.length;
+    _toast(n == 0 ? 'No clear beats found' : '$n beats${withBeats.bpm > 0 ? ' · ${withBeats.bpm.round()} BPM' : ''}');
+  }
+
+  void _cutToBeats() {
+    final a = _audio ?? _p.audios.where((x) => x.beatsMs.isNotEmpty).firstOrNull;
+    if (a == null || a.beatsMs.isEmpty) {
+      _toast('Find the beats of a track first');
+      return;
+    }
+    _set(StudioClipTools.cutToBeats(_p, a));
+    _toast('Cuts now land on the beat');
+  }
+
+  void _addEffect(String effectId) {
+    final def = StudioEffects.byId(effectId);
+    if (def == null) return;
+    final start = _isPhoto ? 0 : _pb.posMs;
+    final end = _isPhoto ? 1 << 30 : math.min(_p.durationMs, start + (def.group == 'Transition' ? 800 : 3000));
+    if (end - start < 200) {
+      _toast('Move the playhead back a little to add an effect');
+      return;
+    }
+    final e = StudioEffect.create(effectId: effectId, startMs: start, endMs: end, amount: def.amount);
+    _set(_p.copyWith(effects: [..._p.effects, e]));
+    setState(() {
+      _effectId = e.id;
+      _panel = _Panel.effects;
+    });
   }
 
   Future<void> _addSticker() async {
@@ -460,76 +752,12 @@ class _StudioEditorScreenState extends ConsumerState<StudioEditorScreen> {
       _toast('Add captions first');
       return;
     }
-    final pick = await showModalBottomSheet<(StudioTextStyle, int)>(
-      context: context,
-      backgroundColor: context.surface,
-      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(AppRadius.xl))),
-      builder: (ctx) {
-        final templates = <(String, StudioTextStyle, int)>[
-          ('Default', StudioTextStyle.box, 0xFFFFFFFF),
-          ('Bold', StudioTextStyle.bold, 0xFFFFD60A),
-          ('Outline', StudioTextStyle.outline, 0xFFFFFFFF),
-          ('Glow', StudioTextStyle.glow, 0xFFFF2D87),
-          ('Clean', StudioTextStyle.plain, 0xFFFFFFFF),
-          ('Brand', StudioTextStyle.box, 0xFF0C4FA8),
-        ];
-        return SafeArea(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              const StudioSheetHandle(),
-              Text('Caption templates', style: GoogleFonts.inter(color: ctx.textPrimary, fontSize: 15, fontWeight: FontWeight.w700)),
-              const SizedBox(height: 12),
-              SizedBox(
-                height: 90,
-                child: ListView(
-                  scrollDirection: Axis.horizontal,
-                  padding: const EdgeInsets.symmetric(horizontal: 12),
-                  children: [
-                    for (final t in templates)
-                      GestureDetector(
-                        onTap: () => Navigator.pop(ctx, (t.$2, t.$3)),
-                        child: Container(
-                          width: 110,
-                          margin: const EdgeInsets.symmetric(horizontal: 4),
-                          decoration: BoxDecoration(
-                            color: const Color(0xFF2A2A2E),
-                            borderRadius: BorderRadius.circular(AppRadius.md),
-                            border: Border.all(color: ctx.border),
-                          ),
-                          alignment: Alignment.center,
-                          child: FittedBox(
-                            child: Padding(
-                              padding: const EdgeInsets.all(6),
-                              child: StudioTextLayerPreview(
-                                text: StudioText(
-                                  id: 'tpl',
-                                  text: t.$1,
-                                  startMs: 0,
-                                  endMs: 1,
-                                  style: t.$2,
-                                  color: t.$3,
-                                  size: 0.14,
-                                ),
-                              ),
-                            ),
-                          ),
-                        ),
-                      ),
-                  ],
-                ),
-              ),
-              const SizedBox(height: 16),
-            ],
-          ),
-        );
-      },
-    );
-    if (pick == null) return;
-    _set(_p.copyWith(texts: [
-      for (final t in _p.texts) t.isCaption ? t.copyWith(style: pick.$1, color: pick.$2) : t,
-    ]));
-    _toast('Applied to ${captions.length} captions');
+    final first = _text?.isCaption == true ? _text! : captions.first;
+    final edit = await showStudioTextEditor(context, first, title: 'Caption style', maxEndMs: _p.durationMs);
+    if (edit == null) return;
+    final e = edit.text;
+    _set(_p.copyWith(texts: _applyCaptionStyle([for (final x in _p.texts) x.id == e.id ? e : x], e, true)));
+    _toast('Style applied to ${captions.length} captions');
   }
 
   // ── Export ─────────────────────────────────────────────────────────────
@@ -646,23 +874,26 @@ class _StudioEditorScreenState extends ConsumerState<StudioEditorScreen> {
               if (!_fullscreen) _controls(),
               if (!_fullscreen && !_isPhoto)
                 SizedBox(
-                  height: 156,
+                  height: 182,
                   child: StudioTimeline(
                     playback: _pb,
                     project: _p,
                     selectedClipId: _panel == _Panel.none && _clipId == null ? null : _clipId,
                     selectedTextId: _textId,
                     selectedAudioId: _audioId,
+                    selectedEffectId: _effectId,
                     onSelectClip: (id) => setState(() {
                       _clipId = id;
                       _textId = null;
                       _audioId = null;
+                      _effectId = null;
                       _panel = id == null ? _Panel.none : _Panel.clip;
                     }),
                     onSelectText: (id) => setState(() {
                       _textId = id;
                       _clipId = null;
                       _audioId = null;
+                      _effectId = null;
                       final t = _text;
                       _panel = id == null ? _Panel.none : (t?.isCaption == true ? _Panel.captions : _Panel.text);
                     }),
@@ -670,7 +901,19 @@ class _StudioEditorScreenState extends ConsumerState<StudioEditorScreen> {
                       _audioId = id;
                       _clipId = null;
                       _textId = null;
+                      _effectId = null;
                       _panel = id == null ? _Panel.none : _Panel.audio;
+                    }),
+                    onSelectEffect: (id) => setState(() {
+                      _effectId = id;
+                      _clipId = null;
+                      _textId = null;
+                      _audioId = null;
+                      _panel = _Panel.effects;
+                    }),
+                    onAddEffect: () => setState(() {
+                      _effectId = null;
+                      _panel = _Panel.effects;
                     }),
                     onTrimPreview: (c) => _replaceClip(c, live: true),
                     onTrimCommit: _commit,
@@ -786,6 +1029,10 @@ class _StudioEditorScreenState extends ConsumerState<StudioEditorScreen> {
                     }
                   }),
                   onMoveText: (t, x, y) => _replaceText(t.copyWith(x: x, y: y)),
+                  onTransformText: (t, size, rotation) {
+                    final current = _p.texts.where((x) => x.id == t.id).firstOrNull;
+                    if (current != null) _replaceText(current.copyWith(size: size, rotation: rotation));
+                  },
                   onEditText: _editText,
                 ),
         ),
@@ -865,6 +1112,7 @@ class _StudioEditorScreenState extends ConsumerState<StudioEditorScreen> {
         _clipId = null;
         _textId = null;
         _audioId = null;
+        _effectId = null;
       });
 
   Widget _bottom() {
@@ -893,6 +1141,69 @@ class _StudioEditorScreenState extends ConsumerState<StudioEditorScreen> {
             _toast('Filter applied to all clips');
           },
           onDone: () => setState(() => _panel = _isPhoto ? _Panel.none : _Panel.clip),
+        );
+      case _Panel.looks:
+        if (clip == null) return _mainBar();
+        return StudioLooksPanel(
+          clip: clip,
+          onLive: (c) => _replaceClip(c, live: true),
+          onCommit: _commit,
+          onApplyAll: () {
+            _set(_p.copyWith(clips: [
+              for (final c in _p.clips) c.copyWith(lookId: clip.lookId, lookIntensity: clip.lookIntensity),
+            ]));
+            _toast('Look applied to all clips');
+          },
+          onDone: () => setState(() => _panel = _isPhoto ? _Panel.none : _Panel.clip),
+        );
+      case _Panel.retouch:
+        if (clip == null) return _mainBar();
+        return StudioRetouchPanel(
+          clip: clip,
+          facesFound: _faces[clip.id] ?? (StudioFaceTracker.cached(clip)?.hasFaces),
+          onLive: (c) => _replaceClip(c, live: true),
+          onCommit: _commit,
+          onApplyAll: () {
+            _set(_p.copyWith(clips: [for (final c in _p.clips) c.copyWith(retouch: clip.retouch)]));
+            _toast('Retouch applied to all clips');
+          },
+          onDone: () => setState(() => _panel = _isPhoto ? _Panel.none : _Panel.clip),
+        );
+      case _Panel.voice:
+        if (clip == null || clip.isImage) return _mainBar();
+        return StudioSliderPanel(
+          title: 'Clean voice',
+          label: 'Strength',
+          value: clip.voiceClean * 100,
+          min: 0,
+          max: 100,
+          format: (v) => v == 0 ? 'Off' : '${v.round()}',
+          onLive: (v) => _replaceClip(clip.copyWith(voiceClean: v / 100), live: true),
+          onCommit: _commit,
+          onDone: () => setState(() => _panel = _Panel.clip),
+          footer: Text('Cuts rumble and background hiss, evens out loud and quiet parts. You hear it in the export.',
+              style: GoogleFonts.inter(color: context.textMuted, fontSize: 11.5)),
+        );
+      case _Panel.effects:
+        final fx = _effect;
+        return StudioEffectsPanel(
+          key: ValueKey(fx?.id ?? 'new'),
+          selected: fx,
+          onAdd: _addEffect,
+          onLive: (e) => _replaceEffect(e, live: true),
+          onCommit: _commit,
+          onStartHere: fx == null || _isPhoto ? null : () => _replaceEffect(fx.copyWith(startMs: math.min(_pb.posMs, fx.endMs - 200))),
+          onEndHere: fx == null || _isPhoto ? null : () => _replaceEffect(fx.copyWith(endMs: math.max(_pb.posMs, fx.startMs + 200))),
+          onDelete: fx == null
+              ? null
+              : () {
+                  _set(_p.copyWith(effects: [..._p.effects]..removeWhere((x) => x.id == fx.id)));
+                  setState(() => _effectId = null);
+                },
+          onDone: () => setState(() {
+            _panel = _Panel.none;
+            _effectId = null;
+          }),
         );
       case _Panel.adjust:
         if (clip == null) return _mainBar();
@@ -1027,11 +1338,14 @@ class _StudioEditorScreenState extends ConsumerState<StudioEditorScreen> {
       return _bar([
         StudioToolButton(icon: Icons.crop_rounded, label: 'Crop', onTap: () => _openClipPanel(_Panel.crop)),
         StudioToolButton(icon: Icons.rotate_90_degrees_cw_outlined, label: 'Transform', onTap: () => _openClipPanel(_Panel.transform)),
+        StudioToolButton(icon: Icons.face_retouching_natural_rounded, label: 'Retouch', onTap: _openRetouch),
+        StudioToolButton(icon: Icons.movie_filter_outlined, label: 'Looks', onTap: () => _openClipPanel(_Panel.looks)),
         StudioToolButton(icon: Icons.auto_awesome_outlined, label: 'Filters', onTap: () => _openClipPanel(_Panel.filters)),
         StudioToolButton(icon: Icons.tune_rounded, label: 'Adjust', onTap: () => _openClipPanel(_Panel.adjust)),
+        StudioToolButton(icon: Icons.auto_fix_high_rounded, label: 'Effects', onTap: () => setState(() => _panel = _Panel.effects)),
         StudioToolButton(icon: Icons.title_rounded, label: 'Text', onTap: () => _addText()),
         StudioToolButton(icon: Icons.emoji_emotions_outlined, label: 'Stickers', onTap: _addSticker),
-        StudioToolButton(icon: Icons.aspect_ratio_rounded, label: 'Aspect ratio', onTap: () => setState(() => _panel = _Panel.aspect)),
+        StudioToolButton(icon: Icons.aspect_ratio_rounded, label: 'Canvas', onTap: () => setState(() => _panel = _Panel.aspect)),
         StudioToolButton(icon: Icons.add_photo_alternate_outlined, label: 'Replace', onTap: _replace),
       ]);
     }
@@ -1039,11 +1353,14 @@ class _StudioEditorScreenState extends ConsumerState<StudioEditorScreen> {
       StudioToolButton(icon: Icons.content_cut_rounded, label: 'Edit', onTap: () => _openClipPanel(_Panel.clip)),
       StudioToolButton(icon: Icons.music_note_outlined, label: 'Audio', onTap: () => setState(() => _panel = _Panel.audio)),
       StudioToolButton(icon: Icons.title_rounded, label: 'Text', onTap: () => setState(() => _panel = _Panel.text)),
-      StudioToolButton(icon: Icons.emoji_emotions_outlined, label: 'Stickers', onTap: _addSticker),
       StudioToolButton(icon: Icons.closed_caption_outlined, label: 'Captions', onTap: () => setState(() => _panel = _Panel.captions)),
+      StudioToolButton(icon: Icons.auto_fix_high_rounded, label: 'Effects', onTap: () => setState(() => _panel = _Panel.effects)),
+      StudioToolButton(icon: Icons.face_retouching_natural_rounded, label: 'Retouch', onTap: _openRetouch),
+      StudioToolButton(icon: Icons.movie_filter_outlined, label: 'Looks', onTap: () => _openClipPanel(_Panel.looks)),
       StudioToolButton(icon: Icons.auto_awesome_outlined, label: 'Filters', onTap: () => _openClipPanel(_Panel.filters)),
       StudioToolButton(icon: Icons.tune_rounded, label: 'Adjust', onTap: () => _openClipPanel(_Panel.adjust)),
-      StudioToolButton(icon: Icons.aspect_ratio_rounded, label: 'Aspect ratio', onTap: () => setState(() => _panel = _Panel.aspect)),
+      StudioToolButton(icon: Icons.emoji_emotions_outlined, label: 'Stickers', onTap: _addSticker),
+      StudioToolButton(icon: Icons.aspect_ratio_rounded, label: 'Canvas', onTap: () => setState(() => _panel = _Panel.aspect)),
     ]);
   }
 
@@ -1056,11 +1373,15 @@ class _StudioEditorScreenState extends ConsumerState<StudioEditorScreen> {
       if (!video) StudioToolButton(icon: Icons.timer_outlined, label: 'Duration', onTap: () => setState(() => _panel = _Panel.duration)),
       StudioToolButton(icon: Icons.crop_rounded, label: 'Crop', onTap: () => setState(() => _panel = _Panel.crop)),
       StudioToolButton(icon: Icons.rotate_90_degrees_cw_outlined, label: 'Transform', onTap: () => setState(() => _panel = _Panel.transform)),
+      StudioToolButton(icon: Icons.face_retouching_natural_rounded, label: 'Retouch', onTap: _openRetouch),
+      StudioToolButton(icon: Icons.movie_filter_outlined, label: 'Looks', onTap: () => setState(() => _panel = _Panel.looks)),
       StudioToolButton(icon: Icons.auto_awesome_outlined, label: 'Filters', onTap: () => setState(() => _panel = _Panel.filters)),
       StudioToolButton(icon: Icons.tune_rounded, label: 'Adjust', onTap: () => setState(() => _panel = _Panel.adjust)),
       StudioToolButton(icon: Icons.copy_all_outlined, label: 'Duplicate', onTap: _duplicate),
       StudioToolButton(icon: Icons.swap_horiz_rounded, label: 'Replace', onTap: _replace),
       if (video) StudioToolButton(icon: Icons.pause_presentation_outlined, label: 'Freeze', onTap: _freeze),
+      if (video) StudioToolButton(icon: Icons.fast_rewind_rounded, label: 'Reverse', onTap: _reverse),
+      if (video && clip.hasAudio) StudioToolButton(icon: Icons.record_voice_over_outlined, label: 'Clean voice', onTap: () => setState(() => _panel = _Panel.voice)),
       if (video) StudioToolButton(icon: Icons.graphic_eq_rounded, label: 'Extract audio', onTap: _extractAudio),
       if (video)
         StudioToolButton(
@@ -1079,6 +1400,8 @@ class _StudioEditorScreenState extends ConsumerState<StudioEditorScreen> {
       StudioToolButton(icon: Icons.graphic_eq_rounded, label: 'Extract audio', onTap: _extractAudio),
       if (a != null) ...[
         StudioToolButton(icon: Icons.volume_up_outlined, label: 'Volume', onTap: () => setState(() => _panel = _Panel.audioVolume)),
+        StudioToolButton(icon: Icons.graphic_eq_rounded, label: 'Find beats', onTap: _detectBeats),
+        if (a.beatsMs.isNotEmpty) StudioToolButton(icon: Icons.content_cut_rounded, label: 'Cut to beat', onTap: _cutToBeats),
         StudioToolButton(
           icon: Icons.start_rounded,
           label: 'Start here',
@@ -1112,6 +1435,9 @@ class _StudioEditorScreenState extends ConsumerState<StudioEditorScreen> {
 
   List<Widget> _layerTools(StudioText t) => [
         StudioToolButton(icon: Icons.edit_outlined, label: 'Edit', onTap: () => _editText(t)),
+        if (!t.isSticker) StudioToolButton(icon: Icons.style_outlined, label: 'Templates', onTap: () => _editText(t)),
+        StudioToolButton(icon: Icons.animation_rounded, label: 'Animate', onTap: () => _editText(t, tab: t.isSticker ? 0 : 3)),
+        if (!t.isSticker) StudioToolButton(icon: Icons.translate_rounded, label: 'Translate', onTap: () => _translate(only: t)),
         if (!_isPhoto) ...[
           StudioToolButton(
             icon: Icons.start_rounded,
@@ -1151,6 +1477,7 @@ class _StudioEditorScreenState extends ConsumerState<StudioEditorScreen> {
     return _bar(onBack: _back, [
       StudioToolButton(icon: Icons.title_rounded, label: 'Add text', onTap: () => _addText()),
       StudioToolButton(icon: Icons.emoji_emotions_outlined, label: 'Stickers', onTap: _addSticker),
+      StudioToolButton(icon: Icons.auto_fix_high_rounded, label: 'Effects', onTap: () => setState(() => _panel = _Panel.effects)),
       if (t != null && !t.isCaption) ..._layerTools(t),
     ]);
   }
@@ -1158,9 +1485,12 @@ class _StudioEditorScreenState extends ConsumerState<StudioEditorScreen> {
   Widget _captionsBar() {
     final t = _text;
     return _bar(onBack: _back, [
+      StudioToolButton(icon: Icons.record_voice_over_outlined, label: 'Auto captions', onTap: _autoCaptions),
+      StudioToolButton(icon: Icons.translate_rounded, label: 'Translate', onTap: () => _translate()),
       StudioToolButton(icon: Icons.add_comment_outlined, label: 'Enter captions', onTap: () => _addText(caption: true)),
-      StudioToolButton(icon: Icons.style_outlined, label: 'Caption templates', onTap: _captionTemplates),
-      StudioToolButton(icon: Icons.file_open_outlined, label: 'Import captions', onTap: _importCaptions),
+      StudioToolButton(icon: Icons.style_outlined, label: 'Caption style', onTap: _captionTemplates),
+      StudioToolButton(icon: Icons.file_open_outlined, label: 'Import SRT', onTap: _importCaptions),
+      StudioToolButton(icon: Icons.save_alt_rounded, label: 'Save SRT', onTap: _exportSrt),
       if (t != null && t.isCaption) ..._layerTools(t),
     ]);
   }

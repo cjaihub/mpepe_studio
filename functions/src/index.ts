@@ -295,6 +295,7 @@ export { verifySubscriptionPurchase, playBillingNotifications } from './creator/
 export { insightsOnView, insightsOnLike, insightsOnUnlike, insightsOnShare, insightsOnComment, insightsOnFollow, insightsOnEarning, recordWatchTime } from './creator/insights';
 export { stripeConfig, stripeConnectOnboard, stripePayoutStatus, quoteDelivery, createOrderCheckout, stripeWebhook, acceptDelivery, startJourney, confirmDelivery, cancelOrder } from './commerce/stripeEscrow';
 export { aiProxy } from './aiProxy';
+export { studioCaptions, studioTranslate } from './studioAi';
 export { arEffectGenerate, arEffectCreateFromUpload, arEffectUse, arEffectFavoriteAdded, arEffectFavoriteRemoved } from './arEffects';
 export { tiktokExchangeCode } from './tiktokOAuth';
 export { globalSemanticSearch } from './search/searchQuery';

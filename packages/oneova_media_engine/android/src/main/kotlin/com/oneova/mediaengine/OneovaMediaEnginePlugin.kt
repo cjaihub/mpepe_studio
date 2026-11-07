@@ -2,6 +2,11 @@ package com.oneova.mediaengine
 
 import android.content.Context
 import android.graphics.Bitmap
+import android.graphics.BitmapFactory
+import android.graphics.ImageDecoder
+import android.graphics.Matrix
+import android.media.ExifInterface
+import android.os.Build
 import android.media.MediaCodecList
 import android.media.MediaExtractor
 import android.media.MediaFormat
@@ -19,6 +24,8 @@ import java.util.concurrent.Executors
 /**
  * Flutter bridge for on-device media work:
  *  - probe / thumbnails / frame extraction (MediaMetadataRetriever)
+ *  - inspect (container + per-track decoder support) and image normalizing
+ *    (HEIC/HEIF/AVIF/GIF/BMP/huge photos -> upright JPEG or PNG)
  *  - export of an edited timeline ([TimelineExporter], Media3 Transformer)
  */
 class OneovaMediaEnginePlugin : FlutterPlugin, MethodChannel.MethodCallHandler {
@@ -76,6 +83,44 @@ class OneovaMediaEnginePlugin : FlutterPlugin, MethodChannel.MethodCallHandler {
                 )
             }
             "capabilities" -> background(result) { capabilities() }
+            "frames" -> background(result) {
+                frames(
+                    path = call.argument<String>("path")!!,
+                    times = (call.argument<List<Number>>("times") ?: emptyList()).map { it.toLong() },
+                    outDir = call.argument<String>("outDir")!!,
+                    maxSide = call.argument<Int>("maxSide") ?: 480,
+                )
+            }
+            "inspect" -> background(result) { inspect(call.argument<String>("path")!!) }
+            "gifToVideo" -> background(result) {
+                StudioMediaTools.gifToVideo(
+                    call.argument<String>("path")!!,
+                    call.argument<String>("out")!!,
+                    call.argument<Int>("maxSide") ?: 1080,
+                    ::postProgress,
+                )
+            }
+            "reverse" -> background(result) {
+                StudioMediaTools.reverse(
+                    path = call.argument<String>("path")!!,
+                    out = call.argument<String>("out")!!,
+                    startMs = (call.argument<Number>("startMs") ?: 0).toLong(),
+                    endMs = (call.argument<Number>("endMs") ?: 0).toLong(),
+                    fps = call.argument<Int>("fps") ?: 30,
+                    maxSide = call.argument<Int>("maxSide") ?: 1280,
+                    onProgress = ::postProgress,
+                )
+            }
+            "beats" -> background(result) {
+                StudioMediaTools.beats(call.argument<String>("path")!!, (call.argument<Number>("maxMs") ?: 600000).toLong())
+            }
+            "normalizeImage" -> background(result) {
+                normalizeImage(
+                    path = call.argument<String>("path")!!,
+                    out = call.argument<String>("out")!!,
+                    maxSide = call.argument<Int>("maxSide") ?: 4096,
+                )
+            }
             "export" -> startExport(call, result)
             "cancel" -> {
                 exporter?.cancel()
@@ -84,6 +129,10 @@ class OneovaMediaEnginePlugin : FlutterPlugin, MethodChannel.MethodCallHandler {
             }
             else -> result.notImplemented()
         }
+    }
+
+    private fun postProgress(p: Double) {
+        main.post { progressSink?.success(mapOf("progress" to p)) }
     }
 
     private fun background(result: MethodChannel.Result, block: () -> Any?) {
@@ -124,6 +173,100 @@ class OneovaMediaEnginePlugin : FlutterPlugin, MethodChannel.MethodCallHandler {
         } finally {
             retriever.release()
         }
+    }
+
+    /** Container and track facts, with whether this phone has a decoder for each track. */
+    private fun inspect(path: String): Map<String, Any?> {
+        val extractor = MediaExtractor()
+        return try {
+            extractor.setDataSource(path)
+            val codecs = MediaCodecList(MediaCodecList.REGULAR_CODECS)
+            val tracks = ArrayList<Map<String, Any?>>()
+            for (i in 0 until extractor.trackCount) {
+                val format = extractor.getTrackFormat(i)
+                val mime = format.getString(MediaFormat.KEY_MIME) ?: continue
+                val kind = when {
+                    mime.startsWith("video/") -> "video"
+                    mime.startsWith("audio/") -> "audio"
+                    mime.startsWith("image/") -> "image"
+                    else -> "other"
+                }
+                val decodable = if (kind == "video" || kind == "audio") {
+                    try {
+                        format.setString(MediaFormat.KEY_FRAME_RATE, null)
+                    } catch (_: Exception) {
+                    }
+                    try {
+                        codecs.findDecoderForFormat(format) != null
+                    } catch (_: Exception) {
+                        false
+                    }
+                } else {
+                    true
+                }
+                tracks.add(
+                    mapOf(
+                        "mime" to mime,
+                        "kind" to kind,
+                        "decodable" to decodable,
+                        "width" to if (format.containsKey(MediaFormat.KEY_WIDTH)) format.getInteger(MediaFormat.KEY_WIDTH) else 0,
+                        "height" to if (format.containsKey(MediaFormat.KEY_HEIGHT)) format.getInteger(MediaFormat.KEY_HEIGHT) else 0,
+                    ),
+                )
+            }
+            mapOf("readable" to true, "tracks" to tracks, "sizeBytes" to File(path).length())
+        } catch (e: Exception) {
+            mapOf("readable" to false, "error" to (e.message ?: e.javaClass.simpleName), "tracks" to emptyList<Any>())
+        } finally {
+            extractor.release()
+        }
+    }
+
+    /** Decodes any image the phone supports, upright and at most [maxSide], to JPEG (PNG if it has alpha). */
+    private fun normalizeImage(path: String, out: String, maxSide: Int): Map<String, Any?> {
+        val bitmap: Bitmap = if (Build.VERSION.SDK_INT >= 28) {
+            val source = ImageDecoder.createSource(File(path))
+            ImageDecoder.decodeBitmap(source) { decoder, info, _ ->
+                decoder.allocator = ImageDecoder.ALLOCATOR_SOFTWARE
+                val longest = maxOf(info.size.width, info.size.height)
+                if (longest > maxSide) {
+                    val f = maxSide.toFloat() / longest
+                    decoder.setTargetSize((info.size.width * f).toInt().coerceAtLeast(1), (info.size.height * f).toInt().coerceAtLeast(1))
+                }
+            }
+        } else {
+            val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+            BitmapFactory.decodeFile(path, bounds)
+            var sample = 1
+            while (maxOf(bounds.outWidth, bounds.outHeight) / sample > maxSide * 2) sample *= 2
+            val decoded = BitmapFactory.decodeFile(path, BitmapFactory.Options().apply { inSampleSize = sample })
+                ?: throw IllegalStateException("This phone can't decode that image.")
+            val degrees = when (ExifInterface(path).getAttributeInt(ExifInterface.TAG_ORIENTATION, ExifInterface.ORIENTATION_NORMAL)) {
+                ExifInterface.ORIENTATION_ROTATE_90 -> 90f
+                ExifInterface.ORIENTATION_ROTATE_180 -> 180f
+                ExifInterface.ORIENTATION_ROTATE_270 -> 270f
+                else -> 0f
+            }
+            val longest = maxOf(decoded.width, decoded.height)
+            val scale = if (longest > maxSide) maxSide.toFloat() / longest else 1f
+            if (degrees != 0f || scale != 1f) {
+                val m = Matrix().apply { postScale(scale, scale); postRotate(degrees) }
+                Bitmap.createBitmap(decoded, 0, 0, decoded.width, decoded.height, m, true).also {
+                    if (it !== decoded) decoded.recycle()
+                }
+            } else {
+                decoded
+            }
+        }
+        val png = bitmap.hasAlpha()
+        val target = if (png) out.substringBeforeLast('.') + ".png" else out
+        File(target).parentFile?.mkdirs()
+        FileOutputStream(target).use {
+            bitmap.compress(if (png) Bitmap.CompressFormat.PNG else Bitmap.CompressFormat.JPEG, 95, it)
+        }
+        val result = mapOf("path" to target, "width" to bitmap.width, "height" to bitmap.height)
+        bitmap.recycle()
+        return result
     }
 
     private fun frameRate(path: String): Double {
@@ -196,6 +339,41 @@ class OneovaMediaEnginePlugin : FlutterPlugin, MethodChannel.MethodCallHandler {
         } finally {
             retriever.release()
         }
+    }
+
+    /** Exact frames at [times] (ms) as small JPEGs, one retriever for all; "" where none. */
+    private fun frames(path: String, times: List<Long>, outDir: String, maxSide: Int): List<String> {
+        val dir = File(outDir).apply { mkdirs() }
+        val retriever = MediaMetadataRetriever()
+        val out = ArrayList<String>()
+        val key = (path.hashCode().toLong() and 0xffffffffL).toString(16)
+        try {
+            retriever.setDataSource(path)
+            for (t in times) {
+                val file = File(dir, "${key}_f${t}_$maxSide.jpg")
+                if (!file.exists()) {
+                    val bmp = try {
+                        if (Build.VERSION.SDK_INT >= 27) {
+                            retriever.getScaledFrameAtTime(t * 1000, MediaMetadataRetriever.OPTION_CLOSEST, maxSide, maxSide)
+                        } else {
+                            retriever.getFrameAtTime(t * 1000, MediaMetadataRetriever.OPTION_CLOSEST)
+                        }
+                    } catch (_: Exception) {
+                        null
+                    }
+                    if (bmp == null) {
+                        out.add("")
+                        continue
+                    }
+                    FileOutputStream(file).use { bmp.compress(Bitmap.CompressFormat.JPEG, 85, it) }
+                    bmp.recycle()
+                }
+                out.add(file.absolutePath)
+            }
+        } finally {
+            retriever.release()
+        }
+        return out
     }
 
     private fun scaleToHeight(bmp: Bitmap, height: Int): Bitmap {

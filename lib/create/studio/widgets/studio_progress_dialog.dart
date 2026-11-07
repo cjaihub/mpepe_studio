@@ -2,8 +2,11 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
+import 'package:oneova_media_engine/oneova_media_engine.dart';
 
 import '../../../shared/theme/app_theme.dart';
+import '../screens/studio_media_picker_screen.dart';
+import '../services/studio_media.dart';
 import 'studio_ui.dart';
 
 /// Runs [task] behind a blocking dialog with a progress bar. On failure the
@@ -135,4 +138,31 @@ class _StudioTaskDialogState<T> extends State<_StudioTaskDialog<T>> {
       ),
     );
   }
+}
+
+/// Imports [picks] into clips. Files likely to need converting (HEIC, GIF,
+/// AVI, MKV, WebM...) run behind the progress dialog; plain MP4/JPEG picks
+/// open straight away. Null if the user gave up.
+Future<StudioImportResult?> studioImportWithProgress(BuildContext context, List<StudioPick> picks, {bool allowVideo = true}) async {
+  const quick = {'mp4', 'mov', 'm4v', '3gp', 'jpg', 'jpeg', 'png', 'webp'};
+  final slow = picks.any((p) {
+    final name = p.path.split('/').last;
+    final dot = name.lastIndexOf('.');
+    return dot < 0 || !quick.contains(name.substring(dot + 1).toLowerCase());
+  });
+  if (!slow) return StudioMedia.importPicks(picks, allowVideo: allowVideo);
+  return runStudioTask<StudioImportResult>(
+    context,
+    title: 'Opening media',
+    onCancel: OneovaMediaEngine.cancel,
+    task: (onProgress) async {
+      onProgress(0.05);
+      final sub = OneovaMediaEngine.progress.listen((p) => onProgress(0.05 + p * 0.9));
+      try {
+        return await StudioMedia.importPicks(picks, allowVideo: allowVideo);
+      } finally {
+        await sub.cancel();
+      }
+    },
+  );
 }

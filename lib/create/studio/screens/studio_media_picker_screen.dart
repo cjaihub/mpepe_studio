@@ -1,5 +1,6 @@
 import 'dart:io';
 
+import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:go_router/go_router.dart';
@@ -8,6 +9,7 @@ import 'package:photo_manager/photo_manager.dart';
 import 'package:video_player/video_player.dart';
 
 import '../../../shared/theme/app_theme.dart';
+import '../services/studio_media.dart';
 import '../widgets/studio_ui.dart';
 
 /// What the picker hands back to Studio.
@@ -221,6 +223,33 @@ class _StudioMediaPickerScreenState extends State<StudioMediaPickerScreen> with 
     context.pop(StudioPickResult(picks, _hd));
   }
 
+  /// Any file on the phone (MKV, WebM, 3GP, HEIC, GIF...). Sizes and length
+  /// are read by the Studio importer.
+  Future<void> _pickFromFiles() async {
+    final type = switch (widget.mode) {
+      StudioPickMode.video => FileType.video,
+      StudioPickMode.photo => FileType.image,
+      StudioPickMode.any => FileType.media,
+    };
+    final files = widget.multiple
+        ? await FilePicker.pickFiles(type: type)
+        : [?(await FilePicker.pickFile(type: type))];
+    final picks = [
+      for (final f in files)
+        if (f.path != null)
+          StudioPick(
+            path: f.path!,
+            isImage: studioIsImagePath(f.path!),
+            durationMs: 0,
+            width: 0,
+            height: 0,
+            endMs: 0,
+          ),
+    ];
+    if (picks.isEmpty || !mounted) return;
+    context.pop(StudioPickResult(picks, _hd));
+  }
+
   Future<void> _chooseAlbum() async {
     final kind = _tabKinds[_tabs.index];
     final picked = await showModalBottomSheet<AssetPathEntity?>(
@@ -284,6 +313,14 @@ class _StudioMediaPickerScreenState extends State<StudioMediaPickerScreen> with 
             ],
           ),
         ),
+        actions: [
+          TextButton.icon(
+            onPressed: _resolving ? null : _pickFromFiles,
+            icon: Icon(Icons.folder_open_rounded, size: 18, color: context.textPrimary),
+            label: Text('Files', style: GoogleFonts.inter(color: context.textPrimary, fontSize: 13, fontWeight: FontWeight.w700)),
+          ),
+          const SizedBox(width: 4),
+        ],
         bottom: _tabKinds.length < 2
             ? null
             : TabBar(

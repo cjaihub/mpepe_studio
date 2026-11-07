@@ -8,6 +8,7 @@ import 'package:google_fonts/google_fonts.dart';
 
 import '../../../shared/theme/app_theme.dart';
 import '../models/studio_project.dart';
+import '../services/studio_effects.dart';
 import '../services/studio_media.dart';
 import '../services/studio_playback.dart';
 import 'studio_ui.dart';
@@ -21,9 +22,11 @@ class StudioTimeline extends StatefulWidget {
   final String? selectedClipId;
   final String? selectedTextId;
   final String? selectedAudioId;
+  final String? selectedEffectId;
   final ValueChanged<String?> onSelectClip;
   final ValueChanged<String?> onSelectText;
   final ValueChanged<String?> onSelectAudio;
+  final ValueChanged<String?>? onSelectEffect;
 
   /// Live trim while dragging a handle (not yet committed to history).
   final void Function(StudioClip clip) onTrimPreview;
@@ -31,6 +34,7 @@ class StudioTimeline extends StatefulWidget {
   final VoidCallback onAddClip;
   final VoidCallback onAddAudio;
   final VoidCallback onAddText;
+  final VoidCallback? onAddEffect;
   final VoidCallback onCover;
   final VoidCallback onToggleMuteAll;
 
@@ -41,14 +45,17 @@ class StudioTimeline extends StatefulWidget {
     required this.selectedClipId,
     required this.selectedTextId,
     required this.selectedAudioId,
+    this.selectedEffectId,
     required this.onSelectClip,
     required this.onSelectText,
     required this.onSelectAudio,
+    this.onSelectEffect,
     required this.onTrimPreview,
     required this.onTrimCommit,
     required this.onAddClip,
     required this.onAddAudio,
     required this.onAddText,
+    this.onAddEffect,
     required this.onCover,
     required this.onToggleMuteAll,
   });
@@ -70,6 +77,9 @@ class _StudioTimelineState extends State<StudioTimeline> {
   @override
   void initState() {
     super.initState();
+    // Long videos open zoomed out so about 90 seconds fit the strip.
+    final secs = widget.project.durationMs / 1000;
+    if (secs > 90) _pps = (5400 / secs).clamp(4.0, 64.0);
     widget.playback.addListener(_followPlayhead);
     _scroll.addListener(_onScroll);
   }
@@ -117,7 +127,7 @@ class _StudioTimelineState extends State<StudioTimeline> {
         onScaleStart: (_) => _ppsAtScaleStart = _pps,
         onScaleUpdate: (d) {
           if (d.pointerCount < 2) return;
-          setState(() => _pps = (_ppsAtScaleStart * d.horizontalScale).clamp(16.0, 320.0));
+          setState(() => _pps = (_ppsAtScaleStart * d.horizontalScale).clamp(2.0, 320.0));
           WidgetsBinding.instance.addPostFrameCallback((_) => _followPlayhead());
         },
         child: Stack(
@@ -148,6 +158,10 @@ class _StudioTimelineState extends State<StudioTimeline> {
                       SizedBox(height: _rowH, child: _textRow(half)),
                       const SizedBox(height: 4),
                       SizedBox(height: _rowH, child: _audioRow(half)),
+                      if (widget.onSelectEffect != null) ...[
+                        const SizedBox(height: 4),
+                        SizedBox(height: _rowH - 4, child: _effectRow(half)),
+                      ],
                     ],
                   ),
                 ),
@@ -348,12 +362,56 @@ class _StudioTimelineState extends State<StudioTimeline> {
           width: math.max(18, _x(a.durationMs)),
           top: 0,
           bottom: 0,
+          child: Stack(
+            fit: StackFit.expand,
+            children: [
+              _trackChip(
+                label: a.title,
+                icon: Icons.graphic_eq_rounded,
+                color: AppColors.textMuted,
+                selected: a.id == widget.selectedAudioId,
+                onTap: () => widget.onSelectAudio(a.id == widget.selectedAudioId ? null : a.id),
+              ),
+              // Beat markers.
+              for (final b in a.timelineBeats)
+                Positioned(
+                  left: _x(b - a.offsetMs) - 1.5,
+                  bottom: 2,
+                  child: IgnorePointer(
+                    child: Container(
+                      width: 3,
+                      height: 3,
+                      decoration: const BoxDecoration(color: AppColors.brandPink, shape: BoxShape.circle),
+                    ),
+                  ),
+                ),
+            ],
+          ),
+        ),
+    ]);
+  }
+
+  Widget _effectRow(double half) {
+    final p = widget.project;
+    if (p.effects.isEmpty) {
+      return Padding(
+        padding: EdgeInsets.only(left: half),
+        child: _addChip(Icons.auto_fix_high_rounded, 'Add effect', widget.onAddEffect ?? () {}),
+      );
+    }
+    return Stack(children: [
+      for (final e in p.effects)
+        Positioned(
+          left: half + _x(e.startMs),
+          width: math.max(18, _x(e.endMs - e.startMs)),
+          top: 0,
+          bottom: 0,
           child: _trackChip(
-            label: a.title,
-            icon: Icons.graphic_eq_rounded,
-            color: const Color(0xFF2E7D5B),
-            selected: a.id == widget.selectedAudioId,
-            onTap: () => widget.onSelectAudio(a.id == widget.selectedAudioId ? null : a.id),
+            label: StudioEffects.byId(e.effectId)?.name ?? 'Effect',
+            icon: StudioEffects.byId(e.effectId)?.icon ?? Icons.auto_fix_high_rounded,
+            color: AppColors.textSecondary,
+            selected: e.id == widget.selectedEffectId,
+            onTap: () => widget.onSelectEffect!(e.id == widget.selectedEffectId ? null : e.id),
           ),
         ),
     ]);
@@ -496,9 +554,11 @@ class _RulerPainter extends CustomPainter {
   @override
   void paint(Canvas canvas, Size size) {
     final dot = Paint()..color = color;
-    final secondsPerLabel = pps >= 120 ? 1 : (pps >= 48 ? 2 : (pps >= 24 ? 5 : 10));
+    final secondsPerLabel = pps >= 120 ? 1 : (pps >= 48 ? 2 : (pps >= 24 ? 5 : (pps >= 10 ? 10 : (pps >= 4 ? 30 : 60))));
+    // Dots every second, thinned out when zoomed far out (long videos).
+    final tick = pps >= 10 ? 1 : (pps >= 4 ? 5 : 10);
     final totalS = (totalMs / 1000).ceil();
-    for (var s = 0; s <= totalS; s++) {
+    for (var s = 0; s <= totalS; s += tick) {
       final x = left + s * pps;
       if (s % secondsPerLabel == 0) {
         final tp = TextPainter(text: TextSpan(text: studioClock(s * 1000), style: style), textDirection: TextDirection.ltr)

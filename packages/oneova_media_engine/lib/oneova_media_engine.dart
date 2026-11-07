@@ -36,6 +36,76 @@ class MediaProbe {
       );
 }
 
+/// One track found by [OneovaMediaEngine.inspect].
+class MediaTrackInfo {
+  final String mime;
+
+  /// 'video', 'audio', 'image' or 'other'.
+  final String kind;
+
+  /// Whether this phone has a decoder for the track.
+  final bool decodable;
+  final int width;
+  final int height;
+
+  const MediaTrackInfo({required this.mime, required this.kind, required this.decodable, this.width = 0, this.height = 0});
+
+  /// Short codec name for messages ("HEVC", "AV1", "Opus"...).
+  String get codecName {
+    final m = mime.toLowerCase();
+    const names = {
+      'video/avc': 'H.264',
+      'video/hevc': 'HEVC (H.265)',
+      'video/x-vnd.on2.vp8': 'VP8',
+      'video/x-vnd.on2.vp9': 'VP9',
+      'video/av01': 'AV1',
+      'video/dolby-vision': 'Dolby Vision',
+      'video/mp4v-es': 'MPEG-4',
+      'video/3gpp': 'H.263',
+      'video/mpeg2': 'MPEG-2',
+      'audio/mp4a-latm': 'AAC',
+      'audio/mpeg': 'MP3',
+      'audio/opus': 'Opus',
+      'audio/vorbis': 'Vorbis',
+      'audio/flac': 'FLAC',
+      'audio/raw': 'PCM',
+      'audio/ac3': 'Dolby AC-3',
+      'audio/eac3': 'Dolby E-AC-3',
+      'audio/3gpp': 'AMR',
+      'audio/amr-wb': 'AMR-WB',
+    };
+    return names[m] ?? mime.split('/').last.toUpperCase();
+  }
+}
+
+/// Result of [OneovaMediaEngine.inspect].
+class MediaInspection {
+  /// The container could be opened by Android's extractor.
+  final bool readable;
+  final String? error;
+  final List<MediaTrackInfo> tracks;
+
+  const MediaInspection({required this.readable, this.error, this.tracks = const []});
+
+  Iterable<MediaTrackInfo> get video => tracks.where((t) => t.kind == 'video');
+  Iterable<MediaTrackInfo> get audio => tracks.where((t) => t.kind == 'audio');
+
+  factory MediaInspection.fromMap(Map<dynamic, dynamic> m) => MediaInspection(
+        readable: m['readable'] == true,
+        error: m['error'] as String?,
+        tracks: [
+          for (final t in (m['tracks'] as List? ?? const []))
+            MediaTrackInfo(
+              mime: (t as Map)['mime'] as String? ?? '',
+              kind: t['kind'] as String? ?? 'other',
+              decodable: t['decodable'] == true,
+              width: (t['width'] as num?)?.toInt() ?? 0,
+              height: (t['height'] as num?)?.toInt() ?? 0,
+            ),
+        ],
+      );
+}
+
 /// What the device's H.264 encoder can produce.
 class EncoderCapabilities {
   final int maxWidth;
@@ -109,6 +179,43 @@ class OneovaMediaEngine {
     return r ?? out;
   }
 
+  /// Exact frames at [timesMs] (long side at most [maxSide]); '' where a
+  /// frame could not be read.
+  static Future<List<String>> frames(String path, {required List<int> timesMs, required String outDir, int maxSide = 480}) async {
+    final list = await _channel.invokeMethod<List<dynamic>>('frames', {
+      'path': path,
+      'times': timesMs,
+      'outDir': outDir,
+      'maxSide': maxSide,
+    });
+    return (list ?? const []).cast<String>();
+  }
+
+  static Future<T> _call<T>(String method, Map<String, Object?> args) async {
+    try {
+      return (await _channel.invokeMethod<T>(method, args)) as T;
+    } on PlatformException catch (e) {
+      throw MediaEngineException(e.code, e.message ?? e.code);
+    }
+  }
+
+  /// Animated GIF -> silent MP4 (one loop). Returns (path, width, height, durationMs).
+  /// Progress comes on [progress].
+  static Future<(String, int, int, int)> gifToVideo(String path, {required String out, int maxSide = 1080}) async {
+    final m = await _call<Map<dynamic, dynamic>>('gifToVideo', {'path': path, 'out': out, 'maxSide': maxSide});
+    return (m['path'] as String, (m['width'] as num).toInt(), (m['height'] as num).toInt(), (m['durationMs'] as num).toInt());
+  }
+
+  /// [startMs, endMs] of [path] played backwards, silent MP4. Progress on [progress].
+  static Future<String> reverse(String path, {required String out, required int startMs, required int endMs, int fps = 30, int maxSide = 1280}) =>
+      _call<String>('reverse', {'path': path, 'out': out, 'startMs': startMs, 'endMs': endMs, 'fps': fps, 'maxSide': maxSide});
+
+  /// Beat times (ms) and tempo of the sound in [path].
+  static Future<(List<int>, double)> beats(String path, {int maxMs = 600000}) async {
+    final m = await _call<Map<dynamic, dynamic>>('beats', {'path': path, 'maxMs': maxMs});
+    return ((m['beatsMs'] as List).map((e) => (e as num).toInt()).toList(), (m['bpm'] as num).toDouble());
+  }
+
   static Future<EncoderCapabilities> capabilities() async {
     final m = await _channel.invokeMethod<Map<dynamic, dynamic>>('capabilities');
     return EncoderCapabilities(
@@ -116,6 +223,24 @@ class OneovaMediaEngine {
       maxHeight: (m?['maxHeight'] as num?)?.toInt() ?? 1080,
       maxFps: (m?['maxFps'] as num?)?.toInt() ?? 30,
     );
+  }
+
+  /// Container and per-track decoder support for [path].
+  static Future<MediaInspection> inspect(String path) async {
+    final m = await _channel.invokeMethod<Map<dynamic, dynamic>>('inspect', {'path': path});
+    return MediaInspection.fromMap(m ?? const {});
+  }
+
+  /// Decodes any image the phone supports (HEIC/HEIF, AVIF, GIF, BMP, WebP,
+  /// very large photos), upright and at most [maxSide] px, into a JPEG (or a
+  /// PNG when it has transparency). Returns (path, width, height).
+  static Future<(String, int, int)> normalizeImage(String path, {required String out, int maxSide = 4096}) async {
+    try {
+      final m = await _channel.invokeMethod<Map<dynamic, dynamic>>('normalizeImage', {'path': path, 'out': out, 'maxSide': maxSide});
+      return (m!['path'] as String, (m['width'] as num).toInt(), (m['height'] as num).toInt());
+    } on PlatformException catch (e) {
+      throw MediaEngineException(e.code, e.message ?? e.code);
+    }
   }
 
   /// Renders [spec] (see TimelineExporter.kt) and returns the output path.

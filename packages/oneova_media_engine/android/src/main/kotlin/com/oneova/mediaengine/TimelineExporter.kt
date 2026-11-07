@@ -13,6 +13,7 @@ import androidx.media3.common.SpeedParameters
 import androidx.media3.common.audio.AudioProcessor
 import androidx.media3.common.audio.ChannelMixingAudioProcessor
 import androidx.media3.common.audio.ChannelMixingMatrix
+import androidx.media3.common.audio.SonicAudioProcessor
 import androidx.media3.common.audio.SpeedProvider
 import androidx.media3.effect.BitmapOverlay
 import androidx.media3.effect.Crop
@@ -39,8 +40,15 @@ import java.io.File
  * Renders an edited timeline (spec built by the Dart `StudioProject`) into an
  * H.264/AAC MP4 with Media3 Transformer. Everything the editor previews is
  * applied here: trims, speed, volume/mute, color matrix, crop, rotate/flip,
- * zoom, letterboxed output size, frame-rate cap, bitrate, timed bitmap
- * overlays (text, stickers, captions) and extra audio tracks.
+ * zoom, letterboxed output size, frame-rate cap, bitrate, the Oneova Look
+ * engine, timed Studio effects, keyframed bitmap overlays (animated text,
+ * stickers, captions) and extra audio tracks.
+ *
+ * Special modes:
+ *  - `width`/`height` 0: keep the source size (used to convert files the
+ *    preview player can't read into H.264/AAC MP4).
+ *  - `audioOnly`: write the timeline's clip audio (trims and speed applied)
+ *    as mono 16 kHz AAC, for speech-to-text.
  */
 internal class TimelineExporter(
     private val context: Context,
@@ -77,13 +85,18 @@ internal class TimelineExporter(
 
         val clips = spec.list("clips")
         require(clips.isNotEmpty()) { "Nothing to export." }
-        val items = clips.map { buildClip(it, width, height, fps) }
-        val videoSequence = EditedMediaItemSequence.Builder(items)
-            .experimentalSetForceAudioTrack(true)
-            .build()
-
-        val sequences = mutableListOf(videoSequence)
-        audioSequence(spec.list("audio"))?.let { sequences.add(it) }
+        val audioOnly = spec["audioOnly"] == true
+        val sequences = if (audioOnly) {
+            mutableListOf(speechSequence(clips))
+        } else {
+            val items = clips.map { buildClip(it, width, height, fps) }
+            val videoSequence = EditedMediaItemSequence.Builder(items)
+                .experimentalSetForceAudioTrack(true)
+                .build()
+            mutableListOf(videoSequence).also { list ->
+                audioSequence(spec.list("audio"))?.let { list.add(it) }
+            }
+        }
 
         val composition = Composition.Builder(sequences)
             .setHdrMode(Composition.HDR_MODE_TONE_MAP_HDR_TO_SDR_USING_OPEN_GL)
@@ -98,7 +111,7 @@ internal class TimelineExporter(
             .build()
 
         val t = Transformer.Builder(context)
-            .setVideoMimeType(MimeTypes.VIDEO_H264)
+            .apply { if (!audioOnly) setVideoMimeType(MimeTypes.VIDEO_H264) }
             .setAudioMimeType(MimeTypes.AUDIO_AAC)
             .setEncoderFactory(encoderFactory)
             .setPortraitEncodingEnabled(true)
@@ -170,28 +183,49 @@ internal class TimelineExporter(
                     .build(),
             )
         }
+        RetouchSpec.fromMap(clip.map("retouch"))?.let { video.add(RetouchGlEffect(it)) }
         val matrix = clip.floats("matrix")
         if (matrix != null && matrix.size == 20) {
             video.add(colorMatrix(matrix))
         }
-        // Fill (crop) or fit (letterbox) into the project canvas.
-        val fill = clip["fill"] == true
-        video.add(
-            Presentation.createForWidthAndHeight(
-                width, height,
-                if (fill) Presentation.LAYOUT_SCALE_TO_FIT_WITH_CROP else Presentation.LAYOUT_SCALE_TO_FIT,
-            ),
-        )
-        val zoom = clip.dbl("zoom")
-        if (zoom > 1.001) {
-            video.add(ScaleAndRotateTransformation.Builder().setScale(zoom.toFloat(), zoom.toFloat()).build())
-            video.add(Presentation.createForWidthAndHeight(width, height, Presentation.LAYOUT_SCALE_TO_FIT_WITH_CROP))
+        LookSpec.fromMap(clip.map("look"))?.let { video.add(LookGlEffect(it)) }
+        if (width > 0 && height > 0) {
+            // Fill (crop) or fit (letterbox) into the project canvas.
+            val fill = clip["fill"] == true
+            video.add(
+                Presentation.createForWidthAndHeight(
+                    width, height,
+                    if (fill) Presentation.LAYOUT_SCALE_TO_FIT_WITH_CROP else Presentation.LAYOUT_SCALE_TO_FIT,
+                ),
+            )
+            val zoom = clip.dbl("zoom")
+            if (zoom > 1.001) {
+                video.add(ScaleAndRotateTransformation.Builder().setScale(zoom.toFloat(), zoom.toFloat()).build())
+                video.add(Presentation.createForWidthAndHeight(width, height, Presentation.LAYOUT_SCALE_TO_FIT_WITH_CROP))
+            }
+        }
+        for (pass in clip.rawList("fxPasses")) {
+            @Suppress("UNCHECKED_CAST")
+            val windows = (pass as? List<Map<String, Any?>>).orEmpty().map {
+                FxWindow(
+                    type = it.dbl("type").toFloat(),
+                    amount = it.dbl("amount").toFloat(),
+                    startUs = it.long("startMs") * 1000,
+                    endUs = it.long("endMs") * 1000,
+                    timeOffsetS = (it.long("layerOffsetMs") / 1000.0).toFloat(),
+                    layerUs = it.long("layerMs") * 1000,
+                    layerOffsetUs = it.long("layerOffsetMs") * 1000,
+                )
+            }
+            if (windows.isNotEmpty()) video.add(FxGlEffect(windows))
         }
         if (fps > 0) video.add(FrameDropEffect.createDefaultFrameDropEffect(fps.toFloat()))
         val overlays = clip.list("overlays").mapNotNull { timedOverlay(it) }
         if (overlays.isNotEmpty()) video.add(OverlayEffect(overlays))
 
         val audio = ArrayList<AudioProcessor>()
+        val voice = clip.dbl("voiceClean").toFloat()
+        if (!isImage && voice > 0f) audio.add(VoiceCleanProcessor(voice.coerceIn(0f, 1f)))
         val volume = if (clip.containsKey("volume")) clip.dbl("volume").toFloat() else 1f
         if (!isImage && volume != 1f) audio.add(volumeProcessor(volume))
 
@@ -241,6 +275,42 @@ internal class TimelineExporter(
         return builder.build()
     }
 
+    /** Clip audio only (trim + speed), mono 16 kHz, silence for photos and silent clips. */
+    private fun speechSequence(clips: List<Map<String, Any?>>): EditedMediaItemSequence {
+        val builder = EditedMediaItemSequence.Builder(setOf(C.TRACK_TYPE_AUDIO))
+        for (clip in clips) {
+            val isImage = clip["image"] == true
+            val speed = clip.dbl("speed").takeIf { it > 0 } ?: 1.0
+            val start = clip.long("startMs")
+            val end = clip.long("endMs")
+            if (isImage || clip["hasAudio"] == false) {
+                val ms = if (isImage) clip.long("durationMs") else ((end - start) / speed).toLong()
+                builder.addGap(ms.coerceAtLeast(1) * 1000)
+                continue
+            }
+            val item = MediaItem.Builder()
+                .setUri(android.net.Uri.fromFile(File(clip.str("path"))))
+                .setClippingConfiguration(
+                    MediaItem.ClippingConfiguration.Builder()
+                        .setStartPositionMs(start)
+                        .apply { if (end > start) setEndPositionMs(end) }
+                        .build(),
+                )
+                .build()
+            val mono = ChannelMixingAudioProcessor().apply {
+                // Any layout up to 7.1 folds down to one channel.
+                for (n in 1..8) putChannelMixingMatrix(ChannelMixingMatrix(n, 1, FloatArray(n) { 1f / n }))
+            }
+            val resample = SonicAudioProcessor().apply { setOutputSampleRateHz(16000) }
+            val edited = EditedMediaItem.Builder(item)
+                .setRemoveVideo(true)
+                .setEffects(Effects(listOf<AudioProcessor>(mono, resample), emptyList()))
+            if (speed != 1.0) edited.setSpeed(SpeedParameters(constantSpeed(speed.toFloat()), true))
+            builder.addItem(edited.build())
+        }
+        return builder.build()
+    }
+
     private fun volumeProcessor(volume: Float): AudioProcessor {
         val p = ChannelMixingAudioProcessor()
         for (channels in 1..2) {
@@ -270,29 +340,76 @@ internal class TimelineExporter(
     }
 
     /**
-     * A PNG drawn by Flutter at output resolution, shown between startMs and
-     * endMs of this clip's output time. Frame timestamps are measured from the
-     * first frame the overlay sees, so the window is clip-relative whatever
-     * offset the sequence applies.
+     * PNG frames drawn by Flutter at output resolution, shown between startMs
+     * and endMs of this clip's output time. Animated layers carry keyframes
+     * sampled in Dart from the same curves the preview uses:
+     * `samples` = [alpha, scaleX, scaleY, dx, dy, rotationDeg, frame] per
+     * `sampleMs` of layer time (dx/dy in NDC, rotation clockwise). Frame
+     * timestamps are measured from the first frame the overlay sees, so the
+     * window is clip-relative whatever offset the sequence applies.
      */
     private fun timedOverlay(o: Map<String, Any?>): TextureOverlay? {
-        val bitmap = BitmapFactory.decodeFile(o.str("png")) ?: return null
-        val blank = Bitmap.createBitmap(bitmap.width, bitmap.height, Bitmap.Config.ARGB_8888)
+        val frames = ((o["frames"] as? List<*>)?.mapNotNull { it as? String } ?: listOfNotNull(o["png"] as? String))
+            .filter { File(it).exists() }
+        if (frames.isEmpty()) return null
+        val first = BitmapFactory.decodeFile(frames[0]) ?: return null
         val startUs = o.long("startMs") * 1000
         val endUs = o.long("endMs") * 1000
-        val settings = StaticOverlaySettings.Builder()
-            .setBackgroundFrameAnchor(o.dbl("x").toFloat(), o.dbl("y").toFloat())
-            .build()
+        val baseX = o.dbl("x").toFloat()
+        val baseY = o.dbl("y").toFloat()
+        val layerOffsetMs = o.long("layerOffsetMs")
+        val sampleMs = o.dbl("sampleMs").takeIf { it > 0 } ?: 0.0
+        val samples = o.floats("samples")
+        val stride = 7
+        val count = if (samples != null && sampleMs > 0) samples.size / stride else 0
+
         return object : BitmapOverlay() {
             private var baseUs = Long.MIN_VALUE
+            private var frameIndex = 0
+            private var bitmap: Bitmap = first
+            private val state = FloatArray(stride).also { it[0] = 1f; it[1] = 1f; it[2] = 1f }
 
-            override fun getBitmap(presentationTimeUs: Long): Bitmap {
+            private fun localUs(presentationTimeUs: Long): Long {
                 if (baseUs == Long.MIN_VALUE) baseUs = presentationTimeUs
-                val local = presentationTimeUs - baseUs
-                return if (local >= startUs && (endUs <= 0 || local < endUs)) bitmap else blank
+                return presentationTimeUs - baseUs
             }
 
-            override fun getOverlaySettings(presentationTimeUs: Long) = settings
+            private fun evaluate(local: Long) {
+                if (count == 0) return
+                val layerMs = local / 1000.0 + layerOffsetMs
+                val f = (layerMs / sampleMs).coerceIn(0.0, (count - 1).toDouble())
+                val i0 = f.toInt()
+                val i1 = (i0 + 1).coerceAtMost(count - 1)
+                val k = (f - i0).toFloat()
+                for (j in 0 until 6) {
+                    val a = samples!![i0 * stride + j]
+                    val b = samples[i1 * stride + j]
+                    state[j] = a + (b - a) * k
+                }
+                state[6] = samples!![i0 * stride + 6]
+            }
+
+            override fun getBitmap(presentationTimeUs: Long): Bitmap {
+                evaluate(localUs(presentationTimeUs))
+                val want = state[6].toInt().coerceIn(0, frames.size - 1)
+                if (want != frameIndex) {
+                    BitmapFactory.decodeFile(frames[want])?.let { bitmap = it }
+                    frameIndex = want
+                }
+                return bitmap
+            }
+
+            override fun getOverlaySettings(presentationTimeUs: Long): StaticOverlaySettings {
+                val local = localUs(presentationTimeUs)
+                evaluate(local)
+                val active = local >= startUs && (endUs <= 0 || local < endUs)
+                return StaticOverlaySettings.Builder()
+                    .setAlphaScale(if (active) state[0].coerceIn(0f, 1f) else 0f)
+                    .setScale(state[1].coerceAtLeast(0.001f), state[2].coerceAtLeast(0.001f))
+                    .setRotationDegrees(-state[5])
+                    .setBackgroundFrameAnchor(baseX + state[3], baseY + state[4])
+                    .build()
+            }
         }
     }
 }
@@ -316,5 +433,11 @@ private fun Map<String, Any?>.map(key: String) = this[key] as? Map<String, Any?>
 @Suppress("UNCHECKED_CAST")
 private fun Map<String, Any?>.list(key: String) = (this[key] as? List<Map<String, Any?>>) ?: emptyList()
 
-private fun Map<String, Any?>.floats(key: String) =
-    (this[key] as? List<*>)?.map { (it as Number).toFloat() }?.toFloatArray()
+private fun Map<String, Any?>.rawList(key: String) = (this[key] as? List<*>) ?: emptyList<Any?>()
+
+private fun Map<String, Any?>.floats(key: String): FloatArray? = when (val v = this[key]) {
+    is FloatArray -> v
+    is DoubleArray -> FloatArray(v.size) { v[it].toFloat() }
+    is List<*> -> v.map { (it as Number).toFloat() }.toFloatArray()
+    else -> null
+}

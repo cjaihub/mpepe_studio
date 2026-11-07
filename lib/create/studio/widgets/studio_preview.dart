@@ -7,8 +7,12 @@ import 'package:video_player/video_player.dart';
 import '../../../shared/theme/app_theme.dart';
 import '../models/studio_project.dart';
 import '../services/studio_color.dart';
+import '../services/studio_effects.dart';
+import '../services/studio_faces.dart';
+import '../services/studio_looks.dart';
 import '../services/studio_playback.dart';
 import '../services/studio_text_painter.dart';
+import 'studio_text_widgets.dart';
 
 /// The project canvas at the playhead: current clip (cropped, rotated,
 /// flipped, color graded, fit/fill, zoom) and the text layers on screen.
@@ -19,6 +23,9 @@ class StudioPreview extends StatelessWidget {
   final ValueChanged<String?> onSelectText;
   final void Function(StudioText text, double x, double y) onMoveText;
   final ValueChanged<StudioText> onEditText;
+
+  /// Pinch on a layer: new size and rotation.
+  final void Function(StudioText text, double size, double rotation)? onTransformText;
 
   /// Show every text layer regardless of time (photo projects).
   final bool showAllText;
@@ -31,6 +38,7 @@ class StudioPreview extends StatelessWidget {
     required this.onSelectText,
     required this.onMoveText,
     required this.onEditText,
+    this.onTransformText,
     this.showAllText = false,
   });
 
@@ -55,22 +63,38 @@ class StudioPreview extends StatelessWidget {
                 final idx = playback.activeIndex;
                 final pos = playback.posMs;
                 final texts = project.texts.where((t) => showAllText || (pos >= t.startMs && pos < t.endMs));
+                Widget frame = Stack(
+                  fit: StackFit.expand,
+                  children: [
+                    const ColoredBox(color: AppColors.brandBlack),
+                    if (idx >= 0)
+                      StudioClipView(
+                        clip: project.clips[idx],
+                        controller: playback.controllerFor(project.clips[idx]),
+                        localMs: pos - project.clipStartMs(idx),
+                      ),
+                  ],
+                );
+                if (project.effects.isNotEmpty) {
+                  frame = StudioFxFilter(effects: project.effects, posMs: showAllText ? 0 : pos, child: frame);
+                }
                 return GestureDetector(
                   behavior: HitTestBehavior.opaque,
                   onTap: () => onSelectText(null),
                   child: Stack(
                     fit: StackFit.expand,
                     children: [
-                      const ColoredBox(color: AppColors.brandBlack),
-                      if (idx >= 0) StudioClipView(clip: project.clips[idx], controller: playback.controllerFor(project.clips[idx])),
+                      frame,
                       for (final t in texts)
                         _DraggableText(
                           key: ValueKey(t.id),
-                          text: t,
+                          text: showAllText ? t.copyWith(anim: const StudioTextAnim()) : t,
                           canvas: Size(w, h),
+                          ms: showAllText ? t.startMs : pos,
                           selected: t.id == selectedTextId,
                           onTap: () => t.id == selectedTextId ? onEditText(t) : onSelectText(t.id),
                           onMove: (x, y) => onMoveText(t, x, y),
+                          onTransform: onTransformText == null ? null : (size, rot) => onTransformText!(t, size, rot),
                         ),
                     ],
                   ),
@@ -92,7 +116,10 @@ class StudioClipView extends StatelessWidget {
   /// Ignore crop (used under the crop editor).
   final bool uncropped;
 
-  const StudioClipView({super.key, required this.clip, this.controller, this.uncropped = false});
+  /// Playhead inside the clip (output ms), for face-tracked retouch.
+  final int localMs;
+
+  const StudioClipView({super.key, required this.clip, this.controller, this.uncropped = false, this.localMs = 0});
 
   @override
   Widget build(BuildContext context) {
@@ -129,8 +156,13 @@ class StudioClipView extends StatelessWidget {
       framed = Transform.scale(scaleX: clip.flipH ? -1 : 1, scaleY: clip.flipV ? -1 : 1, child: framed);
     }
     if (clip.rotation % 360 != 0) framed = RotatedBox(quarterTurns: (clip.rotation ~/ 90) % 4, child: framed);
+    // Same order as the export: retouch, color matrix, then the Look engine.
+    if (!clip.retouch.isIdentity && !uncropped) framed = StudioRetouchFilter(clip: clip, localMs: localMs, child: framed);
     final matrix = StudioColor.clipMatrix(clip);
     if (!StudioColor.isIdentity(matrix)) framed = ColorFiltered(colorFilter: ColorFilter.matrix(matrix), child: framed);
+    // Same order as the export: color matrix, then the Look engine.
+    final look = StudioLooks.forClip(clip);
+    if (look != null) framed = StudioLookFilter(look: look, child: framed);
 
     Widget fitted = SizedBox.expand(
       child: FittedBox(fit: clip.fill ? BoxFit.cover : BoxFit.contain, clipBehavior: Clip.hardEdge, child: framed),
@@ -143,17 +175,21 @@ class StudioClipView extends StatelessWidget {
 class _DraggableText extends StatefulWidget {
   final StudioText text;
   final Size canvas;
+  final int ms;
   final bool selected;
   final VoidCallback onTap;
   final void Function(double x, double y) onMove;
+  final void Function(double size, double rotation)? onTransform;
 
   const _DraggableText({
     super.key,
     required this.text,
     required this.canvas,
+    required this.ms,
     required this.selected,
     required this.onTap,
     required this.onMove,
+    this.onTransform,
   });
 
   @override
@@ -162,10 +198,15 @@ class _DraggableText extends StatefulWidget {
 
 class _DraggableTextState extends State<_DraggableText> {
   Offset? _drag;
+  double? _size;
+  double? _rotation;
+  double _startSize = 0;
+  double _startRotation = 0;
 
   @override
   Widget build(BuildContext context) {
-    final t = widget.text;
+    var t = widget.text;
+    if (_size != null || _rotation != null) t = t.copyWith(size: _size, rotation: _rotation);
     final c = widget.canvas;
     final size = StudioTextPainter.measure(t, c.width);
     final center = _drag ?? Offset((t.x + 1) / 2 * c.width, (t.y + 1) / 2 * c.height);
@@ -177,17 +218,36 @@ class _DraggableTextState extends State<_DraggableText> {
       top: top,
       child: GestureDetector(
         onTap: widget.onTap,
-        onPanStart: (_) => setState(() => _drag = center),
-        onPanUpdate: (d) => setState(() => _drag = (_drag ?? center) + d.delta),
-        onPanEnd: (_) {
+        onScaleStart: (_) {
+          _startSize = widget.text.size;
+          _startRotation = widget.text.rotation;
+          setState(() => _drag = center);
+        },
+        onScaleUpdate: (d) => setState(() {
+          _drag = (_drag ?? center) + d.focalPointDelta;
+          if (d.pointerCount > 1 && widget.onTransform != null) {
+            _size = (_startSize * d.scale).clamp(0.02, widget.text.isSticker ? 0.5 : 0.3);
+            _rotation = _startRotation + d.rotation * 180 / math.pi;
+          }
+        }),
+        onScaleEnd: (_) {
           final p = _drag!;
-          setState(() => _drag = null);
+          final size = _size;
+          final rotation = _rotation;
+          setState(() {
+            _drag = null;
+            _size = null;
+            _rotation = null;
+          });
           widget.onMove(
             (p.dx / c.width * 2 - 1).clamp(-1.0, 1.0),
             (p.dy / c.height * 2 - 1).clamp(-1.0, 1.0),
           );
+          if (size != null || rotation != null) {
+            widget.onTransform?.call(size ?? widget.text.size, ((rotation ?? widget.text.rotation) * 10).roundToDouble() / 10);
+          }
         },
-        child: StudioTextLayer(text: t, canvasWidth: c.width, selected: widget.selected),
+        child: StudioAnimatedTextLayer(text: t, canvas: c, ms: widget.ms, selected: widget.selected),
       ),
     );
   }

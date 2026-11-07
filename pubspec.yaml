@@ -217,6 +217,9 @@ flutter:
   shaders:
     - shaders/fluid_trackpad.frag
     - shaders/look_engine.frag
+    - shaders/studio_look.frag
+    - shaders/studio_fx.frag
+    - shaders/studio_retouch.frag
   #   - images/a_dot_burr.jpeg
   #   - images/a_dot_ham.jpeg
 
