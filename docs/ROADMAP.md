@@ -37,6 +37,7 @@ Identity, Radar, Connect, Financial Connections and Issuing where they're availa
 ---
 
 ## Phase 0.5: stop the bleeding (small fixes to existing code, if approved)
+**Status: done on `feat/oneova-pay-hardening`, not deployed** (see `docs/payments/PROVIDERS.md`). The provider interface, mock and failover router from Phase 3 were built at the same time.
 These are the critical audit items. They're small and independent of the new platform.
 1. Handle Play voided purchases for coins (scheduled Voided Purchases API poll → claw back pending Diamonds, freeze if negative).
 2. In `dispatch()`, don't refund on an ambiguous error. Mark it `unknown` and reconcile by querying the provider by reference.
