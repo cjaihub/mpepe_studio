@@ -7,6 +7,7 @@
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:uuid/uuid.dart';
 
 import '../contracts/studio_contracts.dart';
 import '../contracts/studio_ports.dart';
@@ -371,9 +372,10 @@ class StudioGiftApi {
   const StudioGiftApi(this._call);
   final StudioCallPort _call;
 
-  /// Returns the new balance.
-  Future<int> send(String streamId, StudioGift gift, {int qty = 1}) async {
-    final r = await _call.call('lsGift', {'streamId': streamId, 'giftId': gift.wire, 'qty': qty});
+  /// Returns the new balance. Pass the same [requestId] when retrying one tap;
+  /// the server charges once.
+  Future<int> send(String streamId, StudioGift gift, {int qty = 1, String? requestId}) async {
+    final r = await _call.call('lsGift', {'streamId': streamId, 'giftId': gift.wire, 'qty': qty, 'requestId': requestId ?? const Uuid().v4()});
     return _int(r['balanceCoins']);
   }
 }

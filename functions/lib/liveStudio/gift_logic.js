@@ -10,6 +10,7 @@ exports.GiftError = exports.RECENT_GIFTS = exports.MAX_QTY = exports.HOST_SHARE 
 exports.parseGift = parseGift;
 exports.giftPrice = giftPrice;
 exports.pushRecent = pushRecent;
+exports.giftId = giftId;
 exports.GIFT_CATALOG = {
     rose: { label: 'Rose', coins: 1 },
     thumbs: { label: 'Thumbs up', coins: 1 },
@@ -53,5 +54,14 @@ function giftPrice(giftId, qty) {
 /** Newest first, capped at RECENT_GIFTS. */
 function pushRecent(list, g) {
     return [g, ...(Array.isArray(list) ? list : [])].slice(0, exports.RECENT_GIFTS);
+}
+/**
+ * Document id for one gift. With a client [requestId] (one per tap, reused on
+ * retry) the same gift always gets the same id, so a retry can't charge twice.
+ */
+function giftId(uid, requestId, nowMs) {
+    if (typeof requestId === 'string' && /^[A-Za-z0-9_-]{8,80}$/.test(requestId))
+        return `${uid}_r${requestId}`;
+    return `${uid}_${nowMs.toString(36)}`;
 }
 //# sourceMappingURL=gift_logic.js.map

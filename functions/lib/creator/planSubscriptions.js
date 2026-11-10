@@ -40,7 +40,8 @@ exports.playBillingNotifications = exports.verifySubscriptionPurchase = exports.
  *   app → verifySubscriptionPurchase  checks the token with the Play Developer
  *         API (subscriptionsv2), acknowledges it and writes `subscriptions/{uid}`
  *   Play → playBillingNotifications   Real-time developer notifications on the
- *         Pub/Sub topic `play-billing` (renewals, cancels, holds, expiry)
+ *         Pub/Sub topic `play-billing` (renewals, cancels, holds, expiry,
+ *         and voided coin packs → coins/voidedPurchases.ts)
  *
  * Setup: Play Console → Monetize → Subscriptions: create `oneova_plus`,
  * `oneova_pro`, `oneova_biz`, each with base plans `monthly` and `yearly`.
@@ -54,6 +55,7 @@ const https_1 = require("firebase-functions/v2/https");
 const pubsub_1 = require("firebase-functions/v2/pubsub");
 const logger = __importStar(require("firebase-functions/logger"));
 const firestore_1 = require("firebase-admin/firestore");
+const voidedPurchases_1 = require("../coins/voidedPurchases");
 const db = () => (0, firestore_1.getFirestore)();
 const PACKAGE = 'com.oneova.app';
 exports.PLAN_PRODUCTS = {
@@ -137,16 +139,25 @@ exports.verifySubscriptionPurchase = (0, https_1.onCall)({ timeoutSeconds: 60 },
 });
 exports.playBillingNotifications = (0, pubsub_1.onMessagePublished)('play-billing', async (event) => {
     var _a;
-    var _b;
+    var _b, _c;
     const msg = event.data.message.json;
+    if ((msg === null || msg === void 0 ? void 0 : msg.packageName) !== PACKAGE)
+        return;
+    // A refunded or charged-back coin pack: take the coins back (coins/voidedPurchases.ts).
+    const voided = msg === null || msg === void 0 ? void 0 : msg.voidedPurchaseNotification;
+    if (voided === null || voided === void 0 ? void 0 : voided.purchaseToken) {
+        await (0, voidedPurchases_1.applyVoidedCoinPurchase)(String(voided.purchaseToken), { orderId: (_b = voided.orderId) !== null && _b !== void 0 ? _b : null })
+            .catch((e) => { var _a; return logger.error('voided coin purchase failed', (_a = e === null || e === void 0 ? void 0 : e.message) !== null && _a !== void 0 ? _a : e); });
+        return;
+    }
     const token = (_a = msg === null || msg === void 0 ? void 0 : msg.subscriptionNotification) === null || _a === void 0 ? void 0 : _a.purchaseToken;
-    if (!token || (msg === null || msg === void 0 ? void 0 : msg.packageName) !== PACKAGE)
+    if (!token)
         return;
     try {
         await sync(String(token), null);
     }
     catch (e) {
-        logger.warn('rtdn sync failed', (_b = e === null || e === void 0 ? void 0 : e.message) !== null && _b !== void 0 ? _b : e);
+        logger.warn('rtdn sync failed', (_c = e === null || e === void 0 ? void 0 : e.message) !== null && _c !== void 0 ? _c : e);
     }
 });
 //# sourceMappingURL=planSubscriptions.js.map

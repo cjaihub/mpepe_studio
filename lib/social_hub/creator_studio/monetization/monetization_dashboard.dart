@@ -5,7 +5,7 @@ import 'package:go_router/go_router.dart';
 import 'package:google_fonts/google_fonts.dart';
 import '../../../../backend/monetization/models/monetization_models.dart';
 import '../../../../backend/monetization/services/monetization_service.dart';
-import '../../../../backend/finance/services/ledger_service.dart';
+import '../../../../backend/money/money_service.dart';
 import '../../../../shared/theme/app_theme.dart';
 import 'package:oneova/shared/widgets/animated_loading_indicator.dart';
 import 'widgets/smart_income_channel_view.dart';
@@ -179,7 +179,8 @@ class _MonetizationDashboardState extends ConsumerState<MonetizationDashboard> {
   }
 
   Widget _buildRevenueCard(CreatorMonetizationProfile profile, WidgetRef ref) {
-    final balanceAsync = ref.watch(currentBalanceProvider);
+    // Server-written wallet (wallets/{uid}); the app only displays it.
+    final walletAsync = ref.watch(creatorWalletProvider);
 
     return Container(
       padding: const EdgeInsets.all(20),
@@ -190,11 +191,11 @@ class _MonetizationDashboardState extends ConsumerState<MonetizationDashboard> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const Text('Total Ledger Balance', style: TextStyle(color: Colors.white70, fontSize: 13)),
+          const Text('Ready to withdraw', style: TextStyle(color: Colors.white70, fontSize: 13)),
           const SizedBox(height: 8),
-          balanceAsync.when(
-            data: (balance) => Text(
-              '\$${balance.toStringAsFixed(2)}',
+          walletAsync.when(
+            data: (wallet) => Text(
+              '\$${wallet.availableUsd.toStringAsFixed(2)}',
               style: const TextStyle(color: Colors.white, fontSize: 34, fontWeight: FontWeight.w900),
             ),
             loading: () => const AnimatedLoadingIndicator(color: Colors.white),
@@ -205,11 +206,11 @@ class _MonetizationDashboardState extends ConsumerState<MonetizationDashboard> {
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
               Text(
-                'Pending Payout: \$${profile.pendingPayout.toStringAsFixed(2)}',
+                'On hold: \$${(walletAsync.value?.pendingUsd ?? 0).toStringAsFixed(2)}',
                 style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
               ),
               ElevatedButton(
-                onPressed: () {},
+                onPressed: () => context.push('/wallet/withdraw'),
                 style: ElevatedButton.styleFrom(backgroundColor: Colors.white, foregroundColor: AppColors.brandBlue),
                 child: const Text('Withdraw'),
               ),

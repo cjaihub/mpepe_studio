@@ -306,6 +306,12 @@ export const stripeWebhook = onRequest(async (req, res) => {
         await db().runTransaction(async (tx) => {
           const o = (await tx.get(ref)).data();
           if (!o || o.status !== 'awaiting_payment') return;
+          // The charge must be exactly the order we priced; anything else waits for a person.
+          if (pi.amount !== minor(Number(o.totalAmount), String(o.currency)) || pi.currency !== String(o.currency)) {
+            logger.error('payment does not match order', orderId, pi.amount, pi.currency);
+            tx.update(ref, { status: 'payment_mismatch', paymentIntentAmount: pi.amount, updatedAt: FieldValue.serverTimestamp() });
+            return;
+          }
           tx.update(ref, {
             status: 'paid',
             chargeId: typeof pi.latest_charge === 'string' ? pi.latest_charge : pi.latest_charge?.id ?? null,

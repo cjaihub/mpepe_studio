@@ -6,6 +6,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:in_app_purchase/in_app_purchase.dart';
+import 'package:uuid/uuid.dart';
 
 /// Lifetime coins gifted needed for each gifter level (index = level).
 /// Same table as GIFTER_LEVELS in functions/src/coins/coinEconomy.ts.
@@ -144,11 +145,13 @@ class CoinStoreService {
   }
 
   /// Sends a gift to a person (not in a live). Returns the new balance.
-  Future<int> sendGift({required String toUid, required String giftId, int qty = 1, String? message}) async {
+  /// Pass the same [requestId] when retrying one tap; the server charges once.
+  Future<int> sendGift({required String toUid, required String giftId, int qty = 1, String? message, String? requestId}) async {
     final res = await FirebaseFunctions.instance.httpsCallable('sendUserGift').call<Map<String, dynamic>>({
       'toUid': toUid,
       'giftId': giftId,
       'qty': qty,
+      'requestId': requestId ?? const Uuid().v4(),
       if (message != null && message.trim().isNotEmpty) 'message': message.trim(),
     });
     return (res.data['balanceCoins'] as num?)?.toInt() ?? 0;

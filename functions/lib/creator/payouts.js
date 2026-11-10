@@ -36,7 +36,7 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.paystackWebhook = exports.flutterwaveWebhook = exports.reviewWithdrawal = exports.cancelWithdrawal = exports.requestWithdrawal = exports.deletePayoutMethod = exports.savePayoutMethod = exports.payoutBanks = exports.payoutOptions = exports.walletSync = void 0;
+exports.paystackWebhook = exports.flutterwaveWebhook = exports.reviewWithdrawal = exports.cancelWithdrawal = exports.requestWithdrawal = exports.payoutReconcile = exports.deletePayoutMethod = exports.savePayoutMethod = exports.payoutBanks = exports.payoutOptions = exports.walletSync = void 0;
 exports.settleWithdrawal = settle;
 /**
  * Creator withdrawals: Diamonds (gift earnings) → mobile money, bank or Stripe.
@@ -62,7 +62,11 @@ const https_1 = require("firebase-functions/v2/https");
 const logger = __importStar(require("firebase-functions/logger"));
 const firestore_1 = require("firebase-admin/firestore");
 const auth_1 = require("firebase-admin/auth");
+const scheduler_1 = require("firebase-functions/v2/scheduler");
 const optionalSecrets_1 = require("../optionalSecrets");
+const provider_1 = require("../payments/provider");
+const adapters_1 = require("../payments/adapters");
+const router_1 = require("../payments/router");
 const payoutLogic_1 = require("./payoutLogic");
 const db = () => (0, firestore_1.getFirestore)();
 const FLW = 'https://api.flutterwave.com/v3';
@@ -371,55 +375,41 @@ async function settle(wid, to, info = {}) {
         await notify(done.uid, `payout_failed_${wid}`, 'Withdrawal didn’t go through', `Your Diamonds are back in your wallet. ${(_a = info.failureReason) !== null && _a !== void 0 ? _a : ''}`.trim());
     return true;
 }
-async function flwTransfer(key, w, s, wid) {
-    var _a;
-    var _b, _c;
-    const body = {
-        account_bank: w.rail === 'mobile_money' ? s.flwBank : s.bankCode,
-        account_number: w.rail === 'mobile_money' ? s.msisdn : s.accountNumber,
-        amount: w.localAmount,
-        currency: w.currency,
-        debit_currency: 'USD',
-        narration: 'Oneova creator payout',
-        reference: wid,
-        beneficiary_name: w.holderName,
-    };
-    const res = await fetch(`${FLW}/transfers`, {
-        method: 'POST', headers: { Authorization: `Bearer ${key}`, 'Content-Type': 'application/json' }, body: JSON.stringify(body),
-    }).then((r) => r.json());
-    if ((res === null || res === void 0 ? void 0 : res.status) !== 'success')
-        throw new Error((_b = res === null || res === void 0 ? void 0 : res.message) !== null && _b !== void 0 ? _b : 'Flutterwave refused the transfer');
-    return String((_c = (_a = res.data) === null || _a === void 0 ? void 0 : _a.id) !== null && _c !== void 0 ? _c : '');
-}
-async function paystackTransfer(key, w, s, wid, secretRef) {
-    var _a;
-    var _b, _c, _d, _e;
-    const headers = { Authorization: `Bearer ${key}`, 'Content-Type': 'application/json' };
-    let recipient = s.paystackRecipient;
-    if (!recipient) {
-        const bankType = { NG: 'nuban', GH: 'ghipss', KE: 'kepss', ZA: 'basa' };
-        const r = await fetch(`${PAYSTACK}/transferrecipient`, {
-            method: 'POST', headers,
-            body: JSON.stringify(w.rail === 'mobile_money'
-                ? { type: 'mobile_money', name: w.holderName, account_number: s.msisdn, bank_code: s.paystackBank, currency: w.currency }
-                : { type: (_b = bankType[w.country]) !== null && _b !== void 0 ? _b : 'nuban', name: w.holderName, account_number: s.accountNumber, bank_code: s.bankCode, currency: w.currency }),
-        }).then((x) => x.json());
-        if (!(r === null || r === void 0 ? void 0 : r.status))
-            throw new Error((_c = r === null || r === void 0 ? void 0 : r.message) !== null && _c !== void 0 ? _c : 'Paystack could not add this account');
-        recipient = String(r.data.recipient_code);
-        await secretRef.update({ paystackRecipient: recipient });
+// ───────────────────────────── Sending (payments/ adapters) ─────────────────────────────
+/** How long after sending we ask the provider ourselves if no webhook came. */
+const CHECK_AFTER_MS = 6 * 3600000;
+function adapterFor(provider, cfg, secretRef) {
+    if (provider === 'stripe' && cfg.keys.st)
+        return new adapters_1.StripeTransferProvider(new stripe_1.default(cfg.keys.st, { apiVersion: '2025-02-24.acacia' }));
+    if (provider === 'flutterwave' && cfg.keys.flw)
+        return new adapters_1.FlutterwaveProvider(cfg.keys.flw, fetch);
+    if (provider === 'paystack' && cfg.keys.ps) {
+        return new adapters_1.PaystackProvider(cfg.keys.ps, fetch, async () => { var _a; return (_a = (await secretRef.get()).get('paystackRecipient')) !== null && _a !== void 0 ? _a : null; }, async (_req, code) => { await secretRef.update({ paystackRecipient: code }); });
     }
-    const t = await fetch(`${PAYSTACK}/transfer`, {
-        method: 'POST', headers,
-        body: JSON.stringify({ source: 'balance', amount: Math.round(Number(w.localAmount) * 100), recipient, reference: wid, reason: 'Oneova creator payout', currency: w.currency }),
-    }).then((x) => x.json());
-    if (!(t === null || t === void 0 ? void 0 : t.status))
-        throw new Error((_d = t === null || t === void 0 ? void 0 : t.message) !== null && _d !== void 0 ? _d : 'Paystack refused the transfer');
-    return String((_e = (_a = t.data) === null || _a === void 0 ? void 0 : _a.transfer_code) !== null && _e !== void 0 ? _e : '');
+    return null;
 }
-/** Sends a pending withdrawal to its provider. */
+/** The provider request for a withdrawal, in integer minor units. */
+function payoutRequest(wid, w, s) {
+    const momo = w.rail === 'mobile_money';
+    if (w.provider === 'stripe') {
+        return { reference: wid, country: w.country, rail: 'stripe', currency: 'USD', amountMinor: (0, provider_1.toMinor)(Number(w.netUsd), 'USD'), holderName: w.holderName, account: s.stripeAccountId, narration: 'Oneova creator payout' };
+    }
+    return {
+        reference: wid, country: w.country, rail: w.rail, currency: w.currency,
+        amountMinor: (0, provider_1.toMinor)(Number(w.localAmount), w.currency), holderName: w.holderName,
+        account: momo ? s.msisdn : s.accountNumber,
+        bankCode: w.provider === 'paystack' ? (momo ? s.paystackBank : s.bankCode) : (momo ? s.flwBank : s.bankCode),
+        narration: 'Oneova creator payout',
+    };
+}
+/**
+ * Sends a pending withdrawal to its provider.
+ *   accepted → wait for the webhook (Stripe is final at once)
+ *   rejected → failed, Diamonds go back (the provider took nothing)
+ *   unknown  → stays processing with needsCheck; payoutReconcile asks the
+ *              provider later. Never refunded on a guess.
+ */
 async function dispatch(wid) {
-    var _a, _b;
     const ref = db().doc(`withdrawals/${wid}`);
     const w = await db().runTransaction(async (tx) => {
         const d = (await tx.get(ref)).data();
@@ -436,32 +426,90 @@ async function dispatch(wid) {
         await settle(wid, 'failed', { failureReason: 'The payout method was removed.' });
         return;
     }
-    const cfg = await configured();
-    try {
-        let providerRef = '';
+    const adapter = adapterFor(w.provider, await configured(), secretRef);
+    if (!adapter) {
+        await settle(wid, 'failed', { failureReason: 'Payouts are paused for this method.' });
+        return;
+    }
+    const { outcome } = await (0, router_1.routePayout)([adapter], payoutRequest(wid, w, s));
+    if (outcome.kind === 'accepted') {
         if (w.provider === 'stripe') {
-            const stripe = new stripe_1.default(cfg.keys.st, { apiVersion: '2025-02-24.acacia' });
-            const t = await stripe.transfers.create({
-                amount: Math.round(Number(w.netUsd) * 100), currency: 'usd', destination: s.stripeAccountId,
-                description: 'Oneova creator payout', metadata: { withdrawalId: wid, uid: w.uid },
-            }, { idempotencyKey: `wd_${wid}` });
-            await ref.update({ providerRef: t.id });
+            await ref.update({ providerRef: outcome.providerRef });
             await settle(wid, 'paid', { paidAt: firestore_1.FieldValue.serverTimestamp() });
             return;
         }
-        if (w.provider === 'flutterwave' && cfg.keys.flw)
-            providerRef = await flwTransfer(cfg.keys.flw, w, s, wid);
-        else if (w.provider === 'paystack' && cfg.keys.ps)
-            providerRef = await paystackTransfer(cfg.keys.ps, w, s, wid, secretRef);
-        else
-            throw new Error('Payouts are paused for this method.');
-        await ref.update({ providerRef, updatedAt: firestore_1.FieldValue.serverTimestamp() });
+        await ref.update({
+            providerRef: outcome.providerRef, sentAt: firestore_1.FieldValue.serverTimestamp(),
+            needsCheck: true, checkAfter: firestore_1.Timestamp.fromMillis(Date.now() + CHECK_AFTER_MS), updatedAt: firestore_1.FieldValue.serverTimestamp(),
+        });
+        return;
     }
-    catch (e) {
-        logger.error('payout dispatch failed', wid, (_a = e === null || e === void 0 ? void 0 : e.message) !== null && _a !== void 0 ? _a : e);
-        await settle(wid, 'failed', { failureReason: String((_b = e === null || e === void 0 ? void 0 : e.message) !== null && _b !== void 0 ? _b : 'The provider refused the transfer.').slice(0, 200) });
+    if (outcome.kind === 'rejected') {
+        logger.warn('payout refused', wid, outcome.reason);
+        await settle(wid, 'failed', { failureReason: outcome.reason.slice(0, 200) });
+        return;
     }
+    logger.error('payout outcome unknown; will reconcile', wid, outcome.reason);
+    await ref.update({
+        sentAt: firestore_1.FieldValue.serverTimestamp(), needsCheck: true, checkAfter: firestore_1.Timestamp.fromMillis(Date.now() + 10 * 60000),
+        lastCheckNote: outcome.reason.slice(0, 200), updatedAt: firestore_1.FieldValue.serverTimestamp(),
+    });
 }
+/** Asks the provider about one withdrawal that is waiting for a check. */
+async function reconcileOne(doc, cfg) {
+    var _a, _b;
+    var _c, _d, _e;
+    const w = doc.data();
+    if (w.status !== 'processing') {
+        await doc.ref.update({ needsCheck: false });
+        return null;
+    }
+    const secretRef = db().doc(`payout_method_secrets/${w.uid}_${w.methodId}`);
+    const adapter = adapterFor(w.provider, cfg, secretRef);
+    if (!adapter)
+        return null; // keys missing right now; try next run
+    const policy = (_c = adapters_1.POLICY[w.provider]) !== null && _c !== void 0 ? _c : { notFoundIsFinalAfterMs: null, idempotentRetry: false };
+    let status = 'unknown';
+    if (policy.idempotentRetry) {
+        // Re-sending the same reference returns the original result (no second payout).
+        const s = (await secretRef.get()).data();
+        const r = s ? await adapter.payout(payoutRequest(doc.id, w, s)) : { kind: 'unknown', reason: 'method removed' };
+        status = r.kind === 'accepted' ? 'paid' : r.kind === 'rejected' && !r.retryable ? 'failed' : 'unknown';
+    }
+    else {
+        status = (await adapter.status(doc.id)).status;
+    }
+    const age = Date.now() - ((_e = (_d = (_a = w.sentAt) === null || _a === void 0 ? void 0 : _a.toMillis()) !== null && _d !== void 0 ? _d : (_b = w.updatedAt) === null || _b === void 0 ? void 0 : _b.toMillis()) !== null && _e !== void 0 ? _e : Date.now());
+    const action = (0, router_1.reconcileAction)(status, age, { notFoundIsFinalAfterMs: policy.notFoundIsFinalAfterMs });
+    if (action === 'settle_paid')
+        await settle(doc.id, 'paid', { paidAt: firestore_1.FieldValue.serverTimestamp(), needsCheck: false });
+    else if (action === 'settle_failed')
+        await settle(doc.id, 'failed', { failureReason: 'The network didn’t complete it.', needsCheck: false });
+    else if (action === 'review') {
+        await doc.ref.update({ needsCheck: false, review: true, reviewReasons: firestore_1.FieldValue.arrayUnion('provider_status_unknown'), updatedAt: firestore_1.FieldValue.serverTimestamp() });
+    }
+    else {
+        await doc.ref.update({ checkAfter: firestore_1.Timestamp.fromMillis(Date.now() + 30 * 60000), checks: firestore_1.FieldValue.increment(1), lastCheckNote: status });
+    }
+    return action;
+}
+/** Withdrawals whose outcome we don't know yet, or whose webhook never came. */
+exports.payoutReconcile = (0, scheduler_1.onSchedule)('every 15 minutes', async () => {
+    var _a;
+    const due = (await db().collection('withdrawals').where('needsCheck', '==', true).limit(200).get())
+        .docs.filter((d) => { var _a; var _b; return ((_b = (_a = d.get('checkAfter')) === null || _a === void 0 ? void 0 : _a.toMillis()) !== null && _b !== void 0 ? _b : 0) <= Date.now(); }).slice(0, 50);
+    if (!due.length)
+        return;
+    const cfg = await configured();
+    for (const d of due) {
+        try {
+            await reconcileOne(d, cfg);
+        }
+        catch (e) {
+            logger.error('payout reconcile failed', d.id, (_a = e === null || e === void 0 ? void 0 : e.message) !== null && _a !== void 0 ? _a : e);
+        }
+    }
+});
 exports.requestWithdrawal = (0, https_1.onCall)({ timeoutSeconds: 60 }, async (req) => {
     var _a, _b, _c, _d, _e;
     var _f, _g, _h, _j;
@@ -512,6 +560,8 @@ exports.requestWithdrawal = (0, https_1.onCall)({ timeoutSeconds: 60 }, async (r
     if (frozen > Date.now()) {
         throw new https_1.HttpsError('failed-precondition', `Withdrawals are paused for your safety: ${(_j = guard.get('withdrawalsFrozenReason')) !== null && _j !== void 0 ? _j : 'unusual sign-in'}. See Security in your profile.`);
     }
+    // A refunded coin pack paid for gifts this creator received (coins/voidedPurchases.ts).
+    const hold = (await db().doc(`payout_holds/${uid}`).get()).get('reasons');
     const reasons = (0, payoutLogic_1.fraudReasons)({
         amountUsd,
         accountAgeDays: (Date.now() - new Date(user.metadata.creationTime).getTime()) / 86400000,
@@ -521,6 +571,10 @@ exports.requestWithdrawal = (0, https_1.onCall)({ timeoutSeconds: 60 }, async (r
         locationCountry,
         payoutCountry: method.country,
     });
+    if (Array.isArray(hold))
+        for (const r of hold)
+            if (!reasons.includes(r))
+                reasons.push(r);
     const feeUsd = (0, payoutLogic_1.payoutFeeUsd)(method.rail, amountUsd);
     const netUsd = Math.round((amountUsd - feeUsd) * 100) / 100;
     const rate = method.provider === 'stripe' ? 1 : await usdRate(method.currency);
@@ -570,15 +624,20 @@ exports.cancelWithdrawal = (0, https_1.onCall)(async (req) => {
     return { ok: true };
 });
 exports.reviewWithdrawal = (0, https_1.onCall)(async (req) => {
-    var _a, _b;
-    var _c;
+    var _a, _b, _c;
+    var _d;
     const uid = me(req);
     if ((await db().doc(`users/${uid}`).get()).get('role') !== 'admin')
         throw new https_1.HttpsError('permission-denied', 'Admins only.');
-    const id = String((_c = (_a = req.data) === null || _a === void 0 ? void 0 : _a.id) !== null && _c !== void 0 ? _c : '');
+    const id = String((_d = (_a = req.data) === null || _a === void 0 ? void 0 : _a.id) !== null && _d !== void 0 ? _d : '');
     if (!id || id.includes('/'))
         throw new https_1.HttpsError('invalid-argument', 'Missing withdrawal.');
-    if (((_b = req.data) === null || _b === void 0 ? void 0 : _b.approve) === true) {
+    const current = (await db().doc(`withdrawals/${id}`).get()).data();
+    if (((_b = req.data) === null || _b === void 0 ? void 0 : _b.approve) === true && (current === null || current === void 0 ? void 0 : current.status) === 'processing') {
+        // Sent, but the provider's status was unclear: the reviewer confirmed it in the provider dashboard.
+        await settle(id, 'paid', { paidAt: firestore_1.FieldValue.serverTimestamp(), review: false, reviewedBy: uid, reviewedAt: firestore_1.FieldValue.serverTimestamp() });
+    }
+    else if (((_c = req.data) === null || _c === void 0 ? void 0 : _c.approve) === true) {
         await db().doc(`withdrawals/${id}`).update({ review: false, reviewedBy: uid, reviewedAt: firestore_1.FieldValue.serverTimestamp() });
         await dispatch(id);
     }

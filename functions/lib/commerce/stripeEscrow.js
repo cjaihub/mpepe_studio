@@ -344,6 +344,12 @@ exports.stripeWebhook = (0, https_1.onRequest)(async (req, res) => {
                     const o = (await tx.get(ref)).data();
                     if (!o || o.status !== 'awaiting_payment')
                         return;
+                    // The charge must be exactly the order we priced; anything else waits for a person.
+                    if (pi.amount !== minor(Number(o.totalAmount), String(o.currency)) || pi.currency !== String(o.currency)) {
+                        logger.error('payment does not match order', orderId, pi.amount, pi.currency);
+                        tx.update(ref, { status: 'payment_mismatch', paymentIntentAmount: pi.amount, updatedAt: firestore_1.FieldValue.serverTimestamp() });
+                        return;
+                    }
                     tx.update(ref, {
                         status: 'paid',
                         chargeId: typeof pi.latest_charge === 'string' ? pi.latest_charge : (_b = (_a = pi.latest_charge) === null || _a === void 0 ? void 0 : _a.id) !== null && _b !== void 0 ? _b : null,

@@ -63,3 +63,12 @@ export interface RecentGift {
 export function pushRecent(list: RecentGift[] | undefined, g: RecentGift): RecentGift[] {
   return [g, ...(Array.isArray(list) ? list : [])].slice(0, RECENT_GIFTS);
 }
+
+/**
+ * Document id for one gift. With a client [requestId] (one per tap, reused on
+ * retry) the same gift always gets the same id, so a retry can't charge twice.
+ */
+export function giftId(uid: string, requestId: unknown, nowMs: number): string {
+  if (typeof requestId === 'string' && /^[A-Za-z0-9_-]{8,80}$/.test(requestId)) return `${uid}_r${requestId}`;
+  return `${uid}_${nowMs.toString(36)}`;
+}

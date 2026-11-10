@@ -10,7 +10,7 @@ import { FieldValue } from 'firebase-admin/firestore';
 import { Paths, StageMember } from './contracts';
 import { LIVEKIT_SECRETS, broadcast, db, isBlocked, loadState, rateLimit, requireLive, requireString, requireUid } from './shared';
 import { displayNameOf, avatarOf } from './social_logic';
-import { GIFT_CATALOG, GiftError, RecentGift, giftPrice, parseGift, pushRecent } from './gift_logic';
+import { GIFT_CATALOG, GiftError, RecentGift, giftId, giftPrice, parseGift, pushRecent } from './gift_logic';
 
 export const lsGift = onCall({ secrets: LIVEKIT_SECRETS }, async (req) => {
   const uid = requireUid(req);
@@ -39,14 +39,21 @@ export const lsGift = onCall({ secrets: LIVEKIT_SECRETS }, async (req) => {
   const name = m?.displayName || displayNameOf(u);
   const avatarUrl = m?.avatarUrl || avatarOf(u);
   const now = Date.now();
-  const giftDocId = `${uid}_${now.toString(36)}`;
+  const giftDocId = giftId(uid, data.requestId, now);
 
   const senderWallet = db().doc(`wallets/${uid}`);
   const hostWallet = db().doc(`wallets/${state.hostId}`);
   const feed = db().doc(`${Paths.streams}/${streamId}/studio/gifts`);
+  let duplicate = false;
   const balance = await db().runTransaction(async (tx) => {
-    const [w, f] = await Promise.all([tx.get(senderWallet), tx.get(feed)]);
+    duplicate = false;
+    const [w, f, dup] = await Promise.all([tx.get(senderWallet), tx.get(feed), tx.get(senderWallet.collection('ledger').doc(`gift_${giftDocId}`))]);
     const have = Number(w.get('balanceCoins') ?? 0);
+    // Same requestId again (a retry): it was already sent, charge nothing.
+    if (dup.exists) {
+      duplicate = true;
+      return have;
+    }
     if (!Number.isFinite(have) || have < total) {
       throw new HttpsError('failed-precondition', `Not enough coins. This gift costs ${total}.`);
     }
@@ -92,7 +99,7 @@ export const lsGift = onCall({ secrets: LIVEKIT_SECRETS }, async (req) => {
     return have - total;
   });
 
-  await broadcast(
+  if (!duplicate) await broadcast(
     streamId,
     'studio.gift',
     { v: 1, type: 'gift', uid, name, giftId: gift.giftId, qty: gift.qty, ts: now } as never,

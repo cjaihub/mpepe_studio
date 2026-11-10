@@ -22,7 +22,8 @@ import { google } from 'googleapis';
 import { onCall, HttpsError } from 'firebase-functions/v2/https';
 import * as logger from 'firebase-functions/logger';
 import { getFirestore, FieldValue } from 'firebase-admin/firestore';
-import { GIFT_CATALOG, HOST_SHARE, parseGift, giftPrice, GiftError } from '../liveStudio/gift_logic';
+import { GIFT_CATALOG, HOST_SHARE, parseGift, giftPrice, giftId, GiftError } from '../liveStudio/gift_logic';
+import { creditWithDebt } from './clawbackLogic';
 
 const db = () => getFirestore();
 const PACKAGE = 'com.oneova.app';
@@ -88,14 +89,18 @@ export const verifyCoinPurchase = onCall({ timeoutSeconds: 60 }, async (req) => 
   const balance = await db().runTransaction(async (tx) => {
     const [r, w] = await Promise.all([tx.get(receiptRef), tx.get(wallet)]);
     if (r.exists) return Number(w.get('balanceCoins') ?? 0);
-    const now = Number(w.get('balanceCoins') ?? 0) + coins;
+    // Coins spent from an earlier refunded pack are paid back first (clawback).
+    const { credit, debtPaid } = creditWithDebt(coins, Number(w.get('coinDebt') ?? 0));
+    const now = Number(w.get('balanceCoins') ?? 0) + credit;
     tx.set(receiptRef, {
       uid, productId, coins, orderId: purchase.orderId ?? null, regionCode: purchase.regionCode ?? null,
       purchaseTimeMillis: purchase.purchaseTimeMillis ?? null, createdAt: FieldValue.serverTimestamp(),
     });
-    tx.set(wallet, { balanceCoins: now, updatedAt: FieldValue.serverTimestamp() }, { merge: true });
+    tx.set(wallet, {
+      balanceCoins: now, ...(debtPaid > 0 ? { coinDebt: FieldValue.increment(-debtPaid) } : {}), updatedAt: FieldValue.serverTimestamp(),
+    }, { merge: true });
     tx.set(wallet.collection('ledger').doc(`play_${tokenId.slice(0, 24)}`), {
-      amount: coins, type: 'coin_purchase', provider: 'google_play', productId,
+      amount: coins, type: 'coin_purchase', provider: 'google_play', productId, ...(debtPaid > 0 ? { debtPaid } : {}),
       referenceId: purchase.orderId ?? tokenId, createdAt: FieldValue.serverTimestamp(),
     });
     return now;
@@ -141,13 +146,15 @@ export const sendUserGift = onCall(async (req) => {
   const me = (await db().doc(`users/${uid}`).get()).data() ?? {};
   const myAvatar = [me.avatarUrl, me.photoUrl, me.photoURL].find((v) => typeof v === 'string' && v.startsWith('http')) ?? '';
   const myName = String(me.fullName || me.displayName || me.username || 'Someone');
-  const id = `${uid}_${Date.now().toString(36)}`;
+  const id = giftId(uid, req.data?.requestId, Date.now());
   const senderWallet = db().doc(`wallets/${uid}`);
   const receiverWallet = db().doc(`wallets/${toUid}`);
 
   const balance = await db().runTransaction(async (tx) => {
-    const w = await tx.get(senderWallet);
+    const [w, dup] = await Promise.all([tx.get(senderWallet), tx.get(senderWallet.collection('ledger').doc(`ugift_${id}`))]);
     const have = Number(w.get('balanceCoins') ?? 0);
+    // Same requestId again (a retry): it was already sent, charge nothing.
+    if (dup.exists) return have;
     if (have < total) throw new HttpsError('failed-precondition', `Not enough coins. This gift costs ${total}.`);
     tx.set(senderWallet, { balanceCoins: have - total, updatedAt: FieldValue.serverTimestamp() }, { merge: true });
     tx.set(senderWallet.collection('ledger').doc(`ugift_${id}`), {

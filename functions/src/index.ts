@@ -318,3 +318,7 @@ export { lsPool } from './liveStudio/pool';
 
 // Oneova Looks & Visual Intelligence (§4.5, §8, §10)
 export * from './looks';
+
+// Oneova Pay hardening: refunded coin packs and payouts with unclear provider replies.
+export { coinVoidSweep } from './coins/voidedPurchases';
+export { payoutReconcile } from './creator/payouts';
