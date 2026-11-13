@@ -28,6 +28,7 @@ import { CollectCheck, toMajor, toMinor } from '../payments/provider';
 import { AFRICA, normalizeMsisdn } from '../creator/payoutLogic';
 import {
   IntentPurpose, IntentStatus, PayMethod, canMoveIntent, currencyFor, intentTtlMs, isOpenIntent, maskMsisdn, methodsFor,
+  merchantFee, merchantLines, qrCodeFrom, qrProblem,
 } from './payLogic';
 import { balanceRef, bucketOf, ledgerRef, writeLedger } from './ledger';
 import { payRuntime, returnUrl } from './payConfig';
@@ -45,14 +46,18 @@ function me(req: CallableRequest): string {
 
 const cc = (v: unknown) => (typeof v === 'string' && /^[A-Za-z]{2}$/.test(v) ? v.toUpperCase() : null);
 
-/** Payer's country: what the app detected, else the payout profile, else the ID, else the profile. */
-async function countryOf(uid: string, hint: unknown): Promise<string> {
-  const fromHint = cc(hint);
-  if (fromHint) return fromHint;
+/**
+ * The account's payment country — one source of truth for currency:
+ * verified ID, then the payout profile (location / SIM), then the profile,
+ * then what the app sent. Exported for commerce pricing.
+ */
+export async function countryOf(uid: string, hint?: unknown): Promise<string> {
   const [pp, kyc, user] = await Promise.all([
     db().doc(`payout_profiles/${uid}`).get(), db().doc(`kyc/${uid}`).get(), db().doc(`users/${uid}`).get(),
   ]);
-  return cc(pp.get('detectedCountry')) ?? cc(kyc.get('country')) ?? cc(user.get('country')) ?? cc(user.get('countryCode')) ?? 'KE';
+  return cc(kyc.get('status') === 'verified' ? kyc.get('country') : null)
+    ?? cc(pp.get('detectedCountry')) ?? cc(user.get('country')) ?? cc(user.get('countryCode'))
+    ?? cc(hint) ?? 'KE';
 }
 
 /** Public view of an intent for the app. */
@@ -98,9 +103,21 @@ export const payMethods = onCall(async (req) => {
 export const payCreate = onCall({ timeoutSeconds: 60 }, async (req) => {
   const uid = me(req);
   const purpose = String(req.data?.purpose ?? '') as IntentPurpose;
-  if (purpose !== 'order' && purpose !== 'topup') throw new HttpsError('invalid-argument', 'Unknown payment.');
+  if (purpose !== 'order' && purpose !== 'topup' && purpose !== 'merchant') throw new HttpsError('invalid-argument', 'Unknown payment.');
   const rt = await payRuntime();
-  const country = await countryOf(uid, req.data?.country);
+  // Scan to pay: the merchant's code decides who is paid, the currency and (if set) the amount.
+  let qr: FirebaseFirestore.DocumentData | undefined;
+  let qrCode = '';
+  if (purpose === 'merchant') {
+    if (!rt.cfg.wallet) throw new HttpsError('failed-precondition', 'Scan to pay opens soon in your country.');
+    qrCode = qrCodeFrom(String(req.data?.refId ?? '')) ?? '';
+    qr = qrCode ? (await db().doc(`pay_qr/${qrCode}`).get()).data() : undefined;
+    const problem = qrProblem(qr as never);
+    if (problem) throw new HttpsError('failed-precondition', problem);
+    if (qr!.merchantUid === uid) throw new HttpsError('failed-precondition', 'This is your own code.');
+  }
+  // A merchant code is paid with the merchant country's methods (you pay where you are).
+  const country = purpose === 'merchant' ? String(qr!.country) : await countryOf(uid, req.data?.country);
   const method: PayMethod | undefined = methodsFor(country, rt.cfg).find((m) => m.id === String(req.data?.methodId ?? ''));
   if (!method) throw new HttpsError('failed-precondition', 'This way to pay isn’t open in your country yet.');
 
@@ -127,6 +144,16 @@ export const payCreate = onCall({ timeoutSeconds: 60 }, async (req) => {
     amountMinor = m.total;
     currency = orderCurrency(o);
     narration = `Oneova order ${refId.slice(0, 6)}`;
+  } else if (purpose === 'merchant') {
+    currency = String(qr!.currency);
+    if (typeof qr!.amountMinor === 'number') amountMinor = qr!.amountMinor;
+    else {
+      const amount = Number(req.data?.amount);
+      amountMinor = Number.isFinite(amount) ? toMinor(amount, currency) : 0;
+      if (amountMinor < toMinor(1, currency) || amountMinor > toMinor(1_000_000, currency)) throw new HttpsError('invalid-argument', 'Enter the amount to pay.');
+    }
+    refId = qrCode;
+    narration = `Oneova Pay ${String(qr!.label ?? 'merchant').slice(0, 20)}`;
   } else {
     if (!rt.cfg.wallet) throw new HttpsError('failed-precondition', 'Oneova balance top-ups open soon.');
     if (method.rail === 'balance') throw new HttpsError('invalid-argument', 'Choose how to top up.');
@@ -150,6 +177,7 @@ export const payCreate = onCall({ timeoutSeconds: 60 }, async (req) => {
   const ref = intentRef(id);
   const base = {
     uid, purpose, refId, amountMinor, currency, country,
+    ...(purpose === 'merchant' ? { merchantUid: String(qr!.merchantUid) } : {}),
     method: { id: method.id, rail: method.rail, provider: method.provider, kind: method.kind, label: method.label, network: method.network ?? null },
     provider: method.provider,
     msisdnMasked: msisdn ? maskMsisdn(msisdn) : null,
@@ -165,7 +193,8 @@ export const payCreate = onCall({ timeoutSeconds: 60 }, async (req) => {
 
   // Oneova balance: settles at once, in one transaction.
   if (method.rail === 'balance') {
-    await payFromBalance(id);
+    if (purpose === 'merchant') await payMerchantFromBalance(id);
+    else await payFromBalance(id);
     return view(id, (await ref.get()).data()!);
   }
 
@@ -196,6 +225,55 @@ export const payCreate = onCall({ timeoutSeconds: 60 }, async (req) => {
   }
   return view(id, (await ref.get()).data()!);
 });
+
+/**
+ * Credits a merchant for a confirmed scan-to-pay intent, inside the caller's
+ * transaction ([qrSnap] read before any write): net to the merchant's balance,
+ * the merchant fee to the platform, the code marked paid (one-time codes).
+ */
+function creditMerchant(
+  tx: FirebaseFirestore.Transaction, id: string, i: FirebaseFirestore.DocumentData,
+  from: string, qrSnap: FirebaseFirestore.DocumentSnapshot, extra: Record<string, unknown>,
+): void {
+  const fee = merchantFee(Number(i.amountMinor));
+  writeLedger(tx, `payin_${id}`, false, 'merchant_payin', merchantLines(from, String(i.merchantUid), i.currency, Number(i.amountMinor), fee),
+    { intentId: id, code: i.refId, merchantUid: i.merchantUid, fee, ...extra });
+  if (qrSnap.exists) {
+    tx.update(qrSnap.ref, {
+      paidCount: FieldValue.increment(1), receivedMinor: FieldValue.increment(Number(i.amountMinor) - fee),
+      ...(qrSnap.get('oneTime') === true ? { paid: true, paidBy: i.uid, paidIntentId: id } : {}),
+      lastPaidAt: FieldValue.serverTimestamp(), updatedAt: FieldValue.serverTimestamp(),
+    });
+  }
+  const money = `${i.currency} ${toMajor(Number(i.amountMinor) - fee, i.currency).toLocaleString('en-US')}`;
+  tx.set(db().collection('notifications').doc(`merchant_paid_${id}`), {
+    userId: i.merchantUid, recipientId: i.merchantUid, actorId: i.uid, category: 'system', priority: 'high', type: 'payment',
+    title: 'Payment received', body: `${money} is in your Oneova balance.`, deepLink: '/wallet', isRead: false,
+    createdAt: FieldValue.serverTimestamp(),
+  });
+}
+
+/** Scan to pay from the payer's Oneova balance: settles at once. */
+async function payMerchantFromBalance(id: string): Promise<void> {
+  const ref = intentRef(id);
+  await db().runTransaction(async (tx) => {
+    const i = (await tx.get(ref)).data();
+    if (!i || i.purpose !== 'merchant' || !isOpenIntent(i.status)) return;
+    const [bal, posted, qrSnap] = await Promise.all([tx.get(balanceRef(i.uid)), tx.get(ledgerRef(`payin_${id}`)), tx.get(db().doc(`pay_qr/${i.refId}`))]);
+    if (posted.exists) return;
+    const problem = qrProblem(qrSnap.data() as never);
+    if (problem) {
+      tx.update(ref, { status: 'failed', failureReason: problem, updatedAt: FieldValue.serverTimestamp() });
+      return;
+    }
+    if (bucketOf(bal.data(), i.currency, 'available') < i.amountMinor) {
+      tx.update(ref, { status: 'failed', failureReason: 'Not enough in your Oneova balance.', updatedAt: FieldValue.serverTimestamp() });
+      return;
+    }
+    creditMerchant(tx, id, i, `user:${i.uid}`, qrSnap, { provider: 'oneova' });
+    tx.update(ref, { status: 'succeeded', paidAt: FieldValue.serverTimestamp(), updatedAt: FieldValue.serverTimestamp() });
+  });
+}
 
 /** Pays an intent from the payer's Oneova balance (orders only). */
 async function payFromBalance(id: string): Promise<void> {
@@ -238,6 +316,7 @@ async function applySuccess(id: string, check: CollectCheck): Promise<void> {
     const orderRef = i.purpose === 'order' ? db().doc(`orders/${i.refId}`) : null;
     const order = orderRef ? (await tx.get(orderRef)).data() : undefined;
     const product = order ? (await tx.get(db().doc(`products/${order.productId}`))).data() : undefined;
+    const qrSnap = i.purpose === 'merchant' ? await tx.get(db().doc(`pay_qr/${i.refId}`)) : null;
     // --- writes ---
     const clearing = `clearing:${i.provider}`;
     const mismatch = (check.amountMinor != null && check.amountMinor !== i.amountMinor)
@@ -268,6 +347,9 @@ async function applySuccess(id: string, check: CollectCheck): Promise<void> {
         { account: `escrow:${i.refId}`, currency: i.currency, amountMinor: i.amountMinor },
       ], { intentId: id, orderId: i.refId, provider: i.provider, sandbox: i.sandbox === true });
       applyOrderPaid(tx, i.refId, order, product, id);
+    } else if (i.purpose === 'merchant' && qrSnap) {
+      // The money arrived, so the merchant is credited even if the code expired meanwhile.
+      creditMerchant(tx, id, i, clearing, qrSnap, { provider: i.provider, sandbox: i.sandbox === true });
     } else {
       writeLedger(tx, `payin_${id}`, false, 'topup', [
         { account: clearing, currency: i.currency, amountMinor: -i.amountMinor },
@@ -378,7 +460,8 @@ export async function refundIntent(id: string, key: string): Promise<'refunded' 
   const i = (await intentRef(id).get()).data();
   if (!i || i.status !== 'succeeded') return 'none';
   const rt = await payRuntime();
-  const escrow = i.purpose === 'order' ? `escrow:${i.refId}` : `user:${i.uid}`;
+  // Where the money sits now: the order's escrow, the merchant's balance, or the payer's own (top-up).
+  const escrow = i.purpose === 'order' ? `escrow:${i.refId}` : i.purpose === 'merchant' ? `user:${i.merchantUid}` : `user:${i.uid}`;
   const toBuyerBalance = async (via: string) => {
     await db().runTransaction(async (tx) => {
       const posted = await tx.get(ledgerRef(`refund_${id}`));

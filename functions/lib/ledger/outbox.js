@@ -96,14 +96,14 @@ async function send(template, key, args) {
         throw new Error('LEDGER_URL is not set');
     if (!client)
         client = await new google_auth_library_1.GoogleAuth().getIdTokenClient(base);
-    // Same token twice: Cloud Run's IAM reads X-Serverless-Authorization, the ledger checks Authorization.
+    // Same token twice: Cloud Run's IAM reads X-Serverless-Authorization, the ledger checks X-Ledger-Token.
     const h = (await client.getRequestHeaders());
     const bearer = (_b = (typeof h.get === 'function' ? h.get('authorization') : h.Authorization)) !== null && _b !== void 0 ? _b : '';
     if (!bearer)
         throw new Error('no ID token for the ledger');
     const res = await fetch(`${base}/v1/wallet/${template}`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', Authorization: bearer, 'X-Serverless-Authorization': bearer },
+        headers: { 'Content-Type': 'application/json', 'X-Ledger-Token': bearer, 'X-Serverless-Authorization': bearer },
         body: JSON.stringify({ idempotency_key: key, args }),
         signal: AbortSignal.timeout(15000),
     });

@@ -1,11 +1,15 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.maskMsisdn = exports.userOf = exports.TOPUP_MAX_USD = exports.TOPUP_MIN_USD = exports.currencyFor = exports.intentTtlMs = exports.isOpenIntent = void 0;
+exports.MERCHANT_FEE_BPS = exports.QR_ONE_TIME_TTL_MS = exports.QR_CODE = exports.PAY_QR_PREFIX = exports.maskMsisdn = exports.userOf = exports.TOPUP_MAX_USD = exports.TOPUP_MIN_USD = exports.currencyFor = exports.intentTtlMs = exports.isOpenIntent = void 0;
 exports.canMoveIntent = canMoveIntent;
 exports.methodsFor = methodsFor;
 exports.ledgerBalanced = ledgerBalanced;
 exports.orderSplit = orderSplit;
 exports.balancePayoutFee = balancePayoutFee;
+exports.qrCodeFrom = qrCodeFrom;
+exports.merchantFee = merchantFee;
+exports.merchantLines = merchantLines;
+exports.qrProblem = qrProblem;
 /**
  * Oneova Pay rules with no I/O, so they are unit tested.
  *
@@ -125,4 +129,50 @@ function balancePayoutFee(rail, amountMinor) {
 /** Masks a phone number for display: 2547…1234. */
 const maskMsisdn = (m) => (m.length > 8 ? `${m.slice(0, 4)}…${m.slice(-4)}` : '…');
 exports.maskMsisdn = maskMsisdn;
+// ───────────────────────────── Scan to pay ─────────────────────────────
+/** Merchant QR codes: `https://oneova.web.app/p/{code}`; the code is the only thing in the QR. */
+exports.PAY_QR_PREFIX = 'https://oneova.web.app/p/';
+exports.QR_CODE = /^[A-Za-z0-9_-]{22}$/;
+/** A one-time code (with an amount) expires after this. */
+exports.QR_ONE_TIME_TTL_MS = 15 * 60000;
+/** Extracts the code from a scanned QR string, or null if it isn't an Oneova Pay code. */
+function qrCodeFrom(scanned) {
+    const s = String(scanned !== null && scanned !== void 0 ? scanned : '').trim();
+    const code = s.startsWith(exports.PAY_QR_PREFIX) ? s.slice(exports.PAY_QR_PREFIX.length).split(/[?#/]/)[0] : s;
+    return exports.QR_CODE.test(code) ? code : null;
+}
+/**
+ * Merchant fee (merchant discount rate) in basis points, deducted from what the
+ * merchant receives; rounded down so it never exceeds the rate. Same rule as
+ * `merchant_payment` in services/ledger/config/fee_rules.json.
+ */
+exports.MERCHANT_FEE_BPS = 100;
+function merchantFee(amountMinor, bps = exports.MERCHANT_FEE_BPS) {
+    if (!Number.isSafeInteger(amountMinor) || amountMinor <= 0)
+        throw new Error('amount must be a positive integer');
+    const b = Math.min(Math.max(Math.floor(bps), 0), 1000);
+    return Math.floor((amountMinor * b) / 10000);
+}
+/** Lines for a merchant payment: payer side → merchant (net) + platform (fee). */
+function merchantLines(from, merchantUid, currency, amountMinor, fee) {
+    const lines = [
+        Object.assign({ account: from, currency, amountMinor: -amountMinor }, (from.startsWith('user:') ? { bucket: 'available' } : {})),
+        { account: `user:${merchantUid}`, currency, amountMinor: amountMinor - fee, bucket: 'available' },
+    ];
+    if (fee > 0)
+        lines.push({ account: 'platform:revenue', currency, amountMinor: fee });
+    return lines;
+}
+/** Why a merchant code can't be paid right now, or null. [q] is the `pay_qr` doc. */
+function qrProblem(q, now = Date.now()) {
+    var _a;
+    if (!q || q.active !== true)
+        return 'This code isn’t active.';
+    if (q.oneTime === true && q.paid === true)
+        return 'This code was already paid.';
+    const exp = (_a = q.expiresAt) === null || _a === void 0 ? void 0 : _a.toMillis();
+    if (exp && exp < now)
+        return 'This code has expired. Ask for a new one.';
+    return null;
+}
 //# sourceMappingURL=payLogic.js.map

@@ -73,6 +73,19 @@
       "charge": "deducted",
       "rounding": "up",
       "shares": []
+    },
+    {
+      "id": "merchant_payment",
+      "version": 1,
+      "effective_from": "2026-11-13T00:00:00Z",
+      "match": {
+        "product": "merchant_payment"
+      },
+      "percent_bps": 100,
+      "flat_minor": 0,
+      "charge": "deducted",
+      "rounding": "down",
+      "shares": []
     }
   ]
 }

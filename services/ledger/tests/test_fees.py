@@ -167,3 +167,15 @@ def test_parity_with_oneova_pay_fees():
         assert b.quote(c, product="balance_payout", currency="KES", rail="mobile_money").fee_minor == min(ts["mm"][i], c), c
         assert b.quote(c, product="balance_payout", currency="KES", rail="bank").fee_minor == min(ts["bank"][i], c), c
         assert b.quote(c, product="biz_order", currency="KES").fee_minor == ts["biz"][i], c
+
+
+def test_parity_with_scan_to_pay_fee():
+    compiled = ROOT / "functions" / "lib" / "pay" / "payLogic.js"
+    if not shutil.which("node") or not compiled.exists():
+        pytest.skip("node or the compiled functions are not available")
+    amounts = list(range(1, 5_001)) + list(range(5_000, 2_000_001, 997))
+    js = "const l=require(process.argv[1]);console.log(JSON.stringify(JSON.parse(process.argv[2]).map(c=>l.merchantFee(c))))"
+    ts = json.loads(subprocess.check_output(["node", "-e", js, str(compiled), json.dumps(amounts)]))
+    b = FeeBook.load()
+    for c, fee in zip(amounts, ts):
+        assert b.quote(c, product="merchant_payment", currency="KES").fee_minor == fee, c

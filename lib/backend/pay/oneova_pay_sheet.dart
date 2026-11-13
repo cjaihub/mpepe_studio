@@ -27,6 +27,7 @@ Future<PayIntent?> showOneovaPaySheet(
   required String title,
   String? subtitle,
   num? topupAmount,
+  String? country,
 }) {
   HapticFeedback.lightImpact();
   return showModalBottomSheet<PayIntent>(
@@ -43,6 +44,7 @@ Future<PayIntent?> showOneovaPaySheet(
       title: title,
       subtitle: subtitle,
       topupAmount: topupAmount,
+      country: country,
     ),
   );
 }
@@ -59,6 +61,7 @@ class OneovaPaySheet extends ConsumerStatefulWidget {
     required this.title,
     this.subtitle,
     this.topupAmount,
+    this.country,
   });
 
   final String purpose;
@@ -67,7 +70,11 @@ class OneovaPaySheet extends ConsumerStatefulWidget {
   final String currency;
   final String title;
   final String? subtitle;
+  /// Amount typed by the payer: a top-up, or a scan-to-pay shop code without a fixed amount.
   final num? topupAmount;
+
+  /// Show this country's ways to pay (scan to pay: where the merchant is).
+  final String? country;
 
   @override
   ConsumerState<OneovaPaySheet> createState() => _OneovaPaySheetState();
@@ -115,7 +122,7 @@ class _OneovaPaySheetState extends ConsumerState<OneovaPaySheet> with WidgetsBin
       _error = null;
     });
     try {
-      final o = await _svc.options();
+      final o = await _svc.options(country: widget.country);
       if (!mounted) return;
       setState(() {
         _options = o;
@@ -131,8 +138,7 @@ class _OneovaPaySheetState extends ConsumerState<OneovaPaySheet> with WidgetsBin
     }
   }
 
-  String _message(Object e, String fallback) =>
-      e is FirebaseFunctionsException && (e.message ?? '').isNotEmpty ? e.message! : fallback;
+  String _message(Object e, String fallback) => e is FirebaseFunctionsException ? payErrorText(e, fallback: fallback) : fallback;
 
   Future<void> _pay() async {
     final m = _method;

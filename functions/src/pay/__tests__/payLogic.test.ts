@@ -68,3 +68,38 @@ test('live deals: active, scoped, rounded per currency', async () => {
   assert.equal(dealPrice(12.99, 15, 'USD'), 11.04);
   assert.equal(dealPrice(999, 20, 'UGX'), 799);
 });
+
+// ── Scan to pay ──────────────────────────────────────────────────────────────
+import { MERCHANT_FEE_BPS, merchantFee, merchantLines, qrCodeFrom, qrProblem } from '../payLogic';
+
+test('scan to pay: only Oneova Pay codes are accepted', () => {
+  const code = 'Ab3_dE5-fG7hJ9kL1mN2pQ';
+  assert.equal(qrCodeFrom(`https://oneova.web.app/p/${code}`), code);
+  assert.equal(qrCodeFrom(`https://oneova.web.app/p/${code}?ref=x`), code);
+  assert.equal(qrCodeFrom(code), code);
+  assert.equal(qrCodeFrom('https://evil.example/p/Ab3_dE5-fG7hJ9kL1mN2pQ'), null);
+  assert.equal(qrCodeFrom('https://oneova.web.app/p/short'), null);
+  assert.equal(qrCodeFrom(''), null);
+});
+
+test('scan to pay: merchant fee rounds down and the lines balance', () => {
+  assert.equal(MERCHANT_FEE_BPS, 100);
+  assert.equal(merchantFee(100_000), 1_000); // KES 1,000 → KES 10
+  assert.equal(merchantFee(99), 0); // under a shilling → no fee
+  assert.throws(() => merchantFee(0));
+  const lines = merchantLines('user:payer', 'shop1', 'KES', 100_000, 1_000);
+  assert.ok(ledgerBalanced(lines));
+  assert.deepEqual(lines.map((l) => [l.account, l.amountMinor]), [['user:payer', -100_000], ['user:shop1', 99_000], ['platform:revenue', 1_000]]);
+  assert.ok(ledgerBalanced(merchantLines('clearing:mpesa', 'shop1', 'KES', 50, 0)));
+});
+
+test('scan to pay: inactive, used or expired codes cannot be paid', () => {
+  const now = 1_000_000;
+  const at = (ms: number) => ({ toMillis: () => ms });
+  assert.equal(qrProblem({ active: true, oneTime: false, paid: false, expiresAt: null }, now), null);
+  assert.ok(qrProblem(undefined, now));
+  assert.ok(qrProblem({ active: false }, now));
+  assert.ok(qrProblem({ active: true, oneTime: true, paid: true }, now));
+  assert.ok(qrProblem({ active: true, oneTime: true, paid: false, expiresAt: at(now - 1) }, now));
+  assert.equal(qrProblem({ active: true, oneTime: false, paid: true }, now), null); // a shop code is paid many times
+});

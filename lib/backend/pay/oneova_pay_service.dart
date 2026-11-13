@@ -120,6 +120,39 @@ class PayoutStatus {
   bool get hasMethod => methods > 0;
 }
 
+/// The signed-in account's payment country and currency, as Oneova Pay
+/// decides them on the server (payout profile → verified ID → profile).
+/// One source of truth for shop prices, checkout and the wallet. Filled by
+/// [OneovaPayService.options]; null until the first call.
+class PayAccount {
+  PayAccount._();
+  static String? country;
+  static String? currency;
+}
+
+/// "KES 1,250" / "USD 12.50" from a decimal amount, rounded like the server.
+String formatMajor(num amount, String currency) => formatMinor((amount * (currencyExponent(currency) == 0 ? 1 : 100)).round(), currency);
+
+/// Plain-language text for a payment error (never a raw code).
+String payErrorText(Object e, {String fallback = 'Something went wrong. Please try again.'}) {
+  final msg = (e as dynamic).message;
+  final code = (e as dynamic).code;
+  if (code is String) {
+    switch (code) {
+      case 'unavailable':
+      case 'deadline-exceeded':
+        return 'The payment partner is taking longer than usual. We’ll update you as soon as it answers.';
+      case 'resource-exhausted':
+        return 'Too many tries in a short time. Wait a few minutes and try again.';
+      case 'unauthenticated':
+        return 'Please sign in again to continue.';
+      case 'internal':
+        return fallback;
+    }
+  }
+  return msg is String && msg.trim().isNotEmpty && !msg.contains('Exception') ? msg : fallback;
+}
+
 /// Digits per currency the way the server counts minor units.
 int currencyExponent(String currency) => const {
       'UGX': 0, 'RWF': 0, 'XAF': 0, 'XOF': 0, 'BIF': 0, 'GNF': 0, 'KMF': 0, 'DJF': 0, 'JPY': 0, 'KRW': 0,
@@ -156,6 +189,10 @@ class OneovaPayService {
 
   Future<PayOptions> options({String? country}) async {
     final r = await _call('payMethods', {'country': ?country});
+    if (country == null) {
+      PayAccount.country = '${r['country']}';
+      PayAccount.currency = '${r['currency']}';
+    }
     return PayOptions(
       country: '${r['country']}',
       countryName: r['countryName'] as String?,
@@ -189,6 +226,22 @@ class OneovaPayService {
     });
     return PayIntent.fromMap('${r['intentId']}', r);
   }
+
+  // ── Scan to pay (functions/src/pay/merchantQr.ts) ──
+
+  /// Who a scanned code pays and how much. Throws when it isn't payable.
+  Future<MerchantCode> resolveQr(String scanned) async => MerchantCode.fromMap(await _call('payQrResolve', {'qr': scanned}));
+
+  /// A code to receive money: a shop code ([amount] null) or a one-time code for [amount].
+  Future<MerchantCode> createQr({num? amount, String? label}) async =>
+      MerchantCode.fromMap(await _call('payQrCreate', {'amount': ?amount, 'label': ?label}));
+
+  Future<List<MerchantCode>> myQrCodes() async {
+    final r = await _call('payQrList');
+    return [for (final c in (r['codes'] as List? ?? const [])) MerchantCode.fromMap(Map<String, dynamic>.from(c as Map))];
+  }
+
+  Future<void> disableQr(String code) => _call('payQrDisable', {'code': code});
 
   Future<PayIntent> status(String intentId) async {
     final r = await _call('payStatus', {'intentId': intentId});
@@ -236,4 +289,63 @@ class OneovaPayService {
         'currency': currency,
         'idempotencyKey': idempotencyKey,
       });
+}
+
+
+/// A merchant's Oneova Pay code, as the server describes it.
+class MerchantCode {
+  final String code;
+  final String qr;
+  final String merchantUid;
+  final String name;
+  final String? avatarUrl;
+  final bool verified;
+  final String? label;
+  final String country;
+  final String currency;
+  final int? amountMinor;
+  final num? amount;
+  final bool oneTime;
+  final bool active;
+  final int paidCount;
+  final int receivedMinor;
+
+  const MerchantCode({
+    required this.code,
+    required this.qr,
+    required this.merchantUid,
+    required this.name,
+    this.avatarUrl,
+    required this.verified,
+    this.label,
+    required this.country,
+    required this.currency,
+    this.amountMinor,
+    this.amount,
+    required this.oneTime,
+    required this.active,
+    this.paidCount = 0,
+    this.receivedMinor = 0,
+  });
+
+  /// The merchant set the amount (one-time code); otherwise the payer types it.
+  bool get fixedAmount => amountMinor != null;
+
+  factory MerchantCode.fromMap(Map<String, dynamic> m) => MerchantCode(
+        code: '${m['code']}',
+        qr: '${m['qr'] ?? 'https://oneova.web.app/p/${m['code']}'}',
+        merchantUid: '${m['merchantUid']}',
+        name: '${m['name'] ?? 'Oneova merchant'}',
+        avatarUrl: m['avatarUrl'] as String?,
+        verified: m['verified'] == true,
+        label: m['label'] as String?,
+        country: '${m['country']}',
+        currency: '${m['currency']}',
+        amountMinor: (m['amountMinor'] as num?)?.toInt(),
+        amount: m['amount'] as num?,
+        oneTime: m['oneTime'] == true,
+        active: m['active'] != false,
+        paidCount: (m['paidCount'] as num?)?.toInt() ?? 0,
+        receivedMinor: (m['receivedMinor'] as num?)?.toInt() ?? 0,
+      );
 }

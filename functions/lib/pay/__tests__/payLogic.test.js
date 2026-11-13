@@ -94,4 +94,35 @@ const off = { sandbox: false, wallet: false, mpesa: false, momo: false, flutterw
     assert.equal(dealPrice(12.99, 15, 'USD'), 11.04);
     assert.equal(dealPrice(999, 20, 'UGX'), 799);
 });
+// ── Scan to pay ──────────────────────────────────────────────────────────────
+const payLogic_2 = require("../payLogic");
+(0, node_test_1.test)('scan to pay: only Oneova Pay codes are accepted', () => {
+    const code = 'Ab3_dE5-fG7hJ9kL1mN2pQ';
+    assert.equal((0, payLogic_2.qrCodeFrom)(`https://oneova.web.app/p/${code}`), code);
+    assert.equal((0, payLogic_2.qrCodeFrom)(`https://oneova.web.app/p/${code}?ref=x`), code);
+    assert.equal((0, payLogic_2.qrCodeFrom)(code), code);
+    assert.equal((0, payLogic_2.qrCodeFrom)('https://evil.example/p/Ab3_dE5-fG7hJ9kL1mN2pQ'), null);
+    assert.equal((0, payLogic_2.qrCodeFrom)('https://oneova.web.app/p/short'), null);
+    assert.equal((0, payLogic_2.qrCodeFrom)(''), null);
+});
+(0, node_test_1.test)('scan to pay: merchant fee rounds down and the lines balance', () => {
+    assert.equal(payLogic_2.MERCHANT_FEE_BPS, 100);
+    assert.equal((0, payLogic_2.merchantFee)(100000), 1000); // KES 1,000 → KES 10
+    assert.equal((0, payLogic_2.merchantFee)(99), 0); // under a shilling → no fee
+    assert.throws(() => (0, payLogic_2.merchantFee)(0));
+    const lines = (0, payLogic_2.merchantLines)('user:payer', 'shop1', 'KES', 100000, 1000);
+    assert.ok((0, payLogic_1.ledgerBalanced)(lines));
+    assert.deepEqual(lines.map((l) => [l.account, l.amountMinor]), [['user:payer', -100000], ['user:shop1', 99000], ['platform:revenue', 1000]]);
+    assert.ok((0, payLogic_1.ledgerBalanced)((0, payLogic_2.merchantLines)('clearing:mpesa', 'shop1', 'KES', 50, 0)));
+});
+(0, node_test_1.test)('scan to pay: inactive, used or expired codes cannot be paid', () => {
+    const now = 1000000;
+    const at = (ms) => ({ toMillis: () => ms });
+    assert.equal((0, payLogic_2.qrProblem)({ active: true, oneTime: false, paid: false, expiresAt: null }, now), null);
+    assert.ok((0, payLogic_2.qrProblem)(undefined, now));
+    assert.ok((0, payLogic_2.qrProblem)({ active: false }, now));
+    assert.ok((0, payLogic_2.qrProblem)({ active: true, oneTime: true, paid: true }, now));
+    assert.ok((0, payLogic_2.qrProblem)({ active: true, oneTime: true, paid: false, expiresAt: at(now - 1) }, now));
+    assert.equal((0, payLogic_2.qrProblem)({ active: true, oneTime: false, paid: true }, now), null); // a shop code is paid many times
+});
 //# sourceMappingURL=payLogic.test.js.map

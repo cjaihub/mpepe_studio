@@ -14,7 +14,7 @@ import { AFRICA } from '../creator/payoutLogic';
 import { CollectKind, ProviderId, Rail } from '../payments/provider';
 
 export type IntentStatus = 'created' | 'pending_payer' | 'succeeded' | 'failed' | 'expired' | 'cancelled' | 'refunded' | 'review';
-export type IntentPurpose = 'order' | 'topup';
+export type IntentPurpose = 'order' | 'topup' | 'merchant';
 
 const NEXT: Record<IntentStatus, IntentStatus[]> = {
   created: ['pending_payer', 'succeeded', 'failed', 'cancelled', 'review'],
@@ -158,3 +158,50 @@ export function balancePayoutFee(rail: Rail, amountMinor: number): number {
 
 /** Masks a phone number for display: 2547…1234. */
 export const maskMsisdn = (m: string) => (m.length > 8 ? `${m.slice(0, 4)}…${m.slice(-4)}` : '…');
+
+// ───────────────────────────── Scan to pay ─────────────────────────────
+
+/** Merchant QR codes: `https://oneova.web.app/p/{code}`; the code is the only thing in the QR. */
+export const PAY_QR_PREFIX = 'https://oneova.web.app/p/';
+export const QR_CODE = /^[A-Za-z0-9_-]{22}$/;
+/** A one-time code (with an amount) expires after this. */
+export const QR_ONE_TIME_TTL_MS = 15 * 60_000;
+
+/** Extracts the code from a scanned QR string, or null if it isn't an Oneova Pay code. */
+export function qrCodeFrom(scanned: string): string | null {
+  const s = String(scanned ?? '').trim();
+  const code = s.startsWith(PAY_QR_PREFIX) ? s.slice(PAY_QR_PREFIX.length).split(/[?#/]/)[0] : s;
+  return QR_CODE.test(code) ? code : null;
+}
+
+/**
+ * Merchant fee (merchant discount rate) in basis points, deducted from what the
+ * merchant receives; rounded down so it never exceeds the rate. Same rule as
+ * `merchant_payment` in services/ledger/config/fee_rules.json.
+ */
+export const MERCHANT_FEE_BPS = 100;
+
+export function merchantFee(amountMinor: number, bps = MERCHANT_FEE_BPS): number {
+  if (!Number.isSafeInteger(amountMinor) || amountMinor <= 0) throw new Error('amount must be a positive integer');
+  const b = Math.min(Math.max(Math.floor(bps), 0), 1000);
+  return Math.floor((amountMinor * b) / 10_000);
+}
+
+/** Lines for a merchant payment: payer side → merchant (net) + platform (fee). */
+export function merchantLines(from: string, merchantUid: string, currency: string, amountMinor: number, fee: number): LedgerLine[] {
+  const lines: LedgerLine[] = [
+    { account: from, currency, amountMinor: -amountMinor, ...(from.startsWith('user:') ? { bucket: 'available' as Bucket } : {}) },
+    { account: `user:${merchantUid}`, currency, amountMinor: amountMinor - fee, bucket: 'available' },
+  ];
+  if (fee > 0) lines.push({ account: 'platform:revenue', currency, amountMinor: fee });
+  return lines;
+}
+
+/** Why a merchant code can't be paid right now, or null. [q] is the `pay_qr` doc. */
+export function qrProblem(q: { active?: unknown; oneTime?: unknown; paid?: unknown; expiresAt?: { toMillis(): number } | null } | undefined, now = Date.now()): string | null {
+  if (!q || q.active !== true) return 'This code isn’t active.';
+  if (q.oneTime === true && q.paid === true) return 'This code was already paid.';
+  const exp = q.expiresAt?.toMillis();
+  if (exp && exp < now) return 'This code has expired. Ask for a new one.';
+  return null;
+}

@@ -303,6 +303,8 @@ export { quoteDelivery, createOrderCheckout, acceptDelivery, startJourney, confi
 // Oneova Pay: pay-ins (phone prompt / partner page / balance), balance payouts.
 export { payMethods, payCreate, payStatus, payCancel, payReconcileIntents, payWebhookMpesa, payWebhookMomo, payReturn } from './pay/intents';
 export { payWithdraw, payBalanceReconcile } from './pay/balancePayouts';
+// Scan to pay: merchant QR codes (pay with payCreate purpose 'merchant').
+export { payQrCreate, payQrResolve, payQrList, payQrDisable } from './pay/merchantQr';
 export { aiProxy } from './aiProxy';
 export { studioCaptions, studioTranslate } from './studioAi';
 export { arEffectGenerate, arEffectCreateFromUpload, arEffectUse, arEffectFavoriteAdded, arEffectFavoriteRemoved, arMakeupSuggest } from './arEffects';

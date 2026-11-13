@@ -30,7 +30,7 @@ import { optionalSecret } from '../optionalSecrets';
 import { pickVariant, stockAfterSale, VariantError } from './variant_logic';
 import { StoreRuleError, codeDiscount, customizationExtra, normalizeCode, priceCustomization } from './storeLogic';
 import { exponent, toMinor } from '../payments/provider';
-import { LedgerLine, orderSplit } from '../pay/payLogic';
+import { LedgerLine, currencyFor, orderSplit } from '../pay/payLogic';
 import { bucketOf, balanceRef, ledgerRef, writeLedger } from '../pay/ledger';
 import { payRuntime } from '../pay/payConfig';
 import { storedUsdRate } from './fx';
@@ -81,6 +81,14 @@ export function orderMinor(o: FirebaseFirestore.DocumentData) {
   const items = Number.isSafeInteger(o.itemsMinor) ? Number(o.itemsMinor) : toMinor(Number(o.itemsAmount) || 0, cur);
   const delivery = Number.isSafeInteger(o.deliveryMinor) ? Number(o.deliveryMinor) : toMinor(Number(o.deliveryFee) || 0, cur);
   return { currency: cur, items, delivery, total: items + delivery };
+}
+
+/** A product's currency; one saved without one uses the seller's local currency. */
+async function productCurrency(product: FirebaseFirestore.DocumentData, sellerId: string): Promise<string> {
+  const c = String(product.currency ?? '').trim();
+  if (/^[A-Za-z]{3}$/.test(c)) return c.toUpperCase();
+  const { countryOf } = await import('../pay/intents');
+  return currencyFor(await countryOf(sellerId));
 }
 
 // ───────────────────────────── Live deals ─────────────────────────────
@@ -205,7 +213,7 @@ export const quoteDelivery = onCall(async (req) => {
   const sellerId = String(product.ownerId || product.userId || product.uid || '');
   const pickup = latLng(product.location) ?? await pickupFor(sellerId);
   if (!pickup) throw new HttpsError('failed-precondition', 'This shop has not set its pickup location yet.');
-  const currency = String(product.currency || 'USD').toUpperCase();
+  const currency = await productCurrency(product, sellerId);
   const r = await route(pickup, dropoff);
   const fee = await deliveryFee(r.km, r.min, currency);
   const ref = await db().collection('delivery_quotes').add({
@@ -243,7 +251,7 @@ export const createOrderCheckout = onCall(async (req) => {
     if (e instanceof VariantError) throw new HttpsError(e.code, e.message);
     throw e;
   }
-  const currency = String(product.currency || 'USD').toUpperCase();
+  const currency = await productCurrency(product, sellerId);
   // A live deal the seller is running right now lowers the base price;
   // the buyer's customization extras are added on top at full price.
   const deal = liveDealFor((await db().collection('biz_shops').doc(sellerId).get()).get('liveDeal'), productId, Date.now());

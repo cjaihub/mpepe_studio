@@ -120,6 +120,15 @@ function orderMinor(o) {
     const delivery = Number.isSafeInteger(o.deliveryMinor) ? Number(o.deliveryMinor) : (0, provider_1.toMinor)(Number(o.deliveryFee) || 0, cur);
     return { currency: cur, items, delivery, total: items + delivery };
 }
+/** A product's currency; one saved without one uses the seller's local currency. */
+async function productCurrency(product, sellerId) {
+    var _a;
+    const c = String((_a = product.currency) !== null && _a !== void 0 ? _a : '').trim();
+    if (/^[A-Za-z]{3}$/.test(c))
+        return c.toUpperCase();
+    const { countryOf } = await Promise.resolve().then(() => __importStar(require('../pay/intents')));
+    return (0, payLogic_1.currencyFor)(await countryOf(sellerId));
+}
 /**
  * The seller's live deal (`biz_shops/{uid}.liveDeal`) when it is running now
  * and covers [productId] (empty productIds = the whole shop).
@@ -238,7 +247,7 @@ exports.quoteDelivery = (0, https_1.onCall)(async (req) => {
     const pickup = (_d = latLng(product.location)) !== null && _d !== void 0 ? _d : await pickupFor(sellerId);
     if (!pickup)
         throw new https_1.HttpsError('failed-precondition', 'This shop has not set its pickup location yet.');
-    const currency = String(product.currency || 'USD').toUpperCase();
+    const currency = await productCurrency(product, sellerId);
     const r = await route(pickup, dropoff);
     const fee = await deliveryFee(r.km, r.min, currency);
     const ref = await db().collection('delivery_quotes').add({
@@ -281,7 +290,7 @@ exports.createOrderCheckout = (0, https_1.onCall)(async (req) => {
             throw new https_1.HttpsError(e.code, e.message);
         throw e;
     }
-    const currency = String(product.currency || 'USD').toUpperCase();
+    const currency = await productCurrency(product, sellerId);
     // A live deal the seller is running right now lowers the base price;
     // the buyer's customization extras are added on top at full price.
     const deal = liveDealFor((await db().collection('biz_shops').doc(sellerId).get()).get('liveDeal'), productId, Date.now());

@@ -128,6 +128,7 @@ import '../identity/screens/business_verify_screen.dart';
 import '../identity/screens/id_data_screen.dart';
 import '../social_hub/money/plans_screen.dart';
 import '../social_hub/money/withdraw_screen.dart';
+import '../social_hub/money/scan_to_pay_screens.dart';
 import '../security/screens/security_center_screen.dart';
 import '../auth/security/login_activity_screen.dart';
 import '../auth/security/sign_in_methods_screen.dart';
@@ -580,6 +581,8 @@ final routerProvider = Provider<GoRouter>((ref) {
       GoRoute(path: '/wallet/coins', redirect: _requireAuth, builder: (context, state) => const CoinShopScreen()),
       GoRoute(path: '/wallet/plans', redirect: _requireAuth, builder: (context, state) => const PlansScreen()),
       GoRoute(path: '/wallet/withdraw', redirect: _requireAuth, builder: (context, state) => const WithdrawScreen()),
+      GoRoute(path: '/wallet/scan', redirect: _requireAuth, builder: (context, state) => const ScanToPayScreen()),
+      GoRoute(path: '/wallet/receive', redirect: _requireAuth, builder: (context, state) => const ReceivePayScreen()),
       GoRoute(path: '/wallet/verify', redirect: _requireAuth, builder: (context, state) => const KycScreen()),
       GoRoute(path: '/wallet/payments', redirect: _requireAuth, builder: (context, state) => const PaymentsHistoryScreen()),
       // Back from a partner's payment page (oneova://app/pay/done).
