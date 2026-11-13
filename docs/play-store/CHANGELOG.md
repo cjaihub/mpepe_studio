@@ -1,5 +1,83 @@
 # Oneova release notes
 
+## 1.0.0 (30) — 2026-11-13 · Internal Testing Release
+
+- **Verified business badge**: shops verified with Oneova ID show the same badge on the stage, store page, products and My business.
+- **Clearer buttons** across My business and the shop tools.
+
+## 1.0.0 (29) — 2026-11-13 · Internal Testing Release
+
+**Business portal, live shopping stage and 3D textures**
+- **My business**: one place for sellers — today's sales, orders to prepare (packed → ready → shipped), stock per option, discount codes, shipping and store policies.
+- **Advanced insights**: sales and change over 7, 30 or 90 days, visitors → cart → orders funnel, product performance, returning buyers, busiest buying hours and how long stock will last.
+- **Live shopping stage**: the seller's live camera behind the 3D product, live chat or Ova answering when the seller is away, love, gifts, save, share, cart and live deals with a countdown.
+- **Make it yours**: sellers offer colors, materials and engravings; buyers customize and see it live on the 3D model.
+- **3D textures**: a hosted library of wood, marble, leather, denim, metal, carbon fibre and more, plus your own colorways or photos — on your products and shown on air while you're live.
+- **Reviews**: rate delivered orders; ratings come from verified purchases only.
+
+## 1.0.0 (28) — 2026-11-13 · Internal Testing Release
+
+**Online Control opens on your live computer**
+- **Fixed the blank control panel**: the panel now shows the live computer screen, the status bar and all controls instead of an empty black page.
+- Includes the latest live shopping, store and payments improvements in testing.
+
+## 1.0.0 (27) — 2026-11-12 · Internal Testing Release
+
+**Biz & Shop with live 3D shops, live effects that work**
+- **Biz & Shop**: the feed tab is now Biz & Shop, with a storefront icon and the live 3D shop at the top: swipe through open 3D showrooms, sellers who are live come first.
+- **3D Shops**: interactive 3D products (rotate, zoom, view in your room), product options, saved items and a seller setup to open your own 3D showroom.
+- **Live looks and beauty on air**: the live controls now really change your camera — color looks, beauty presets and smooth, glow, slim and eye sliders apply to what viewers see.
+
+## 1.0.0 (26) — 2026-11-12 · Internal Testing Release
+
+**Online Control: real-time, landscape and side controls**
+- **Real-time only**: the computer page streams live video and warms up the connection, so the control panel opens already live — no more snapshot refreshes or pending frame requests.
+- **Landscape mode**: full-screen live computer with a slim side rail for Control, Mouse pad, Keyboard, Ova and Apps; move the rail left or right and it remembers your choice.
+- **Faster mouse pad**: instant clicks, smooth accelerated pointer and fluid scrolling on the low-latency lane.
+- **Works across networks**: relay support for when the phone and computer aren't on the same Wi-Fi (enabled once the relay key is set).
+
+**One live studio, real data everywhere**
+- **One live interface**: Solo, Studio and Game lives all open the same live studio; a solo host can open the stage to guests without leaving the live.
+- **Premium beauty for going live**: one-tap looks plus Skin, Face and Eyes & smile controls, previewed live on your camera.
+- **New export panel**: resolution, frame rate and bitrate sliders with a recommended setting, file-size estimate, GIF export and an optional watermark.
+- **About this reel**: a short summary, Ask Ova, the reel's sound, Interested / Not interested and a quick in-feed question to tune your feed.
+- **Only real conversations and content**: placeholder chats, trends and demo items no longer appear.
+
+## 1.0.0 (25) — 2026-11-12 · Internal Testing Release
+
+**Online Control: live computer control, premium keyboards & Ova co-pilot**
+- **No more black screen**: the Online Control panel now opens straight onto the live computer screen.
+- **Reliable connection**: phone ↔ computer pairing no longer misses connection requests, cleans up after itself and reconnects on its own.
+- **Real mouse control**: tap to click exactly where you touch (even when zoomed), drag to move the cursor, hold-and-drag to select or move things, hold or two-finger tap to right-click, two-finger drag to scroll.
+- **Zoom into any part of the screen**: pinch to zoom up to 6×, pan while zoomed, tap the zoom badge to reset.
+- **Premium macOS & Windows keyboards**: textured keycaps with live highlights, ⌘ ⌥ ⌃ ⇧ / Ctrl ⊞ Alt shortcuts, function row and one-tap Copy, Paste, Undo, Search, Switch app and Screenshot.
+- **Ova co-pilot inside Online Control**: chat or talk hands-free to have Ova use the computer for you — open apps, find files, run tasks, search the web — with friendly, plain-language replies.
+
+## 1.0.0 (24) — 2026-11-12 · Internal & Closed Testing Release
+
+**Next-Gen Camera, Smart Auto-Tracker, Full-Body AR VFX & Zero-Mock Production Data**
+- **1:1 True-to-Viewfinder Camera & Recording**: Fixed front-camera horizontal flip and HAL pre-mirror discrepancies across live preview, still capture, snapshots, and recorded videos so stickers, text, Dual-Cam PiP, and AR effects match the viewfinder 1:1.
+- **Exclusive Camera, Mic & Audio Focus Control**: Automatically pauses background media when opening the camera, claims exclusive audio focus and pre-empts speech listeners during video recording, and adds resilient microphone source fallback (`CAMCORDER` → `MIC` → `DEFAULT`).
+- **Smart Subject Auto-Tracking & Full-Body Pose**: 10-joint body/hand/face MediaPipe tracking with smooth auto-follow framing (`Track`) and hands-free **Voice Shutter** (*"Cheese"*, *"Capture"*, *"Record"*, *"Flip"*).
+- **CapCut/TikTok-Grade Real-Time VFX**: Added 5 procedural effects (**Neon Body Aura**, **Cyber Face Scanner**, **Angel Halo Glow**, **Soul Twin Clone**, **Hand Energy Pulse**) plus dual iris catchlights, baked natively into recorded video.
+- **Clean, Low-Distraction Camera UI**: Collapsible side rail (`More` / `Less`), auto-hidden controls during recording, and friendly **Camera Controls** (*Brightness*, *Light*, *Speed*, *Tone*, *Focus*).
+- **100% Live Firestore Data**: Removed all remaining mock/seed fallbacks across Commerce, Creators, Live Shopping, and AR Effects.
+
+
+## 1.0.0 (14) — 2026-11-02 · Production, Alpha & Internal Release
+
+**Crashlytics Zero-Crash Fortification & Complete Real-Time Calling System**
+- **Crashlytics Resolution for Feed & Reels**:
+  - Eliminated `ScrollController not attached to any scroll views` by safely reading `positions.first` as `PageMetrics` inside `try-catch`, and replacing raw `nextPage()` calls with `_safeAnimateToNextPage()` and `_safeJumpToPage()`.
+  - Eliminated `StatefulElement.state` null-check exceptions by replacing inherited widget lookups in periodic auto-focus timers with lifecycle state booleans (`_isRouteCurrent`, `_isAppResumed`).
+  - Guarded image pre-caching and thumbnail decoding (`cacheWidth > 0`) against unmounted contexts and zero-dimension viewports.
+- **Real-Time Video Pairing & Zero-Delay Rendering**: Unified Plan SDP negotiation, instant I-frame/PLI keyframe acceleration, and immediate `RTCVideoView` mounting eliminating video track stalls, black screens, and negotiation drops.
+- **Screen Sharing with Stay Camera**: Real-time display media screen sharing (`navigator.mediaDevices.getDisplayMedia`) while simultaneously maintaining local camera active in PiP ("stay camera").
+- **Enhanced Minimized / In-App Call Screens**: Draggable floating call window with live camera/screen preview, remote video feed, screen sharing badge, quick audio/video controls, and smooth edge-docking.
+- **Background Media Auto-Muting & Release**: Automatically suppresses and mutes (volume 0.0) all background video reels and audio tracks during incoming/outgoing/connected calls, cleanly restoring playback when the call ends.
+- **Executive Voice Notes**: Upgraded chat composer with live decibel-reactive waveform animation, real-time recording timer, slide-to-cancel, handoff to AAC/m4a encoding, optimistic sending, and in-bubble audio player.
+
+
 ## 1.0.0 (12) — 2026-11-02 · Production / Live Release
 
 **Video Feed & Reel Unification & Zero-Crash Stability**

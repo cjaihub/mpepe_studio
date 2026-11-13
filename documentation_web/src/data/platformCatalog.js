@@ -291,7 +291,7 @@ export const PLATFORM_BASELINE_DOCS = [
         callout:
           'Every Wallet & Coin transaction is recorded on an immutable server-only double-entry ledger verified by cryptographic PSP webhook signatures.',
         bullets: [
-          'Native African mobile-money support (M-Pesa, MTN MoMo, Airtel Money, Orange Money, Telecel/Vodafone, Wave via Flutterwave) alongside global cards, Apple Pay, Google Pay, Stripe, and required App Store / Play Billing.',
+          'Native African mobile-money support (M-Pesa, MTN MoMo, Airtel Money, Orange Money, Telecel/Vodafone, Wave via Flutterwave) alongside global cards, Apple Pay, Google Pay, and required App Store / Play Billing.',
           'Biz Marketplace lets verified businesses attach interactive product chips to Reels and Live streams or sell `.oneovapack` LUT & Look bundles with showcase videos.',
           'Transparent upfront fee breakdowns, automated KYC/AML verification for 18+ payouts, and anti-wash-trading protection.',
         ],

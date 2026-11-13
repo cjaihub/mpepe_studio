@@ -3,7 +3,7 @@
   <head>
     <meta charset="UTF-8" />
     <link rel="icon" type="image/jpeg" href="/assets/images/oneova_logo.jpg" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
     <title>Oneova — Is the reason you matter. | Studio & Next-Gen Social</title>
     <meta name="description" content="Oneova is the reason you matter. The premier mobile creator ecosystem: 4K low-latency live streaming with PK battles, drop-in collaboration rooms, AI rotoscoping, and 1-tap universal sharing to TikTok, Reels, and Shorts." />
     <meta name="theme-color" content="#0A0A0A" />
@@ -12,9 +12,24 @@
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&family=JetBrains+Mono:wght@400;600;700&display=swap" rel="stylesheet">
+    <!-- Live-synced site text (served from /js on oneova.web.app) -->
+    <script src="/js/site-content.v1.js" defer></script>
   </head>
   <body>
-    <div id="root"></div>
+    <div id="root">
+      <main style="max-width:720px;margin:0 auto;padding:48px 16px;font-family:Inter,system-ui,sans-serif;color:#E8ECF4;background:#0A0A0A">
+        <img src="/assets/images/oneova_logo.jpg" alt="Oneova logo" width="96" height="96" style="border-radius:20px" />
+        <h1>Oneova</h1>
+        <p><strong>Is the reason you matter.</strong> Oneova is a social and creator app: short videos (Reels), chat and calls, live streaming, a video editor (Studio) and the Ova AI assistant.</p>
+        <p>Oneova is published by the Oneova team. Sign in with your phone number or Google account to post, follow creators and message friends.</p>
+        <nav>
+          <a href="/privacy" style="color:#4D8DFF">Privacy Policy</a> ·
+          <a href="/terms" style="color:#4D8DFF">Terms of Service</a> ·
+          <a href="/deletion" style="color:#4D8DFF">Account deletion</a> ·
+          <a href="/guidelines" style="color:#4D8DFF">Community Guidelines</a>
+        </nav>
+      </main>
+    </div>
     <script type="module" src="/src/main.jsx"></script>
   </body>
 </html>

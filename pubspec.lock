@@ -397,10 +397,10 @@ packages:
     dependency: "direct main"
     description:
       name: connectivity_plus
-      sha256: "762c99f890ca8bf87f7337236f99edd42793843bc6c3631da294a76653a54bd0"
+      sha256: "33bae12a398f841c6cda09d1064212957265869104c478e5ad51e2fb26c3973c"
       url: "https://pub.dev"
     source: hosted
-    version: "7.3.1"
+    version: "7.0.0"
   connectivity_plus_platform_interface:
     dependency: transitive
     description:
@@ -1152,14 +1152,6 @@ packages:
       url: "https://pub.dev"
     source: hosted
     version: "0.7.0"
-  flutter_stripe:
-    dependency: "direct main"
-    description:
-      name: flutter_stripe
-      sha256: "6064e5f8b3c16b7cbeb5ced10246ffd63b47e2a642e1c0734ab60e8f47098343"
-      url: "https://pub.dev"
-    source: hosted
-    version: "14.2.0"
   flutter_svg:
     dependency: "direct main"
     description:
@@ -1202,14 +1194,6 @@ packages:
       url: "https://pub.dev"
     source: hosted
     version: "11.0.0"
-  freezed_annotation:
-    dependency: transitive
-    description:
-      name: freezed_annotation
-      sha256: "7294967ff0a6d98638e7acb774aac3af2550777accd8149c90af5b014e6d44d8"
-      url: "https://pub.dev"
-    source: hosted
-    version: "3.1.0"
   fuchsia_remote_debug_protocol:
     dependency: transitive
     description: flutter
@@ -1568,13 +1552,13 @@ packages:
     source: hosted
     version: "1.4.1"
   in_app_purchase_storekit:
-    dependency: transitive
+    dependency: "direct main"
     description:
       name: in_app_purchase_storekit
-      sha256: fb2744b928bb0fcbfc95d1833469b3f638a44670aac3e278695930d3727011b6
+      sha256: "66aa6db2236aed23d1b0dd508fb33641ed9878d5e5fb6db5fdbd690b7de6fe98"
       url: "https://pub.dev"
     source: hosted
-    version: "0.4.16"
+    version: "0.4.11+2"
   in_app_update:
     dependency: "direct main"
     description:
@@ -1908,6 +1892,14 @@ packages:
       url: "https://pub.dev"
     source: hosted
     version: "5.8.1"
+  model_viewer_plus:
+    dependency: "direct main"
+    description:
+      name: model_viewer_plus
+      sha256: c5bfcd296a28246cceec821b0e7da268690e40baa99a3fa0f09d7a3227eb967d
+      url: "https://pub.dev"
+    source: hosted
+    version: "1.10.0"
   more:
     dependency: transitive
     description:
@@ -2695,30 +2687,6 @@ packages:
       url: "https://pub.dev"
     source: hosted
     version: "1.2.0"
-  stripe_android:
-    dependency: transitive
-    description:
-      name: stripe_android
-      sha256: a027548e346821dd591eed596769eb49332155b5b3153340e14b4065ab68ba03
-      url: "https://pub.dev"
-    source: hosted
-    version: "14.2.0"
-  stripe_ios:
-    dependency: transitive
-    description:
-      name: stripe_ios
-      sha256: f0d3964a1c60303bd456215944974a0aa6f9d985fbf394cbac451975f42e18db
-      url: "https://pub.dev"
-    source: hosted
-    version: "14.2.0"
-  stripe_platform_interface:
-    dependency: transitive
-    description:
-      name: stripe_platform_interface
-      sha256: e35f2a0954d4a8872a61a4f251992cb3e1a3d9bbeed676f598e6206cc9fad270
-      url: "https://pub.dev"
-    source: hosted
-    version: "14.2.0"
   sync_http:
     dependency: transitive
     description:

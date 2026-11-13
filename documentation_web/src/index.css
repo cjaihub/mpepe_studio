@@ -7275,3 +7275,217 @@ html, body,
     margin-left: 0;
   }
 }
+
+/* ==========================================================================
+   Phone layout layer (≤ 760px): no sideways scroll, compact header,
+   comfortable 16px gutters, readable type, thumb-friendly tap targets.
+   ========================================================================== */
+html,
+body {
+  max-width: 100%;
+  overflow-x: clip;
+}
+
+img,
+video,
+canvas,
+iframe,
+svg {
+  max-width: 100%;
+}
+
+@media (max-width: 760px) {
+  /* Decorative layers never widen the page */
+  .interactive-wave-canvas,
+  .ambient-glow,
+  .about-pink-glow-ray,
+  .about-blue-glow-ray,
+  .stage-pink-ambient-glow,
+  .theater-ambient-backlight {
+    max-width: 100vw;
+    overflow: hidden;
+  }
+
+  /* Header: logo · search · Join · menu */
+  .header-container {
+    padding-left: 16px;
+    padding-right: 16px;
+    gap: 8px;
+  }
+  .header-actions {
+    gap: 8px;
+    flex-shrink: 1;
+    min-width: 0;
+    margin-left: auto;
+  }
+  .header-actions .header-ova-ai-btn,
+  .header-actions .theme-toggle-btn,
+  .header-actions .cms-nav-pill-btn,
+  .search-btn-label,
+  .search-kbd {
+    display: none;
+  }
+  .search-trigger-btn,
+  .mobile-menu-toggle {
+    min-width: 40px;
+    min-height: 40px;
+    justify-content: center;
+  }
+  .header-cta-btn {
+    min-height: 40px;
+    padding-left: 14px;
+    padding-right: 14px;
+    white-space: nowrap;
+  }
+
+  /* Sections: consistent 16px gutters */
+  .hero-section,
+  .about-us-section,
+  .docs-portal-banner {
+    padding-left: 16px;
+    padding-right: 16px;
+  }
+  .hero-grid,
+  .hero-grid > *,
+  .about-container,
+  .features-grid > *,
+  .docs-portal-banner > * {
+    min-width: 0;
+    max-width: 100%;
+  }
+  .hero-content {
+    width: 100%;
+    max-width: 100%;
+  }
+
+  /* Hero typography */
+  .status-pill {
+    max-width: 100%;
+    white-space: normal;
+    line-height: 1.4;
+  }
+  .hero-title {
+    font-size: clamp(32px, 9.4vw, 44px);
+    line-height: 1.08;
+    letter-spacing: -0.02em;
+    overflow-wrap: anywhere;
+  }
+  .hero-subtitle {
+    font-size: 16px;
+    line-height: 1.6;
+  }
+  .hero-cta-group {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 12px;
+    width: 100%;
+  }
+  .hero-cta-group > * {
+    width: 100%;
+    min-height: 48px;
+    justify-content: center;
+  }
+  .hero-trust-bar {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 16px 12px;
+  }
+  .trust-item,
+  .trust-stat,
+  .trust-desc {
+    min-width: 0;
+    overflow-wrap: anywhere;
+  }
+
+  /* Cards and media fit the screen */
+  .showcase-stage-card,
+  .theater-card-chassis {
+    max-width: 100%;
+  }
+  .theater-top-bar {
+    flex-wrap: wrap;
+    gap: 10px;
+    padding-left: 14px;
+    padding-right: 14px;
+  }
+  .theater-controls-group {
+    flex-wrap: wrap;
+    gap: 8px;
+    min-width: 0;
+  }
+
+  /* Topic pills scroll sideways inside their own strip */
+  .docs-topic-pills-bar {
+    overflow-x: auto;
+    scroll-snap-type: x proximity;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: none;
+    padding-bottom: 4px;
+  }
+  .docs-topic-pills-bar::-webkit-scrollbar {
+    display: none;
+  }
+  .topic-pill-btn,
+  .matrix-toggle-pill-btn {
+    flex-shrink: 0;
+    scroll-snap-align: start;
+    min-height: 40px;
+  }
+
+  /* Body text comfortable to read */
+  main p {
+    overflow-wrap: break-word;
+  }
+}
+
+@media (max-width: 380px) {
+  .header-container {
+    padding-left: 12px;
+    padding-right: 12px;
+  }
+  .header-cta-btn svg {
+    display: none;
+  }
+  .hero-trust-bar {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+/* Phone: keep floating helpers small so they never cover the content */
+@media (max-width: 760px) {
+  .floating-video-dock {
+    display: none;
+  }
+  .ova-floating-launcher {
+    right: 16px;
+    bottom: calc(16px + env(safe-area-inset-bottom, 0px));
+    height: 48px;
+    padding: 0 16px;
+  }
+  .ova-launcher-badge {
+    display: none;
+  }
+}
+
+/* Open phone menu sits above every page section */
+.site-header:has(.mobile-nav-drawer) {
+  z-index: 1100;
+  /* A blurred header turns the drawer see-through in Chromium; go solid while open */
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+  background: #080A10;
+}
+[data-theme="light"] .site-header:has(.mobile-nav-drawer) {
+  background: #FFFFFF;
+}
+@media (max-width: 760px) {
+  .mobile-nav-drawer {
+    max-height: calc(100dvh - var(--header-height));
+    overscroll-behavior: contain;
+    background: #080A10;
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
+  }
+  [data-theme="light"] .mobile-nav-drawer {
+    background: #FFFFFF;
+  }
+}

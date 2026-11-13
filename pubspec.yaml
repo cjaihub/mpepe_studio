@@ -16,7 +16,7 @@ publish_to: 'none' # Remove this line if you wish to publish to pub.dev
 # https://developer.apple.com/library/archive/documentation/General/Reference/InfoPlistKeyReference/Articles/CoreFoundationKeys.html
 # In Windows, build-name is used as the major, minor, and patch parts
 # of the product and file versions while build-number is used as the build suffix.
-version: 1.0.0+12
+version: 1.0.0+30
 
 environment:
   sdk: ^3.12.2
@@ -140,7 +140,7 @@ dependencies:
   android_intent_plus: ^6.1.0
   timezone: ^0.11.2
   flutter_callkit_incoming: ^3.1.6
-  connectivity_plus: ^7.3.1
+  connectivity_plus: 7.0.0
   wakelock_plus: ^1.8.0
   flutter_map: ^8.3.2
   latlong2: ^0.10.1
@@ -149,9 +149,10 @@ dependencies:
   pdfx: ^2.11.0
   in_app_update: ^5.0.0
   firebase_ai: ^4.0.0
-  flutter_stripe: ^14.2.0
   in_app_purchase: ^3.3.1
   in_app_purchase_android: ^0.5.5
+  in_app_purchase_storekit: 0.4.11+2
+  model_viewer_plus: ^1.10.0
 dev_dependencies:
   flutter_test:
     sdk: flutter
@@ -220,6 +221,8 @@ flutter:
     - shaders/studio_look.frag
     - shaders/studio_fx.frag
     - shaders/studio_retouch.frag
+    - shaders/outfit_recolor.frag
+    - shaders/person_matte.frag
   #   - images/a_dot_burr.jpeg
   #   - images/a_dot_ham.jpeg
 

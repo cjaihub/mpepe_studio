@@ -111,7 +111,7 @@ When you connect external social accounts (such as TikTok, YouTube Shorts, Insta
 
 > **In Short:** Payments and payouts operate through licensed mobile-money, card, and bank partners, with clear local-currency pricing and zero hidden fees.
 
-**7.1 Licensed Payment Partners.** Payment collection and creator disbursements operate through regulated payment service providers (including central-bank-licensed mobile-money rails such as M-Pesa, MTN MoMo, Airtel Money, Orange Money, Wave, Flutterwave, Stripe, Apple In-App Purchase, and Google Play Billing where platform rules mandate). **Oneova Technologies Inc. is a technology platform, not a bank or deposit-taking institution**, and Wallet/Creator balances do not earn interest.
+**7.1 Licensed Payment Partners.** Payment collection and creator disbursements operate through regulated payment service providers (including central-bank-licensed mobile-money rails such as M-Pesa, MTN MoMo, Airtel Money, Orange Money, Wave, Flutterwave, Apple In-App Purchase, and Google Play Billing where platform rules mandate). **Oneova Technologies Inc. is a technology platform, not a bank or deposit-taking institution**, and Wallet/Creator balances do not earn interest.
 
 **7.2 Oneova Coins.**
 - **Coins** are closed-loop virtual tokens usable solely inside Oneova to send virtual Live/Creator Gifts or unlock eligible digital items.

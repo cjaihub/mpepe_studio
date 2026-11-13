@@ -1,0 +1,14 @@
+[
+  {
+    "relation": ["delegate_permission/common.handle_all_urls"],
+    "target": {
+      "namespace": "android_app",
+      "package_name": "com.oneova.app",
+      "sha256_cert_fingerprints": [
+        "D1:94:38:A1:15:C9:A4:83:C8:D7:94:9F:3A:24:CB:62:90:5C:3B:34:DC:03:EC:3A:F4:31:E0:C3:5F:12:A9:E7",
+        "C1:19:5D:BE:1D:38:FF:AE:EB:7E:50:99:DC:22:06:43:D4:AA:87:93:4E:CF:C3:CF:F9:EA:56:1B:FF:79:4F:D5",
+        "81:AA:A4:C8:4D:6B:AD:D8:0E:70:C5:D8:F4:10:D5:33:F7:42:13:F5:2B:06:31:DB:A1:9F:D4:4D:11:BE:79:66"
+      ]
+    }
+  }
+]

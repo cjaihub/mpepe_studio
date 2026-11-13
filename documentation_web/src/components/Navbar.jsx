@@ -172,8 +172,8 @@ export default function Navbar({
               <kbd className="search-kbd">⌘K</kbd>
             </button>
 
-            {/* Live Admin CMS Trigger */}
-            {onOpenAdminCms && (
+            {/* Live Admin CMS Trigger — signed-in admins only; others use /admin or ⌘⇧E */}
+            {onOpenAdminCms && isAdmin && (
               <button
                 type="button"
                 className="cms-nav-pill-btn"
@@ -290,12 +290,12 @@ export default function Navbar({
                 <span className="mobile-card-icon blue">💳</span>
                 <div className="mobile-card-text">
                   <span className="mobile-card-title">Earnings, M-Pesa &amp; Biz</span>
-                  <span className="mobile-card-sub">M-Pesa, MTN MoMo, Stripe &amp; .oneovapack</span>
+                  <span className="mobile-card-sub">M-Pesa, MTN MoMo &amp; .oneovapack</span>
                 </div>
                 <span className="mobile-card-arrow">→</span>
               </a>
 
-              {onOpenAdminCms && (
+              {onOpenAdminCms && isAdmin && (
                 <button
                   type="button"
                   className="mobile-nav-card highlight-pink"

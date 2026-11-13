@@ -235,13 +235,15 @@ export default function DocsPortal({
                 <span>✨ Ask Ova AI</span>
               </button>
             )}
-            <button
-              type="button"
-              className="cms-open-trigger-btn"
-              onClick={() => onOpenAdminCms && onOpenAdminCms(currentDoc.id)}
-            >
-              <span>✎ {isAdmin ? 'Edit Live in CMS' : 'Admin Live CMS'}</span>
-            </button>
+            {isAdmin && onOpenAdminCms && (
+              <button
+                type="button"
+                className="cms-open-trigger-btn"
+                onClick={() => onOpenAdminCms(currentDoc.id)}
+              >
+                <span>✎ Edit Live in CMS</span>
+              </button>
+            )}
           </div>
         </div>
 
@@ -495,7 +497,7 @@ export default function DocsPortal({
                     <span>✨ Ask Ova</span>
                   </button>
                 )}
-                {onOpenAdminCms && (
+                {isAdmin && onOpenAdminCms && (
                   <button
                     type="button"
                     className="doc-inline-edit-btn"

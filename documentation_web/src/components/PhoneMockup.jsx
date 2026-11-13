@@ -121,11 +121,6 @@ export default function PhoneMockup() {
         {/* Dynamic Screen Edge Glow */}
         <div className="screen-edge-pink-highlight"></div>
 
-        {/* Flutter DEBUG Banner (Matches Real Android Device in Screenshot) */}
-        <div className="flutter-debug-ribbon">
-          <span>DEBUG</span>
-        </div>
-
         {/* Android / Dynamic Top Status Bar (Matching Screenshot 8:31, G, Shield, Wi-Fi, Batt) */}
         <div className="phone-status-bar-real">
           <div className="status-left">

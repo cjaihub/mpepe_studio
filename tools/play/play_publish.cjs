@@ -31,7 +31,7 @@ const track = args.track || 'internal';
 const status = args.status || 'completed';
 const keyFile = process.env.PLAY_SERVICE_ACCOUNT_JSON || path.join(__dirname, '../../android/play-service-account.json');
 
-if (!aab || !fs.existsSync(aab)) throw new Error(`AAB not found: ${aab}`);
+if (!args['version-code'] && (!aab || !fs.existsSync(aab))) throw new Error(`AAB not found: ${aab}`);
 if (!fs.existsSync(keyFile)) throw new Error(`Service account JSON not found: ${keyFile}`);
 if (track === 'production' && args['confirm-production'] !== 'true') {
   throw new Error('Refusing to publish to production without --confirm-production.');
@@ -44,15 +44,21 @@ if (track === 'production' && args['confirm-production'] !== 'true') {
   const { data: edit } = await play.edits.insert({ packageName: PACKAGE });
   console.log(`edit ${edit.id}`);
 
-  const { data: bundle } = await play.edits.bundles.upload({
-    packageName: PACKAGE,
-    editId: edit.id,
-    media: { mimeType: 'application/octet-stream', body: fs.createReadStream(aab) },
-  });
-  console.log(`uploaded versionCode ${bundle.versionCode} (sha256 ${bundle.sha256})`);
+  let versionCode = args['version-code'];
+  if (!versionCode) {
+    const { data: bundle } = await play.edits.bundles.upload({
+      packageName: PACKAGE,
+      editId: edit.id,
+      media: { mimeType: 'application/octet-stream', body: fs.createReadStream(aab) },
+    });
+    console.log(`uploaded versionCode ${bundle.versionCode} (sha256 ${bundle.sha256})`);
+    versionCode = bundle.versionCode;
+  } else {
+    console.log(`using existing versionCode ${versionCode}`);
+  }
 
   const release = {
-    versionCodes: [String(bundle.versionCode)],
+    versionCodes: [String(versionCode)],
     status: args.rollout ? 'inProgress' : status,
     ...(args.rollout ? { userFraction: Number(args.rollout) } : {}),
     ...(args.priority ? { inAppUpdatePriority: Number(args.priority) } : {}),
@@ -71,7 +77,7 @@ if (track === 'production' && args['confirm-production'] !== 'true') {
     editId: edit.id,
     ...(args['not-sent-for-review'] ? { changesNotSentForReview: true } : {}),
   });
-  console.log(`committed edit ${committed.id}: versionCode ${bundle.versionCode} → ${track} (${release.status})`);
+  console.log(`committed edit ${committed.id}: versionCode ${versionCode} → ${track} (${release.status})`);
 })().catch((e) => {
   console.error(e.errors || e.message || e);
   process.exit(1);

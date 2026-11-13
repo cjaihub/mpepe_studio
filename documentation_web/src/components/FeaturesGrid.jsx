@@ -89,7 +89,7 @@ const FEATURE_CARDS = [
     id: 'wallet-biz-commerce',
     pink: true,
     title: 'Oneova Wallet, Mobile Money & Biz Marketplace',
-    desc: 'Double-entry local-currency Wallet supporting M-Pesa, MTN MoMo, Airtel, Orange, Wave, Stripe & IAP—plus Biz product Reels and `.oneovapack` Look stores.',
+    desc: 'Double-entry local-currency Wallet supporting M-Pesa, MTN MoMo, Airtel, Orange, Wave & IAP—plus Biz product Reels and `.oneovapack` Look stores.',
     tags: ['M-Pesa & MoMo', 'Biz Social Commerce', '.oneovapack Store'],
     icon: (
       <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4">
