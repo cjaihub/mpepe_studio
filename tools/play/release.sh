@@ -33,4 +33,6 @@ mkdir -p build/play && cp "$AAB" "build/play/oneova-${NAME}-${NEXT}.aab"
 
 EXTRA=()
 [[ "$TRACK" == "production" ]] && EXTRA+=(--confirm-production "${CONFIRM_PRODUCTION:-false}")
+# While other Play Console changes wait for review, commit without sending: PLAY_NOT_SENT_FOR_REVIEW=1
+[[ -n "${PLAY_NOT_SENT_FOR_REVIEW:-}" ]] && EXTRA+=(--not-sent-for-review)
 node tools/play/play_publish.cjs --aab "$AAB" --track "$TRACK" --notes "$NOTES" --priority "$PRIORITY" "${EXTRA[@]+"${EXTRA[@]}"}"

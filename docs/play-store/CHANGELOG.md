@@ -1,5 +1,13 @@
 # Oneova release notes
 
+## 1.0.0 (32) — 2026-11-13 · Internal Testing Release
+
+**Oneova Pay: scan to pay, and personal + business balances**
+- **Oneova Pay home**: your personal balance and your business balance side by side, with Top up, Request, Bank, Scan and Move to personal.
+- **Scan to pay**: scan a shop's Oneova Pay code, see the verified shop and amount, confirm with your fingerprint or face, pay.
+- **Receive**: a reusable shop code, or a one-time code for an exact amount (15 minutes); see what each code received.
+- **Business balance**: shop sales and scan-to-pay go to your business balance, kept apart from your personal money; withdraw from either.
+
 ## 1.0.0 (31) — 2026-11-13 · Internal Testing Release
 
 **Oneova Pay safety upgrade**
