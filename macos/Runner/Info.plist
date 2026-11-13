@@ -43,5 +43,11 @@
 		</dict>
 	</array>
 	<!-- End of the Google Sign-in Section -->
+	<key>NSMicrophoneUsageDescription</key>
+	<string>Oneova uses your microphone for Wispr AI voice dictation, live voice commands, and studio calls.</string>
+	<key>NSSpeechRecognitionUsageDescription</key>
+	<string>Oneova uses speech recognition for real-time Wispr voice typing and agent instructions.</string>
+	<key>NSAppleEventsUsageDescription</key>
+	<string>Oneova Computer Agent uses Apple Events to automate macOS apps, windows, and studio workflows at your request.</string>
 </dict>
 </plist>

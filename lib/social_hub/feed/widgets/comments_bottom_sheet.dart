@@ -17,19 +17,28 @@ import 'gif_picker_sheet.dart';
 import '../../../backend/giphy_service.dart';
 import 'package:oneova/shared/widgets/animated_loading_indicator.dart';
 import '../../../shared/widgets/oneova_voice_typing_button.dart';
+import '../../../shared/widgets/oneova_smart_status_banner.dart';
 
 class CommentsBottomSheet extends ConsumerStatefulWidget {
   final String postId;
+  final String? authorId;
 
-  const CommentsBottomSheet({super.key, required this.postId});
+  const CommentsBottomSheet({
+    super.key,
+    required this.postId,
+    this.authorId,
+  });
 
-  static void show(BuildContext context, String postId) {
+  static void show(BuildContext context, String postId, {String? authorId}) {
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
       backgroundColor: Colors.transparent,
-      barrierColor: Colors.transparent,
-      builder: (context) => CommentsBottomSheet(postId: postId),
+      barrierColor: Colors.black54,
+      builder: (context) => CommentsBottomSheet(
+        postId: postId,
+        authorId: authorId,
+      ),
     );
   }
 
@@ -45,9 +54,49 @@ class _CommentsBottomSheetState extends ConsumerState<CommentsBottomSheet> {
   String? _replyingToUsername;
   final Set<String> _expandedReplies = {};
   bool _showEmojiPicker = false;
+  String? _resolvedAuthorId;
+
+  @override
+  void initState() {
+    super.initState();
+    _resolvedAuthorId = widget.authorId;
+    _commentController.addListener(_onComposerChanged);
+    if (_resolvedAuthorId == null || _resolvedAuthorId!.isEmpty) {
+      _resolvePostAuthor();
+    }
+  }
+
+  void _onComposerChanged() {
+    if (mounted) setState(() {});
+  }
+
+  Future<void> _resolvePostAuthor() async {
+    try {
+      final postSnap = await FirebaseFirestore.instance
+          .collection('posts')
+          .doc(widget.postId)
+          .get();
+      final data = postSnap.data();
+      final uid = (data?['authorId'] ?? data?['userId'] ?? '').toString();
+      if (uid.isNotEmpty && mounted) {
+        setState(() => _resolvedAuthorId = uid);
+        return;
+      }
+      final contentSnap = await FirebaseFirestore.instance
+          .collection('content')
+          .doc(widget.postId)
+          .get();
+      final cData = contentSnap.data();
+      final cUid = (cData?['authorId'] ?? cData?['userId'] ?? '').toString();
+      if (cUid.isNotEmpty && mounted) {
+        setState(() => _resolvedAuthorId = cUid);
+      }
+    } catch (_) {}
+  }
 
   @override
   void dispose() {
+    _commentController.removeListener(_onComposerChanged);
     _commentController.dispose();
     _focusNode.dispose();
     super.dispose();
@@ -805,6 +854,7 @@ class _CommentsBottomSheetState extends ConsumerState<CommentsBottomSheet> {
                 ),
               ),
             Row(
+              crossAxisAlignment: CrossAxisAlignment.end,
               children: [
                 FutureBuilder<AppUser?>(
                   future: ref
@@ -817,184 +867,262 @@ class _CommentsBottomSheetState extends ConsumerState<CommentsBottomSheet> {
                     final initial = username.isNotEmpty
                         ? username[0].toUpperCase()
                         : 'U';
-                    return GestureDetector(
-                      onTap: () {
-                        if (user?.id != null) {
-                          context.push('/profile/${user!.id}');
-                        }
-                      },
-                      child: CircleAvatar(
-                        radius: 18,
-                        backgroundColor: AppColors.brandBlue,
-                        backgroundImage: avatar != null
-                            ? NetworkImage(avatar)
-                            : null,
-                        child: avatar == null
-                            ? Text(
-                                initial,
-                                style: const TextStyle(
-                                  color: Colors.white,
-                                  fontSize: 14,
-                                ),
-                              )
-                            : null,
+                    return Padding(
+                      padding: const EdgeInsets.only(bottom: 4),
+                      child: GestureDetector(
+                        onTap: () {
+                          if (user?.id != null) {
+                            context.push('/profile/${user!.id}');
+                          }
+                        },
+                        child: CircleAvatar(
+                          radius: 17,
+                          backgroundColor: AppColors.brandBlue,
+                          backgroundImage: avatar != null
+                              ? NetworkImage(avatar)
+                              : null,
+                          child: avatar == null
+                              ? Text(
+                                  initial,
+                                  style: const TextStyle(
+                                    color: Colors.white,
+                                    fontSize: 13,
+                                    fontWeight: FontWeight.w700,
+                                  ),
+                                )
+                              : null,
+                        ),
                       ),
                     );
                   },
                 ),
-                const SizedBox(width: 12),
+                const SizedBox(width: 10),
                 Expanded(
                   child: Container(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 12,
-                      vertical: 6,
-                    ),
+                    padding: const EdgeInsets.fromLTRB(12, 8, 8, 6),
                     decoration: BoxDecoration(
                       color: context.surfaceMid,
-                      borderRadius: BorderRadius.circular(24),
+                      borderRadius: BorderRadius.circular(AppRadius.md),
                       border: Border.all(
                         color: _replyingToCommentId != null
-                            ? AppColors.brandBlue.withValues(alpha: 0.5)
-                            : context.border,
+                            ? AppColors.brandBlue.withValues(alpha: 0.55)
+                            : (_focusNode.hasFocus
+                                ? AppColors.brandBlue.withValues(alpha: 0.65)
+                                : context.border),
+                        width: 1.0,
                       ),
                     ),
-                    child: Row(
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
                       children: [
-                        GestureDetector(
-                          onTap: () {
-                            setState(
-                              () => _showEmojiPicker = !_showEmojiPicker,
-                            );
-                            if (_showEmojiPicker) {
-                              _focusNode.unfocus();
-                            } else {
-                              _focusNode.requestFocus();
-                            }
-                          },
-                          child: Icon(
-                            _showEmojiPicker
-                                ? Icons.keyboard
-                                : Icons.emoji_emotions_outlined,
-                            color: context.textMuted,
-                            size: 22,
-                          ),
-                        ),
-                        const SizedBox(width: 8),
-                        Expanded(
-                          child: TextField(
-                            controller: _commentController,
-                            focusNode: _focusNode,
-                            onTap: () {
-                              if (_showEmojiPicker) {
-                                setState(() => _showEmojiPicker = false);
-                              }
-                            },
-                            style: GoogleFonts.inter(
-                              color: context.textPrimary,
-                              fontSize: 14,
-                            ),
-                            decoration: InputDecoration(
-                              hintText: 'Add a comment...',
-                              hintStyle: GoogleFonts.inter(
-                                color: context.textMuted,
-                                fontSize: 14,
-                              ),
-                              border: InputBorder.none,
-                              isDense: true,
-                              contentPadding: EdgeInsets.zero,
-                            ),
-                            onSubmitted: (_) => _postComment(),
-                          ),
-                        ),
-                        OneovaVoiceTypingButton(
+                        TextField(
                           controller: _commentController,
-                          onChanged: (_) => setState(() {}),
-                          iconSize: 20,
-                          padding: const EdgeInsets.symmetric(horizontal: 4),
-                          tooltip: 'Voice typing comment',
-                          showTranslateAction: true,
-                        ),
-                        // GIF Button
-                        IconButton(
-                          padding: EdgeInsets.zero,
-                          constraints: const BoxConstraints(),
-                          icon: Icon(
-                            Icons.gif_box_outlined,
-                            color: context.textSecondary,
-                            size: 24,
-                          ),
-                          onPressed: () async {
-                            final gif = await GifPickerSheet.show(context);
-                            if (gif != null) {
-                              _postGifComment(gif);
+                          focusNode: _focusNode,
+                          onTap: () {
+                            if (_showEmojiPicker) {
+                              setState(() => _showEmojiPicker = false);
                             }
                           },
-                        ),
-                        const SizedBox(width: 8),
-                        // Create GIF Button
-                        IconButton(
-                          padding: EdgeInsets.zero,
-                          constraints: const BoxConstraints(),
-                          icon: Icon(
-                            Icons.camera_alt_outlined,
-                            color: context.textSecondary,
-                            size: 22,
+                          style: GoogleFonts.inter(
+                            color: context.textPrimary,
+                            fontSize: 13.5,
+                            height: 1.38,
                           ),
-                          onPressed: () {
-                            context.push(
-                              '/create/gif',
-                              extra: {
-                                'onGifCreated': (String gifUrl) {
-                                  // We just create a manual GiphyGif-like object with the url or directly call a private post method
-                                  _postDirectGifComment(gifUrl);
-                                },
-                              },
-                            );
-                          },
-                        ),
-                        const SizedBox(width: 8),
-                        // Gift Button
-                        IconButton(
-                          padding: EdgeInsets.zero,
-                          constraints: const BoxConstraints(),
-                          icon: const Icon(
-                            Icons.card_giftcard,
-                            color: Colors.amber,
-                            size: 22,
+                          minLines: 1,
+                          maxLines: 5,
+                          decoration: InputDecoration(
+                            hintText: _replyingToUsername != null
+                                ? 'Reply to @$_replyingToUsername...'
+                                : 'Add a comment...',
+                            hintStyle: GoogleFonts.inter(
+                              color: context.textMuted,
+                              fontSize: 13,
+                            ),
+                            border: InputBorder.none,
+                            enabledBorder: InputBorder.none,
+                            focusedBorder: InputBorder.none,
+                            filled: false,
+                            isDense: true,
+                            contentPadding: const EdgeInsets.symmetric(
+                              vertical: 4,
+                            ),
                           ),
-                          onPressed: () {
-                            GiftPickerModal.show(
-                              context,
-                              targetUserId:
-                                  'creator123', // In a real app, pass the actual content creator ID
-                              onSendGift: (gift) {
-                                ScaffoldMessenger.of(context).showSnackBar(
-                                  SnackBar(
-                                    content: Text(
-                                      'Sent ${gift.name} ${gift.emoji} worth ${gift.coinCost} coins!',
-                                    ),
-                                  ),
+                          textInputAction: TextInputAction.send,
+                          onSubmitted: (_) => _postComment(),
+                        ),
+                        const SizedBox(height: 4),
+                        Row(
+                          children: [
+                            InkWell(
+                              borderRadius: BorderRadius.circular(AppRadius.sm),
+                              onTap: () {
+                                setState(
+                                  () => _showEmojiPicker = !_showEmojiPicker,
                                 );
-                                // TODO: Append gift as a comment or trigger backend gift API
+                                if (_showEmojiPicker) {
+                                  _focusNode.unfocus();
+                                } else {
+                                  _focusNode.requestFocus();
+                                }
                               },
-                            );
-                          },
-                        ),
-                        const SizedBox(width: 8),
-                        GestureDetector(
-                          onTap: _postComment,
-                          child: Container(
-                            padding: const EdgeInsets.all(6),
-                            decoration: const BoxDecoration(
-                              color: AppColors.brandBlue,
-                              shape: BoxShape.circle,
+                              child: Padding(
+                                padding: const EdgeInsets.all(4),
+                                child: Icon(
+                                  _showEmojiPicker
+                                      ? Icons.keyboard_rounded
+                                      : Icons.emoji_emotions_outlined,
+                                  color: _showEmojiPicker
+                                      ? AppColors.brandBlue
+                                      : context.textSecondary,
+                                  size: 19,
+                                ),
+                              ),
                             ),
-                            child: const Icon(
-                              Icons.arrow_upward,
-                              color: Colors.white,
-                              size: 16,
+                            const SizedBox(width: 2),
+                            OneovaVoiceTypingButton(
+                              controller: _commentController,
+                              focusNode: _focusNode,
+                              onChanged: (_) => setState(() {}),
+                              iconSize: 18,
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 4,
+                                vertical: 2,
+                              ),
+                              tooltip: 'Voice typing comment',
+                              showTranslateAction: true,
                             ),
-                          ),
+                            const SizedBox(width: 2),
+                            InkWell(
+                              borderRadius: BorderRadius.circular(AppRadius.sm),
+                              onTap: () async {
+                                final gif = await GifPickerSheet.show(context);
+                                if (gif != null) {
+                                  _postGifComment(gif);
+                                }
+                              },
+                              child: Padding(
+                                padding: const EdgeInsets.all(4),
+                                child: Icon(
+                                  Icons.gif_box_outlined,
+                                  color: context.textSecondary,
+                                  size: 20,
+                                ),
+                              ),
+                            ),
+                            const SizedBox(width: 2),
+                            InkWell(
+                              borderRadius: BorderRadius.circular(AppRadius.sm),
+                              onTap: () {
+                                context.push(
+                                  '/create/gif',
+                                  extra: {
+                                    'onGifCreated': (String gifUrl) {
+                                      _postDirectGifComment(gifUrl);
+                                    },
+                                  },
+                                );
+                              },
+                              child: Padding(
+                                padding: const EdgeInsets.all(4),
+                                child: Icon(
+                                  Icons.camera_alt_outlined,
+                                  color: context.textSecondary,
+                                  size: 19,
+                                ),
+                              ),
+                            ),
+                            if (_resolvedAuthorId != null &&
+                                _resolvedAuthorId!.isNotEmpty) ...[
+                              const SizedBox(width: 2),
+                              InkWell(
+                                borderRadius:
+                                    BorderRadius.circular(AppRadius.sm),
+                                onTap: () {
+                                  final targetId = _resolvedAuthorId!;
+                                  GiftPickerModal.show(
+                                    context,
+                                    targetUserId: targetId,
+                                    onSendGift: (gift) async {
+                                      final senderId =
+                                          FirebaseAuth
+                                              .instance
+                                              .currentUser
+                                              ?.uid ??
+                                          '';
+                                      if (senderId.isNotEmpty) {
+                                        final giftComment = model.Comment(
+                                          id: FirebaseFirestore.instance
+                                              .collection('posts')
+                                              .doc(widget.postId)
+                                              .collection('comments')
+                                              .doc()
+                                              .id,
+                                          postId: widget.postId,
+                                          authorId: senderId,
+                                          content:
+                                              '${gift.emoji} Sent ${gift.name} (${gift.coinCost} coins)',
+                                          createdAt: DateTime.now(),
+                                        );
+                                        await ref
+                                            .read(commentServiceProvider)
+                                            .addComment(giftComment);
+                                      }
+                                      if (!context.mounted) return;
+                                      OneovaSmartStatus.show(
+                                        context,
+                                        title:
+                                            'Sent ${gift.name} ${gift.emoji}',
+                                        subtitle:
+                                            '${gift.coinCost} coins delivered to creator',
+                                        source: 'Gifts',
+                                        kind: OneovaStatusKind.success,
+                                      );
+                                    },
+                                  );
+                                },
+                                child: const Padding(
+                                  padding: EdgeInsets.all(4),
+                                  child: Icon(
+                                    Icons.card_giftcard_rounded,
+                                    color: AppColors.brandPink,
+                                    size: 19,
+                                  ),
+                                ),
+                              ),
+                            ],
+                            const Spacer(),
+                            InkWell(
+                              borderRadius:
+                                  BorderRadius.circular(AppRadius.full),
+                              onTap: _commentController.text.trim().isNotEmpty
+                                  ? _postComment
+                                  : null,
+                              child: AnimatedContainer(
+                                duration: const Duration(milliseconds: 160),
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 11,
+                                  vertical: 6,
+                                ),
+                                decoration: BoxDecoration(
+                                  color:
+                                      _commentController.text.trim().isNotEmpty
+                                      ? AppColors.brandBlue
+                                      : context.border,
+                                  borderRadius:
+                                      BorderRadius.circular(AppRadius.full),
+                                ),
+                                child: Icon(
+                                  Icons.arrow_upward_rounded,
+                                  color:
+                                      _commentController.text.trim().isNotEmpty
+                                      ? Colors.white
+                                      : context.textMuted,
+                                  size: 15,
+                                ),
+                              ),
+                            ),
+                          ],
                         ),
                       ],
                     ),

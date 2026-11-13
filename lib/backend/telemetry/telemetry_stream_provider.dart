@@ -10,7 +10,7 @@ final telemetryStreamProvider = StreamProvider.autoDispose<TelemetryData?>((ref)
   final activeId = connectState.activeComputerId;
   final activeKey = activeId != null ? connectState.activeKeys[activeId] : null;
 
-  if (activeId == null || activeKey == null) {
+  if (activeId == null) {
     return Stream.value(null);
   }
 
@@ -26,11 +26,15 @@ final telemetryStreamProvider = StreamProvider.autoDispose<TelemetryData?>((ref)
     if (data == null) return null;
 
     final encrypted = data['payload_encrypted'] as String?;
-    if (encrypted != null) {
+    if (encrypted != null && encrypted.isNotEmpty && activeKey != null) {
       final decryptedJson = CryptoUtils.decryptPayload(encrypted, activeKey);
       if (decryptedJson != null) {
         return TelemetryData.fromJson(jsonDecode(decryptedJson));
       }
+    }
+    final rawPayload = data['payload'];
+    if (rawPayload is Map) {
+      return TelemetryData.fromJson(Map<String, dynamic>.from(rawPayload));
     }
     return null;
   });

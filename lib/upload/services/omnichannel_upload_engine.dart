@@ -6,6 +6,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:video_compress/video_compress.dart';
 import '../../backend/connections/linked_accounts.dart';
+import '../../backend/tiktok_api.dart';
 import '../../youtube_manager/services/youtube_account_store.dart';
 import '../../youtube_manager/services/youtube_upload_service.dart';
 import '../models/connected_destination.dart';
@@ -245,6 +246,15 @@ class OmnichannelUploadEngine extends Notifier<List<OmnichannelUploadTask>> {
         'youtubeWatchUrl': ?youtubeWatchUrl,
         'createdAt': FieldValue.serverTimestamp(),
       });
+
+      // TikTok: the server sends the stored video to the creator's TikTok
+      // drafts (video.upload); they finish and post it in TikTok. Its status
+      // lands on the post's `tiktok` field via the webhook.
+      if (isVideo && task.selectedDestinations.any((d) => d.platform == PlatformType.tiktok)) {
+        unawaited(ref.read(tiktokApiProvider).sendToDrafts(doc.id).then<void>((_) {}, onError: (Object e) {
+          debugPrint('[UploadEngine] TikTok draft failed: $e');
+        }));
+      }
 
       unawaited(FollowerAlertService().notifyFollowersNewPost(
         authorId: uid,

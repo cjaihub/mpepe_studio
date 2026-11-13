@@ -7,6 +7,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'telemetry_models.dart';
 import '../secure_pairing/secure_pairing_service.dart';
 import '../secure_pairing/crypto_utils.dart';
+import '../../desktop_agent/desktop_firebase_rest_client.dart';
 
 class DesktopTelemetryService {
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
@@ -65,19 +66,36 @@ class DesktopTelemetryService {
   }
 
   Future<void> _publishToCloud(TelemetryData data) async {
-    final activeKey = _ref.read(securePairingProvider).activeKey;
-    if (activeKey == null || _deviceId == null) return;
+    final deviceId = _deviceId;
+    if (deviceId == null) return;
 
-    final jsonString = jsonEncode(data.toJson());
-    final encrypted = CryptoUtils.encryptPayload(jsonString, activeKey);
+    final activeKey = _ref.read(securePairingProvider).activeKey;
+    final payloadMap = <String, dynamic>{
+      'timestamp': DateTime.now().toUtc(),
+    };
+    if (activeKey != null) {
+      final jsonString = jsonEncode(data.toJson());
+      payloadMap['payload_encrypted'] =
+          CryptoUtils.encryptPayload(jsonString, activeKey);
+    } else {
+      payloadMap['payload'] = data.toJson();
+    }
+
+    if (!kIsWeb && (Platform.isMacOS || Platform.isWindows || Platform.isLinux)) {
+      await DesktopFirebaseRestClient.instance.setDocument(
+        'registered_computers/$deviceId/telemetry/latest',
+        payloadMap,
+      );
+      return;
+    }
 
     await _firestore
         .collection('registered_computers')
-        .doc(_deviceId)
+        .doc(deviceId)
         .collection('telemetry')
         .doc('latest')
         .set({
-      'payload_encrypted': encrypted,
+      ...payloadMap,
       'timestamp': FieldValue.serverTimestamp(),
     });
   }

@@ -10,6 +10,8 @@ import 'package:go_router/go_router.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:url_launcher/url_launcher.dart';
 
+import '../agent_workspace/ova_agent_sync_controller.dart';
+import '../agent_workspace/widgets/ova_claude_agent_workspace.dart';
 import '../backend/agents/youtube_agent.dart';
 import '../backend/ai_brain_service.dart';
 import '../backend/remote_connect_service.dart';
@@ -57,6 +59,7 @@ class _HubAiScreenState extends ConsumerState<HubAiScreen> {
 
   OvaMainSection _activeSection = OvaMainSection.home;
   OvaWorkspaceId _activeWorkspace = OvaWorkspaceId.personal;
+  bool _useAgentWorkspace = true;
 
   /// Separate active workspace conversation state (independent from OvaOverlay).
   String? _activeThreadId;
@@ -91,6 +94,9 @@ class _HubAiScreenState extends ConsumerState<HubAiScreen> {
     if (_activeSection == OvaMainSection.liveVoice) {
       ref.read(oneovaFocusModeProvider.notifier).set(false);
     }
+    if (_useAgentWorkspace) {
+      ref.read(ovaAgentSyncProvider.notifier).startNewSession();
+    }
     setState(() {
       _activeSection = OvaMainSection.home;
       _activeThreadId = null;
@@ -104,7 +110,18 @@ class _HubAiScreenState extends ConsumerState<HubAiScreen> {
     if (_activeSection == OvaMainSection.liveVoice) {
       ref.read(oneovaFocusModeProvider.notifier).set(false);
     }
+    final agentState = ref.read(ovaAgentSyncProvider);
+    final isAgentSession = agentState.sessions.any((s) => s.id == thread.id);
+    if (isAgentSession) {
+      ref.read(ovaAgentSyncProvider.notifier).selectSession(thread.id);
+      setState(() {
+        _useAgentWorkspace = true;
+        _activeSection = OvaMainSection.home;
+      });
+      return;
+    }
     setState(() {
+      _useAgentWorkspace = false;
       _activeSection = OvaMainSection.home;
       _activeWorkspace = thread.workspace;
       _activeThreadId = thread.id;
@@ -553,15 +570,21 @@ class _HubAiScreenState extends ConsumerState<HubAiScreen> {
         ? profile!.profilePhotoUrl
         : authUser?.photoURL;
 
+    final remoteState = ref.watch(remoteConnectProvider);
+    final onlineComputers = remoteState.computers.where((c) => c.isOnline).toList();
+    final hasOnlineMac = onlineComputers.isNotEmpty;
+
     return SizedBox(
-      height: 48,
+      height: 50,
       child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 8),
+        padding: const EdgeInsets.symmetric(horizontal: 6),
         child: Row(
           children: [
             IconButton(
               tooltip: 'Back to Home',
               visualDensity: VisualDensity.compact,
+              constraints: const BoxConstraints(minWidth: 34, minHeight: 34),
+              padding: EdgeInsets.zero,
               onPressed: () {
                 HapticFeedback.lightImpact();
                 if (Navigator.of(context).canPop()) {
@@ -570,33 +593,149 @@ class _HubAiScreenState extends ConsumerState<HubAiScreen> {
                   context.go('/hub/home');
                 }
               },
-              icon: Icon(Icons.arrow_back_ios_new_rounded, size: 18, color: context.textPrimary),
+              icon: Icon(Icons.arrow_back_ios_new_rounded, size: 17, color: context.textPrimary),
             ),
             IconButton(
               tooltip: 'Open Ova menu',
               visualDensity: VisualDensity.compact,
+              constraints: const BoxConstraints(minWidth: 34, minHeight: 34),
+              padding: EdgeInsets.zero,
               onPressed: () {
                 HapticFeedback.lightImpact();
                 _scaffoldKey.currentState?.openDrawer();
               },
-              icon: Icon(Icons.notes_rounded, size: 21, color: context.textPrimary),
+              icon: Icon(Icons.notes_rounded, size: 20, color: context.textPrimary),
             ),
-            const OvaWordmark(fontSize: 16.5, showSubtag: false),
-            const SizedBox(width: 8),
-            Flexible(
-              child: _WorkspaceSelectorPill(
+            const SizedBox(width: 2),
+            const OvaWordmark(fontSize: 15.5, showSubtag: false),
+            const SizedBox(width: 6),
+            Container(
+              height: 26,
+              padding: const EdgeInsets.all(2),
+              decoration: BoxDecoration(
+                color: context.surfaceMid,
+                borderRadius: BorderRadius.circular(AppRadius.full),
+                border: Border.all(color: context.border, width: 1.0),
+              ),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  InkWell(
+                    borderRadius: BorderRadius.circular(AppRadius.full),
+                    onTap: () => setState(() {
+                      _useAgentWorkspace = true;
+                      _activeSection = OvaMainSection.home;
+                    }),
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
+                      decoration: BoxDecoration(
+                        color: _useAgentWorkspace
+                            ? AppColors.brandBlue
+                            : Colors.transparent,
+                        borderRadius: BorderRadius.circular(AppRadius.full),
+                      ),
+                      child: Text(
+                        'Agent',
+                        style: GoogleFonts.inter(
+                          fontSize: 10.2,
+                          fontWeight: FontWeight.w700,
+                          color: _useAgentWorkspace
+                              ? AppColors.brandWhite
+                              : context.textSecondary,
+                        ),
+                      ),
+                    ),
+                  ),
+                  InkWell(
+                    borderRadius: BorderRadius.circular(AppRadius.full),
+                    onTap: () => setState(() {
+                      _useAgentWorkspace = false;
+                      _activeSection = OvaMainSection.home;
+                    }),
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
+                      decoration: BoxDecoration(
+                        color: !_useAgentWorkspace
+                            ? AppColors.brandBlue
+                            : Colors.transparent,
+                        borderRadius: BorderRadius.circular(AppRadius.full),
+                      ),
+                      child: Text(
+                        'Studio',
+                        style: GoogleFonts.inter(
+                          fontSize: 10.2,
+                          fontWeight: FontWeight.w700,
+                          color: !_useAgentWorkspace
+                              ? AppColors.brandWhite
+                              : context.textSecondary,
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const Spacer(),
+            if (!_useAgentWorkspace) ...[
+              _WorkspaceSelectorPill(
                 activeWorkspace: _activeWorkspace,
                 onSelected: (ws) => setState(() => _activeWorkspace = ws),
               ),
+              const SizedBox(width: 4),
+            ],
+            Tooltip(
+              message: hasOnlineMac
+                  ? 'Open Online Device Control (${onlineComputers.first.computerName})'
+                  : 'Connect or manage computers',
+              child: InkWell(
+                borderRadius: BorderRadius.circular(AppRadius.full),
+                onTap: () {
+                  HapticFeedback.lightImpact();
+                  if (hasOnlineMac) {
+                    ref.read(remoteConnectProvider.notifier).setActiveComputer(onlineComputers.first.id);
+                    context.push('/remote_control');
+                  } else {
+                    context.push('/connect');
+                  }
+                },
+                child: Container(
+                  height: 28,
+                  padding: const EdgeInsets.symmetric(horizontal: 8),
+                  decoration: BoxDecoration(
+                    color: hasOnlineMac
+                        ? AppColors.brandBlue.withValues(alpha: context.isDark ? 0.18 : 0.10)
+                        : context.surfaceMid,
+                    borderRadius: BorderRadius.circular(AppRadius.full),
+                    border: Border.all(
+                      color: hasOnlineMac
+                          ? AppColors.brandBlue.withValues(alpha: 0.45)
+                          : context.border,
+                      width: 1.0,
+                    ),
+                  ),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Container(
+                        width: 6,
+                        height: 6,
+                        decoration: BoxDecoration(
+                          shape: BoxShape.circle,
+                          color: hasOnlineMac ? AppColors.brandBlue : context.textMuted,
+                        ),
+                      ),
+                      const SizedBox(width: 4),
+                      Icon(
+                        Icons.desktop_mac_rounded,
+                        size: 13,
+                        color: hasOnlineMac ? AppColors.brandBlue : context.textSecondary,
+                      ),
+                    ],
+                  ),
+                ),
+              ),
             ),
             const SizedBox(width: 4),
-            if (_activeSection == OvaMainSection.home && _messages.isNotEmpty)
-              IconButton(
-                tooltip: 'New chat',
-                visualDensity: VisualDensity.compact,
-                onPressed: _startNewChat,
-                icon: Icon(Icons.add_comment_outlined, size: 18, color: context.textSecondary),
-              ),
             // Compact Live Voice pill CTA
             InkWell(
               borderRadius: BorderRadius.circular(AppRadius.full),
@@ -606,7 +745,7 @@ class _HubAiScreenState extends ConsumerState<HubAiScreen> {
               },
               child: Container(
                 height: 28,
-                padding: const EdgeInsets.symmetric(horizontal: 9),
+                padding: const EdgeInsets.symmetric(horizontal: 8),
                 decoration: BoxDecoration(
                   color: AppColors.brandPink.withValues(alpha: context.isDark ? 0.16 : 0.10),
                   borderRadius: BorderRadius.circular(AppRadius.full),
@@ -619,11 +758,11 @@ class _HubAiScreenState extends ConsumerState<HubAiScreen> {
                   mainAxisSize: MainAxisSize.min,
                   children: [
                     const Icon(Icons.graphic_eq_rounded, size: 13, color: AppColors.brandPink),
-                    const SizedBox(width: 4),
+                    const SizedBox(width: 3),
                     Text(
                       'Voice',
                       style: GoogleFonts.inter(
-                        fontSize: 11,
+                        fontSize: 10.8,
                         fontWeight: FontWeight.w700,
                         color: AppColors.brandPink,
                       ),
@@ -632,7 +771,7 @@ class _HubAiScreenState extends ConsumerState<HubAiScreen> {
                 ),
               ),
             ),
-            const SizedBox(width: 8),
+            const SizedBox(width: 6),
             GestureDetector(
               onTap: () {
                 HapticFeedback.selectionClick();
@@ -655,7 +794,7 @@ class _HubAiScreenState extends ConsumerState<HubAiScreen> {
                     : null,
               ),
             ),
-            const SizedBox(width: 4),
+            const SizedBox(width: 2),
           ],
         ),
       ),
@@ -663,19 +802,42 @@ class _HubAiScreenState extends ConsumerState<HubAiScreen> {
   }
 
   Widget _buildActiveSectionBody(BuildContext context) {
+    final mq = MediaQuery.of(context);
+    final kbOpen = mq.viewInsets.bottom > 0;
+    final bottomNavClearance =
+        kbOpen ? 8.0 : (mq.padding.bottom > 0 ? mq.padding.bottom + 8.0 : 12.0);
+
     switch (_activeSection) {
       case OvaMainSection.home:
+        if (_useAgentWorkspace) {
+          return OvaAgentWorkspace(
+            bottomClearance: bottomNavClearance,
+            onOpenAuth: () => context.push('/profile/me'),
+          );
+        }
         return _buildHomeWorkspace(context);
       case OvaMainSection.agents:
         return OvaAgentsView(
           workspace: _activeWorkspace,
-          onRunPrompt: (prompt) => _sendMessage(prompt),
+          onRunPrompt: (prompt) {
+            if (_useAgentWorkspace) {
+              setState(() => _activeSection = OvaMainSection.home);
+              ref.read(ovaAgentSyncProvider.notifier).sendPrompt(prompt);
+            } else {
+              _sendMessage(prompt);
+            }
+          },
         );
       case OvaMainSection.explore:
         return OvaExploreView(
           onSelectPrompt: (prompt) {
             setState(() => _activeSection = OvaMainSection.home);
+            if (_useAgentWorkspace && !prompt.endsWith(' ')) {
+              ref.read(ovaAgentSyncProvider.notifier).sendPrompt(prompt);
+              return;
+            }
             if (prompt.endsWith(' ')) {
+              setState(() => _useAgentWorkspace = false);
               _chatController.text = prompt;
               _chatController.selection = TextSelection.collapsed(offset: prompt.length);
               _chatFocus.requestFocus();

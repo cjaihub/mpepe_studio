@@ -4,6 +4,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
+import '../../backend/connections/google_services.dart';
 import 'package:google_sign_in/google_sign_in.dart';
 import 'package:googleapis/youtube/v3.dart' as yt;
 import 'package:http/http.dart' as http;
@@ -193,11 +194,6 @@ class YtAccountsState {
 //  Scopes
 // ─────────────────────────────────────────────
 
-const _ytScopes = [
-  yt.YouTubeApi.youtubeReadonlyScope,
-  yt.YouTubeApi.youtubeUploadScope,
-  yt.YouTubeApi.youtubeForceSslScope,
-];
 
 // ─────────────────────────────────────────────
 //  Account Store Notifier
@@ -207,8 +203,6 @@ class YtAccountStore extends AsyncNotifier<YtAccountsState> {
   final _secureStorage = const FlutterSecureStorage();
   final _firestore = FirebaseFirestore.instance;
   final _firebaseAuth = FirebaseAuth.instance;
-
-  GoogleSignIn get _googleSignIn => GoogleSignIn.instance;
 
   String get _uid => _firebaseAuth.currentUser?.uid ?? '';
 
@@ -248,68 +242,15 @@ class YtAccountStore extends AsyncNotifier<YtAccountsState> {
         const YtAccountsState(isLoading: true));
 
     try {
-      // Google Sign-In — triggers the account picker
-      final googleAccount = await _googleSignIn.authenticate(
-        scopeHint: _ytScopes,
-      );
-
-      final googleId = googleAccount.id;
-
-      // Check if already added
-      final currentAccounts = state.value?.accounts ?? [];
-      if (currentAccounts.any((a) => a.googleId == googleId)) {
-        state = AsyncData(state.requireValue.copyWith(
-          isLoading: false,
-          error: '${googleAccount.email} is already connected.',
-        ));
+      // Google services (functions/src/googleLink.ts): Google's account
+      // picker, then consent for YouTube's scopes only. The server keeps the
+      // refresh token and writes youtube_accounts/{googleId} with the channels.
+      final email = await GoogleServices.link(GoogleService.youtube);
+      if (email == null) {
+        state = AsyncData(state.value?.copyWith(isLoading: false) ?? const YtAccountsState());
         return;
       }
-
-      state = AsyncData(state.requireValue.copyWith(
-        statusMessage: 'Fetching your channels…',
-      ));
-
-      // Get auth client and fetch channels
-      final authClient = await _getAuthClient(googleAccount);
-      if (authClient == null) {
-        state = AsyncData(state.requireValue.copyWith(
-          isLoading: false,
-          error: 'Failed to authenticate with YouTube.',
-        ));
-        return;
-      }
-
-      final channels = await _fetchChannels(authClient, googleId);
-
-      // Build the account object
-      final newAccount = YtLinkedAccount(
-        googleId: googleId,
-        accountName: googleAccount.displayName ?? 'Unknown',
-        email: googleAccount.email,
-        profilePictureUrl: googleAccount.photoUrl ?? '',
-        channels: channels.asMap().entries.map((e) {
-          // Mark first channel as active only if no other channels are active
-          final isFirst = e.key == 0 && currentAccounts.isEmpty;
-          return e.value.copyWith(isActive: isFirst);
-        }).toList(),
-        connectedAt: DateTime.now(),
-        lastRefreshed: DateTime.now(),
-      );
-
-      // Persist to Firestore
-      await _accountsCollection.doc(googleId).set(newAccount.toMap());
-
-      // Store access token in secure storage (keyed by googleId)
-      final authorization =
-          await googleAccount.authorizationClient.authorizeScopes(_ytScopes).timeout(const Duration(seconds: 15));
-      await _secureStorage.write(
-        key: 'yt_token_$googleId',
-        value: authorization.accessToken,
-      );
-
-      // Update in-memory state
-      final updatedAccounts = [...currentAccounts, newAccount];
-      state = AsyncData(YtAccountsState(accounts: updatedAccounts));
+      state = AsyncData(await _loadFromFirestore());
     } on GoogleSignInException catch (e) {
       if (e.code == GoogleSignInExceptionCode.canceled) {
         state = AsyncData(
@@ -326,7 +267,7 @@ class YtAccountStore extends AsyncNotifier<YtAccountsState> {
       debugPrint('YtAccountStore.addAccount error: $e');
       state = AsyncData(state.value?.copyWith(
             isLoading: false,
-            error: 'Failed to add account: ${e.toString()}',
+            error: e is GoogleServicesException ? e.message : 'Failed to add account: ${e.toString()}',
           ) ??
           const YtAccountsState());
     }
@@ -338,6 +279,10 @@ class YtAccountStore extends AsyncNotifier<YtAccountsState> {
     try {
       await _accountsCollection.doc(googleId).delete();
       await _secureStorage.delete(key: 'yt_token_$googleId');
+      // Server-held link (Google services): stop using YouTube there too.
+      await GoogleServices.unlink(googleId, GoogleService.youtube).catchError((Object e) {
+        debugPrint('YtAccountStore.removeAccount unlink: $e');
+      });
 
       final currentAccounts = state.value?.accounts ?? [];
       final updated = currentAccounts.where((a) => a.googleId != googleId).toList();
@@ -392,14 +337,7 @@ class YtAccountStore extends AsyncNotifier<YtAccountsState> {
 
   Future<void> refreshAccount(String googleId) async {
     try {
-      // Re-authenticate silently
-      final attempt = _googleSignIn.attemptLightweightAuthentication();
-      if (attempt == null) return;
-
-      final googleAccount = await attempt;
-      if (googleAccount == null || googleAccount.id != googleId) return;
-
-      final authClient = await _getAuthClient(googleAccount);
+      final authClient = await getAuthClientForAccount(googleId);
       if (authClient == null) return;
 
       final channels = await _fetchChannels(authClient, googleId);
@@ -438,7 +376,10 @@ class YtAccountStore extends AsyncNotifier<YtAccountsState> {
 
   Future<http.Client?> getAuthClientForAccount(String googleId) async {
     try {
-      // Try to get from secure storage first
+      // Server-held token (Google services) first: always fresh.
+      final server = await GoogleServices.clientFor(GoogleService.youtube, sub: googleId);
+      if (server != null) return server;
+      // Older on-phone link: the token saved when it was added.
       final token = await _secureStorage.read(key: 'yt_token_$googleId');
       if (token != null) {
         return _BearerAuthClient({'Authorization': 'Bearer $token'});
@@ -457,19 +398,6 @@ class YtAccountStore extends AsyncNotifier<YtAccountsState> {
   }
 
   // ── Private helpers ────────────────────────────────────────────────────
-
-  Future<http.Client?> _getAuthClient(
-      GoogleSignInAccount googleAccount) async {
-    try {
-      final authorization =
-          await googleAccount.authorizationClient.authorizeScopes(_ytScopes).timeout(const Duration(seconds: 15));
-      return _BearerAuthClient(
-          {'Authorization': 'Bearer ${authorization.accessToken}'});
-    } catch (e) {
-      debugPrint('YtAccountStore._getAuthClient error: $e');
-      return null;
-    }
-  }
 
   Future<List<YtConnectedChannel>> _fetchChannels(
       http.Client client, String googleId) async {

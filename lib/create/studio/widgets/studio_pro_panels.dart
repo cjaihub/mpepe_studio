@@ -3,6 +3,9 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 
+import '../../../looks/filters/filter_browser.dart';
+import '../../../looks/filters/oneova_presets.dart';
+import '../../../looks/filters/preset_strip.dart';
 import '../../../shared/theme/app_theme.dart';
 import '../models/studio_project.dart';
 import '../services/studio_captions.dart';
@@ -36,111 +39,101 @@ class StudioLooksPanel extends StatefulWidget {
 }
 
 class _StudioLooksPanelState extends State<StudioLooksPanel> {
-  late String _group = widget.clip.lookId == 'none' ? StudioLooks.groups.first : StudioLooks.byId(widget.clip.lookId).group;
+  /// The clip as it was before a filter was held for preview.
+  StudioClip? _beforeHold;
+  bool _presets = false;
+  String? _presetId;
+
+  static final _studioGroup = FilterGroup('Studio', [
+    for (final l in StudioLooks.presets)
+      if (l.id != 'none') FilterItem(l.id, l.name, l.look),
+  ]);
 
   @override
   Widget build(BuildContext context) {
     final clip = widget.clip;
-    final items = StudioLooks.presets.where((l) => l.group == _group || l.id == 'none').toList();
+    Widget tab(String label, bool on) => GestureDetector(
+          onTap: () => setState(() => _presets = label == 'Presets'),
+          child: Container(
+            margin: const EdgeInsets.only(right: 6),
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 5),
+            decoration: BoxDecoration(
+              color: on ? AppColors.brandBlue : context.surfaceMid,
+              borderRadius: BorderRadius.circular(AppRadius.full),
+            ),
+            child: Text(label,
+                style: GoogleFonts.inter(color: on ? AppColors.brandWhite : context.textSecondary, fontSize: 12, fontWeight: FontWeight.w700)),
+          ),
+        );
     return StudioPanel(
-      title: 'Looks',
+      title: 'Filters',
       onDone: widget.onDone,
       action: StudioTextAction(icon: Icons.layers_outlined, label: 'Apply to all', onTap: widget.onApplyAll),
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          _GroupTabs(groups: StudioLooks.groups, selected: _group, onPick: (g) => setState(() => _group = g)),
-          SizedBox(
-            height: 96,
-            child: FutureBuilder<List<String>>(
-              future: StudioMedia.thumbnails(clip),
-              builder: (context, snap) {
-                final thumbs = snap.data ?? const <String>[];
-                final thumb = thumbs.isEmpty ? null : thumbs[thumbs.length ~/ 2];
-                return ListView(
-                  scrollDirection: Axis.horizontal,
-                  padding: const EdgeInsets.symmetric(horizontal: 12),
-                  children: [
-                    for (final l in items)
-                      _LookTile(
-                        look: l,
-                        thumb: thumb,
-                        selected: clip.lookId == l.id,
-                        onTap: () {
-                          widget.onLive(clip.copyWith(lookId: l.id, lookIntensity: 1));
-                          widget.onCommit();
-                        },
-                      ),
-                  ],
-                );
-              },
-            ),
-          ),
-          if (clip.lookId != 'none')
+      child: FutureBuilder<List<String>>(
+        future: StudioMedia.thumbnails(clip),
+        builder: (context, snap) {
+          final thumbs = snap.data ?? const <String>[];
+          final thumb = thumbs.isEmpty ? null : thumbs[thumbs.length ~/ 2];
+          final image = thumb == null ? null : ResizeImage(FileImage(File(thumb)), height: 160);
+          return Column(mainAxisSize: MainAxisSize.min, children: [
             Padding(
-              padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
-              child: StudioSliderRow(
-                label: 'Intensity',
-                value: clip.lookIntensity * 100,
-                min: 0,
-                max: 100,
-                format: (v) => '${v.round()}',
-                onChanged: (v) => widget.onLive(clip.copyWith(lookIntensity: v / 100)),
-                onChangeEnd: (_) => widget.onCommit(),
-              ),
-            )
-          else
-            const SizedBox(height: 12),
-        ],
-      ),
-    );
-  }
-}
-
-class _LookTile extends StatelessWidget {
-  final StudioLookDef look;
-  final String? thumb;
-  final bool selected;
-  final VoidCallback onTap;
-  const _LookTile({required this.look, required this.thumb, required this.selected, required this.onTap});
-
-  @override
-  Widget build(BuildContext context) {
-    Widget img = thumb == null
-        ? ColoredBox(color: context.surfaceMid)
-        : Image.file(File(thumb!), fit: BoxFit.cover, cacheHeight: 160, gaplessPlayback: true);
-    if (look.id != 'none') img = StudioLookFilter(look: look.look, child: img);
-    return GestureDetector(
-      onTap: onTap,
-      child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 4),
-        child: Column(
-          children: [
-            Container(
-              width: 62,
-              height: 62,
-              decoration: BoxDecoration(
-                borderRadius: BorderRadius.circular(AppRadius.sm),
-                border: Border.all(color: selected ? AppColors.brandBlue : context.border, width: selected ? 2 : 1),
-              ),
-              clipBehavior: Clip.antiAlias,
-              child: look.id == 'none'
-                  ? Stack(fit: StackFit.expand, children: [
-                      img,
-                      ColoredBox(color: AppColors.brandBlack.withValues(alpha: 0.45)),
-                      const Icon(Icons.block_rounded, color: AppColors.brandWhite, size: 22),
-                    ])
-                  : img,
+              padding: const EdgeInsets.fromLTRB(16, 2, 16, 4),
+              child: Row(children: [tab('Filters', !_presets), tab('Presets', _presets)]),
             ),
-            const SizedBox(height: 4),
-            Text(look.name,
-                style: GoogleFonts.inter(
-                  color: selected ? AppColors.brandBlue : context.textSecondary,
-                  fontSize: 10.5,
-                  fontWeight: FontWeight.w600,
-                )),
-          ],
-        ),
+            if (_presets)
+              OneovaPresetStrip(
+                selectedId: _presetId,
+                thumbnail: image,
+                onApply: (p) {
+                  _beforeHold = null;
+                  setState(() => _presetId = p.id);
+                  widget.onLive(p.applyToClip(clip));
+                  widget.onCommit();
+                },
+                onPreview: (p) {
+                  if (p != null) {
+                    _beforeHold ??= clip;
+                    widget.onLive(p.applyToClip(_beforeHold!));
+                  } else if (_beforeHold != null) {
+                    final back = _beforeHold!;
+                    _beforeHold = null;
+                    widget.onLive(back);
+                  }
+                },
+                onSaveCurrent: (name) => OneovaPresets.instance.save(
+                  name: name,
+                  filterId: clip.lookId,
+                  intensity: clip.lookIntensity,
+                  adjust: clip.adjust,
+                  beauty: clip.retouch.smooth,
+                ),
+              )
+            else
+            OneovaFilterBrowser(
+            selectedId: _beforeHold?.lookId ?? clip.lookId,
+            intensity: clip.lookIntensity,
+            thumbnail: image,
+            leadingGroups: [_studioGroup],
+            onPick: (id) {
+              _beforeHold = null;
+              widget.onLive(clip.copyWith(lookId: id, lookIntensity: id == clip.lookId ? clip.lookIntensity : 1));
+              widget.onCommit();
+            },
+            onPreview: (id) {
+              if (id != null) {
+                _beforeHold ??= clip;
+                widget.onLive(_beforeHold!.copyWith(lookId: id, lookIntensity: 1));
+              } else if (_beforeHold != null) {
+                final back = _beforeHold!;
+                _beforeHold = null;
+                widget.onLive(back);
+              }
+            },
+            onIntensity: (v) => widget.onLive(clip.copyWith(lookIntensity: v)),
+            onIntensityEnd: (_) => widget.onCommit(),
+          ),
+          ]);
+        },
       ),
     );
   }

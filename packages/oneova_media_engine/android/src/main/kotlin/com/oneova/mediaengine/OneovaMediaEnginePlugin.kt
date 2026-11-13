@@ -130,6 +130,14 @@ class OneovaMediaEnginePlugin : FlutterPlugin, MethodChannel.MethodCallHandler {
                     maxSide = call.argument<Int>("maxSide") ?: 4096,
                 )
             }
+            "cutout" -> background(result) {
+                SubjectCutout.cutout(
+                    context = context,
+                    path = call.argument<String>("path")!!,
+                    out = call.argument<String>("out")!!,
+                    maxSide = call.argument<Int>("maxSide") ?: 2048,
+                )
+            }
             "export" -> startExport(call, result)
             "cancel" -> {
                 exporter?.cancel()

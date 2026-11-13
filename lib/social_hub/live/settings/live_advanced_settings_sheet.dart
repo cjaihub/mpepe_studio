@@ -8,6 +8,7 @@ import 'package:google_fonts/google_fonts.dart';
 import '../../../looks/device/advisor/device_advisor.dart';
 import '../../../looks/device/models/thermal_state.dart';
 import '../../../looks/device/providers/device_providers.dart';
+import '../../../looks/live/live_look_presets.dart';
 import '../../../looks/live/live_looks_controller.dart';
 import '../../../looks/live/models/live_profile.dart';
 import '../../../looks/models/oneova_look.dart';
@@ -58,13 +59,8 @@ class _LiveAdvancedSettingsSheetState
   bool _echoCancellation = true;
   bool _voiceEnhance = true;
 
-  // Active simulated AI Live Director alert
-  LiveDirectorAlert? _currentAlert = const LiveDirectorAlert(
-    id: 'backlit_01',
-    title: 'Backlit Lighting Detected',
-    explanation: 'Your background is brighter than your face. Tap Fix to lift shadows and balance exposure.',
-    isFixable: true,
-  );
+  // Set only when the live director actually reports an issue.
+  LiveDirectorAlert? _currentAlert;
 
   @override
   void initState() {
@@ -434,33 +430,7 @@ class _LiveAdvancedSettingsSheetState
   }
 
   Widget _buildLooksList(BuildContext context, LiveLooksState liveState) {
-    final sampleLooks = [
-      const OneovaLook(id: 'neutral', name: 'Neutral'),
-      const OneovaLook(
-        id: 'cinematic',
-        name: 'Cinematic',
-        primary: LookPrimary(contrast: 1.15, highlights: -0.1, shadows: 0.05),
-        color: LookColor(vibrance: 0.2),
-      ),
-      const OneovaLook(
-        id: 'golden_hour',
-        name: 'Golden Hour',
-        color: LookColor(temperature: 15.0, tint: 2.0, vibrance: 0.25),
-        primary: LookPrimary(exposure: 0.1),
-      ),
-      const OneovaLook(
-        id: 'portrait_glow',
-        name: 'Portrait Glow',
-        primary: LookPrimary(contrast: 1.05, highlights: 0.1),
-        color: LookColor(temperature: 5.0, saturation: 1.1),
-      ),
-      const OneovaLook(
-        id: 'moody_film',
-        name: 'Moody Film',
-        primary: LookPrimary(contrast: 1.25, shadows: -0.15, blacks: 0.05),
-        film: LookFilm(grain: 0.15),
-      ),
-    ];
+    const sampleLooks = liveLookPresets;
 
     return SizedBox(
       height: 78,

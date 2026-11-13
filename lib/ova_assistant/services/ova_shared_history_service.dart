@@ -251,10 +251,12 @@ final ovaSharedHistoryProvider =
 class OvaSharedHistoryNotifier extends Notifier<OvaSharedHistoryState> {
   StreamSubscription<User?>? _authSub;
   StreamSubscription<QuerySnapshot<Map<String, dynamic>>>? _turnsSub;
+  StreamSubscription<QuerySnapshot<Map<String, dynamic>>>? _agentSessionsSub;
   StreamSubscription<QuerySnapshot<Map<String, dynamic>>>? _librarySub;
 
   final List<OvaSharedTurn> _localTurns = [];
   List<OvaSharedTurn> _remoteTurns = [];
+  List<OvaSharedTurn> _agentSessionTurns = [];
   final List<OvaLibraryEntry> _localLibrary = [];
   List<OvaLibraryEntry> _remoteLibrary = [];
   final Set<String> _deletedIds = {};
@@ -274,6 +276,7 @@ class OvaSharedHistoryNotifier extends Notifier<OvaSharedHistoryState> {
     ref.onDispose(() {
       _authSub?.cancel();
       _turnsSub?.cancel();
+      _agentSessionsSub?.cancel();
       _librarySub?.cancel();
     });
     return const OvaSharedHistoryState();
@@ -281,9 +284,11 @@ class OvaSharedHistoryNotifier extends Notifier<OvaSharedHistoryState> {
 
   void _bindUserStreams(User? user) {
     _turnsSub?.cancel();
+    _agentSessionsSub?.cancel();
     _librarySub?.cancel();
     if (!_firebaseReady || user == null || user.isAnonymous) {
       _remoteTurns = [];
+      _agentSessionTurns = [];
       _remoteLibrary = [];
       _rebuildState();
       return;
@@ -304,6 +309,41 @@ class OvaSharedHistoryNotifier extends Notifier<OvaSharedHistoryState> {
         _rebuildState();
       },
       onError: (Object e) => debugPrint('[OvaSharedHistory] turns stream error: $e'),
+    );
+
+    _agentSessionsSub = userDoc
+        .collection('agent_sessions')
+        .orderBy('updatedAtMs', descending: true)
+        .limit(40)
+        .snapshots()
+        .listen(
+      (snap) {
+        _agentSessionTurns = snap.docs
+            .where((doc) => !_deletedIds.contains(doc.id))
+            .map((doc) {
+              final d = doc.data();
+              final title = (d['title'] ?? 'Agent Session').toString().trim();
+              final preview = (d['lastPreview'] ?? '').toString().trim();
+              final updMs = d['updatedAtMs'] is num
+                  ? (d['updatedAtMs'] as num).toInt()
+                  : DateTime.now().millisecondsSinceEpoch;
+              return OvaSharedTurn(
+                id: 'agent_${doc.id}',
+                threadId: doc.id,
+                threadTitle: title,
+                query: title,
+                response: preview,
+                source: OvaOriginSource.main,
+                workspace: OvaWorkspaceId.personal,
+                timestamp: DateTime.fromMillisecondsSinceEpoch(updMs),
+                status: (d['status'] ?? 'completed').toString(),
+              );
+            })
+            .where((t) => t.query.isNotEmpty || t.response.isNotEmpty)
+            .toList();
+        _rebuildState();
+      },
+      onError: (Object e) => debugPrint('[OvaSharedHistory] agent_sessions stream error: $e'),
     );
 
     _librarySub = userDoc
@@ -328,9 +368,11 @@ class OvaSharedHistoryNotifier extends Notifier<OvaSharedHistoryState> {
     final mergedTurns = <OvaSharedTurn>[];
     final seenSignatures = <String>{};
 
-    for (final t in [..._remoteTurns, ..._localTurns]) {
+    for (final t in [..._remoteTurns, ..._localTurns, ..._agentSessionTurns]) {
       if (_deletedIds.contains(t.id) || _deletedIds.contains(t.threadId)) continue;
-      final sig = '${t.threadId}|${t.query.trim()}|${t.source.name}';
+      final sig = t.id.startsWith('agent_')
+          ? 'session|${t.threadId}'
+          : '${t.threadId}|${t.query.trim()}|${t.source.name}';
       if (seenSignatures.add(sig)) {
         mergedTurns.add(t);
       }
@@ -399,11 +441,8 @@ class OvaSharedHistoryNotifier extends Notifier<OvaSharedHistoryState> {
       try {
         final user = FirebaseAuth.instance.currentUser;
         if (user != null && !user.isAnonymous) {
-          await FirebaseFirestore.instance
-              .collection('users')
-              .doc(user.uid)
-              .collection('ai_interactions')
-              .add({
+          final userDoc = FirebaseFirestore.instance.collection('users').doc(user.uid);
+          await userDoc.collection('ai_interactions').add({
             'threadId': effectiveThreadId,
             'threadTitle': ?threadTitle,
             'query': q,
@@ -413,6 +452,65 @@ class OvaSharedHistoryNotifier extends Notifier<OvaSharedHistoryState> {
             'workspace': workspace.name,
             'timestamp': FieldValue.serverTimestamp(),
           });
+
+          // Mirror into unified `agent_sessions` so Mobile Agent Workspace &
+          // Desktop Workstation Agent display Voice, Quick Overlay, and Studio
+          // conversations seamlessly under the user's account.
+          final nowUtc = DateTime.now().toUtc();
+          final nowMs = nowUtc.millisecondsSinceEpoch;
+          final sessionRef = userDoc.collection('agent_sessions').doc(effectiveThreadId);
+          final computedTitle = (threadTitle != null && threadTitle.trim().isNotEmpty)
+              ? threadTitle.trim()
+              : (q.length > 52 ? '${q.substring(0, 52)}…' : (q.isNotEmpty ? q : 'Ova ${source.badgeLabel}'));
+          await sessionRef.set({
+            'title': computedTitle,
+            'agentMode': 'orchestrator',
+            'effort': 'balanced',
+            'fullComputerAccess': true,
+            'status': 'idle',
+            'lastPreview': r.length > 140 ? '${r.substring(0, 140)}…' : r,
+            'originDevice': source == OvaOriginSource.voice ? 'mobile_voice' : 'mobile',
+            'updatedAtMs': nowMs,
+            'updatedAt': nowUtc,
+          }, SetOptions(merge: true));
+
+          final turnsCol = sessionRef.collection('turns');
+          if (q.isNotEmpty) {
+            await turnsCol.add({
+              'createdAtMs': nowMs - 1,
+              'role': 'user',
+              'originDevice': source == OvaOriginSource.voice ? 'mobile_voice' : 'mobile',
+              'authorLabel': 'You (${source.badgeLabel})',
+              'text': q,
+              'status': 'completed',
+              'thinkingSteps': const <String>[],
+              'thinkingDurationMs': 0,
+              'toolCalls': const <Map<String, dynamic>>[],
+              'artifacts': const <Map<String, dynamic>>[],
+              'followUps': const <String>[],
+              'contextChips': <String>[source.badgeLabel, workspace.shortLabel],
+              'createdAt': nowUtc,
+              'updatedAt': nowUtc,
+            });
+          }
+          if (r.isNotEmpty) {
+            await turnsCol.add({
+              'createdAtMs': nowMs,
+              'role': 'assistant',
+              'originDevice': 'cloud',
+              'authorLabel': 'Ova',
+              'text': r,
+              'status': 'completed',
+              'thinkingSteps': const <String>[],
+              'thinkingDurationMs': 0,
+              'toolCalls': const <Map<String, dynamic>>[],
+              'artifacts': const <Map<String, dynamic>>[],
+              'followUps': const <String>[],
+              'contextChips': <String>[source.badgeLabel],
+              'createdAt': nowUtc,
+              'updatedAt': nowUtc,
+            });
+          }
         }
       } catch (e) {
         debugPrint('[OvaSharedHistory] Firestore write failed: $e');

@@ -151,7 +151,7 @@ class Withdrawal {
 }
 
 class KycState {
-  final String status; // none | requires_input | processing | verified | canceled
+  final String status; // none | collecting | review | verified | rejected
   final String? verifiedName;
   final String? country;
   final String? lastError;
@@ -161,7 +161,7 @@ class KycState {
         status: (m?['status'] as String?) ?? 'none',
         verifiedName: m?['verifiedName'] as String?,
         country: m?['country'] as String?,
-        lastError: m?['lastError'] as String?,
+        lastError: (m?['rejectReason'] ?? m?['lastError']) as String?,
       );
 
   bool get verified => status == 'verified';
@@ -224,8 +224,6 @@ class PayoutOptions {
   final double maxUsd;
   final Map<String, String> fees;
   final String kycStatus;
-  final bool stripeConnected;
-  final bool stripePayoutsEnabled;
 
   const PayoutOptions({
     required this.country,
@@ -239,12 +237,9 @@ class PayoutOptions {
     required this.maxUsd,
     required this.fees,
     required this.kycStatus,
-    required this.stripeConnected,
-    required this.stripePayoutsEnabled,
   });
 
   factory PayoutOptions.fromMap(Map<String, dynamic> m) {
-    final stripe = (m['stripe'] as Map?) ?? const {};
     return PayoutOptions(
       country: '${m['country']}',
       countryName: m['countryName'] as String?,
@@ -265,8 +260,6 @@ class PayoutOptions {
       maxUsd: _d(m['maxUsd']),
       fees: {for (final e in ((m['fees'] as Map?) ?? const {}).entries) '${e.key}': '${e.value}'},
       kycStatus: (m['kycStatus'] as String?) ?? 'none',
-      stripeConnected: stripe['connected'] == true,
-      stripePayoutsEnabled: stripe['payoutsEnabled'] == true,
     );
   }
 

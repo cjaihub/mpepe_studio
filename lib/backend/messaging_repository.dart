@@ -162,11 +162,40 @@ class MessagingRepository {
       final List<ChatModel> resolvedList = [];
       for (final doc in snapshot.docs) {
         final chat = ChatModel.fromFirestore(doc);
+        if (!await _hasRealCounterpart(chat, userId)) continue;
         final resolved = await _resolveChatWithRealProfile(chat, userId);
         resolvedList.add(resolved);
       }
       return resolvedList;
     });
+  }
+
+  /// Account existence cache so the inbox stream does not re-read `users`
+  /// on every snapshot.
+  final Map<String, bool> _accountExists = {};
+
+  Future<bool> _accountIsReal(String uid) async {
+    final cached = _accountExists[uid];
+    if (cached != null) return cached;
+    try {
+      final doc = await _firestore.collection('users').doc(uid).get();
+      return _accountExists[uid] = doc.exists;
+    } catch (_) {
+      // Network/permission hiccup: don't hide a chat we couldn't verify.
+      return true;
+    }
+  }
+
+  /// A thread is shown only when at least one other participant is a real
+  /// account. Old placeholder threads point at ids with no `users` doc, so
+  /// they drop out of Chats and Requests.
+  Future<bool> _hasRealCounterpart(ChatModel chat, String userId) async {
+    final others = chat.participants.where((p) => p.isNotEmpty && p != userId).toList();
+    if (others.isEmpty) return false;
+    for (final uid in others) {
+      if (await _accountIsReal(uid)) return true;
+    }
+    return false;
   }
 
   Stream<List<ChatModel>> getUserChats(String userId) {

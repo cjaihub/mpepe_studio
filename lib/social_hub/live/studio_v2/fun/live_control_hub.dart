@@ -24,6 +24,9 @@ import '../../../../backend/live_studio/session/studio_session_controller.dart';
 import 'gifts_ui.dart';
 import '../shell/shell_widgets.dart';
 import '../theme/live_studio_tokens.dart';
+import '../../setup/live_setup_config.dart' show LiveBeauty;
+import '../../../../looks/live/live_look_presets.dart';
+import '../../../../looks/live/live_looks_controller.dart';
 
 Future<void> showLiveControlHub(
   BuildContext context, {
@@ -697,119 +700,85 @@ class _VoiceTabState extends State<_VoiceTab> {
   }
 }
 
-class _FaceAndLooksTab extends StatefulWidget {
+/// Looks and beauty on the host's live camera (the GPU track processor).
+class _FaceAndLooksTab extends ConsumerWidget {
   const _FaceAndLooksTab({required this.streamId});
   final String streamId;
 
-  @override
-  State<_FaceAndLooksTab> createState() => _FaceAndLooksTabState();
-}
-
-class _FaceAndLooksTabState extends State<_FaceAndLooksTab> {
-  String _selectedLook = 'Clean Pro';
-  String _selectedCategory = 'Glasses';
-  String? _selectedEffect = 'Neon Cat-Eye';
-
-  static const List<Map<String, dynamic>> _looks = [
-    {'name': 'Clean Pro', 'color': Color(0xFF0C4FA8), 'desc': 'Studio Balanced'},
-    {'name': 'Teal & Warm', 'color': Color(0xFF009688), 'desc': 'Cinematic Duo'},
-    {'name': 'Golden Hour', 'color': Color(0xFFFFA000), 'desc': 'Sunset Glow'},
-    {'name': 'Moody Noir', 'color': Color(0xFF424242), 'desc': 'High Contrast Film'},
-    {'name': 'Velvet Pop', 'color': Color(0xFFFF2D87), 'desc': 'Vibrant Accent'},
+  static const _beautySliders = <(String, double Function(LiveBeauty), LiveBeauty Function(LiveBeauty, double))>[
+    ('Smooth', _smooth, _setSmooth),
+    ('Even tone', _tone, _setTone),
+    ('Glow', _glow, _setGlow),
+    ('Slim face', _slim, _setSlim),
+    ('Bigger eyes', _eyes, _setEyes),
+    ('Bright eyes', _eyeLight, _setEyeLight),
   ];
-
-  static const Map<String, List<Map<String, dynamic>>> _effects = {
-    'Glasses': [
-      {'name': 'Neon Cat-Eye', 'icon': Icons.visibility_rounded, 'desc': 'Glow Edge'},
-      {'name': 'Aviator Gold', 'icon': Icons.face_retouching_natural_rounded, 'desc': 'Classic Metal'},
-      {'name': 'Cyber Shades', 'icon': Icons.lens_blur_rounded, 'desc': 'Hologram Visor'},
-      {'name': 'Retro Specs', 'icon': Icons.center_focus_strong_rounded, 'desc': 'Tortoise Shell'},
-    ],
-    'Caps & Hats': [
-      {'name': 'Snapback Cap', 'icon': Icons.sports_baseball_rounded, 'desc': 'Street Style'},
-      {'name': 'Golden Halo', 'icon': Icons.wb_sunny_rounded, 'desc': 'Radiant Ring'},
-      {'name': 'Studio Beanie', 'icon': Icons.person_rounded, 'desc': 'Cozy Knit'},
-      {'name': 'Party Crown', 'icon': Icons.military_tech_rounded, 'desc': 'Royal Sparkle'},
-    ],
-    'Wigs & Hair': [
-      {'name': 'Cyber Violet', 'icon': Icons.auto_awesome_rounded, 'desc': 'Neon Wave'},
-      {'name': 'Platinum Bob', 'icon': Icons.face_rounded, 'desc': 'Sleek Cut'},
-      {'name': 'Neon Afro', 'icon': Icons.flare_rounded, 'desc': 'Pulse Volume'},
-      {'name': 'Crimson Fade', 'icon': Icons.brush_rounded, 'desc': 'Sunset Ombré'},
-    ],
-    'Masks & FX': [
-      {'name': 'Glitter Dust', 'icon': Icons.star_rounded, 'desc': 'Face Shimmer'},
-      {'name': 'Studio Glow', 'icon': Icons.light_mode_rounded, 'desc': 'Soft Key Light'},
-      {'name': 'Anime Sparkle', 'icon': Icons.auto_fix_high_rounded, 'desc': 'Eye Twinkle'},
-      {'name': 'Cyber Visor', 'icon': Icons.smart_toy_rounded, 'desc': 'HUD Overlay'},
-    ],
-  };
+  static double _smooth(LiveBeauty b) => b.smooth;
+  static double _tone(LiveBeauty b) => b.tone;
+  static double _glow(LiveBeauty b) => b.glow;
+  static double _slim(LiveBeauty b) => b.slim;
+  static double _eyes(LiveBeauty b) => b.eyes;
+  static double _eyeLight(LiveBeauty b) => b.eyeLight;
+  static LiveBeauty _setSmooth(LiveBeauty b, double v) => b.copyWith(smooth: v);
+  static LiveBeauty _setTone(LiveBeauty b, double v) => b.copyWith(tone: v);
+  static LiveBeauty _setGlow(LiveBeauty b, double v) => b.copyWith(glow: v);
+  static LiveBeauty _setSlim(LiveBeauty b, double v) => b.copyWith(slim: v);
+  static LiveBeauty _setEyes(LiveBeauty b, double v) => b.copyWith(eyes: v);
+  static LiveBeauty _setEyeLight(LiveBeauty b, double v) => b.copyWith(eyeLight: v);
 
   @override
-  Widget build(BuildContext context) {
-    final catEffects = _effects[_selectedCategory] ?? const [];
+  Widget build(BuildContext context, WidgetRef ref) {
+    final looks = ref.watch(liveLooksControllerProvider);
+    final ctl = ref.read(liveLooksControllerProvider.notifier);
+    final beautyOn = looks.beauty.isEnabled;
+    final beauty = LiveBeauty.fromBoost(looks.beauty);
+    final activeId = looks.activeLook.id;
+
+    void setBeauty(LiveBeauty b, {bool? on}) => ctl.applyBeauty(b.toBoost(enabled: on ?? beautyOn));
+
     return ListView(
       padding: const EdgeInsets.only(bottom: 24),
       shrinkWrap: true,
       children: [
+        if (!looks.isAttached)
+          _Card(
+            icon: Icons.videocam_off_outlined,
+            title: 'Camera effects',
+            child: Text('Turn your camera on to use looks and beauty.',
+                style: LiveStudioType.s(13, FontWeight.w500, LiveStudioWorld.textDim)),
+          ),
         _Card(
           icon: Icons.palette_rounded,
-          title: 'Oneova Looks',
-          trailing: Text(
-            _selectedLook,
-            style: LiveStudioType.s(12, FontWeight.w700, LiveStudioAccent.blue),
-          ),
+          title: 'Looks',
+          trailing: Text(looks.activeLook.name, style: LiveStudioType.s(12, FontWeight.w700, LiveStudioAccent.blue)),
           child: SizedBox(
-            height: 80,
+            height: 64,
             child: ListView.separated(
               scrollDirection: Axis.horizontal,
-              itemCount: _looks.length,
+              itemCount: liveLookPresets.length,
               separatorBuilder: (_, _) => const SizedBox(width: 8),
               itemBuilder: (context, i) {
-                final look = _looks[i];
-                final isSelected = look['name'] == _selectedLook;
-                final col = look['color'] as Color;
+                final look = liveLookPresets[i];
+                final on = look.id == activeId || (look.id == 'neutral' && activeId.isEmpty);
                 return GestureDetector(
                   onTap: () {
                     HapticFeedback.selectionClick();
-                    setState(() => _selectedLook = look['name'] as String);
+                    ctl.applyLook(look, crossFade: const Duration(milliseconds: 350));
                   },
                   child: AnimatedContainer(
-                    duration: const Duration(milliseconds: 250),
-                    width: 90,
-                    padding: const EdgeInsets.all(8),
+                    duration: const Duration(milliseconds: 200),
+                    width: 96,
+                    alignment: Alignment.center,
+                    padding: const EdgeInsets.symmetric(horizontal: 8),
                     decoration: BoxDecoration(
-                      color: isSelected ? col.withValues(alpha: 0.22) : LiveStudioWorld.surface3,
+                      color: on ? LiveStudioAccent.blue.withValues(alpha: 0.22) : LiveStudioWorld.surface3,
                       borderRadius: BorderRadius.circular(12),
-                      border: Border.all(
-                        color: isSelected ? col : LiveStudioWorld.nameplateBorder,
-                        width: isSelected ? 1.5 : 1.0,
-                      ),
+                      border: Border.all(color: on ? LiveStudioAccent.blue : LiveStudioWorld.nameplateBorder, width: on ? 1.5 : 1),
                     ),
-                    child: Column(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        Container(
-                          width: 22,
-                          height: 22,
-                          decoration: BoxDecoration(
-                            color: col,
-                            shape: BoxShape.circle,
-                            border: Border.all(color: Colors.white, width: 1.5),
-                          ),
-                          child: isSelected
-                              ? const Icon(Icons.check, size: 14, color: Colors.white)
-                              : null,
-                        ),
-                        const SizedBox(height: 6),
-                        Text(
-                          look['name'] as String,
-                          style: LiveStudioType.s(11, FontWeight.w700, LiveStudioWorld.textHigh),
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                        ),
-                      ],
-                    ),
+                    child: Text(look.name,
+                        textAlign: TextAlign.center,
+                        maxLines: 2,
+                        style: LiveStudioType.s(12, FontWeight.w700, on ? LiveStudioAccent.white : LiveStudioWorld.textDim)),
                   ),
                 );
               },
@@ -817,133 +786,61 @@ class _FaceAndLooksTabState extends State<_FaceAndLooksTab> {
           ),
         ),
         _Card(
-          icon: Icons.face_retouching_natural_rounded,
-          title: 'Live AR Face Effects',
-          trailing: _selectedEffect != null
-              ? GestureDetector(
-                  onTap: () {
-                    HapticFeedback.lightImpact();
-                    setState(() => _selectedEffect = null);
-                  },
-                  child: Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-                    decoration: BoxDecoration(
-                      color: LiveStudioWorld.surface3,
-                      borderRadius: BorderRadius.circular(999),
-                    ),
-                    child: Text('Clear', style: LiveStudioType.s(11, FontWeight.w600, LiveStudioWorld.textDim)),
-                  ),
-                )
-              : null,
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              SingleChildScrollView(
-                scrollDirection: Axis.horizontal,
-                child: Row(
-                  children: _effects.keys.map((cat) {
-                    final isCat = cat == _selectedCategory;
-                    return Padding(
-                      padding: const EdgeInsets.only(right: 6, bottom: 8),
-                      child: GestureDetector(
-                        onTap: () {
-                          HapticFeedback.selectionClick();
-                          setState(() => _selectedCategory = cat);
-                        },
-                        child: AnimatedContainer(
-                          duration: const Duration(milliseconds: 200),
-                          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
-                          decoration: BoxDecoration(
-                            color: isCat ? LiveStudioAccent.pink : LiveStudioWorld.surface3,
-                            borderRadius: BorderRadius.circular(999),
-                          ),
-                          child: Text(
-                            cat,
-                            style: LiveStudioType.s(
-                              11,
-                              isCat ? FontWeight.w800 : FontWeight.w600,
-                              isCat ? LiveStudioAccent.white : LiveStudioWorld.textMedium,
-                            ),
-                          ),
-                        ),
-                      ),
-                    );
-                  }).toList(),
-                ),
-              ),
-              const SizedBox(height: 6),
-              GridView.builder(
-                shrinkWrap: true,
-                physics: const NeverScrollableScrollPhysics(),
-                itemCount: catEffects.length,
-                gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-                  crossAxisCount: 2,
-                  crossAxisSpacing: 8,
-                  mainAxisSpacing: 8,
-                  childAspectRatio: 2.3,
-                ),
-                itemBuilder: (context, i) {
-                  final eff = catEffects[i];
-                  final name = eff['name'] as String;
-                  final isSel = _selectedEffect == name;
-                  return GestureDetector(
-                    onTap: () {
-                      HapticFeedback.selectionClick();
-                      setState(() {
-                        _selectedEffect = isSel ? null : name;
-                      });
-                    },
-                    child: AnimatedContainer(
-                      duration: const Duration(milliseconds: 220),
-                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
-                      decoration: BoxDecoration(
-                        color: isSel ? LiveStudioAccent.pink.withValues(alpha: 0.18) : LiveStudioWorld.surface3,
-                        borderRadius: BorderRadius.circular(12),
-                        border: Border.all(
-                          color: isSel ? LiveStudioAccent.pink : LiveStudioWorld.nameplateBorder,
-                          width: isSel ? 1.5 : 1.0,
-                        ),
-                      ),
-                      child: Row(
-                        children: [
-                          Icon(
-                            eff['icon'] as IconData,
-                            size: 20,
-                            color: isSel ? LiveStudioAccent.pink : LiveStudioWorld.textMedium,
-                          ),
-                          const SizedBox(width: 8),
-                          Expanded(
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              mainAxisAlignment: MainAxisAlignment.center,
-                              children: [
-                                Text(
-                                  name,
-                                  style: LiveStudioType.s(
-                                    12,
-                                    isSel ? FontWeight.w800 : FontWeight.w600,
-                                    isSel ? LiveStudioAccent.white : LiveStudioWorld.textHigh,
-                                  ),
-                                  maxLines: 1,
-                                  overflow: TextOverflow.ellipsis,
-                                ),
-                                Text(
-                                  eff['desc'] as String,
-                                  style: LiveStudioType.s(10, FontWeight.w500, LiveStudioWorld.textDim),
-                                  maxLines: 1,
-                                  overflow: TextOverflow.ellipsis,
-                                ),
-                              ],
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                  );
-                },
-              ),
-            ],
+          icon: Icons.auto_awesome_rounded,
+          title: 'Beauty',
+          trailing: Switch.adaptive(
+            value: beautyOn,
+            activeTrackColor: LiveStudioAccent.pink,
+            onChanged: (v) {
+              HapticFeedback.selectionClick();
+              setBeauty(v && beauty == const LiveBeauty() ? LiveBeauty.natural : beauty, on: v);
+            },
           ),
+          child: !beautyOn
+              ? Text('Natural skin, glow and eye light, live on your camera.',
+                  style: LiveStudioType.s(13, FontWeight.w500, LiveStudioWorld.textDim))
+              : Column(children: [
+                  SizedBox(
+                    height: 36,
+                    child: ListView(scrollDirection: Axis.horizontal, children: [
+                      for (final (name, _, look) in LiveBeauty.presets)
+                        Padding(
+                          padding: const EdgeInsets.only(right: 8),
+                          child: GestureDetector(
+                            onTap: () {
+                              HapticFeedback.selectionClick();
+                              setBeauty(look);
+                            },
+                            child: Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 14),
+                              alignment: Alignment.center,
+                              decoration: BoxDecoration(
+                                color: beauty == look ? LiveStudioAccent.pinkA(0.22) : LiveStudioWorld.surface3,
+                                borderRadius: BorderRadius.circular(999),
+                                border: Border.all(color: beauty == look ? LiveStudioAccent.pink : LiveStudioWorld.nameplateBorder),
+                              ),
+                              child: Text(name, style: LiveStudioType.s(12, FontWeight.w700, LiveStudioAccent.white)),
+                            ),
+                          ),
+                        ),
+                    ]),
+                  ),
+                  const SizedBox(height: 6),
+                  for (final (label, get, set) in _beautySliders)
+                    Row(children: [
+                      SizedBox(
+                        width: 86,
+                        child: Text(label, style: LiveStudioType.s(12, FontWeight.w600, LiveStudioWorld.textDim)),
+                      ),
+                      Expanded(
+                        child: Slider(
+                          value: get(beauty).clamp(0.0, 1.0),
+                          activeColor: LiveStudioAccent.pink,
+                          onChanged: (v) => setBeauty(set(beauty, v)),
+                        ),
+                      ),
+                    ]),
+                ]),
         ),
       ],
     );

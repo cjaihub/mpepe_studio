@@ -1,91 +1,89 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+import '../backend/project_repository.dart';
+import '../shared/theme/app_theme.dart';
 import '../shared/widgets/components.dart';
 import '../shared/widgets/studio_background.dart';
 
-class AudioProductionsScreen extends StatelessWidget {
+class AudioProductionsScreen extends ConsumerStatefulWidget {
   const AudioProductionsScreen({super.key});
 
   @override
+  ConsumerState<AudioProductionsScreen> createState() => _AudioProductionsScreenState();
+}
+
+class _AudioProductionsScreenState extends ConsumerState<AudioProductionsScreen> {
+  String _filter = 'All';
+
+  @override
   Widget build(BuildContext context) {
+    final projectsAsync = ref.watch(projectsStreamProvider);
+
     return StudioBackground(
       backgroundIcons: const [Icons.mic_none, Icons.music_note, Icons.headphones],
       child: SafeArea(
-        child: SingleChildScrollView(
+        child: Padding(
           padding: const EdgeInsets.symmetric(horizontal: 18.0, vertical: 10.0),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Text('Productions', style: TextStyle(fontSize: 28, fontWeight: FontWeight.bold, color: Theme.of(context).colorScheme.onSurface)),
+              Text('Productions', style: TextStyle(fontSize: 22, fontWeight: FontWeight.w800, color: context.textPrimary)),
               const SizedBox(height: 14),
-              const _SegmentedControl(),
+              SingleChildScrollView(
+                scrollDirection: Axis.horizontal,
+                child: Row(
+                  children: ['All', 'Production', 'Review', 'Done'].map((label) {
+                    return Padding(
+                      padding: const EdgeInsets.only(right: 8.0),
+                      child: GestureDetector(
+                        onTap: () => setState(() => _filter = label),
+                        child: _SegButton(label: label, isActive: _filter == label),
+                      ),
+                    );
+                  }).toList(),
+                ),
+              ),
               const SizedBox(height: 18),
-              _ProductionCard(
-                title: '"Late Nights" — Amara J.',
-                subtitle: 'Josiah M. • Room B',
-                status: 'In production',
-                statusColor: Theme.of(context).colorScheme.primary,
+              Expanded(
+                child: projectsAsync.when(
+                  data: (all) {
+                    final audio = all.where((p) => p.category == 'Audio').where((p) {
+                      if (_filter == 'All') return true;
+                      if (_filter == 'Done') return p.status.toLowerCase() == 'done';
+                      if (_filter == 'Review') return p.status.toLowerCase().contains('review');
+                      return p.status.toLowerCase() != 'done' && !p.status.toLowerCase().contains('review');
+                    }).toList();
+
+                    if (audio.isEmpty) {
+                      return Center(
+                        child: Text(
+                          'No audio productions in this stage.',
+                          style: TextStyle(color: context.textSecondary, fontSize: 13),
+                        ),
+                      );
+                    }
+                    return ListView.separated(
+                      itemCount: audio.length,
+                      separatorBuilder: (_, _) => const SizedBox(height: 10),
+                      itemBuilder: (context, index) {
+                        final p = audio[index];
+                        final isReview = p.status.toLowerCase().contains('review');
+                        return _ProductionCard(
+                          title: p.title,
+                          subtitle: p.toolsUsed.isNotEmpty ? p.toolsUsed.join(' • ') : 'Audio Studio',
+                          status: p.status,
+                          statusColor: isReview ? AppColors.brandPink : AppColors.brandBlue,
+                        );
+                      },
+                    );
+                  },
+                  loading: () => const Center(child: CircularProgressIndicator(color: AppColors.brandBlue)),
+                  error: (e, _) => Center(child: Text('Error: $e', style: TextStyle(color: context.textSecondary))),
+                ),
               ),
-              const SizedBox(height: 10),
-              _ProductionCard(
-                title: '"Nairobi Nights EP" — The Mbogi',
-                subtitle: 'Wanjiru K. • Room A',
-                status: 'In production',
-                statusColor: Theme.of(context).colorScheme.primary,
-              ),
-              const SizedBox(height: 10),
-              _ProductionCard(
-                title: '"Homecoming" — DJ Rue',
-                subtitle: 'Wanjiru K. • Room A',
-                status: 'In review',
-                statusColor: Colors.orange,
-              ),
-              const SizedBox(height: 10),
-              _ProductionCard(
-                title: '"Still Waters" — Amara J.',
-                subtitle: 'Josiah M. • Room B',
-                status: 'In review',
-                statusColor: Colors.orange,
-              ),
-              const SizedBox(height: 10),
-              _ProductionCard(
-                title: '"Golden Hour" — Kito',
-                subtitle: 'Josiah M. • Room B',
-                status: 'Done',
-                statusColor: Theme.of(context).colorScheme.primary,
-              ),
-              const SizedBox(height: 10),
-              _ProductionCard(
-                title: '"First Light" — Kito',
-                subtitle: 'Wanjiru K. • Room A',
-                status: 'Done',
-                statusColor: Theme.of(context).colorScheme.primary,
-              ),
-              const SizedBox(height: 40),
             ],
           ),
         ),
-      ),
-    );
-  }
-}
-
-class _SegmentedControl extends StatelessWidget {
-  const _SegmentedControl();
-
-  @override
-  Widget build(BuildContext context) {
-    return SingleChildScrollView(
-      scrollDirection: Axis.horizontal,
-      child: Row(
-        children: [
-          _SegButton(label: 'All', isActive: true),
-          const SizedBox(width: 8),
-          _SegButton(label: 'Production', isActive: false),
-          const SizedBox(width: 8),
-          _SegButton(label: 'Review', isActive: false),
-          const SizedBox(width: 8),
-          _SegButton(label: 'Done', isActive: false),
-        ],
       ),
     );
   }

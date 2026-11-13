@@ -1,13 +1,10 @@
 import 'dart:async';
-import 'dart:convert';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:cloud_functions/cloud_functions.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:flutter_secure_storage/flutter_secure_storage.dart';
-import 'package:http/http.dart' as http;
 import 'package:url_launcher/url_launcher.dart';
 
 // ─────────────────────────────────────────────
@@ -18,21 +15,49 @@ class TikTokAccount {
   final String openId;
   final String unionId;
   final String displayName;
+  final String? username;
   final String? avatarUrl;
+  final String? bio;
+  final String? profileUrl;
+  final bool isVerified;
+  final int followerCount;
+  final int followingCount;
+  final int likesCount;
+  final int videoCount;
 
   const TikTokAccount({
     required this.openId,
     required this.unionId,
     required this.displayName,
+    this.username,
     this.avatarUrl,
+    this.bio,
+    this.profileUrl,
+    this.isVerified = false,
+    this.followerCount = 0,
+    this.followingCount = 0,
+    this.likesCount = 0,
+    this.videoCount = 0,
   });
 
+  static int _int(Object? v) => v is num ? v.toInt() : int.tryParse('$v') ?? 0;
+  static String? _str(Object? v) => v is String && v.isNotEmpty ? v : null;
+
+  /// From the server's profile shape (functions/src/tiktokOAuth.ts).
   factory TikTokAccount.fromJson(Map<String, dynamic> json) {
     return TikTokAccount(
-      openId: json['open_id'] ?? '',
-      unionId: json['union_id'] ?? '',
-      displayName: json['display_name'] ?? 'TikTok User',
-      avatarUrl: json['avatar_url'],
+      openId: json['openId']?.toString() ?? '',
+      unionId: json['unionId']?.toString() ?? '',
+      displayName: _str(json['displayName']) ?? 'TikTok user',
+      username: _str(json['username']),
+      avatarUrl: _str(json['avatarUrl']),
+      bio: _str(json['bio']),
+      profileUrl: _str(json['profileUrl']),
+      isVerified: json['isVerified'] == true,
+      followerCount: _int(json['followerCount']),
+      followingCount: _int(json['followingCount']),
+      likesCount: _int(json['likesCount']),
+      videoCount: _int(json['videoCount']),
     );
   }
 }
@@ -40,7 +65,6 @@ class TikTokAccount {
 class TikTokOAuthState {
   final bool isLoading;
   final String? statusMessage;
-  final String? accessToken;
   final TikTokAccount? account;
   final bool isConnected;
   final String? error;
@@ -48,7 +72,6 @@ class TikTokOAuthState {
   const TikTokOAuthState({
     this.isLoading = false,
     this.statusMessage,
-    this.accessToken,
     this.account,
     this.isConnected = false,
     this.error,
@@ -57,7 +80,6 @@ class TikTokOAuthState {
   TikTokOAuthState copyWith({
     bool? isLoading,
     String? statusMessage,
-    String? accessToken,
     TikTokAccount? account,
     bool? isConnected,
     String? error,
@@ -65,7 +87,6 @@ class TikTokOAuthState {
     return TikTokOAuthState(
       isLoading: isLoading ?? this.isLoading,
       statusMessage: statusMessage ?? this.statusMessage,
-      accessToken: accessToken ?? this.accessToken,
       account: account ?? this.account,
       isConnected: isConnected ?? this.isConnected,
       error: error,
@@ -77,17 +98,28 @@ class TikTokOAuthState {
 //  Service
 // ─────────────────────────────────────────────
 
+/// TikTok Login Kit. The app only opens TikTok's consent page and passes the
+/// one-time code to `tiktokExchangeCode`; the tokens stay on the server.
 class TikTokOAuthService extends Notifier<TikTokOAuthState> {
-  final _secureStorage = const FlutterSecureStorage();
-  final _firestore = FirebaseFirestore.instance;
-  final _auth = FirebaseAuth.instance;
-
   static const String _authUrl = 'https://www.tiktok.com/v2/auth/authorize/';
-  static const String _userInfoUrl = 'https://open.tiktokapis.com/v2/user/info/';
+
+  /// Everything Oneova uses: sign-in, profile + stats, the creator's videos,
+  /// and posting (draft or direct).
+  static const List<String> scopes = [
+    'user.info.basic',
+    'user.info.profile',
+    'user.info.stats',
+    'video.list',
+    'video.upload',
+    'video.publish',
+  ];
 
   String get _clientKey => dotenv.env['TIKTOK_CLIENT_KEY'] ?? '';
-  String get _redirectUri => dotenv.env['TIKTOK_REDIRECT_URI'] ?? 'oneova://tiktok-callback';
-  String get _userId => _auth.currentUser?.uid ?? '';
+  // TikTok only redirects to HTTPS; public/tiktok-callback.html hands the code
+  // on to oneova://tiktok-callback. Must match the function's redirect URI.
+  String get _redirectUri =>
+      dotenv.env['TIKTOK_REDIRECT_URI'] ?? 'https://oneova.web.app/tiktok-callback';
+  String? _csrfState;
 
   Completer<String?>? _oauthCompleter;
 
@@ -98,230 +130,103 @@ class TikTokOAuthService extends Notifier<TikTokOAuthState> {
 
   Future<void> startOAuth() async {
     if (_clientKey.isEmpty) {
-      state = state.copyWith(
-        error: 'TIKTOK_CLIENT_KEY is not configured. Please add it to your .env file.',
-        isLoading: false,
-      );
+      state = state.copyWith(error: 'TikTok is not set up in this build.', isLoading: false);
       return;
     }
 
-    state = state.copyWith(
-      isLoading: true,
-      statusMessage: 'Opening TikTok…',
-      error: null,
-    );
+    state = state.copyWith(isLoading: true, statusMessage: 'Opening TikTok…', error: null);
 
-    // TikTok v2 scopes
-    final scopeString = 'user.info.basic,video.list';
-    final csrfState = 'oneova_tiktok_${DateTime.now().millisecondsSinceEpoch}';
+    final csrfState = 'oneova_tiktok_${DateTime.now().microsecondsSinceEpoch}';
+    _csrfState = csrfState;
 
     final uri = Uri.parse(_authUrl).replace(queryParameters: {
       'client_key': _clientKey,
       'response_type': 'code',
-      'scope': scopeString,
+      'scope': scopes.join(','),
       'redirect_uri': _redirectUri,
       'state': csrfState,
     });
 
     try {
-      final launched = await launchUrl(
-        uri,
-        mode: LaunchMode.externalApplication,
-      );
-
+      final launched = await launchUrl(uri, mode: LaunchMode.externalApplication);
       if (!launched) {
-        state = state.copyWith(
-          isLoading: false,
-          error: 'Could not open TikTok. Please try again.',
-        );
+        state = state.copyWith(isLoading: false, error: 'Could not open TikTok. Please try again.');
         return;
       }
 
       _oauthCompleter = Completer<String?>();
       state = state.copyWith(statusMessage: 'Waiting for you to authorize…');
 
-      final code = await _oauthCompleter!.future.timeout(
-        const Duration(minutes: 5),
-        onTimeout: () => null,
-      );
-
+      final code = await _oauthCompleter!.future.timeout(const Duration(minutes: 5), onTimeout: () => null);
       if (code == null) {
-        state = state.copyWith(
-          isLoading: false,
-          error: 'Authorization timed out. Please try again.',
-        );
+        if (state.error == null) {
+          state = state.copyWith(isLoading: false, error: 'Authorization timed out. Please try again.');
+        }
         return;
       }
 
-      await _exchangeCodeForToken(code);
+      await _exchangeCode(code);
     } catch (e) {
       debugPrint('TikTok OAuth error: $e');
-      state = state.copyWith(
-        isLoading: false,
-        error: 'An unexpected error occurred: ${e.toString()}',
-      );
+      state = state.copyWith(isLoading: false, error: 'Something went wrong. Please try again.');
     }
   }
 
   // ── Step 2: Receive deep-link callback ────────────────────────────────
 
   void handleOAuthCallback(Uri callbackUri) {
+    final returnedState = callbackUri.queryParameters['state'];
+    if (_csrfState != null && returnedState != _csrfState) {
+      debugPrint('TikTok OAuth: state mismatch, callback ignored');
+      return;
+    }
     final code = callbackUri.queryParameters['code'];
-    final error = callbackUri.queryParameters['errCode']; // TikTok passes errCode instead of error sometimes
+    final error = callbackUri.queryParameters['error'] ?? callbackUri.queryParameters['errCode'];
 
     if (code == null || error != null) {
+      state = state.copyWith(isLoading: false, error: 'TikTok sign-in was cancelled.');
       _oauthCompleter?.complete(null);
-      state = state.copyWith(
-        isLoading: false,
-        error: 'Authorization denied or failed: ${error ?? "No code received"}',
-      );
       return;
     }
 
     _oauthCompleter?.complete(code);
   }
 
-  // ── Step 3: Exchange code for long-lived token ─────────────────────────
+  // ── Step 3: Server exchanges the code and saves the connection ─────────
 
-  Future<void> _exchangeCodeForToken(String code) async {
-    state = state.copyWith(statusMessage: 'Exchanging secure tokens…');
-
+  Future<void> _exchangeCode(String code) async {
+    state = state.copyWith(statusMessage: 'Connecting your TikTok account…');
     try {
-      // The client secret stays in Secret Manager; the exchange runs server-side.
       final result = await FirebaseFunctions.instance
           .httpsCallable('tiktokExchangeCode')
           .call<Map<String, dynamic>>({'code': code});
       final data = Map<String, dynamic>.from(result.data);
-      final accessToken = data['access_token'] as String?;
-
-      if (accessToken == null) {
-        throw Exception('No access_token in response');
-      }
-
-      state = state.copyWith(
-        accessToken: accessToken,
-        statusMessage: 'Loading your TikTok account…',
-      );
-
-      await _fetchUserInfo(accessToken);
+      final account = TikTokAccount.fromJson(Map<String, dynamic>.from(data['account'] as Map));
+      state = state.copyWith(account: account, statusMessage: null);
+    } on FirebaseFunctionsException catch (e) {
+      state = state.copyWith(isLoading: false, error: e.message ?? 'TikTok sign-in failed.');
     } catch (e) {
-      debugPrint('TikTok token exchange error: $e');
-      state = state.copyWith(
-        isLoading: false,
-        error: 'Failed to exchange token: ${e.toString()}',
-      );
+      debugPrint('TikTok exchange error: $e');
+      state = state.copyWith(isLoading: false, error: 'TikTok sign-in failed. Please try again.');
     }
   }
 
-  // ── Step 4: Fetch user account info ─────────────────────────────
-
-  Future<void> _fetchUserInfo(String token) async {
-    try {
-      final response = await http.get(
-        Uri.parse(_userInfoUrl).replace(queryParameters: {
-          'fields': 'open_id,union_id,avatar_url,display_name',
-        }),
-        headers: {
-          'Authorization': 'Bearer $token',
-        },
-      );
-
-      if (response.statusCode != 200) {
-        throw Exception('Failed to fetch user info: ${response.body}');
-      }
-
-      final responseData = jsonDecode(response.body) as Map<String, dynamic>;
-      final data = responseData['data'] as Map<String, dynamic>?;
-      
-      if (data == null || data['user'] == null) {
-          throw Exception('User data not found in response');
-      }
-      
-      final account = TikTokAccount.fromJson(data['user']);
-
-      state = state.copyWith(
-        account: account,
-        statusMessage: null,
-      );
-    } catch (e) {
-      debugPrint('TikTok fetch user error: $e');
-      state = state.copyWith(
-        isLoading: false,
-        error: 'Could not load your account: ${e.toString()}',
-      );
-    }
-  }
-
-  // ── Step 5: Confirm connection ─────────────────────────────────────────
+  // ── Step 4: Confirm (the server already saved the connection) ──────────
 
   Future<void> confirmConnection() async {
-    final account = state.account;
-    final token = state.accessToken;
-
-    if (account == null || token == null || _userId.isEmpty) return;
-
-    state = state.copyWith(isLoading: true, statusMessage: 'Saving connection…');
-
-    try {
-      final tokenKey = 'tiktok_token_${account.openId}';
-      await _secureStorage.write(key: tokenKey, value: token);
-
-      await _firestore
-          .collection('users')
-          .doc(_userId)
-          .collection('social_connections')
-          .doc('tiktok')
-          .set({
-        'platform': 'tiktok',
-        'accountName': account.displayName,
-        'openId': account.openId,
-        'unionId': account.unionId,
-        'profilePictureUrl': account.avatarUrl,
-        'tokenKey': tokenKey,
-        'connectedAt': FieldValue.serverTimestamp(),
-      });
-
-      state = state.copyWith(
-        isLoading: false,
-        isConnected: true,
-        statusMessage: null,
-      );
-    } catch (e) {
-      debugPrint('Confirm connection error: $e');
-      state = state.copyWith(
-        isLoading: false,
-        error: 'Failed to save connection: ${e.toString()}',
-      );
-    }
+    if (state.account == null) return;
+    state = state.copyWith(isLoading: false, isConnected: true, statusMessage: null);
   }
 
   // ── Disconnect ─────────────────────────────────────────────────────────
 
   Future<void> disconnect() async {
     try {
-      final doc = await _firestore
-          .collection('users')
-          .doc(_userId)
-          .collection('social_connections')
-          .doc('tiktok')
-          .get();
-
-      final tokenKey = doc.data()?['tokenKey'] as String?;
-      if (tokenKey != null) {
-        await _secureStorage.delete(key: tokenKey);
-      }
-
-      await _firestore
-          .collection('users')
-          .doc(_userId)
-          .collection('social_connections')
-          .doc('tiktok')
-          .delete();
-
-      state = const TikTokOAuthState();
+      await FirebaseFunctions.instance.httpsCallable('tiktokDisconnect').call<Map<String, dynamic>>();
     } catch (e) {
-      debugPrint('Disconnect error: $e');
+      debugPrint('TikTok disconnect error: $e');
     }
+    state = const TikTokOAuthState();
   }
 
   // ── Reset ─────────────────────────────────────────────────────────────

@@ -1,4 +1,3 @@
-import 'package:uuid/uuid.dart';
 
 enum AudioType {
   originalSound,
@@ -100,21 +99,4 @@ class AudioTrack {
     };
   }
 
-  factory AudioTrack.mock({
-    String? title,
-    AudioType? type,
-  }) {
-    return AudioTrack(
-      id: const Uuid().v4(),
-      title: title ?? 'Original Sound',
-      ownerId: 'user_123',
-      ownerName: 'ONEROVA Creator',
-      type: type ?? AudioType.originalSound,
-      licenseType: AudioLicenseType.nonCommercial,
-      durationMs: 15000, // 15 seconds
-      attribution: 'Original audio by ONEROVA Creator',
-      contentUrl: '',
-      coverImageUrl: '',
-    );
-  }
 }

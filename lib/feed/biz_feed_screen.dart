@@ -1,9 +1,9 @@
 import 'package:oneova/shared/widgets/animated_loading_indicator.dart';
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:firebase_auth/firebase_auth.dart';
 import 'package:go_router/go_router.dart';
 import '../shared/theme/app_theme.dart';
+import '../shops3d/widgets/shops_entry_card.dart';
 
 class BizFeedScreen extends StatefulWidget {
   const BizFeedScreen({super.key});
@@ -22,47 +22,6 @@ class _BizFeedScreenState extends State<BizFeedScreen> {
   @override
   void initState() {
     super.initState();
-    _seedIfEmpty();
-  }
-
-  Future<void> _seedIfEmpty() async {
-    final uid = FirebaseAuth.instance.currentUser?.uid;
-    if (uid == null) return;
-    
-    final coll = FirebaseFirestore.instance.collection('biz_products');
-    final snap = await coll.limit(1).get();
-    if (snap.docs.isEmpty) {
-      await coll.add({
-        'title': 'Premium Studio Headphones',
-        'description': 'High fidelity audio for professional studio use with noise cancellation.',
-        'price': 299.99,
-        'imageUrl': 'https://images.unsplash.com/photo-1505740420928-5e560c06d30e?q=80&w=1000&auto=format&fit=crop',
-        'seller': 'AudioPro',
-        'category': 'Electronics',
-        'createdAt': FieldValue.serverTimestamp(),
-        'ownerId': uid,
-      });
-      await coll.add({
-        'title': 'Mechanical Keyboard',
-        'description': 'Clicky tactile switches for rapid typing and aesthetic studio setups.',
-        'price': 149.50,
-        'imageUrl': 'https://images.unsplash.com/photo-1595225476474-87563907a212?q=80&w=1000&auto=format&fit=crop',
-        'seller': 'KeyTech',
-        'category': 'Electronics',
-        'createdAt': FieldValue.serverTimestamp(),
-        'ownerId': uid,
-      });
-      await coll.add({
-        'title': 'Studio Microphone',
-        'description': 'Crystal clear voice capture for podcasting and music production.',
-        'price': 199.00,
-        'imageUrl': 'https://images.unsplash.com/photo-1590602847861-f357a9332bbc?q=80&w=1000&auto=format&fit=crop',
-        'seller': 'MicMasters',
-        'category': 'Digital',
-        'createdAt': FieldValue.serverTimestamp(),
-        'ownerId': uid,
-      });
-    }
   }
 
   @override
@@ -80,7 +39,11 @@ class _BizFeedScreenState extends State<BizFeedScreen> {
       backgroundColor: context.bg,
       appBar: AppBar(
         backgroundColor: topBarBg,
-        title: Text('Digital Marketplace', style: AppTheme.h3Style.copyWith(color: topBarFg)),
+        title: Row(mainAxisSize: MainAxisSize.min, children: [
+          Icon(Icons.storefront_rounded, color: topBarFg, size: 22),
+          const SizedBox(width: 8),
+          Text('Biz & Shop', style: AppTheme.h3Style.copyWith(color: topBarFg)),
+        ]),
         leading: IconButton(
           icon: Icon(Icons.arrow_back, color: topBarFg),
           onPressed: () {
@@ -95,6 +58,7 @@ class _BizFeedScreenState extends State<BizFeedScreen> {
       body: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
+          const ShopsEntryCard(),
           // Search Bar
           Padding(
             padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),

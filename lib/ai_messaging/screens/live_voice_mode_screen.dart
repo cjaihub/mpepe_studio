@@ -13,17 +13,26 @@ class LiveVoiceModeScreen extends ConsumerStatefulWidget {
 }
 
 class _LiveVoiceModeScreenState extends ConsumerState<LiveVoiceModeScreen> {
+  GeminiLiveService? _liveNotifier;
+
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
       ref.read(geminiLiveProvider.notifier).connect();
     });
   }
 
   @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    _liveNotifier = ref.read(geminiLiveProvider.notifier);
+  }
+
+  @override
   void deactivate() {
-    ref.read(geminiLiveProvider.notifier).disconnect();
+    _liveNotifier?.disconnect();
     super.deactivate();
   }
 

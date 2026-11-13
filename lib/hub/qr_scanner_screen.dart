@@ -1,11 +1,13 @@
 import 'package:flutter/material.dart';
-import 'package:mobile_scanner/mobile_scanner.dart';
+import 'package:flutter/services.dart';
+import 'package:flutter_animate/flutter_animate.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
-import 'package:flutter_animate/flutter_animate.dart';
+import 'package:google_fonts/google_fonts.dart';
+import 'package:mobile_scanner/mobile_scanner.dart';
+
 import '../backend/remote_connect_service.dart';
 import '../shared/theme/app_theme.dart';
-import 'package:google_fonts/google_fonts.dart';
 
 class QRScannerScreen extends ConsumerStatefulWidget {
   const QRScannerScreen({super.key});
@@ -14,15 +16,16 @@ class QRScannerScreen extends ConsumerStatefulWidget {
   ConsumerState<QRScannerScreen> createState() => _QRScannerScreenState();
 }
 
-class _QRScannerScreenState extends ConsumerState<QRScannerScreen> with SingleTickerProviderStateMixin {
-  late MobileScannerController controller;
+class _QRScannerScreenState extends ConsumerState<QRScannerScreen>
+    with SingleTickerProviderStateMixin {
+  late final MobileScannerController _controller;
+  late final AnimationController _animationController;
   bool _isProcessing = false;
-  late AnimationController _animationController;
 
   @override
   void initState() {
     super.initState();
-    controller = MobileScannerController(
+    _controller = MobileScannerController(
       detectionSpeed: DetectionSpeed.normal,
       facing: CameraFacing.back,
       torchEnabled: false,
@@ -35,104 +38,129 @@ class _QRScannerScreenState extends ConsumerState<QRScannerScreen> with SingleTi
 
   @override
   void dispose() {
-    controller.dispose();
+    _controller.dispose();
     _animationController.dispose();
     super.dispose();
   }
 
-  void _onDetect(BarcodeCapture capture) async {
+  Future<void> _onDetect(BarcodeCapture capture) async {
     if (_isProcessing) return;
-    
-    final List<Barcode> barcodes = capture.barcodes;
-    if (barcodes.isNotEmpty && barcodes.first.rawValue != null) {
-      final code = barcodes.first.rawValue!;
-      if (code.startsWith('ONEOVA-') || code.startsWith('MPEPE-') || code.length > 5) {
-        setState(() => _isProcessing = true);
-        controller.stop();
-        
-        await ref.read(remoteConnectProvider.notifier).linkComputer(code);
-        
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('Successfully connected to session!'), backgroundColor: Colors.green),
-          );
-          context.pop();
-        }
+    final barcodes = capture.barcodes;
+    if (barcodes.isEmpty) return;
+    final rawValue = barcodes.first.rawValue?.trim();
+    if (rawValue == null || rawValue.isEmpty) return;
+
+    final pin = RemoteConnectService.extractPairingPin(rawValue);
+    final isDirectDeviceToken = rawValue.startsWith('desktop_');
+    if (pin == null && !isDirectDeviceToken) return;
+
+    setState(() => _isProcessing = true);
+    HapticFeedback.mediumImpact();
+    await _controller.stop();
+
+    try {
+      if (pin != null) {
+        await ref.read(remoteConnectProvider.notifier).pairWithSessionPin(pin);
+      } else {
+        await ref.read(remoteConnectProvider.notifier).linkComputer(rawValue);
       }
+
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Workstation paired via QR session!'),
+          backgroundColor: AppColors.brandBlue,
+        ),
+      );
+      if (context.canPop()) {
+        context.pop();
+      }
+      context.push('/remote_control');
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('QR pairing failed: $e'),
+          backgroundColor: AppColors.brandPink,
+        ),
+      );
+      setState(() => _isProcessing = false);
+      await _controller.start();
     }
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: AppColors.darkBackground,
+      backgroundColor: context.bg,
       body: Stack(
         children: [
           MobileScanner(
-            controller: controller,
+            controller: _controller,
             onDetect: _onDetect,
           ),
-          
-          // Premium Overlay Blur & Mask
           _buildOverlay(),
-          
-          // Header
           Positioned(
-            top: MediaQuery.of(context).padding.top + 16,
+            top: MediaQuery.of(context).padding.top + 12,
             left: 16,
             right: 16,
             child: Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
                 IconButton(
-                  onPressed: () => context.pop(),
-                  icon: const Icon(Icons.close_rounded, color: Colors.white, size: 28),
+                  onPressed: () {
+                    if (context.canPop()) {
+                      context.pop();
+                    } else {
+                      context.go('/hub/home');
+                    }
+                  },
+                  icon: const Icon(Icons.arrow_back_rounded, color: Colors.white, size: 24),
                 ).animate().fadeIn().scale(),
                 Text(
-                  'Scan Connection QR',
+                  'Scan Workstation QR',
                   style: GoogleFonts.inter(
                     color: Colors.white,
-                    fontWeight: FontWeight.w900,
-                    fontSize: 18,
+                    fontWeight: FontWeight.w800,
+                    fontSize: 16,
+                    letterSpacing: -0.2,
                   ),
                 ).animate().fadeIn(delay: 100.ms),
                 IconButton(
-                  onPressed: () => controller.toggleTorch(),
-                  icon: const Icon(Icons.flash_on_rounded, color: Colors.white, size: 28),
+                  onPressed: () => _controller.toggleTorch(),
+                  icon: const Icon(Icons.flash_on_rounded, color: Colors.white, size: 22),
                 ).animate().fadeIn().scale(),
               ],
             ),
           ),
-          
-          // Scanning Target & Animations
           Center(
             child: Container(
-              width: 250,
-              height: 250,
+              width: 244,
+              height: 244,
               decoration: BoxDecoration(
-                border: Border.all(color: AppColors.brandBlue, width: 4),
-                borderRadius: BorderRadius.circular(30),
+                border: Border.all(color: AppColors.brandBlue, width: 2.0),
+                borderRadius: BorderRadius.circular(AppRadius.xl),
               ),
               child: Stack(
                 children: [
-                  // Animated Scanning Line
                   AnimatedBuilder(
                     animation: _animationController,
                     builder: (context, child) {
                       return Positioned(
-                        top: _animationController.value * 230,
-                        left: 0,
-                        right: 0,
+                        top: _animationController.value * 232,
+                        left: 8,
+                        right: 8,
                         child: Container(
-                          height: 4,
+                          height: 3,
                           decoration: BoxDecoration(
-                            color: AppColors.brandBlue,
+                            color: AppColors.brandPink,
+                            borderRadius: BorderRadius.circular(AppRadius.full),
                             boxShadow: [
                               BoxShadow(
-                                color: AppColors.brandBlue.withValues(alpha: 0.8),
-                                blurRadius: 15,
-                                spreadRadius: 5,
-                              )
+                                color: AppColors.brandPink.withValues(alpha: 0.7),
+                                blurRadius: 12,
+                                spreadRadius: 2,
+                              ),
                             ],
                           ),
                         ),
@@ -141,44 +169,58 @@ class _QRScannerScreenState extends ConsumerState<QRScannerScreen> with SingleTi
                   ),
                 ],
               ),
-            ).animate().scale(delay: 200.ms, curve: Curves.easeOutBack),
+            ).animate().scale(delay: 150.ms, curve: Curves.easeOutBack),
           ),
-          
-          // Processing overlay
           if (_isProcessing)
             Container(
-              color: Colors.black.withValues(alpha: 0.8),
-              child: const Center(
-                child: CircularProgressIndicator(color: AppColors.brandBlue),
+              color: Colors.black.withValues(alpha: 0.72),
+              child: Center(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    const CircularProgressIndicator(color: AppColors.brandBlue),
+                    const SizedBox(height: 14),
+                    Text(
+                      'Establishing E2EE Workstation Session...',
+                      style: GoogleFonts.inter(
+                        color: Colors.white,
+                        fontSize: 13,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ],
+                ),
               ),
             ).animate().fadeIn(),
-            
-          // Footer Instructions
           Positioned(
-            bottom: MediaQuery.of(context).padding.bottom + 48,
-            left: 32,
-            right: 32,
+            bottom: MediaQuery.of(context).padding.bottom + 36,
+            left: 24,
+            right: 24,
             child: Container(
-              padding: const EdgeInsets.all(16),
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
               decoration: BoxDecoration(
-                color: AppColors.darkSurface.withValues(alpha: 0.9),
-                borderRadius: BorderRadius.circular(16),
-                border: Border.all(color: Colors.white24, width: 1.5),
+                color: context.surface.withValues(alpha: 0.92),
+                borderRadius: BorderRadius.circular(AppRadius.md),
+                border: Border.all(color: context.border, width: 1.0),
               ),
-              child: Column(
+              child: Row(
                 children: [
-                  Text(
-                    'Align the QR code within the frame to link your desktop application automatically.',
-                    style: GoogleFonts.inter(
-                      color: Colors.white70,
-                      fontWeight: FontWeight.w600,
-                      fontSize: 13,
+                  const Icon(Icons.qr_code_2_rounded, color: AppColors.brandBlue, size: 22),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: Text(
+                      'Point at the QR Session tab on Oneova Computer Agent to sign in & link instantly.',
+                      style: GoogleFonts.inter(
+                        color: context.textPrimary,
+                        fontWeight: FontWeight.w600,
+                        fontSize: 12,
+                        height: 1.35,
+                      ),
                     ),
-                    textAlign: TextAlign.center,
                   ),
                 ],
               ),
-            ).animate().fadeIn(delay: 400.ms).slideY(begin: 0.2),
+            ).animate().fadeIn(delay: 250.ms).slideY(begin: 0.15, end: 0),
           ),
         ],
       ),
@@ -187,7 +229,10 @@ class _QRScannerScreenState extends ConsumerState<QRScannerScreen> with SingleTi
 
   Widget _buildOverlay() {
     return ColorFiltered(
-      colorFilter: ColorFilter.mode(Colors.black.withValues(alpha: 0.7), BlendMode.srcOut),
+      colorFilter: ColorFilter.mode(
+        Colors.black.withValues(alpha: 0.68),
+        BlendMode.srcOut,
+      ),
       child: Stack(
         children: [
           Container(
@@ -198,11 +243,11 @@ class _QRScannerScreenState extends ConsumerState<QRScannerScreen> with SingleTi
           ),
           Center(
             child: Container(
-              width: 250,
-              height: 250,
+              width: 244,
+              height: 244,
               decoration: BoxDecoration(
                 color: Colors.black,
-                borderRadius: BorderRadius.circular(30),
+                borderRadius: BorderRadius.circular(AppRadius.xl),
               ),
             ),
           ),

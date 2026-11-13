@@ -16,6 +16,10 @@ import 'package:permission_handler/permission_handler.dart';
 import 'package:speech_to_text/speech_to_text.dart' as stt;
 import 'package:url_launcher/url_launcher.dart';
 
+import '../../agent_workspace/widgets/ova_claude_agent_workspace.dart';
+import '../../shared/audio/cloud_dictation.dart';
+import '../../shared/audio/mic_coordinator.dart';
+import '../../shared/audio/speech_hub.dart';
 import '../../shared/location/geo_services.dart';
 import '../../shared/router.dart' show rootNavigatorKey;
 import '../../shared/theme/app_theme.dart';
@@ -140,18 +144,25 @@ class _OvaAssistantPanelState extends ConsumerState<OvaAssistantPanel> {
   final TextEditingController _input = TextEditingController();
   final FocusNode _focus = FocusNode();
   final ScrollController _scroll = ScrollController();
-  final stt.SpeechToText _speech = stt.SpeechToText();
+  final SpeechHub _speech = SpeechHub.instance;
+  MicLease? _micLease;
+  CloudDictation? _cloud;
+  bool _usingCloud = false;
+  String _dictationPrefix = '';
+  OvaOverlayVoiceSessionNotifier? _overlayVoiceNotifier;
   bool _listening = false;
   // Live mic levels while Ova is listening (drives the waveform strip).
   final List<double> _voiceLevels = [];
   DateTime? _listenStart;
-  bool _speechReady = false;
 
   /// Pulses the mic for a few seconds when Ova was opened in voice mode.
   bool _voiceHint = false;
 
   /// True when the compact Overlay Assistant is in live Voice Mode.
   bool _voiceMode = false;
+
+  /// True when showing the Claude-Style Synced Agent Workspace.
+  bool _agentWorkspaceMode = true;
 
   /// Voice typing: the words as heard, kept so the clean-up can be undone.
   String? _rawDictation;
@@ -163,6 +174,8 @@ class _OvaAssistantPanelState extends ConsumerState<OvaAssistantPanel> {
     super.initState();
     _screenBytes = widget.screenContextBytes;
     _voiceMode = widget.autoStartVoice;
+    _agentWorkspaceMode =
+        !widget.autoStartVoice && widget.onInsertIntoChat == null;
     _chat = ref.read(ovaChatProvider)
       ..invocation = widget.invocation
       ..onNavigate = _navigate
@@ -177,15 +190,24 @@ class _OvaAssistantPanelState extends ConsumerState<OvaAssistantPanel> {
   }
 
   @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    _overlayVoiceNotifier = ref.read(ovaOverlayVoiceSessionProvider.notifier);
+  }
+
+  @override
   void dispose() {
     _chat.removeListener(_onChat);
     if (_chat.onNavigate == _navigate) _chat.onNavigate = null;
     if (_voiceMode) {
       try {
-        ref.read(ovaOverlayVoiceSessionProvider.notifier).endSession();
+        _overlayVoiceNotifier?.endSession();
       } catch (_) {}
     }
-    _speech.cancel();
+    unawaited(_speech.cancel(this));
+    unawaited(_cloud?.dispose());
+    unawaited(_micLease?.release());
+    _micLease = null;
     _input.dispose();
     _focus.dispose();
     _scroll.dispose();
@@ -208,7 +230,7 @@ class _OvaAssistantPanelState extends ConsumerState<OvaAssistantPanel> {
     final t = (text ?? _input.text).trim();
     if (t.isEmpty || _chat.busy) return;
     HapticFeedback.lightImpact();
-    if (_listening) _stopVoice();
+    if (_listening) unawaited(_stopVoice(commitCloud: false));
     _chat.permissionContext = context;
     final img = _screenBytes != null ? base64Encode(_screenBytes!) : null;
     _input.clear();
@@ -261,36 +283,56 @@ class _OvaAssistantPanelState extends ConsumerState<OvaAssistantPanel> {
 
   Future<void> _toggleVoice() async {
     if (_listening) {
-      _stopVoice();
+      await _stopVoice(commitCloud: true);
       return;
     }
     HapticFeedback.lightImpact();
-    if (!_speechReady) {
-      try {
-        _speechReady = await _speech.initialize(
-          onStatus: (s) {
-            if ((s == 'done' || s == 'notListening') && mounted) setState(() => _listening = false);
-          },
-          onError: (_) {
-            if (mounted) setState(() => _listening = false);
-          },
-        );
-      } catch (_) {
-        _speechReady = false;
-      }
+
+    PermissionStatus? mic;
+    try {
+      mic = await Permission.microphone.request();
+    } catch (_) {
+      mic = null;
     }
-    if (!_speechReady) {
-      if (!mounted) return;
-      final mic = await Permission.microphone.status;
-      if (!mounted) return;
+    if (!mounted) return;
+    if (mic != null && !mic.isGranted) {
       _snack(
         mic.isPermanentlyDenied
             ? 'Microphone is off for Oneova. Turn it on in Settings to talk to Ova.'
-            : 'Voice input is not available on this device. You can still type.',
+            : 'Microphone permission is needed to talk to Ova.',
         action: mic.isPermanentlyDenied ? SnackBarAction(label: 'Settings', onPressed: openAppSettings) : null,
       );
       return;
     }
+
+    final got = await MicCoordinator.instance.acquire(
+      MicUser.voiceTyping,
+      onPreempted: () async {
+        await _stopVoice(commitCloud: false, releaseLease: false);
+        _micLease = null;
+      },
+      onInterruption: (i) {
+        if (i == MicInterruption.heldByOtherApp && _listening && mounted) {
+          _snack('Another app is using the microphone. Dictation paused.');
+          unawaited(_stopVoice(commitCloud: true));
+        }
+      },
+    );
+    if (got is MicBusy) {
+      if (mounted) _snack(got.message);
+      return;
+    }
+    _micLease = got as MicLease;
+    if (!mounted) {
+      await _micLease?.release();
+      _micLease = null;
+      return;
+    }
+
+    final existing = _input.text.trim();
+    _dictationPrefix = existing.isNotEmpty ? '$existing ' : '';
+    _usingCloud = false;
+
     setState(() {
       _listening = true;
       _voiceHint = false;
@@ -298,26 +340,73 @@ class _OvaAssistantPanelState extends ConsumerState<OvaAssistantPanel> {
       _voiceLevels.clear();
       _listenStart = DateTime.now();
     });
-    await _speech.listen(
-      listenOptions: stt.SpeechListenOptions(partialResults: true, cancelOnError: true),
+
+    final started = await _speech.listen(
+      owner: this,
+      options: stt.SpeechListenOptions(partialResults: true, cancelOnError: true),
+      onStatus: (s) {
+        if (!mounted || !_listening || _usingCloud) return;
+        if (s == 'done' || s == 'notListening' || s == 'preempted') {
+          unawaited(_stopVoice(commitCloud: false));
+        }
+      },
+      onError: (err) {
+        if (!mounted || !_listening || _usingCloud) return;
+        if (err.errorMsg == 'error_no_match' || err.errorMsg == 'error_speech_timeout') {
+          unawaited(_stopVoice(commitCloud: false));
+        } else {
+          unawaited(_startCloudDictation());
+        }
+      },
       // Android reports roughly -2…10 dB; map it to 0..1 for the waveform.
-      onSoundLevelChange: (level) {
-        if (!mounted || !_listening) return;
+      onSoundLevel: (level) {
+        if (!mounted || !_listening || _usingCloud) return;
         setState(() {
           _voiceLevels.add(((level + 2) / 12).clamp(0.05, 1.0));
           if (_voiceLevels.length > 140) _voiceLevels.removeRange(0, _voiceLevels.length - 140);
         });
       },
       onResult: (r) {
-        if (!mounted) return;
+        if (!mounted || !_listening || _usingCloud) return;
+        final combined = '$_dictationPrefix${r.recognizedWords}';
         setState(() {
-          _input.text = r.recognizedWords;
+          _input.text = combined;
           _input.selection = TextSelection.collapsed(offset: _input.text.length);
         });
         // Voice typing: words go into the field and get tidied; the user sends.
-        if (r.finalResult && r.recognizedWords.trim().isNotEmpty) _tidyDictation(r.recognizedWords.trim());
+        if (r.finalResult && combined.trim().isNotEmpty) _tidyDictation(combined.trim());
       },
     );
+    if (!started && mounted && _listening) {
+      await _startCloudDictation();
+    }
+  }
+
+  Future<void> _startCloudDictation() async {
+    if (_usingCloud || !mounted || !_listening) return;
+    await _speech.cancel(this);
+    _usingCloud = true;
+    _cloud ??= CloudDictation();
+    final ok = await _cloud!.start(
+      autoStopOnSilence: true,
+      onLevel: (level) {
+        if (!mounted || !_listening || !_usingCloud) return;
+        setState(() {
+          _voiceLevels.add(level.clamp(0.05, 1.0));
+          if (_voiceLevels.length > 140) _voiceLevels.removeRange(0, _voiceLevels.length - 140);
+        });
+      },
+      onSilenceCommit: () => unawaited(_stopVoice(commitCloud: true)),
+    );
+    if (!ok) {
+      _usingCloud = false;
+      if (mounted) {
+        _snack('Voice input is not available on this device. You can still type.');
+      }
+      await _stopVoice(commitCloud: false);
+    } else if (mounted) {
+      setState(() {});
+    }
   }
 
   /// Punctuation, filler words and small fixes via the `voiceTidy` function
@@ -353,9 +442,38 @@ class _OvaAssistantPanelState extends ConsumerState<OvaAssistantPanel> {
     });
   }
 
-  void _stopVoice() {
-    _speech.stop();
-    if (mounted) setState(() => _listening = false);
+  Future<void> _stopVoice({bool commitCloud = true, bool releaseLease = true}) async {
+    final wasCloud = _usingCloud;
+    _usingCloud = false;
+    if (mounted && _listening) setState(() => _listening = false);
+    await _speech.stop(this);
+    if (wasCloud) {
+      if (commitCloud) {
+        if (mounted) setState(() => _tidying = true);
+        try {
+          final words = (await _cloud?.stopAndTranscribe() ?? '').trim();
+          if (mounted && words.isNotEmpty) {
+            final combined = '$_dictationPrefix$words';
+            setState(() {
+              _input.text = combined;
+              _input.selection = TextSelection.collapsed(offset: combined.length);
+            });
+            await _tidyDictation(combined.trim());
+          }
+        } catch (_) {
+          // Keep existing input.
+        } finally {
+          if (mounted) setState(() => _tidying = false);
+        }
+      } else {
+        await _cloud?.cancel();
+      }
+    }
+    if (releaseLease) {
+      final lease = _micLease;
+      _micLease = null;
+      await lease?.release();
+    }
   }
 
   void _snack(String msg, {SnackBarAction? action}) {
@@ -374,7 +492,7 @@ class _OvaAssistantPanelState extends ConsumerState<OvaAssistantPanel> {
   Widget build(BuildContext context) {
     final media = MediaQuery.of(context);
     final body = Column(
-      mainAxisSize: MainAxisSize.min,
+      mainAxisSize: widget.isSheet ? MainAxisSize.min : MainAxisSize.max,
       children: [
         if (widget.isSheet) _grabber(context),
         _header(context),
@@ -392,6 +510,23 @@ class _OvaAssistantPanelState extends ConsumerState<OvaAssistantPanel> {
               ),
             ),
           )
+        else if (_agentWorkspaceMode)
+          if (widget.isSheet)
+            SizedBox(
+              height: (media.size.height * 0.70).clamp(360.0, 680.0),
+              child: OvaAgentWorkspace(
+                compactSheet: true,
+                screenContextLabel: widget.screenContextLabel,
+                onOpenConnectWorkstation: () => _navigate('/connect'),
+              ),
+            )
+          else
+            Expanded(
+              child: OvaAgentWorkspace(
+                screenContextLabel: widget.screenContextLabel,
+                onOpenConnectWorkstation: () => _navigate('/connect'),
+              ),
+            )
         else ...[
           Flexible(child: _chat.isEmpty ? _emptyState(context) : _conversation(context)),
           _composer(context),
@@ -459,7 +594,7 @@ class _OvaAssistantPanelState extends ConsumerState<OvaAssistantPanel> {
     if (_voiceMode == enable) return;
     HapticFeedback.selectionClick();
     if (enable && _listening) {
-      _stopVoice();
+      unawaited(_stopVoice(commitCloud: false));
     } else if (!enable) {
       ref.read(ovaOverlayVoiceSessionProvider.notifier).endSession();
     }
@@ -469,9 +604,11 @@ class _OvaAssistantPanelState extends ConsumerState<OvaAssistantPanel> {
   Widget _header(BuildContext context) {
     final status = _voiceMode
         ? 'Voice overlay'
-        : (_listening
-            ? 'Listening…'
-            : (_chat.busy ? 'Working…' : 'Quick overlay'));
+        : (_agentWorkspaceMode
+            ? 'Synced Multi-Agent'
+            : (_listening
+                ? 'Listening…'
+                : (_chat.busy ? 'Working…' : 'Quick overlay')));
     return SizedBox(
       height: 46,
       child: Row(
@@ -496,7 +633,7 @@ class _OvaAssistantPanelState extends ConsumerState<OvaAssistantPanel> {
                 ),
                 Row(
                   children: [
-                    _StatusDot(active: _voiceMode || _listening || _chat.busy),
+                    _StatusDot(active: _voiceMode || _agentWorkspaceMode || _listening || _chat.busy),
                     const SizedBox(width: 5),
                     Flexible(
                       child: Text(
@@ -511,7 +648,7 @@ class _OvaAssistantPanelState extends ConsumerState<OvaAssistantPanel> {
               ],
             ),
           ),
-          // Compact [Chat | Voice] Mode Segmented Switcher
+          // Compact [Agent | Quick | Voice] Mode Segmented Switcher
           Container(
             height: 28,
             padding: const EdgeInsets.all(2),
@@ -524,10 +661,22 @@ class _OvaAssistantPanelState extends ConsumerState<OvaAssistantPanel> {
               mainAxisSize: MainAxisSize.min,
               children: [
                 _OverlayModeChip(
-                  icon: Icons.chat_bubble_outline_rounded,
-                  label: 'Chat',
-                  selected: !_voiceMode,
-                  onTap: () => _setVoiceMode(false),
+                  icon: Icons.hub_rounded,
+                  label: 'Agent',
+                  selected: !_voiceMode && _agentWorkspaceMode,
+                  onTap: () {
+                    _setVoiceMode(false);
+                    setState(() => _agentWorkspaceMode = true);
+                  },
+                ),
+                _OverlayModeChip(
+                  icon: Icons.bolt_rounded,
+                  label: 'Quick',
+                  selected: !_voiceMode && !_agentWorkspaceMode,
+                  onTap: () {
+                    _setVoiceMode(false);
+                    setState(() => _agentWorkspaceMode = false);
+                  },
                 ),
                 _OverlayModeChip(
                   icon: Icons.graphic_eq_rounded,
@@ -540,7 +689,7 @@ class _OvaAssistantPanelState extends ConsumerState<OvaAssistantPanel> {
             ),
           ),
           const SizedBox(width: 4),
-          if (!_voiceMode && !_chat.isEmpty)
+          if (!_voiceMode && !_agentWorkspaceMode && !_chat.isEmpty)
             IconButton(
               tooltip: 'Clear quick chat',
               visualDensity: VisualDensity.compact,
@@ -1236,7 +1385,7 @@ class _OvaAssistantPanelState extends ConsumerState<OvaAssistantPanel> {
             visualDensity: VisualDensity.compact,
             icon: Icon(Icons.close_rounded, size: 18, color: context.textSecondary),
             onPressed: () {
-              _stopVoice();
+              unawaited(_stopVoice(commitCloud: false));
               setState(() => _input.clear());
             },
           ),
@@ -1244,12 +1393,12 @@ class _OvaAssistantPanelState extends ConsumerState<OvaAssistantPanel> {
             tooltip: 'Send now',
             visualDensity: VisualDensity.compact,
             icon: const Icon(Icons.send_rounded, size: 18, color: AppColors.brandBlue),
-            onPressed: _input.text.trim().isEmpty
+            onPressed: (_input.text.trim().isEmpty && !_usingCloud)
                 ? null
-                : () {
+                : () async {
                     HapticFeedback.lightImpact();
-                    _stopVoice();
-                    _send();
+                    await _stopVoice(commitCloud: true);
+                    if (mounted) _send();
                   },
           ),
         ],

@@ -82,4 +82,7 @@ flutter {
 
 dependencies {
     coreLibraryDesugaring("com.android.tools:desugar_jdk_libs:2.1.4")
+    // NormalTheme (res/values*/styles.xml) inherits Theme.MaterialComponents; this was
+    // no longer pulled in by another dependency, so declare it directly.
+    implementation("com.google.android.material:material:1.12.0")
 }

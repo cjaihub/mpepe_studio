@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import '../../../backend/social/services/story_service.dart';
@@ -56,10 +57,17 @@ class StoryTray extends ConsumerWidget {
             Stack(
               alignment: Alignment.bottomRight,
               children: [
-                const CircleAvatar(
-                  radius: 30,
-                  backgroundImage: NetworkImage('https://i.pravatar.cc/150?u=Me'),
-                ),
+                Builder(builder: (context) {
+                  final photo = FirebaseAuth.instance.currentUser?.photoURL;
+                  return CircleAvatar(
+                    radius: 30,
+                    backgroundColor: context.surfaceMid,
+                    backgroundImage: photo != null && photo.isNotEmpty ? NetworkImage(photo) : null,
+                    child: photo != null && photo.isNotEmpty
+                        ? null
+                        : Icon(Icons.person_rounded, color: context.textMuted),
+                  );
+                }),
                 Container(
                   padding: const EdgeInsets.all(2),
                   decoration: BoxDecoration(

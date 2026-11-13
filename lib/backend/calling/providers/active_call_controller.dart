@@ -14,6 +14,7 @@ import '../models/call_model.dart';
 import '../models/call_participant.dart';
 import '../services/call_pip_service.dart';
 import '../services/callkit_service.dart';
+import '../../social/services/video_playback_manager.dart';
 import 'call_media_service.dart';
 import 'call_signaling_service.dart';
 import 'webrtc_connection_manager.dart';
@@ -187,10 +188,12 @@ class ActiveCallController extends Notifier<ActiveCallState> {
     _resetTimer?.cancel();
     _finishing = false;
     state = const ActiveCallState(phase: CallPhase.outgoing);
+    ref.read(videoPlaybackManagerProvider).setCallActive(true);
     try {
       await _askBluetooth();
       await _media.initializeMedia(video: isVideo);
     } catch (e) {
+      ref.read(videoPlaybackManagerProvider).setCallActive(false);
       state = const ActiveCallState();
       throw StateError('Allow microphone${isVideo ? ' and camera' : ''} access to call.');
     }
@@ -262,6 +265,7 @@ class ActiveCallController extends Notifier<ActiveCallState> {
     }
     _resetTimer?.cancel();
     _finishing = false;
+    ref.read(videoPlaybackManagerProvider).setCallActive(true);
     state = ActiveCallState(phase: CallPhase.incoming, call: call);
     _watch(call.id);
     // The caller's own timeout normally ends the ring; this covers a caller
@@ -310,6 +314,7 @@ class ActiveCallController extends Notifier<ActiveCallState> {
     if (call == null) return;
     _resetTimer?.cancel();
     _finishing = false;
+    ref.read(videoPlaybackManagerProvider).setCallActive(true);
     if (state.call?.id != call.id) {
       state = ActiveCallState(phase: CallPhase.connecting, call: call);
       _watch(call.id);
@@ -440,6 +445,27 @@ class ActiveCallController extends Notifier<ActiveCallState> {
     if (replaced != null) {
       await _mesh.replaceVideoTrack(replaced);
     }
+  }
+
+  /// Shares device screen in real time while keeping camera preview active ("stay camera").
+  Future<void> toggleScreenShare() async {
+    final media = ref.read(callMediaServiceProvider);
+    HapticFeedback.selectionClick();
+    try {
+      if (media.isScreenSharing) {
+        final camTrack = await _media.stopScreenShare();
+        await _mesh.replaceVideoTrack(camTrack);
+      } else {
+        final screenTrack = await _media.startScreenShare();
+        if (screenTrack != null) {
+          await _mesh.replaceVideoTrack(screenTrack);
+        }
+      }
+    } catch (e) {
+      debugPrint('[Call] toggleScreenShare error: $e');
+      state = state.copyWith(errorMessage: 'Could not toggle screen share.');
+    }
+    _syncDevice();
   }
 
   /// Toggles zero-cost Studio Voice Clean (hardware + WebRTC DSP) for crystal
@@ -723,6 +749,9 @@ class ActiveCallController extends Notifier<ActiveCallState> {
     await _media.disposeMedia();
     _finishing = false;
 
+    // Releases background media muting so reels/audio resume smoothly
+    ref.read(videoPlaybackManagerProvider).setCallActive(false);
+
     state = ActiveCallState(
       phase: CallPhase.ended,
       call: call,
@@ -742,6 +771,7 @@ class ActiveCallController extends Notifier<ActiveCallState> {
   }
 
   void _cancelSubs() {
+    ref.read(videoPlaybackManagerProvider).setCallActive(false);
     _callSub?.cancel();
     _participantsSub?.cancel();
     _netSub?.cancel();

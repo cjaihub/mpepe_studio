@@ -1,4 +1,5 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../models/search_models.dart';
 
@@ -9,44 +10,66 @@ final searchServiceProvider = Provider<SearchService>((ref) {
 class SearchService {
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
 
+  /// Prefix suggestions from real accounts and hashtags.
   Future<List<AutocompleteResult>> getAutocomplete(String query) async {
-    await Future.delayed(const Duration(milliseconds: 150));
-    if (query.isEmpty) return [];
-
-    return [
-      AutocompleteResult(text: '${query}tutorials', type: AutocompleteResultType.topic),
-      AutocompleteResult(text: '#${query}vibes', type: AutocompleteResultType.hashtag),
-      AutocompleteResult(text: '@${query}creator', type: AutocompleteResultType.username),
-    ];
+    final q = query.trim().toLowerCase().replaceFirst(RegExp(r'^[@#]'), '');
+    if (q.isEmpty) return [];
+    final end = '$q\uf8ff';
+    final out = <AutocompleteResult>[];
+    try {
+      final users = await _firestore
+          .collection('users')
+          .where('username', isGreaterThanOrEqualTo: q)
+          .where('username', isLessThan: end)
+          .limit(5)
+          .get();
+      for (final d in users.docs) {
+        final u = d.data()['username'] as String?;
+        if (u == null || u.isEmpty) continue;
+        out.add(AutocompleteResult(
+          text: '@$u',
+          type: AutocompleteResultType.username,
+          subtitle: d.data()['displayName'] as String?,
+          imageUrl: d.data()['profilePhotoUrl'] as String?,
+        ));
+      }
+      final tags = await _firestore
+          .collection('hashtags')
+          .where(FieldPath.documentId, isGreaterThanOrEqualTo: q)
+          .where(FieldPath.documentId, isLessThan: end)
+          .limit(5)
+          .get();
+      for (final d in tags.docs) {
+        out.add(AutocompleteResult(text: '#${d.id}', type: AutocompleteResultType.hashtag));
+      }
+    } catch (e) {
+      debugPrint('Autocomplete error: $e');
+    }
+    return out;
   }
 
+  /// Most viewed hashtags right now; empty until real activity exists.
   Future<List<TrendingItem>> getTrending() async {
-    await Future.delayed(const Duration(milliseconds: 200));
-    return [
-      TrendingItem(
-        id: 'trend_1',
-        type: TrendingItemType.hashtag,
-        title: '#ONEROVA2026',
-        subtitle: 'Trending worldwide',
-        interactionCount: 1500000,
-      ),
-      TrendingItem(
-        id: 'trend_2',
-        type: TrendingItemType.sound,
-        title: 'Epic Cinematic Theme',
-        subtitle: 'Trending in Filmmaking',
-        interactionCount: 450000,
-        imageUrl: 'https://picsum.photos/100?random=1',
-      ),
-      TrendingItem(
-        id: 'trend_3',
-        type: TrendingItemType.creator,
-        title: '@filmmaker_pro',
-        subtitle: 'Trending Creator',
-        interactionCount: 89000,
-        imageUrl: 'https://i.pravatar.cc/100',
-      ),
-    ];
+    try {
+      final snap = await _firestore
+          .collection('hashtags')
+          .orderBy('totalViews', descending: true)
+          .limit(10)
+          .get();
+      return [
+        for (final d in snap.docs)
+          TrendingItem(
+            id: d.id,
+            type: TrendingItemType.hashtag,
+            title: '#${d.id}',
+            subtitle: '${(d.data()['totalVideos'] as num?)?.toInt() ?? 0} videos',
+            interactionCount: (d.data()['totalViews'] as num?)?.toInt() ?? 0,
+          ),
+      ];
+    } catch (e) {
+      debugPrint('Trending error: $e');
+      return [];
+    }
   }
 
   Future<List<SearchResult>> search(String query, {List<SearchResultType>? filters}) async {
@@ -122,7 +145,7 @@ class SearchService {
         }
       }
     } catch (e) {
-      print('Search error: $e');
+      debugPrint('Search error: $e');
     }
 
     results.sort((a, b) => b.relevanceScore.compareTo(a.relevanceScore));

@@ -1,64 +1,56 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:timeago/timeago.dart' as timeago;
+import '../backend/notification_service.dart';
 import '../shared/theme/app_theme.dart';
 import '../shared/widgets/studio_background.dart';
 
-class HubActivityScreen extends StatelessWidget {
+class HubActivityScreen extends ConsumerWidget {
   const HubActivityScreen({super.key});
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
+    final notificationsAsync = ref.watch(notificationProvider);
+
     return StudioBackground(
       backgroundIcons: const [Icons.hub_outlined, Icons.people_outline, Icons.dashboard_outlined],
       child: SafeArea(
         child: ListView(
           padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 24),
           children: [
-            Text('Activity', style: TextStyle(fontSize: 23, fontWeight: FontWeight.w900, letterSpacing: -0.4, color: Theme.of(context).colorScheme.onSurface)),
-            const SizedBox(height: 8),
-            Text('Across every module in your studio', style: TextStyle(color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.6), fontSize: 13)),
+            Text('Activity', style: TextStyle(fontSize: 22, fontWeight: FontWeight.w800, letterSpacing: -0.4, color: context.textPrimary)),
+            const SizedBox(height: 6),
+            Text('Across every module in your studio', style: TextStyle(color: context.textSecondary, fontSize: 12.5)),
             const SizedBox(height: 18),
-            _buildActivityRow(
-              context: context,
-              title: 'Riverside Shorts crossed 250K subscribers',
-              meta: 'YouTube · 2 hours ago',
-              icon: Icons.play_arrow,
-              iconColor: Theme.of(context).colorScheme.primary,
-            ),
-            _buildActivityRow(
-              context: context,
-              title: 'Episode 12 rough cut ready for review',
-              meta: 'Video Production · 5 hours ago · Amara',
-              icon: Icons.movie,
-              iconColor: Colors.deepPurple,
-            ),
-            _buildActivityRow(
-              context: context,
-              title: '"Late Nights" finished mastering',
-              meta: 'Audio Production · 1 day ago',
-              icon: Icons.graphic_eq,
-              iconColor: Colors.teal,
-            ),
-            _buildActivityRow(
-              context: context,
-              title: 'Ova suggests posting Thursday at 6 PM for peak reach',
-              meta: 'AI Assistant · 1 day ago',
-              icon: Icons.auto_awesome,
-              isAi: true,
-            ),
-            _buildActivityRow(
-              context: context,
-              title: 'Upload complete — "How I Edit Cinematic Travel Vlogs"',
-              meta: 'YouTube · 3 days ago',
-              icon: Icons.cloud_done,
-              iconColor: Theme.of(context).colorScheme.primary,
-            ),
-            _buildActivityRow(
-              context: context,
-              title: 'Amara K. joined as Video Editor',
-              meta: 'Team · 4 days ago',
-              icon: Icons.person_add,
-              iconColor: Theme.of(context).colorScheme.surface,
-              iconWidgetColor: Theme.of(context).colorScheme.onSurface,
+            notificationsAsync.when(
+              data: (items) {
+                if (items.isEmpty) {
+                  return Padding(
+                    padding: const EdgeInsets.symmetric(vertical: 32),
+                    child: Center(
+                      child: Text(
+                        'No studio activity yet.',
+                        style: TextStyle(color: context.textMuted, fontSize: 13),
+                      ),
+                    ),
+                  );
+                }
+                return Column(
+                  children: items.map((n) {
+                    final isAi = n.type == 'ai' || n.title.toLowerCase().contains('ova');
+                    return _buildActivityRow(
+                      context: context,
+                      title: n.title.isNotEmpty ? n.title : n.message,
+                      meta: '${n.type.toUpperCase()} · ${timeago.format(n.createdAt)}',
+                      icon: isAi ? Icons.auto_awesome : Icons.notifications_outlined,
+                      iconColor: AppColors.brandBlue,
+                      isAi: isAi,
+                    );
+                  }).toList(),
+                );
+              },
+              loading: () => const Center(child: Padding(padding: EdgeInsets.all(24), child: CircularProgressIndicator(color: AppColors.brandBlue))),
+              error: (e, _) => Center(child: Text('Error loading activity: $e', style: TextStyle(color: context.textSecondary))),
             ),
           ],
         ),

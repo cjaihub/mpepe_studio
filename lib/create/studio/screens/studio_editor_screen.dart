@@ -5,6 +5,7 @@ import 'dart:math' as math;
 
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/foundation.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -22,13 +23,16 @@ import '../services/studio_clip_tools.dart';
 import '../services/studio_effects.dart';
 import '../services/studio_faces.dart';
 import '../services/studio_media.dart';
+import '../services/studio_cutout.dart';
 import '../services/studio_playback.dart';
 import '../services/studio_project_store.dart';
 import '../services/studio_publisher.dart';
+import '../../widgets/phone_music_sheet.dart';
 import '../services/studio_renderer.dart';
 import '../services/studio_stabilizer.dart';
 import '../services/studio_text_painter.dart';
 import '../widgets/studio_export_sheet.dart';
+import '../services/studio_export_extras.dart';
 import '../widgets/studio_panels.dart';
 import '../widgets/studio_preview.dart';
 import '../widgets/studio_pro_panels.dart';
@@ -80,6 +84,7 @@ class _StudioEditorScreenState extends ConsumerState<StudioEditorScreen> {
   @override
   void initState() {
     super.initState();
+    _watchLifecycle();
     _pb.warmUp();
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _save();
@@ -111,9 +116,28 @@ class _StudioEditorScreenState extends ConsumerState<StudioEditorScreen> {
 
   @override
   void dispose() {
-    _autosave?.cancel();
+    // Leaving with an edit still waiting: save it now, not never.
+    if (_autosave?.isActive ?? false) {
+      _autosave!.cancel();
+      final store = ref.read(studioProjectStoreProvider.notifier);
+      final p = _p;
+      if (p.clips.isNotEmpty) unawaited(store.save(p).then((_) {}, onError: (Object e) => debugPrint('[StudioEditor] final save failed: $e')));
+    }
+    _lifecycle?.dispose();
     _pb.dispose();
     super.dispose();
+  }
+
+  /// Saves right away when the app goes to the background (it may be killed).
+  AppLifecycleListener? _lifecycle;
+  void _watchLifecycle() {
+    _lifecycle = AppLifecycleListener(onPause: _flushSave, onInactive: _flushSave, onDetach: _flushSave);
+  }
+
+  void _flushSave() {
+    if (!(_autosave?.isActive ?? false)) return;
+    _autosave!.cancel();
+    unawaited(_save());
   }
 
   // ── History ────────────────────────────────────────────────────────────
@@ -450,14 +474,15 @@ class _StudioEditorScreenState extends ConsumerState<StudioEditorScreen> {
 
   Future<void> _addMusic() async {
     _pb.pause();
-    final file = await FilePicker.pickFile(type: FileType.audio);
-    if (file?.path == null) return;
+    // The phone's music library (with a Files button for anything else).
+    final song = await showPhoneMusicSheet(context);
+    if (song == null) return;
     try {
-      final probe = await StudioMedia.probeAudio(file!.path!);
+      final probe = await StudioMedia.probeAudio(song.path);
       final remaining = math.max(1000, _p.durationMs - _pb.posMs);
       final a = StudioAudio.create(
-        path: file.path!,
-        title: file.name.replaceAll(RegExp(r'\.[^.]+$'), ''),
+        path: song.path,
+        title: song.title,
         durationMs: probe.duration.inMilliseconds,
         endMs: math.min(probe.duration.inMilliseconds, remaining),
         offsetMs: _pb.posMs,
@@ -830,25 +855,38 @@ class _StudioEditorScreenState extends ConsumerState<StudioEditorScreen> {
   Future<void> _export() async {
     _pb.pause();
     if (_p.clips.isEmpty) return;
-    final choice = await showStudioExportSheet(context, _p);
+    final choice = await showStudioExportSheet(context, _p, allowGif: widget.args.target == StudioTarget.device);
     if (choice == null || !mounted) return;
     if (choice.video != null) _p = _p.copyWith(exportShortSide: choice.video!.shortSide);
     await _save();
     if (!mounted) return;
 
+    final gif = choice.gif;
+    // The mark is added to the rendered copy only, never to the project.
+    final out = choice.watermark
+        ? StudioExportExtras.withWatermark(_p, handle: FirebaseAuth.instance.currentUser?.displayName)
+        : _p;
     final path = await runStudioTask<String>(
       context,
-      title: _isPhoto ? 'Exporting photo' : 'Exporting video',
+      title: _isPhoto ? 'Exporting photo' : (gif != null ? 'Making GIF' : 'Exporting video'),
       onCancel: _isPhoto ? null : OneovaMediaEngine.cancel,
       describeError: (e) => e is MediaEngineException ? 'The export stopped: ${e.message}' : '$e',
       task: (onProgress) async {
         if (_isPhoto) {
           onProgress(0.3);
-          return StudioRenderer.exportPhoto(_p, maxLongSide: choice.photoLongSide);
+          return StudioRenderer.exportPhoto(out, maxLongSide: choice.photoLongSide);
+        }
+        if (gif != null) {
+          final sub = OneovaMediaEngine.progress.listen((v) => onProgress(v * 0.6));
+          try {
+            return await StudioExportExtras.exportGif(out, gif, onProgress: onProgress);
+          } finally {
+            await sub.cancel();
+          }
         }
         final sub = OneovaMediaEngine.progress.listen(onProgress);
         try {
-          return await StudioRenderer.exportVideo(_p, choice.video!);
+          return await StudioRenderer.exportVideo(out, choice.video!);
         } finally {
           await sub.cancel();
         }
@@ -860,7 +898,9 @@ class _StudioEditorScreenState extends ConsumerState<StudioEditorScreen> {
       try {
         final ok = (await PhotoManager.requestPermissionExtend()).hasAccess;
         if (ok) {
-          if (_isPhoto) {
+          if (gif != null) {
+            await PhotoManager.editor.saveImageWithPath(path, title: 'Oneova_${DateTime.now().millisecondsSinceEpoch}.gif');
+          } else if (_isPhoto) {
             await PhotoManager.editor.saveImageWithPath(path, title: 'Oneova_${DateTime.now().millisecondsSinceEpoch}.jpg');
           } else {
             await PhotoManager.editor.saveVideo(File(path), title: 'Oneova_${DateTime.now().millisecondsSinceEpoch}.mp4');
@@ -910,6 +950,7 @@ class _StudioEditorScreenState extends ConsumerState<StudioEditorScreen> {
             isVideo: !_isPhoto,
             initialCoverPath: cover,
             initialCoverTimeMs: _p.coverMs,
+            remixOf: _p.remixOf,
           ),
         ));
     }
@@ -990,6 +1031,10 @@ class _StudioEditorScreenState extends ConsumerState<StudioEditorScreen> {
                     onAddText: () => setState(() => _panel = _Panel.text),
                     onCover: _setCover,
                     onToggleMuteAll: _toggleMuteAll,
+                    onReorderClips: (clips) {
+                      _set(_p.copyWith(clips: clips));
+                      _toast('Clips reordered');
+                    },
                   ),
                 ),
               if (!_fullscreen) _bottom(),
@@ -1504,9 +1549,84 @@ class _StudioEditorScreenState extends ConsumerState<StudioEditorScreen> {
     }
   }
 
+  /// Photo background removal: on-device subject segmentation, then the
+  /// chosen background (transparent, blur, a colour or another photo).
+  Future<void> _removeBackground() async {
+    final clip = _clip;
+    if (clip == null || !clip.isImage) {
+      _toast('Select a photo to remove its background');
+      return;
+    }
+    _pb.pause();
+    final cut = await runStudioTask<String>(
+      context,
+      title: 'Removing background',
+      task: (onProgress) async {
+        onProgress(0.2);
+        final r = await StudioCutout.cutout(clip.path);
+        onProgress(1);
+        return r;
+      },
+    );
+    if (cut == null || !mounted) return;
+    final choice = await showModalBottomSheet<(CutoutBackground, Color)>(
+      context: context,
+      backgroundColor: context.surface,
+      builder: (ctx) {
+        Widget tile(IconData icon, String label, (CutoutBackground, Color) v) => ListTile(
+              leading: Icon(icon, color: AppColors.brandBlue),
+              title: Text(label, style: TextStyle(color: ctx.textPrimary, fontWeight: FontWeight.w600)),
+              onTap: () => Navigator.pop(ctx, v),
+            );
+        const colours = <(String, Color)>[
+          ('White', Color(0xFFFFFFFF)),
+          ('Black', Color(0xFF111114)),
+          ('Oneova blue', AppColors.brandBlue),
+          ('Pink', AppColors.brandPink),
+          ('Studio green', Color(0xFF00B140)),
+        ];
+        return SafeArea(
+          child: SingleChildScrollView(
+            child: Column(mainAxisSize: MainAxisSize.min, children: [
+              tile(Icons.layers_outlined, 'Transparent (PNG)', (CutoutBackground.transparent, const Color(0x00000000))),
+              tile(Icons.blur_on_rounded, 'Blur the background', (CutoutBackground.blur, const Color(0x00000000))),
+              tile(Icons.image_outlined, 'Photo from my phone', (CutoutBackground.image, const Color(0x00000000))),
+              for (final c in colours) tile(Icons.circle, c.$1, (CutoutBackground.colour, c.$2)),
+            ]),
+          ),
+        );
+      },
+    );
+    if (choice == null || !mounted) return;
+    String? image;
+    if (choice.$1 == CutoutBackground.image) {
+      image = (await FilePicker.pickFile(type: FileType.image))?.path;
+      if (image == null || !mounted) return;
+    }
+    final out = await runStudioTask<String>(
+      context,
+      title: 'Applying background',
+      task: (onProgress) => StudioCutout.compose(
+        originalPath: clip.path,
+        cutoutPath: cut,
+        background: choice.$1,
+        colour: choice.$2,
+        imagePath: image,
+      ),
+    );
+    if (out == null || !mounted) return;
+    final fresh = await StudioMedia.clipFromFile(out, isImage: true);
+    _set(_p.copyWith(clips: [
+      for (final c in _p.clips)
+        c.id == clip.id ? c.copyWith(path: out, sourceWidth: fresh.sourceWidth, sourceHeight: fresh.sourceHeight) : c,
+    ]));
+    _toast('Background removed');
+  }
+
   Widget _mainBar() {
     if (_isPhoto) {
       return _bar([
+        StudioToolButton(icon: Icons.person_remove_outlined, label: 'Cut out', onTap: _removeBackground),
         StudioToolButton(icon: Icons.crop_rounded, label: 'Crop', onTap: () => _openClipPanel(_Panel.crop)),
         StudioToolButton(icon: Icons.rotate_90_degrees_cw_outlined, label: 'Transform', onTap: () => _openClipPanel(_Panel.transform)),
         StudioToolButton(icon: Icons.face_retouching_natural_rounded, label: 'Retouch', onTap: _openRetouch),
@@ -1544,6 +1664,7 @@ class _StudioEditorScreenState extends ConsumerState<StudioEditorScreen> {
       if (video) StudioToolButton(icon: Icons.volume_up_outlined, label: 'Volume', onTap: () => setState(() => _panel = _Panel.volume)),
       if (video) StudioToolButton(icon: Icons.speed_rounded, label: 'Speed', onTap: () => setState(() => _panel = _Panel.speed)),
       if (!video) StudioToolButton(icon: Icons.timer_outlined, label: 'Duration', onTap: () => setState(() => _panel = _Panel.duration)),
+      if (!video) StudioToolButton(icon: Icons.person_remove_outlined, label: 'Cut out', onTap: _removeBackground),
       StudioToolButton(icon: Icons.crop_rounded, label: 'Crop', onTap: () => setState(() => _panel = _Panel.crop)),
       StudioToolButton(icon: Icons.rotate_90_degrees_cw_outlined, label: 'Transform', onTap: () => setState(() => _panel = _Panel.transform)),
       StudioToolButton(icon: Icons.face_retouching_natural_rounded, label: 'Retouch', onTap: _openRetouch),

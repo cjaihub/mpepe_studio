@@ -36,6 +36,7 @@ android {
     compileSdkVersion 36
 
     defaultConfig {
+        consumerProguardFiles 'consumer-rules.pro'
         // GLES 3.0 (EGL image external ESSL3) is required by the processor;
         // CameraX needs 23.
         minSdkVersion 23
@@ -78,4 +79,9 @@ dependencies {
     implementation 'com.google.mlkit:face-mesh-detection:16.0.0-beta3'
     implementation 'com.google.mlkit:segmentation-selfie:16.0.0-beta6'
     implementation 'com.google.mlkit:pose-detection:18.0.0-beta5'
+
+    // 3D effects: physically based glTF rendering on faces.
+    def filament = '1.56.0'
+    implementation "com.google.android.filament:filament-android:$filament"
+    implementation "com.google.android.filament:gltfio-android:$filament"
 }

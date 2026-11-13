@@ -8,9 +8,11 @@ import 'package:google_fonts/google_fonts.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:speech_to_text/speech_to_text.dart' as stt;
 
+import '../../shared/audio/cloud_dictation.dart';
+import '../../shared/audio/mic_coordinator.dart';
+import '../../shared/audio/speech_hub.dart';
 import '../../shared/theme/app_theme.dart';
 import '../../shared/widgets/live_recording_waveform.dart';
-import '../../backend/voice_assistant_service.dart';
 import '../../backend/gemini/gemini_live_voice_service.dart';
 import '../../backend/security/secure_api_key_vault.dart';
 
@@ -68,12 +70,14 @@ class _OvaLiveCallingOverlayState extends ConsumerState<OvaLiveCallingOverlay>
     with SingleTickerProviderStateMixin {
   late AnimationController _pulseController;
   final ScrollController _scrollController = ScrollController();
-  final stt.SpeechToText _speech = stt.SpeechToText();
+  final SpeechHub _speech = SpeechHub.instance;
+  MicLease? _micLease;
+  CloudDictation? _cloud;
+  bool _usingCloud = false;
   // Real mic levels (0..1) for the live waveform while you talk.
   final List<double> _micLevels = [];
 
-  bool _isSpeechInitialized = false;
-  bool _isListening = true;
+  bool _isListening = false;
   bool _isMuted = false;
   bool _isSpeaking = false;
   String _currentSpokenSnippet = '';
@@ -94,7 +98,6 @@ class _OvaLiveCallingOverlayState extends ConsumerState<OvaLiveCallingOverlay>
     )..repeat(reverse: true);
 
     _loadCurrentUser();
-    _initLiveCallingSpeech();
 
     // Initial greeting from Digital Twin
     _transcriptions.add(
@@ -116,6 +119,8 @@ class _OvaLiveCallingOverlayState extends ConsumerState<OvaLiveCallingOverlay>
         ),
       );
       _triggerAiResponse(widget.initialPrompt!);
+    } else {
+      unawaited(_initLiveCallingSpeech());
     }
   }
 
@@ -129,71 +134,156 @@ class _OvaLiveCallingOverlayState extends ConsumerState<OvaLiveCallingOverlay>
     }
   }
 
-  Future<void> _initLiveCallingSpeech() async {
-    try {
-      final available = await _speech.initialize(
-        onStatus: (status) {
-          if (mounted) {
-            if (status == 'listening') {
-              setState(() => _isListening = true);
-            } else if (status == 'notListening' || status == 'done') {
-              if (!_isMuted && mounted) {
-                _restartListening();
-              }
-            }
-          }
-        },
-        onError: (error) {
-          debugPrint('[OvaLiveCalling] Speech error: $error');
-        },
-      );
-
-      if (mounted) {
-        setState(() => _isSpeechInitialized = available);
-        if (available && !_isMuted) {
-          _startListening();
+  Future<bool> _acquireMic() async {
+    if (_micLease != null && _micLease!.isActive) return true;
+    final got = await MicCoordinator.instance.acquire(
+      MicUser.aiLive,
+      onPreempted: () async {
+        await _releaseListening(keepLease: true);
+        _micLease = null;
+      },
+      onInterruption: (i) {
+        if (!mounted) return;
+        if (i == MicInterruption.heldByOtherApp) {
+          unawaited(_releaseListening(keepLease: true));
+        } else if (i == MicInterruption.released && !_isMuted && !_isSpeaking) {
+          unawaited(_startListening());
         }
-      }
-    } catch (e) {
-      debugPrint('[OvaLiveCalling] Speech initialization fallback: $e');
+      },
+    );
+    if (got is MicBusy) {
+      if (mounted) setState(() => _isListening = false);
+      return false;
+    }
+    _micLease = got as MicLease;
+    return true;
+  }
+
+  Future<void> _releaseListening({bool keepLease = false}) async {
+    _usingCloud = false;
+    await _speech.cancel(this);
+    await _cloud?.cancel();
+    if (!keepLease) {
+      final lease = _micLease;
+      _micLease = null;
+      await lease?.release();
+    }
+    if (mounted) setState(() => _isListening = false);
+  }
+
+  Future<void> _initLiveCallingSpeech() async {
+    if (!mounted || _isMuted || _isSpeaking) return;
+    await _startListening();
+  }
+
+  Future<void> _startListening() async {
+    if (!mounted || _isMuted || _isSpeaking) return;
+    if (!await _acquireMic()) return;
+    if (!mounted || _isMuted || _isSpeaking) {
+      await _releaseListening();
+      return;
+    }
+    _usingCloud = false;
+    setState(() => _isListening = true);
+
+    final started = await _speech.listen(
+      owner: this,
+      options: stt.SpeechListenOptions(
+        listenMode: stt.ListenMode.dictation,
+        partialResults: true,
+        cancelOnError: true,
+      ),
+      onStatus: (status) {
+        if (!mounted || _usingCloud) return;
+        if (status == 'listening') {
+          if (!_isListening) setState(() => _isListening = true);
+        } else if (status == 'notListening' || status == 'done') {
+          if (!_isMuted && !_isSpeaking && mounted) {
+            _restartListening();
+          }
+        } else if (status == 'preempted') {
+          if (mounted) setState(() => _isListening = false);
+        }
+      },
+      onError: (error) {
+        debugPrint('[OvaLiveCalling] Speech error: $error');
+        if (!mounted || _usingCloud || _isMuted || _isSpeaking) return;
+        if (error.errorMsg == 'error_no_match' || error.errorMsg == 'error_speech_timeout') {
+          _restartListening();
+        } else {
+          unawaited(_startCloudTurn());
+        }
+      },
+      onSoundLevel: (level) {
+        if (!mounted || _usingCloud) return;
+        setState(() {
+          _micLevels.add(((level + 2) / 12).clamp(0.05, 1.0));
+          if (_micLevels.length > 90) _micLevels.removeRange(0, _micLevels.length - 90);
+        });
+      },
+      onResult: (result) {
+        if (!mounted || _usingCloud) return;
+        setState(() {
+          _currentSpokenSnippet = result.recognizedWords;
+        });
+
+        if (result.finalResult && result.recognizedWords.trim().isNotEmpty) {
+          _handleUserSpeechCommitted(result.recognizedWords.trim());
+        }
+      },
+    );
+
+    if (!started && mounted && !_isMuted && !_isSpeaking) {
+      await _startCloudTurn();
     }
   }
 
-  void _startListening() {
-    if (!_isSpeechInitialized || _isMuted) return;
-    try {
-      _speech.listen(
-        onResult: (result) {
-          if (!mounted) return;
-          setState(() {
-            _currentSpokenSnippet = result.recognizedWords;
-          });
+  Future<void> _startCloudTurn() async {
+    if (_usingCloud || !mounted || _isMuted || _isSpeaking) return;
+    await _speech.cancel(this);
+    _usingCloud = true;
+    _cloud ??= CloudDictation();
+    final ok = await _cloud!.start(
+      autoStopOnSilence: true,
+      onLevel: (level) {
+        if (!mounted || !_usingCloud) return;
+        setState(() {
+          _micLevels.add(level.clamp(0.05, 1.0));
+          if (_micLevels.length > 90) _micLevels.removeRange(0, _micLevels.length - 90);
+        });
+      },
+      onSilenceCommit: () => unawaited(_finishCloudTurn()),
+    );
+    if (!ok) {
+      _usingCloud = false;
+      if (mounted) setState(() => _isListening = false);
+      return;
+    }
+    if (mounted) setState(() => _isListening = true);
+  }
 
-          if (result.finalResult && result.recognizedWords.isNotEmpty) {
-            _handleUserSpeechCommitted(result.recognizedWords);
-          }
-        },
-        listenOptions: stt.SpeechListenOptions(
-          listenMode: stt.ListenMode.dictation,
-        ),
-        onSoundLevelChange: (level) {
-          if (!mounted) return;
-          setState(() {
-            _micLevels.add(((level + 2) / 12).clamp(0.05, 1.0));
-            if (_micLevels.length > 90) _micLevels.removeRange(0, _micLevels.length - 90);
-          });
-        },
-      );
+  Future<void> _finishCloudTurn() async {
+    if (!_usingCloud) return;
+    _usingCloud = false;
+    String words = '';
+    try {
+      words = (await _cloud?.stopAndTranscribe() ?? '').trim();
     } catch (e) {
-      debugPrint('[OvaLiveCalling] Listen error: $e');
+      debugPrint('[OvaLiveCalling] CloudDictation error: $e');
+    }
+    if (!mounted) return;
+    if (words.isNotEmpty) {
+      _handleUserSpeechCommitted(words);
+    } else if (!_isMuted && !_isSpeaking) {
+      _restartListening();
     }
   }
 
   void _restartListening() {
-    if (_isMuted || !mounted) return;
+    if (_isMuted || _isSpeaking || !mounted) return;
     Future.delayed(const Duration(milliseconds: 300), () {
-      if (mounted && !_isMuted) {
-        _startListening();
+      if (mounted && !_isMuted && !_isSpeaking) {
+        unawaited(_startListening());
       }
     });
   }
@@ -217,9 +307,11 @@ class _OvaLiveCallingOverlayState extends ConsumerState<OvaLiveCallingOverlay>
     _triggerAiResponse(userWords);
   }
 
-  void _triggerAiResponse(String userPrompt) async {
+  Future<void> _triggerAiResponse(String userPrompt) async {
     setState(() => _isSpeaking = true);
     HapticFeedback.selectionClick();
+    // Pause mic capture while Ova speaks so TTS never feeds back into the mic.
+    await _releaseListening(keepLease: true);
 
     _aiResponseSimulationTimer?.cancel();
     try {
@@ -277,8 +369,9 @@ class _OvaLiveCallingOverlayState extends ConsumerState<OvaLiveCallingOverlay>
       } else {
         timer.cancel();
         setState(() => _isSpeaking = false);
-        // Spoken via TTS if provider enabled
-        ref.read(voiceAssistantProvider.notifier).speak(fullText);
+        if (!_isMuted && mounted) {
+          _restartListening();
+        }
       }
     });
   }
@@ -299,13 +392,12 @@ class _OvaLiveCallingOverlayState extends ConsumerState<OvaLiveCallingOverlay>
     HapticFeedback.lightImpact();
     setState(() {
       _isMuted = !_isMuted;
-      if (_isMuted) {
-        _speech.stop();
-        _isListening = false;
-      } else {
-        _startListening();
-      }
     });
+    if (_isMuted) {
+      unawaited(_releaseListening());
+    } else if (!_isSpeaking) {
+      unawaited(_startListening());
+    }
   }
 
   @override
@@ -314,7 +406,10 @@ class _OvaLiveCallingOverlayState extends ConsumerState<OvaLiveCallingOverlay>
     _scrollController.dispose();
     _aiResponseSimulationTimer?.cancel();
     _typewriterTimer?.cancel();
-    _speech.stop();
+    unawaited(_speech.cancel(this));
+    unawaited(_cloud?.dispose());
+    unawaited(_micLease?.release());
+    _micLease = null;
     super.dispose();
   }
 

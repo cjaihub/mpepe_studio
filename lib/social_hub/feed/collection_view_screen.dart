@@ -1,3 +1,4 @@
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
@@ -82,11 +83,17 @@ class _CollectionViewScreenState extends ConsumerState<CollectionViewScreen> {
             // Header Image
             Stack(
               children: [
-                Image.network(
-                  c.coverUrl,
+                Container(
                   width: double.infinity,
                   height: 300,
-                  fit: BoxFit.cover,
+                  color: context.surfaceMid,
+                  child: c.coverUrl.isEmpty
+                      ? null
+                      : Image.network(
+                          c.coverUrl,
+                          fit: BoxFit.cover,
+                          errorBuilder: (_, _, _) => const SizedBox.shrink(),
+                        ),
                 ),
                 Container(
                   width: double.infinity,
@@ -203,35 +210,15 @@ class _CollectionViewScreenState extends ConsumerState<CollectionViewScreen> {
                       
                       return ListTile(
                         contentPadding: EdgeInsets.zero,
-                        leading: Container(
-                          width: 80,
-                          height: 60,
-                          decoration: BoxDecoration(
-                            color: context.surfaceMid,
-                            borderRadius: BorderRadius.circular(8),
-                            image: const DecorationImage(
-                              image: NetworkImage('https://picsum.photos/200/150'), // mock thumbnail
-                              fit: BoxFit.cover,
-                            ),
-                          ),
-                          child: const Center(
-                            child: Icon(Icons.play_circle_outline, color: Colors.white, size: 24),
-                          ),
-                        ),
+                        leading: _EpisodeThumb(postId: item.postId),
                         title: Text(
                           'Episode ${item.orderIndex + 1}',
                           style: TextStyle(color: context.textPrimary, fontWeight: FontWeight.w600),
                         ),
-                        subtitle: Text(
-                          '10:32', // mock duration
-                          style: TextStyle(color: context.textMuted),
-                        ),
                         trailing: isCompleted 
                           ? const Icon(Icons.check_circle, color: Colors.green)
                           : Icon(Icons.more_vert, color: context.textMuted),
-                        onTap: () {
-                          // Navigate to viewer
-                        },
+                        onTap: item.postId.isEmpty ? null : () => context.push('/post/${item.postId}'),
                       );
                     },
                   ),
@@ -241,6 +228,40 @@ class _CollectionViewScreenState extends ConsumerState<CollectionViewScreen> {
           ],
         ),
       ),
+    );
+  }
+}
+
+/// Episode thumbnail read from the post itself.
+class _EpisodeThumb extends StatelessWidget {
+  const _EpisodeThumb({required this.postId});
+  final String postId;
+
+  @override
+  Widget build(BuildContext context) {
+    return FutureBuilder<DocumentSnapshot<Map<String, dynamic>>>(
+      future: postId.isEmpty ? null : FirebaseFirestore.instance.collection('content').doc(postId).get(),
+      builder: (context, snap) {
+        final data = snap.data?.data();
+        final meta = data?['mediaMetadata'] as Map<String, dynamic>?;
+        final thumb = (meta?['thumbnailUrl'] ?? data?['thumbnailUrl']) as String?;
+        return ClipRRect(
+          borderRadius: BorderRadius.circular(8),
+          child: Container(
+            width: 80,
+            height: 60,
+            color: context.surfaceMid,
+            child: Stack(
+              fit: StackFit.expand,
+              children: [
+                if (thumb != null && thumb.isNotEmpty)
+                  Image.network(thumb, fit: BoxFit.cover, errorBuilder: (_, _, _) => const SizedBox.shrink()),
+                const Center(child: Icon(Icons.play_circle_outline, color: Colors.white, size: 24)),
+              ],
+            ),
+          ),
+        );
+      },
     );
   }
 }

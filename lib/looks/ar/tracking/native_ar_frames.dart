@@ -17,6 +17,7 @@ Future<ArFrame> decodeNativeArFrame(Map<Object?, Object?> e) async {
     if (f != null) faces.add(f);
   }
   return ArFrame(
+    light: (e['light'] as num?)?.toDouble() ?? 0.5,
     faces: faces,
     body: _body(e['body']),
     mask: await _mask(e['mask']),
@@ -60,12 +61,19 @@ TrackedFace? _face(Map<Object?, Object?> m) {
 
 TrackedBody? _body(Object? raw) {
   if (raw is! Float32List || raw.length < 8) return null;
-  Offset? p(int i) => raw[i].isNaN ? null : Offset(raw[i], raw[i + 1]);
+  Offset? p(int i) =>
+      i + 1 >= raw.length || raw[i].isNaN ? null : Offset(raw[i], raw[i + 1]);
   return TrackedBody(
     leftShoulder: Offset(raw[0], raw[1]),
     rightShoulder: Offset(raw[2], raw[3]),
     leftHip: p(4),
     rightHip: p(6),
+    leftElbow: p(8),
+    rightElbow: p(10),
+    leftWrist: p(12),
+    rightWrist: p(14),
+    leftAnkle: p(16),
+    rightAnkle: p(18),
   );
 }
 

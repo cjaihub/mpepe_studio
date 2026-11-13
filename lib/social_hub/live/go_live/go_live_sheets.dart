@@ -20,7 +20,7 @@ class GoLiveSheets {
     ('Music', Icons.music_note_outlined),
     ('Gaming', Icons.sports_esports_outlined),
     ('Tech', Icons.code_outlined),
-    ('Biz', Icons.business_center_outlined),
+    ('Biz & Shop', Icons.storefront_rounded),
     ('Education', Icons.school_outlined),
     ('Lifestyle', Icons.spa_outlined),
     ('Sports', Icons.sports_soccer_outlined),

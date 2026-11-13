@@ -1,6 +1,7 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:encrypt/encrypt.dart' as enc;
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'dart:math';
 
 class SecurePairingState {
@@ -25,6 +26,8 @@ class SecurePairingState {
 
 class SecurePairingService extends Notifier<SecurePairingState> {
   final _storage = const FlutterSecureStorage();
+  static const _fallbackUidKey = 'sp_paired_uid';
+  static const _fallbackKeyKey = 'sp_paired_key';
 
   @override
   SecurePairingState build() {
@@ -37,12 +40,6 @@ class SecurePairingService extends Notifier<SecurePairingState> {
   String generatePairingPin() {
     final random = Random();
     final pin = (100000 + random.nextInt(900000)).toString();
-    
-    // We don't save the key yet, because the salt must be shared with the client.
-    // For local pairing over Firebase, we will actually just use the 6-digit PIN 
-    // as the shared secret (the salt can just be a known constant or we don't use it, 
-    // but to be secure, the Desktop should write the salt to Firestore so Mobile can read it).
-    
     state = state.copyWith(activePin: pin);
     return pin;
   }
@@ -53,8 +50,22 @@ class SecurePairingService extends Notifier<SecurePairingState> {
   }
 
   Future<String?> loadPersistedPairing() async {
-    final uid = await _storage.read(key: 'paired_uid');
-    final keyBase64 = await _storage.read(key: 'paired_key');
+    String? uid;
+    String? keyBase64;
+    try {
+      uid = await _storage.read(key: 'paired_uid');
+      keyBase64 = await _storage.read(key: 'paired_key');
+    } catch (_) {
+      // Fallback to SharedPreferences on desktop builds without Keychain group entitlements.
+    }
+
+    if (uid == null || keyBase64 == null) {
+      try {
+        final prefs = await SharedPreferences.getInstance();
+        uid ??= prefs.getString(_fallbackUidKey);
+        keyBase64 ??= prefs.getString(_fallbackKeyKey);
+      } catch (_) {}
+    }
 
     if (uid != null && keyBase64 != null) {
       final key = enc.Key.fromBase64(keyBase64);
@@ -65,13 +76,27 @@ class SecurePairingService extends Notifier<SecurePairingState> {
   }
 
   Future<void> persistPairing(String uid, enc.Key key) async {
-    await _storage.write(key: 'paired_uid', value: uid);
-    await _storage.write(key: 'paired_key', value: key.base64);
+    try {
+      await _storage.write(key: 'paired_uid', value: uid);
+      await _storage.write(key: 'paired_key', value: key.base64);
+    } catch (_) {}
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setString(_fallbackUidKey, uid);
+      await prefs.setString(_fallbackKeyKey, key.base64);
+    } catch (_) {}
   }
 
   Future<void> clearPairing() async {
-    await _storage.delete(key: 'paired_uid');
-    await _storage.delete(key: 'paired_key');
+    try {
+      await _storage.delete(key: 'paired_uid');
+      await _storage.delete(key: 'paired_key');
+    } catch (_) {}
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.remove(_fallbackUidKey);
+      await prefs.remove(_fallbackKeyKey);
+    } catch (_) {}
     state = SecurePairingState(salt: _generateRandomString(16));
   }
 

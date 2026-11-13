@@ -1,8 +1,11 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_animate/flutter_animate.dart';
 import 'package:go_router/go_router.dart';
+import 'package:speech_to_text/speech_to_text.dart' as stt;
+import '../shared/audio/speech_hub.dart';
 import '../shared/theme/app_theme.dart';
 import '../shared/widgets/components.dart';
 import '../shared/widgets/studio_background.dart';
@@ -17,14 +20,14 @@ class TikTokAiAssistantScreen extends ConsumerStatefulWidget {
 
 class _TikTokAiAssistantScreenState extends ConsumerState<TikTokAiAssistantScreen> {
   final TextEditingController _chatController = TextEditingController();
+  final SpeechHub _speech = SpeechHub.instance;
   final List<Map<String, dynamic>> _messages = [];
   bool _isProcessing = false;
-  bool _isListening = false; // Mock voice state
+  bool _isListening = false;
 
   @override
   void initState() {
     super.initState();
-    // Initial welcome message
     _messages.add({
       "role": "assistant",
       "content": "I'm your Oneova TikTok Automation Assistant. You can use your voice or type to command me to crop videos, analyze retention, or inject B-roll.",
@@ -32,21 +35,49 @@ class _TikTokAiAssistantScreenState extends ConsumerState<TikTokAiAssistantScree
     });
   }
 
-  void _toggleListening() async {
-    HapticFeedback.heavyImpact();
-    setState(() {
-      _isListening = !_isListening;
-    });
+  @override
+  void dispose() {
+    unawaited(_speech.cancel(this));
+    _chatController.dispose();
+    super.dispose();
+  }
 
+  Future<void> _toggleListening() async {
+    HapticFeedback.heavyImpact();
     if (_isListening) {
-      // Simulate listening for a few seconds then capturing a command
-      await Future.delayed(const Duration(seconds: 3));
-      if (!mounted) return;
-      setState(() {
-        _isListening = false;
-        _chatController.text = "Auto crop my latest video for TikTok";
-      });
-      _sendMessage();
+      await _speech.stop(this);
+      if (mounted) setState(() => _isListening = false);
+      if (_chatController.text.trim().isNotEmpty) {
+        _sendMessage();
+      }
+      return;
+    }
+
+    setState(() => _isListening = true);
+    final started = await _speech.listen(
+      owner: this,
+      options: stt.SpeechListenOptions(partialResults: true, cancelOnError: true),
+      onStatus: (status) {
+        if (!mounted) return;
+        if ((status == 'done' || status == 'notListening') && _isListening) {
+          setState(() => _isListening = false);
+          if (_chatController.text.trim().isNotEmpty) {
+            _sendMessage();
+          }
+        }
+      },
+      onError: (_) {
+        if (mounted) setState(() => _isListening = false);
+      },
+      onResult: (result) {
+        if (!mounted) return;
+        setState(() {
+          _chatController.text = result.recognizedWords;
+        });
+      },
+    );
+    if (!started && mounted) {
+      setState(() => _isListening = false);
     }
   }
 

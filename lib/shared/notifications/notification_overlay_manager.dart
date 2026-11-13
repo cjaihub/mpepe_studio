@@ -16,6 +16,7 @@ import '../../backend/notifications/models/app_notification.dart';
 import '../../backend/notifications/models/notification_preferences.dart';
 import '../../backend/notifications/providers/notification_service.dart';
 import '../../shared/theme/app_theme.dart';
+import '../router.dart' show rootNavigatorKey;
 import '../services/oneova_sound_service.dart';
 
 /// Wraps the app and pops every in-app notification at the top of the
@@ -60,7 +61,10 @@ class _NotificationOverlayManagerState extends ConsumerState<NotificationOverlay
   void dispose() {
     _authSub?.cancel();
     _chatSub?.cancel();
-    _entry?.remove();
+    if (_entry?.mounted ?? false) {
+      _entry?.remove();
+    }
+    _entry = null;
     super.dispose();
   }
 
@@ -95,6 +99,15 @@ class _NotificationOverlayManagerState extends ConsumerState<NotificationOverlay
 
   void _presentNext() {
     if (!mounted || _queue.isEmpty) return;
+    final overlay = Overlay.maybeOf(context, rootOverlay: true) ?? rootNavigatorKey.currentState?.overlay;
+    if (overlay == null) {
+      _current = null;
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted && _current == null) _presentNext();
+      });
+      return;
+    }
+
     final n = _queue.removeAt(0);
     _current = n;
     final prefs = ref.read(notificationPreferencesProvider).value ?? NotificationPreferences();
@@ -109,9 +122,14 @@ class _NotificationOverlayManagerState extends ConsumerState<NotificationOverlay
         duration: Duration(seconds: n.isLive ? 8 : (n.category == AppNotificationCategory.newMessage ? 6 : 5)),
         onOpen: () {
           _finish();
-          if (!n.id.startsWith('chat_')) ref.read(notificationServiceProvider).markAsRead(n.id);
+          if (mounted && !n.id.startsWith('chat_')) {
+            ref.read(notificationServiceProvider).markAsRead(n.id);
+          }
           final route = n.route ?? '/notifications';
-          if (mounted) GoRouter.of(context).push(route);
+          final navCtx = rootNavigatorKey.currentContext;
+          if (navCtx != null && navCtx.mounted) {
+            GoRouter.of(navCtx).push(route);
+          }
         },
         onReply: (n.category == AppNotificationCategory.newMessage && n.payload?['chatId'] is String)
             ? (text) => _reply(n.payload!['chatId'] as String, text)
@@ -121,16 +139,18 @@ class _NotificationOverlayManagerState extends ConsumerState<NotificationOverlay
         onDone: _finish,
       ),
     );
-    Overlay.of(context, rootOverlay: true).insert(_entry!);
+    overlay.insert(_entry!);
   }
 
   void _finish() {
-    _entry?.remove();
+    if (_entry?.mounted ?? false) {
+      _entry?.remove();
+    }
     _entry = null;
     _current = null;
     if (_queue.isNotEmpty) {
       Future.delayed(const Duration(milliseconds: 220), () {
-        if (_current == null) _presentNext();
+        if (mounted && _current == null) _presentNext();
       });
     }
   }

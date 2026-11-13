@@ -35,7 +35,23 @@ import 'services/oneova_feature_tour_service.dart';
 import 'search/global_search_screen.dart';
 import '../feed/biz_feed_screen.dart';
 import '../social_hub/biz_commerce/checkout_screen.dart';
+import '../social_hub/money/payments_history_screen.dart';
 import '../social_hub/biz_commerce/order_screens.dart';
+import '../shops3d/business/business_insights_screen.dart';
+import '../shops3d/business/business_inventory_screen.dart';
+import '../shops3d/business/business_orders_screen.dart';
+import '../shops3d/business/business_portal_screen.dart';
+import '../shops3d/business/business_settings_screen.dart';
+import '../shops3d/data/model3d_repository.dart' show PublishedModel;
+import '../shops3d/data/share_ref.dart';
+import '../shops3d/screens/model_library_screen.dart';
+import '../shops3d/screens/product_creator_screen.dart';
+import '../shops3d/screens/product_editor_screen.dart';
+import '../shops3d/screens/shop_product_screen.dart';
+import '../shops3d/screens/shop_setup_wizard_screen.dart';
+import '../shops3d/screens/shop_store_screen.dart';
+import '../shops3d/screens/shops_feed_screen.dart';
+import '../shops3d/widgets/customization_picker.dart' show decodeCustomization;
 import '../social_hub/profile/public_profile_screen.dart';
 import 'dart:io' show Platform;
 
@@ -68,7 +84,9 @@ import '../ova_assistant/screens/ova_abilities_screen.dart';
 import '../ova_assistant/screens/ova_setup_screen.dart';
 import '../ova_assistant/screens/ova_trigger_settings_screen.dart';
 import '../social_hub/social_integration_dashboard.dart';
+import '../social_hub/google/google_services_screen.dart';
 import '../social_hub/tiktok_connect_wizard.dart';
+import '../social_hub/tiktok_account_screen.dart';
 import '../backend/connections/linked_accounts.dart';
 import '../backend/tiktok_oauth_service.dart';
 import '../backend/meta_oauth_service.dart';
@@ -105,6 +123,9 @@ import '../social_hub/money/clip_insights_screen.dart';
 import '../social_hub/money/coin_shop_screen.dart';
 import '../social_hub/money/creator_insights_screen.dart';
 import '../social_hub/money/payout_status_screens.dart';
+import '../identity/screens/oneova_id_screen.dart';
+import '../identity/screens/business_verify_screen.dart';
+import '../identity/screens/id_data_screen.dart';
 import '../social_hub/money/plans_screen.dart';
 import '../social_hub/money/withdraw_screen.dart';
 import '../security/screens/security_center_screen.dart';
@@ -114,17 +135,21 @@ import '../social_hub/creator_studio/monetization/monetization_dashboard.dart';
 import '../hub/remote_chat_screen.dart';
 import '../hub/remote_monitor_screen.dart';
 import '../hub/desktop_remote_screen.dart';
+import '../hub/phone_controller/computer_logs_screen.dart';
+import '../hub/phone_controller/phone_controller_screen.dart';
 import '../inbox/calling/screens/active_call_screen.dart';
 import '../social_hub/live/settings/live_destinations_screen.dart';
 import '../social_hub/live/settings/live_recordings_screen.dart';
 import '../social_hub/live/setup/live_setup_config.dart';
 import '../social_hub/live/setup/live_setup_wizard_screen.dart';
-import '../social_hub/live/classic/live_classic_viewer_screen.dart';
+import '../social_hub/live/live_room_gate.dart';
 import '../social_hub/live/studio_v2/shell/live_studio_v2_screen.dart';
 import '../social_hub/live/studio_v2/gaming/gaming_lives_screen.dart';
 import '../feed/providers/oneova_focus_mode_provider.dart';
+import '../wishes/feedback_sheet.dart';
 
-export '../backend/social/services/video_playback_manager.dart' show mainFeedRouteObserver;
+export '../backend/social/services/video_playback_manager.dart'
+    show mainFeedRouteObserver, homeBranchRouteObserver;
 
 // StatefulShellRoute shells
 class HubShell extends ConsumerStatefulWidget {
@@ -135,14 +160,18 @@ class HubShell extends ConsumerStatefulWidget {
   ConsumerState<HubShell> createState() => _HubShellState();
 }
 
-class _HubShellState extends ConsumerState<HubShell> {
+class _HubShellState extends ConsumerState<HubShell> with RouteAware {
+  VideoPlaybackManager? _playbackManager;
+  bool _isRootRouteCurrent = true;
+
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addPostFrameCallback((_) async {
       if (!mounted) return;
-      if (widget.navigationShell.currentIndex != 0) {
-        ref.read(videoPlaybackManagerProvider).setScreenActive(false);
+      _playbackManager ??= ref.read(videoPlaybackManagerProvider);
+      if (widget.navigationShell.currentIndex != 0 || !_isRootRouteCurrent) {
+        _playbackManager?.setScreenActive(false);
       }
       try {
         final shouldShow = await ref.read(featureTourServiceProvider).shouldShowTour();
@@ -155,12 +184,51 @@ class _HubShellState extends ConsumerState<HubShell> {
   }
 
   @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    _playbackManager = ref.read(videoPlaybackManagerProvider);
+    final modalRoute = ModalRoute.of(context);
+    if (modalRoute != null) {
+      mainFeedRouteObserver.subscribe(this, modalRoute);
+    }
+  }
+
+  @override
+  void didPushNext() {
+    _isRootRouteCurrent = false;
+    _playbackManager?.setScreenActive(false);
+    super.didPushNext();
+  }
+
+  @override
+  void didPopNext() {
+    _isRootRouteCurrent = true;
+    final isReels = widget.navigationShell.currentIndex == 0;
+    _playbackManager?.setScreenActive(isReels);
+    super.didPopNext();
+  }
+
+  @override
+  void didPop() {
+    _isRootRouteCurrent = false;
+    _playbackManager?.setScreenActive(false);
+    super.didPop();
+  }
+
+  @override
+  void dispose() {
+    mainFeedRouteObserver.unsubscribe(this);
+    super.dispose();
+  }
+
+  @override
   void didUpdateWidget(HubShell oldWidget) {
     super.didUpdateWidget(oldWidget);
     final isReels = widget.navigationShell.currentIndex == 0;
     final wasReels = oldWidget.navigationShell.currentIndex == 0;
     if (isReels != wasReels) {
-      ref.read(videoPlaybackManagerProvider).setScreenActive(isReels);
+      (_playbackManager ?? ref.read<VideoPlaybackManager>(videoPlaybackManagerProvider))
+          .setScreenActive(isReels && _isRootRouteCurrent);
     }
   }
 
@@ -478,9 +546,32 @@ final routerProvider = Provider<GoRouter>((ref) {
         },
       ),
       GoRoute(path: '/biz_feed', redirect: _requireAuth, builder: (context, state) => const BizFeedScreen()),
-      // Biz payments (Stripe escrow): checkout, orders, payouts.
-      GoRoute(path: '/biz/checkout/:productId', redirect: _requireAuth, builder: (context, state) => CheckoutScreen(productId: state.pathParameters['productId']!)),
+      // Biz payments (Oneova Pay escrow): checkout, orders, payouts.
+      GoRoute(path: '/biz/checkout/:productId', redirect: _requireAuth, builder: (context, state) => CheckoutScreen(productId: state.pathParameters['productId']!, variantId: state.uri.queryParameters['variant'], customization: decodeCustomization(state.uri.queryParameters['custom']))),
       GoRoute(path: '/biz/orders', redirect: _requireAuth, builder: (context, state) => const OrdersScreen()),
+      // ── Oneova 3D Shops (specific paths before /shops/:id) ──
+      // ── Business portal (sellers) ──
+      GoRoute(path: '/business', redirect: _requireAuth, builder: (context, state) => const BusinessPortalScreen()),
+      GoRoute(path: '/business/orders', redirect: _requireAuth, builder: (context, state) => const BusinessOrdersScreen()),
+      GoRoute(path: '/business/inventory', redirect: _requireAuth, builder: (context, state) => const BusinessInventoryScreen()),
+      GoRoute(path: '/business/insights', redirect: _requireAuth, builder: (context, state) => const BusinessInsightsScreen()),
+      GoRoute(
+        path: '/business/settings',
+        redirect: _requireAuth,
+        builder: (context, state) => BusinessSettingsScreen(initialTab: state.uri.queryParameters['tab'] == 'codes' ? 1 : 0),
+      ),
+      GoRoute(path: '/shops', redirect: _requireAuth, builder: (context, state) => const ShopsFeedScreen()),
+      GoRoute(path: '/shops/saved', redirect: _requireAuth, builder: (context, state) => const SavedProductsScreen()),
+      GoRoute(path: '/shops/setup', redirect: _requireAuth, builder: (context, state) => const ShopSetupWizardScreen()),
+      GoRoute(path: '/shops/product/new', redirect: _requireAuth, builder: (context, state) => const ProductCreatorScreen()),
+      GoRoute(path: '/shops/models', redirect: _requireAuth, pageBuilder: (context, state) => MaterialPage<PublishedModel>(key: state.pageKey, child: ModelLibraryScreen(pickForProductId: state.uri.queryParameters['pick']))),
+      GoRoute(path: '/shops/product/edit', redirect: _requireAuth, builder: (context, state) => ProductEditorScreen(productId: state.uri.queryParameters['id'])),
+      GoRoute(path: '/shops/p/:productId', redirect: _requireAuth, builder: (context, state) => ShopProductScreen(productId: state.pathParameters['productId']!, variantId: state.uri.queryParameters['variant'], shareCode: state.uri.queryParameters['ref'])),
+      GoRoute(path: '/shops/:id', redirect: _requireAuth, builder: (context, state) => ShopStoreScreen(shopId: state.pathParameters['id']!)),
+      GoRoute(path: '/shops/:id/stage', redirect: _requireAuth, builder: (context, state) {
+        ShareRef.note(state.uri.queryParameters['ref']);
+        return ShopStageScreen(shopId: state.pathParameters['id']!);
+      }),
       GoRoute(path: '/biz/orders/:id', redirect: _requireAuth, builder: (context, state) => OrderDetailScreen(orderId: state.pathParameters['id']!)),
       GoRoute(path: '/biz/payouts', redirect: _requireAuth, builder: (context, state) => const PayoutsScreen()),
       GoRoute(path: '/hub/discover', redirect: _requireAuth, builder: (context, state) => const GlobalSearchScreen()),
@@ -490,6 +581,12 @@ final routerProvider = Provider<GoRouter>((ref) {
       GoRoute(path: '/wallet/plans', redirect: _requireAuth, builder: (context, state) => const PlansScreen()),
       GoRoute(path: '/wallet/withdraw', redirect: _requireAuth, builder: (context, state) => const WithdrawScreen()),
       GoRoute(path: '/wallet/verify', redirect: _requireAuth, builder: (context, state) => const KycScreen()),
+      GoRoute(path: '/wallet/payments', redirect: _requireAuth, builder: (context, state) => const PaymentsHistoryScreen()),
+      // Back from a partner's payment page (oneova://app/pay/done).
+      GoRoute(path: '/pay/done', redirect: (context, state) => '/wallet/payments'),
+      GoRoute(path: '/id', redirect: _requireAuth, builder: (context, state) => OneovaIdScreen(openShare: state.uri.queryParameters['share'] == '1')),
+      GoRoute(path: '/id/business', redirect: _requireAuth, builder: (context, state) => const BusinessVerifyScreen()),
+      GoRoute(path: '/id/data', redirect: _requireAuth, builder: (context, state) => const IdDataScreen()),
       GoRoute(path: '/wallet/withdrawals', redirect: _requireAuth, builder: (context, state) => const WithdrawalsScreen()),
       GoRoute(path: '/wallet/withdrawals/:id', redirect: _requireAuth, builder: (context, state) => WithdrawalDetailScreen(id: state.pathParameters['id']!)),
       GoRoute(path: '/creator/insights', redirect: _requireAuth, builder: (context, state) => const CreatorInsightsScreen()),
@@ -557,6 +654,12 @@ final routerProvider = Provider<GoRouter>((ref) {
         redirect: _requireAuth,
         builder: (context, state) => const SocialIntegrationDashboard(),
       ),
+      // Google services kept with the account (Gmail, YouTube, Drive, …).
+      GoRoute(
+        path: '/social_hub/google',
+        redirect: _requireAuth,
+        builder: (context, state) => const GoogleServicesScreen(),
+      ),
       // Old simulated connect wizard: forward to the platform's real OAuth
       // wizard (or the connected-accounts page).
       GoRoute(
@@ -585,6 +688,11 @@ final routerProvider = Provider<GoRouter>((ref) {
         path: '/social_hub/tiktok_wizard',
         redirect: _requireAuth,
         builder: (context, state) => const TikTokConnectWizard(),
+      ),
+      GoRoute(
+        path: '/social_hub/tiktok',
+        redirect: _requireAuth,
+        builder: (context, state) => const TikTokAccountScreen(),
       ),
       GoRoute(
         path: '/tiktok-callback',
@@ -755,9 +863,25 @@ final routerProvider = Provider<GoRouter>((ref) {
         builder: (context, state) => const DesktopRemoteScreen(),
       ),
       GoRoute(
+        path: '/desktop-remote',
+        redirect: (context, state) => '/remote_control',
+      ),
+      GoRoute(
         path: '/desktop_agent',
         redirect: _requireAuth,
         builder: (context, state) => const DesktopAgentScreen(),
+      ),
+      GoRoute(
+        path: '/phone_controller/:deviceId',
+        redirect: _requireAuth,
+        builder: (context, state) => PhoneControllerScreen(
+          deviceId: state.pathParameters['deviceId'] ?? '',
+        ),
+      ),
+      GoRoute(
+        path: '/computer_logs',
+        redirect: _requireAuth,
+        builder: (context, state) => const ComputerLogsScreen(),
       ),
       // Setup wizard: the one way to go live (mode → details → camera →
       // layout → audience → review), then the Live Studio.
@@ -916,6 +1040,15 @@ final routerProvider = Provider<GoRouter>((ref) {
         redirect: _requireAuth,
         builder: (context, state) => const CameraAndLiveSettingsScreen(),
       ),
+      // Feedback opens as a pop-up sheet over the current screen (not a page).
+      GoRoute(
+        path: '/feedback',
+        redirect: _requireAuth,
+        pageBuilder: (context, state) => FeedbackSheetPage(
+          key: state.pageKey,
+          openIdeaId: state.uri.queryParameters['idea'],
+        ),
+      ),
       GoRoute(
         path: '/legal',
         builder: (context, state) => LegalPoliciesScreen(
@@ -984,7 +1117,7 @@ final routerProvider = Provider<GoRouter>((ref) {
         },
         branches: [
           StatefulShellBranch(
-            observers: [mainFeedRouteObserver],
+            observers: [homeBranchRouteObserver],
             routes: [GoRoute(
               path: '/hub/home', 
               redirect: _requireAuth,

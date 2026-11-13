@@ -98,19 +98,31 @@ class TrackedFace {
   }
 }
 
-/// Upper body from pose detection, normalized like [TrackedFace].
+/// Full/upper body and hand/wrist pose landmarks, normalized like [TrackedFace].
 @immutable
 class TrackedBody {
   final Offset leftShoulder;
   final Offset rightShoulder;
   final Offset? leftHip;
   final Offset? rightHip;
+  final Offset? leftElbow;
+  final Offset? rightElbow;
+  final Offset? leftWrist;
+  final Offset? rightWrist;
+  final Offset? leftAnkle;
+  final Offset? rightAnkle;
 
   const TrackedBody({
     required this.leftShoulder,
     required this.rightShoulder,
     this.leftHip,
     this.rightHip,
+    this.leftElbow,
+    this.rightElbow,
+    this.leftWrist,
+    this.rightWrist,
+    this.leftAnkle,
+    this.rightAnkle,
   });
 
   double get shoulderWidth => (rightShoulder - leftShoulder).distance;
@@ -120,11 +132,20 @@ class TrackedBody {
         rightShoulder.dx - leftShoulder.dx,
       );
 
+  static Offset? _lerpOpt(Offset? a, Offset? b, double t) =>
+      a != null && b != null ? Offset.lerp(a, b, t) : b;
+
   TrackedBody lerpTo(TrackedBody next, double t) => TrackedBody(
         leftShoulder: Offset.lerp(leftShoulder, next.leftShoulder, t)!,
         rightShoulder: Offset.lerp(rightShoulder, next.rightShoulder, t)!,
-        leftHip: next.leftHip,
-        rightHip: next.rightHip,
+        leftHip: _lerpOpt(leftHip, next.leftHip, t),
+        rightHip: _lerpOpt(rightHip, next.rightHip, t),
+        leftElbow: _lerpOpt(leftElbow, next.leftElbow, t),
+        rightElbow: _lerpOpt(rightElbow, next.rightElbow, t),
+        leftWrist: _lerpOpt(leftWrist, next.leftWrist, t),
+        rightWrist: _lerpOpt(rightWrist, next.rightWrist, t),
+        leftAnkle: _lerpOpt(leftAnkle, next.leftAnkle, t),
+        rightAnkle: _lerpOpt(rightAnkle, next.rightAnkle, t),
       );
 }
 
@@ -153,12 +174,35 @@ class ArFrame {
   final PersonMask? mask;
   final int timestampMs;
 
+  /// Scene brightness 0..1 (native tracker), for light-aware effects.
+  final double light;
+
   const ArFrame({
     this.faces = const [],
     this.body,
     this.mask,
     required this.timestampMs,
+    this.light = 0.5,
   });
 
   bool get hasFace => faces.isNotEmpty;
+
+  /// Primary subject center in normalized preview coordinates (0..1) for Smart Auto-Tracker.
+  Offset? get subjectCenter {
+    if (faces.isNotEmpty) {
+      final f = faces.first;
+      return Offset(f.noseTip.dx, (f.eyesCenter.dy + f.mouth.dy) * 0.5);
+    }
+    if (body != null) {
+      return body!.shouldersCenter;
+    }
+    return null;
+  }
+
+  /// Approximate subject width in normalized preview coordinates (0..1) for Auto-Zoom framing.
+  double? get subjectWidth {
+    if (faces.isNotEmpty) return faces.first.width;
+    if (body != null) return body!.shoulderWidth * 0.65;
+    return null;
+  }
 }

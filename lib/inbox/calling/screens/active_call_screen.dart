@@ -73,6 +73,7 @@ class _ActiveCallScreenState extends ConsumerState<ActiveCallScreen> {
   bool _sharedPrimed = false;
   CallSoundEvent? _soundToast;
   Timer? _soundToastTimer;
+  ActiveCallController? _callController;
 
   @override
   void initState() {
@@ -86,8 +87,15 @@ class _ActiveCallScreenState extends ConsumerState<ActiveCallScreen> {
     WidgetsBinding.instance.addPostFrameCallback((_) => _resumeIfNeeded());
   }
 
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    _callController = ref.read(activeCallControllerProvider.notifier);
+  }
+
   /// Opened from a notification/deep link with only a call id.
   Future<void> _resumeIfNeeded() async {
+    if (!mounted || !context.mounted) return;
     final controller = ref.read(activeCallControllerProvider.notifier);
     final s = ref.read(activeCallControllerProvider);
     if (s.isLive) {
@@ -140,6 +148,7 @@ class _ActiveCallScreenState extends ConsumerState<ActiveCallScreen> {
   void _scheduleHide() {
     _hideControls?.cancel();
     _hideControls = Timer(const Duration(seconds: 5), () {
+      if (!mounted || !context.mounted) return;
       final s = ref.read(activeCallControllerProvider);
       final video = ref.read(callMediaServiceProvider).isVideoOn;
       if (mounted && s.phase == CallPhase.connected && video) {
@@ -160,7 +169,7 @@ class _ActiveCallScreenState extends ConsumerState<ActiveCallScreen> {
 
   void _minimize() {
     HapticFeedback.lightImpact();
-    ref.read(activeCallControllerProvider.notifier).minimize();
+    (_callController ?? (mounted ? ref.read(activeCallControllerProvider.notifier) : null))?.minimize();
     _close();
   }
 
@@ -179,7 +188,10 @@ class _ActiveCallScreenState extends ConsumerState<ActiveCallScreen> {
   }
 
   void _showError(String message) {
-    ScaffoldMessenger.of(context)
+    if (!mounted || !context.mounted) return;
+    final messenger = ScaffoldMessenger.maybeOf(context);
+    if (messenger == null) return;
+    messenger
       ..hideCurrentSnackBar()
       ..showSnackBar(SnackBar(
         content: Text(message, style: GoogleFonts.inter(fontSize: 12.5)),
@@ -262,11 +274,12 @@ class _ActiveCallScreenState extends ConsumerState<ActiveCallScreen> {
     final tiny = CallPipService.inPip.value || MediaQuery.sizeOf(context).width < 320;
 
     if (tiny) return _pipView(s, mesh, head);
+    final isLive = s.isLive;
 
     return PopScope(
       canPop: true,
       onPopInvokedWithResult: (didPop, _) {
-        if (didPop && ref.read(activeCallControllerProvider).isLive) controller.minimize();
+        if (didPop && isLive) _callController?.minimize();
       },
       child: AnnotatedRegion<SystemUiOverlayStyle>(
         value: showVideoStage || context.isDark ? SystemUiOverlayStyle.light : SystemUiOverlayStyle.dark,
@@ -296,6 +309,7 @@ class _ActiveCallScreenState extends ConsumerState<ActiveCallScreen> {
                 if (showPipSelf) _localPreview(media, mesh, s, room),
                 _topBar(s, media, room, head, onDark: showVideoStage),
                 if (room.music != null && s.isBusy) _musicPill(room.music!, onDark: showVideoStage),
+                if (media.isScreenSharingActive) _screenSharePill(media, onDark: showVideoStage),
                 if (_soundToast != null) _soundToastView(_soundToast!),
                 if (s.phase == CallPhase.connected && mesh.worstQuality == CallQuality.poor)
                   _weakLinkBanner(media),
@@ -383,6 +397,68 @@ class _ActiveCallScreenState extends ConsumerState<ActiveCallScreen> {
           ),
         ),
       ).animate().fadeIn(duration: 200.ms),
+    );
+  }
+
+  /// Live banner shown when screen sharing is active while camera is maintained ("stay camera").
+  Widget _screenSharePill(CallMediaState media, {required bool onDark}) {
+    final controller = ref.read(activeCallControllerProvider.notifier);
+    return Positioned(
+      top: MediaQuery.paddingOf(context).top + 54,
+      left: 16,
+      right: 16,
+      child: Center(
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+          decoration: BoxDecoration(
+            color: AppColors.brandBlack.withValues(alpha: 0.85),
+            borderRadius: BorderRadius.circular(AppRadius.full),
+            border: Border.all(color: AppColors.brandPink.withValues(alpha: 0.7), width: 1.2),
+            boxShadow: AppShadows.md,
+          ),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Container(
+                width: 8,
+                height: 8,
+                decoration: const BoxDecoration(
+                  color: AppColors.brandPink,
+                  shape: BoxShape.circle,
+                ),
+              ),
+              const SizedBox(width: 8),
+              Text(
+                'Sharing screen · Camera active',
+                style: GoogleFonts.inter(
+                  fontSize: 12,
+                  fontWeight: FontWeight.w600,
+                  color: AppColors.brandWhite,
+                ),
+              ),
+              const SizedBox(width: 12),
+              GestureDetector(
+                onTap: controller.toggleScreenShare,
+                child: Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                  decoration: BoxDecoration(
+                    color: AppColors.brandPink,
+                    borderRadius: BorderRadius.circular(AppRadius.full),
+                  ),
+                  child: Text(
+                    'Stop',
+                    style: GoogleFonts.inter(
+                      fontSize: 11,
+                      fontWeight: FontWeight.w700,
+                      color: AppColors.brandWhite,
+                    ),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ).animate().fadeIn(duration: 200.ms).slideY(begin: -0.2, end: 0),
     );
   }
 
@@ -641,7 +717,7 @@ class _ActiveCallScreenState extends ConsumerState<ActiveCallScreen> {
     String? avatar,
     bool mirror = false,
   }) {
-    if (renderer != null && videoOn && renderer.renderVideo) {
+    if (renderer != null && videoOn && (renderer.renderVideo || renderer.srcObject != null)) {
       return RTCVideoView(
         renderer,
         mirror: mirror,
@@ -1112,6 +1188,7 @@ class _ActiveCallScreenState extends ConsumerState<ActiveCallScreen> {
     required bool onDark,
   }) {
     final fg = onDark ? AppColors.brandWhite : context.textPrimary;
+    final controller = ref.read(activeCallControllerProvider.notifier);
     final canInvite = s.isBusy && s.phase != CallPhase.outgoing && s.call != null;
     final isOneToOneVideo = onDark &&
         !(s.call?.isGroup ?? false) &&
@@ -1173,6 +1250,16 @@ class _ActiveCallScreenState extends ConsumerState<ActiveCallScreen> {
                   tooltip: 'Share photo, video or file',
                   icon: Icon(Icons.attach_file_rounded, color: fg, size: 22),
                   onPressed: () => showCallShareSheet(context, ref, callId: s.call!.id, chatId: s.call!.chatId),
+                ),
+              if (s.call != null && (s.phase == CallPhase.connected || s.phase == CallPhase.reconnecting))
+                IconButton(
+                  tooltip: media.isScreenSharingActive ? 'Stop screen sharing' : 'Share screen',
+                  icon: Icon(
+                    media.isScreenSharingActive ? Icons.stop_screen_share_rounded : Icons.screen_share_rounded,
+                    color: media.isScreenSharingActive ? AppColors.brandPink : fg,
+                    size: 22,
+                  ),
+                  onPressed: controller.toggleScreenShare,
                 ),
               if (canInvite)
                 IconButton(
@@ -1263,6 +1350,13 @@ class _ActiveCallScreenState extends ConsumerState<ActiveCallScreen> {
               active: media.isAudioMuted,
               onDark: onDark,
               onTap: ended ? null : controller.toggleMute,
+            ),
+            CallControlButton(
+              icon: media.isScreenSharingActive ? Icons.stop_screen_share_rounded : Icons.screen_share_rounded,
+              label: media.isScreenSharingActive ? 'Stop Share' : 'Share',
+              active: media.isScreenSharingActive,
+              onDark: onDark,
+              onTap: ended ? null : controller.toggleScreenShare,
             ),
             if (media.isVideoOn)
               CallControlButton(

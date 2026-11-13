@@ -605,7 +605,7 @@ class OneOvaMeControlDropUp extends ConsumerWidget {
               context: context,
               icon: Icons.qr_code_scanner_rounded,
               label: 'Pair Station',
-              route: '/hub/qr_scanner',
+              route: '/qr_scanner',
             ),
           ],
         ),

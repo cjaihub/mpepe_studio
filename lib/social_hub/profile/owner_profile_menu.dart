@@ -53,6 +53,8 @@ Future<void> showOwnerProfileMenu(BuildContext context, WidgetRef ref, {required
         'Profile': [
           const _MenuItem(Icons.edit_rounded, 'Edit profile',
               subtitle: 'Photo, name, username, bio, links', route: '/settings/profile'),
+          const _MenuItem(Icons.verified_user_rounded, 'Oneova ID',
+              subtitle: 'Verify once, share proof, Verified Business', route: '/id'),
           const _MenuItem(Icons.video_settings_rounded, 'Reels & content',
               subtitle: 'Downloads, remix, comments, duets', route: '/settings/reels'),
         ],

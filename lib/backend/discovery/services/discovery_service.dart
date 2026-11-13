@@ -77,16 +77,28 @@ class DiscoveryService {
     );
   }
 
-  /// Simulates fetching trending discovery entities
+  /// Top hashtags by views from the real `hashtags` collection.
   Future<List<TrendingTopic>> getTrending() async {
-    // In production, this pulls from an aggregate materialized view populated by 
-    // Spark/Dataflow streaming analytics.
-    return [
-      const TrendingTopic(id: 't1', name: '#dance', category: 'hashtag', rank: 1, metricDelta: 5000),
-      const TrendingTopic(id: 't2', name: 'Original Sound - Creator', category: 'sound', rank: 2, metricDelta: 4200),
-      const TrendingTopic(id: 't3', name: 'New York, NY', category: 'location', rank: 3, metricDelta: 2100),
-      const TrendingTopic(id: 't4', name: '@viralstar', category: 'creator', rank: 4, metricDelta: 1800),
-    ];
+    try {
+      final snap = await _firestore
+          .collection('hashtags')
+          .orderBy('totalViews', descending: true)
+          .limit(10)
+          .get();
+      var rank = 0;
+      return [
+        for (final d in snap.docs)
+          TrendingTopic(
+            id: d.id,
+            name: '#${d.id}',
+            category: 'hashtag',
+            rank: ++rank,
+            metricDelta: (d.data()['totalViews'] as num?)?.toInt() ?? 0,
+          ),
+      ];
+    } catch (_) {
+      return [];
+    }
   }
 
   List<String> _extractRegex(String text, String pattern) {

@@ -5,7 +5,7 @@ import 'dart:ui';
 // origin at the top-left is mapped onto four wall corners (TL, TR, BR, BL) by
 // a CSS-style `matrix3d` (16 values, column-major — the same order as
 // `Matrix4.fromList`). The math is Heckbert's unit-square → quad mapping,
-// copied from v1 (`lib/social_hub/live/studio/live_studio_geometry.dart`).
+// (originally from the first studio geometry).
 // ─────────────────────────────────────────────────────────────────────────────
 
 /// Computes the column-major `matrix3d` mapping an element of [size] (origin

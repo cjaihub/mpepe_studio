@@ -11,6 +11,8 @@ import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../../backend/live_studio/contracts/studio_contracts.dart';
+import '../../../../backend/live_studio/contracts/studio_ports.dart';
+import '../../../../backend/live_studio/security/studio_security_models.dart';
 import '../../../../backend/live_studio/roles/studio_request_queue_controller.dart';
 import '../../../../backend/live_studio/session/studio_session_controller.dart' show studioFirestoreProvider;
 import '../theme/live_studio_tokens.dart';
@@ -164,11 +166,111 @@ class JoinRequestQueueSheet extends ConsumerWidget {
                 ),
             ]),
             const SizedBox(height: 12),
+            _GuestModeSwitch(streamId: streamId, tokens: t),
+            const SizedBox(height: 12),
             Flexible(child: body),
           ],
         ),
       ),
     );
+  }
+}
+
+/// `live_streams/{id}.allowGuestRequests` (absent = open).
+final _guestsOpenProvider = StreamProvider.autoDispose.family<bool, String>((ref, streamId) => ref
+    .watch(studioFirestoreProvider)
+    .collection('live_streams')
+    .doc(streamId)
+    .snapshots()
+    .map((d) => d.data()?['allowGuestRequests'] != false));
+
+/// Solo ⇄ open to guests, in place: the live keeps its screen and stage.
+class _GuestModeSwitch extends ConsumerStatefulWidget {
+  const _GuestModeSwitch({required this.streamId, required this.tokens});
+  final String streamId;
+  final LiveStudioTokens tokens;
+
+  @override
+  ConsumerState<_GuestModeSwitch> createState() => _GuestModeSwitchState();
+}
+
+class _GuestModeSwitchState extends ConsumerState<_GuestModeSwitch> {
+  bool? _pending;
+
+  Future<void> _set(bool open) async {
+    HapticFeedback.selectionClick();
+    setState(() => _pending = open);
+    try {
+      await ref
+          .read(studioCallPortProvider)
+          .call(StudioSecurityWire.setJoinRequests, {'streamId': widget.streamId, 'open': open});
+    } catch (_) {
+      if (mounted) {
+        ScaffoldMessenger.maybeOf(context)
+            ?.showSnackBar(const SnackBar(content: Text('Could not change guest mode. Try again.')));
+      }
+    } finally {
+      if (mounted) setState(() => _pending = null);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final t = widget.tokens;
+    final open = _pending ?? ref.watch(_guestsOpenProvider(widget.streamId)).value ?? true;
+    Widget seg(String label, IconData icon, bool value) {
+      final on = open == value;
+      return Expanded(
+        child: Semantics(
+          button: true,
+          selected: on,
+          label: label,
+          excludeSemantics: true,
+          child: GestureDetector(
+            onTap: on || _pending != null ? null : () => _set(value),
+            child: AnimatedContainer(
+              duration: const Duration(milliseconds: 180),
+              curve: Curves.easeOutCubic,
+              height: 38,
+              decoration: BoxDecoration(
+                color: on ? LiveStudioAccent.pink : t.ghostFill.withValues(alpha: 0),
+                borderRadius: BorderRadius.circular(999),
+              ),
+              child: Row(mainAxisAlignment: MainAxisAlignment.center, children: [
+                Icon(icon, size: 16, color: on ? LiveStudioAccent.white : t.textMedium),
+                const SizedBox(width: 6),
+                Flexible(
+                  child: Text(label,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: LiveStudioType.s(13, FontWeight.w700, on ? LiveStudioAccent.white : t.textMedium)),
+                ),
+              ]),
+            ),
+          ),
+        ),
+      );
+    }
+
+    return Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+      Container(
+        padding: const EdgeInsets.all(3),
+        decoration: BoxDecoration(
+          color: t.ghostFill,
+          borderRadius: BorderRadius.circular(999),
+          border: Border.all(color: t.ghostBorder, width: 1),
+        ),
+        child: Row(children: [
+          seg('Solo', Icons.person_outline, false),
+          seg('Open to guests', Icons.groups_2_outlined, true),
+        ]),
+      ),
+      const SizedBox(height: 6),
+      Text(
+        open ? 'Viewers can ask to join your stage.' : 'Only you are on stage. Requests are paused.',
+        style: LiveStudioType.s(12, FontWeight.w500, t.textMedium),
+      ),
+    ]);
   }
 }
 

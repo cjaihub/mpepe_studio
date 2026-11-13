@@ -221,22 +221,17 @@ class MoneyService {
 
   Future<void> deletePayoutMethod(String id) => _call('deletePayoutMethod', {'id': id});
 
-  /// Starts Stripe Connect onboarding (non-African payouts). Returns the url to open.
-  Future<String> stripeOnboardingUrl(String country) async {
-    final r = await _call('stripeConnectOnboard', {'country': country});
-    return '${r['url']}';
-  }
-
-  Future<bool> refreshStripe() async {
-    final r = await _call('stripePayoutStatus');
-    return r['payoutsEnabled'] == true;
-  }
-
-  /// Returns the hosted Stripe Identity url, or null when already verified / in review.
-  Future<String?> startKyc() async {
+  /// Opens (or continues) an identity check. Returns the private Storage
+  /// folder for the photos, or null when already verified / in review.
+  Future<({String sessionId, String path})?> startKyc() async {
     final r = await _call('kycStart');
-    return r['url'] as String?;
+    if (r['path'] == null) return null;
+    return (sessionId: '${r['sessionId']}', path: '${r['path']}');
   }
+
+  /// Sends the check for review once the photos are uploaded.
+  Future<void> submitKyc({required String sessionId, required String fullName, required String country, required String documentType}) =>
+      _call('kycSubmit', {'sessionId': sessionId, 'fullName': fullName, 'country': country, 'documentType': documentType});
 
   Future<String> refreshKyc() async {
     final r = await _call('kycRefresh');

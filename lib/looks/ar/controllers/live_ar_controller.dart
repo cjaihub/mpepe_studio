@@ -8,10 +8,12 @@ import 'package:camera/camera.dart';
 import 'package:flutter/foundation.dart' show kDebugMode;
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:http/http.dart' as http;
 import 'package:oneova_camera_kit/oneova_camera_kit.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:sensors_plus/sensors_plus.dart';
 
+import '../builtin/builtin_effects.dart';
 import '../models/ar_effect.dart';
 import '../render/ar_effect_painter.dart';
 import '../services/ar_effect_repository.dart';
@@ -53,16 +55,50 @@ class LiveArState {
     this.personScale = 1,
     this.loading = const {},
     this.error,
+    this.previewFace = false,
+    this.outfitColor,
+    this.outfitStrength = 0.8,
+    this.transparentBackground = false,
+    this.backgroundVideoPath,
+    this.effectPerPerson = false,
+    this.autoTrack = false,
   });
 
+  /// Smart Auto-Track: keeps face & body tracking active and dynamically frames the subject.
+  final bool autoTrack;
+
+  /// With several people in frame, each gets a different face effect
+  /// (person 1 the first one picked, person 2 the next…).
+  final bool effectPerPerson;
+
+  /// Background removed entirely: photos save as transparent PNGs; videos
+  /// (no alpha in MP4) record on key green so an editor can key it out.
+  final bool transparentBackground;
+
+  /// A looping video from the phone behind the person (replace mode).
+  final String? backgroundVideoPath;
+
+  /// Outfit colour: clothes (person mask, below the neck, skin kept) are
+  /// recoloured live and in captures; null = off.
+  final Color? outfitColor;
+  final double outfitStrength;
+  bool get outfitOn => outfitColor != null && outfitStrength > 0;
+
   List<ArEffect> get effects => active.values.toList(growable: false);
-  bool get hasAnything => active.isNotEmpty || backgroundMode != ArBackgroundMode.none;
+  bool get hasAnything => active.isNotEmpty || backgroundMode != ArBackgroundMode.none || outfitOn;
+
+  /// True while a tool (e.g. Makeup Studio) wants face tracking with nothing
+  /// applied yet, so it can show whether a face is found.
+  final bool previewFace;
+
+  /// Whether the AR camera path should run at all.
+  bool get usesAr => hasAnything || previewFace || autoTrack;
   bool isActive(String id) => active.values.any((e) => e.id == id);
 
   ArTrackingNeeds get needs => ArTrackingNeeds(
-        face: active.values.any((e) => e.needsFace),
-        body: active.values.any((e) => e.needsBody),
-        mask: backgroundMode != ArBackgroundMode.none,
+        face: previewFace || autoTrack || outfitOn || active.values.any((e) => e.needsFace),
+        body: autoTrack || outfitOn || active.values.any((e) => e.needsBody),
+        mask: backgroundMode != ArBackgroundMode.none || outfitOn,
       );
 
   LiveArState copyWith({
@@ -77,6 +113,13 @@ class LiveArState {
     double? personScale,
     Set<String>? loading,
     String? Function()? error,
+    bool? previewFace,
+    Color? Function()? outfitColor,
+    double? outfitStrength,
+    bool? transparentBackground,
+    String? Function()? backgroundVideoPath,
+    bool? effectPerPerson,
+    bool? autoTrack,
   }) =>
       LiveArState(
         active: active ?? this.active,
@@ -90,6 +133,13 @@ class LiveArState {
         personScale: personScale ?? this.personScale,
         loading: loading ?? this.loading,
         error: error != null ? error() : this.error,
+        previewFace: previewFace ?? this.previewFace,
+        outfitColor: outfitColor != null ? outfitColor() : this.outfitColor,
+        outfitStrength: outfitStrength ?? this.outfitStrength,
+        transparentBackground: transparentBackground ?? this.transparentBackground,
+        backgroundVideoPath: backgroundVideoPath != null ? backgroundVideoPath() : this.backgroundVideoPath,
+        effectPerPerson: effectPerPerson ?? this.effectPerPerson,
+        autoTrack: autoTrack ?? this.autoTrack,
       );
 }
 
@@ -126,7 +176,13 @@ class LiveArController extends Notifier<LiveArState> {
   bool _decoding = false;
   int _nativeFrames = 0;
   final Set<String> _sentImages = {};
+
+  /// Downloaded 3D models (effect id → .glb path) and those the camera has.
+  final Map<String, String> _modelPaths = {};
+  final Set<String> _sentModels = {};
   ui.Image? _sentBackground;
+  String? _sentBackgroundVideo;
+  ui.Image? _keyGreen;
   bool _syncingNative = false;
   bool _nativeDirty = false;
   Timer? _worldTimer;
@@ -181,7 +237,9 @@ class LiveArController extends Notifier<LiveArState> {
     _native = camera;
     _nativeMirror = mirror;
     _sentImages.clear();
+    _sentModels.clear();
     _sentBackground = null;
+    _sentBackgroundVideo = null;
     _nativeFrames = 0;
     _nativeSub = camera.frames.listen(_onNativeEvent);
     await _syncNative();
@@ -193,7 +251,9 @@ class LiveArController extends Notifier<LiveArState> {
     _nativeSub = null;
     _native = null;
     _sentImages.clear();
+    _sentModels.clear();
     _sentBackground = null;
+    _sentBackgroundVideo = null;
     _setFrame(null);
   }
 
@@ -249,7 +309,33 @@ class LiveArController extends Notifier<LiveArState> {
         }
         _sentImages.removeWhere((id) => !s.effects.any((e) => e.id == id));
 
-        final bg = s.backgroundMode == ArBackgroundMode.replace ? s.backgroundImage : null;
+        for (final e in s.effects) {
+          final path = _modelPaths[e.id];
+          if (!e.is3d || path == null || _sentModels.contains(e.id)) continue;
+          try {
+            await cam.putModel(e.id, path);
+            _sentModels.add(e.id);
+          } catch (err) {
+            debugPrint('3D model ${e.id} failed: $err');
+            if (_native == cam) {
+              _sentModels.add(e.id);
+              state = state.copyWith(error: () => 'Could not show "${e.name}" in 3D on this phone.');
+            }
+          }
+        }
+        _sentModels.removeWhere((id) => !s.effects.any((e) => e.id == id));
+
+        // Videos have no alpha: a transparent background records on key green.
+        final bg = s.backgroundMode != ArBackgroundMode.replace
+            ? null
+            : s.transparentBackground
+                ? (_keyGreen ??= await _solidImage(const Color(0xFF00B140)))
+                : s.backgroundImage;
+        final video = s.backgroundMode == ArBackgroundMode.replace ? s.backgroundVideoPath : null;
+        if (video != _sentBackgroundVideo) {
+          await cam.setBackgroundVideo(video);
+          _sentBackgroundVideo = video;
+        }
         if (bg != _sentBackground) {
           if (bg == null) {
             await cam.setBackground(null, null, null);
@@ -272,6 +358,7 @@ class LiveArController extends Notifier<LiveArState> {
                   'offsetX': e.offsetX,
                   'offsetY': e.offsetY,
                   if (e.kind == ArEffectKind.makeup) 'makeup': _makeupMap(e.makeup),
+                  if (e.is3d) 'model': e.modelFit.toMap(),
                 },
           ],
           'backgroundMode': s.backgroundMode.index,
@@ -280,6 +367,14 @@ class LiveArController extends Notifier<LiveArState> {
           'personOffsetX': s.personOffset.dx,
           'personOffsetY': s.personOffset.dy,
           'personScale': s.personScale,
+          'perPerson': s.effectPerPerson,
+          if (s.outfitOn)
+            'outfit': [
+              (s.outfitColor!.r).toDouble(),
+              (s.outfitColor!.g).toDouble(),
+              (s.outfitColor!.b).toDouble(),
+              s.outfitStrength,
+            ],
         });
       } while (_nativeDirty);
     } catch (e) {
@@ -289,19 +384,7 @@ class LiveArController extends Notifier<LiveArState> {
     }
   }
 
-  static Map<String, Object> _makeupMap(ArMakeup m) => {
-        'lipColor': m.lipColor.toARGB32(),
-        'lipOpacity': m.lipOpacity,
-        'blushColor': m.blushColor.toARGB32(),
-        'blushOpacity': m.blushOpacity,
-        'eyeColor': m.eyeColor.toARGB32(),
-        'eyeOpacity': m.eyeOpacity,
-        'eyeGlow': m.eyeGlow,
-        'linerColor': m.linerColor.toARGB32(),
-        'linerOpacity': m.linerOpacity,
-        'browColor': m.browColor.toARGB32(),
-        'browOpacity': m.browOpacity,
-      };
+  static Map<String, Object> _makeupMap(ArMakeup m) => m.toNative();
 
   /// World stickers move with the gyro at up to 60 Hz; the recorder only
   /// needs ~30 updates a second.
@@ -374,15 +457,33 @@ class LiveArController extends Notifier<LiveArState> {
       remove(effect);
       return;
     }
-    if (effect.kind != ArEffectKind.makeup) {
+    if (effect.is3d) {
+      final url = effect.modelUrl;
+      if (url == null || !OneovaArCamera.isSupported) {
+        state = state.copyWith(error: () => url == null ? 'This 3D effect has no model yet.' : '3D effects need the Oneova camera on Android.');
+        return;
+      }
+      state = state.copyWith(loading: {...state.loading, effect.id}, error: () => null);
+      try {
+        _modelPaths[effect.id] ??= await _downloadModel(effect.id, url);
+      } catch (e) {
+        state = state.copyWith(
+          loading: {...state.loading}..remove(effect.id),
+          error: () => 'Could not download "${effect.name}". Check your connection.',
+        );
+        return;
+      }
+    } else if (effect.kind != ArEffectKind.makeup) {
+      final builtIn = BuiltInEffects.isBuiltIn(effect.id);
       final url = effect.assetUrl;
-      if (url == null) {
+      if (url == null && !builtIn) {
         state = state.copyWith(error: () => 'This effect has no image yet.');
         return;
       }
       state = state.copyWith(loading: {...state.loading, effect.id}, error: () => null);
       try {
-        final img = state.images[effect.id] ?? await _loadImage(url);
+        final img = state.images[effect.id] ??
+            (builtIn ? await BuiltInEffects.image(effect.id) : await _loadImage(url!));
         state = state.copyWith(images: {...state.images, effect.id: img});
       } catch (e) {
         state = state.copyWith(
@@ -408,7 +509,63 @@ class LiveArController extends Notifier<LiveArState> {
     }
     _syncGyro();
     unawaited(_syncStream());
-    unawaited(ref.read(arEffectRepositoryProvider).recordUse(effect.id));
+    if (!BuiltInEffects.isBuiltIn(effect.id) && effect.source != 'custom') {
+      unawaited(ref.read(arEffectRepositoryProvider).recordUse(effect.id));
+    }
+  }
+
+  // ── Makeup Studio ───────────────────────────────────────────────────────
+
+  static const customMakeupId = 'custom_makeup';
+
+  /// The makeup currently on the face (built-in look, catalog look or the
+  /// user's own edits), or null.
+  ArMakeup? get activeMakeup => state.active['makeup']?.makeup;
+
+  /// Keeps face tracking on while a tool is open, even with nothing applied.
+  void setEffectPerPerson(bool on) {
+    state = state.copyWith(effectPerPerson: on);
+    unawaited(_syncStream());
+  }
+
+  /// Recolours clothes ([color] null turns it off).
+  void setOutfit(Color? color, {double? strength}) {
+    state = state.copyWith(outfitColor: () => color, outfitStrength: strength);
+    unawaited(_syncStream());
+  }
+
+  void setPreviewFace(bool on) {
+    if (state.previewFace == on) return;
+    state = state.copyWith(previewFace: on);
+    unawaited(_syncStream());
+  }
+
+  /// Toggles Smart Auto-Tracker (human face & body subject-follow framing).
+  void setAutoTrack(bool on) {
+    if (state.autoTrack == on) return;
+    state = state.copyWith(autoTrack: on);
+    unawaited(_syncStream());
+  }
+
+  /// Applies an edited makeup live; an empty makeup turns makeup off.
+  void setMakeup(ArMakeup makeup, {String name = 'My makeup'}) {
+    final active = {...state.active};
+    if (makeup.isEmpty) {
+      active.remove('makeup');
+    } else {
+      active['makeup'] = ArEffect(
+        id: customMakeupId,
+        name: name,
+        kind: ArEffectKind.makeup,
+        category: ArEffectCategory.makeup,
+        anchor: ArAnchor.face,
+        makeup: makeup,
+        creatorUid: '',
+        source: 'custom',
+      );
+    }
+    state = state.copyWith(active: active);
+    unawaited(_syncStream());
   }
 
   void remove(ArEffect effect) {
@@ -437,6 +594,9 @@ class LiveArController extends Notifier<LiveArState> {
       addYourself: false,
       personOffset: Offset.zero,
       personScale: 1,
+      outfitColor: () => null,
+      transparentBackground: false,
+      backgroundVideoPath: () => null,
     );
     world.value = const {};
     _syncGyro();
@@ -454,6 +614,8 @@ class LiveArController extends Notifier<LiveArState> {
         backgroundImage: () => null,
         backgroundLabel: () => null,
         addYourself: false,
+        transparentBackground: false,
+        backgroundVideoPath: () => null,
       );
     } else if (state.backgroundMode == ArBackgroundMode.blur) {
       state = state.copyWith(backgroundMode: ArBackgroundMode.none);
@@ -471,11 +633,81 @@ class LiveArController extends Notifier<LiveArState> {
       addYourself: false,
       personOffset: Offset.zero,
       personScale: 1,
+      transparentBackground: false,
+      backgroundVideoPath: () => null,
     );
     unawaited(_syncStream());
   }
 
   void setBlurSigma(double v) => state = state.copyWith(blurSigma: v.clamp(2.0, 40.0));
+
+  /// A solid colour behind the person.
+  Future<void> setBackgroundColor(Color color, {String label = 'Colour'}) async {
+    final img = await _solidImage(color);
+    state = state.copyWith(
+      active: {...state.active}..remove('background'),
+      backgroundMode: ArBackgroundMode.replace,
+      backgroundImage: () => img,
+      backgroundLabel: () => label,
+      transparentBackground: false,
+      backgroundVideoPath: () => null,
+      addYourself: false,
+      error: () => null,
+    );
+    unawaited(_syncStream());
+  }
+
+  /// Removes the background: transparent PNG photos, key-green videos. The
+  /// preview shows a checkerboard.
+  Future<void> setTransparentBackground() async {
+    final img = await _checkerImage();
+    state = state.copyWith(
+      active: {...state.active}..remove('background'),
+      backgroundMode: ArBackgroundMode.replace,
+      backgroundImage: () => img,
+      backgroundLabel: () => 'Transparent',
+      transparentBackground: true,
+      backgroundVideoPath: () => null,
+      addYourself: false,
+      error: () => null,
+    );
+    unawaited(_syncStream());
+  }
+
+  /// A looping video from the phone behind the person. Its first frame is
+  /// the still used for photos.
+  Future<void> setBackgroundVideo(String path, {ui.Image? firstFrame}) async {
+    final still = firstFrame ?? await _solidImage(const Color(0xFF101014));
+    state = state.copyWith(
+      active: {...state.active}..remove('background'),
+      backgroundMode: ArBackgroundMode.replace,
+      backgroundImage: () => still,
+      backgroundLabel: () => 'Your video',
+      transparentBackground: false,
+      backgroundVideoPath: () => path,
+      addYourself: false,
+      error: () => null,
+    );
+    unawaited(_syncStream());
+  }
+
+  static Future<ui.Image> _solidImage(Color c) {
+    final rec = ui.PictureRecorder();
+    Canvas(rec).drawRect(const Rect.fromLTWH(0, 0, 8, 8), Paint()..color = c);
+    return rec.endRecording().toImage(8, 8);
+  }
+
+  static Future<ui.Image> _checkerImage() {
+    final rec = ui.PictureRecorder();
+    final canvas = Canvas(rec);
+    for (var y = 0; y < 16; y++) {
+      for (var x = 0; x < 9; x++) {
+        canvas.drawRect(Rect.fromLTWH(x * 40.0, y * 40.0, 40, 40),
+            Paint()..color = (x + y).isEven ? const Color(0xFFE6E6E6) : const Color(0xFFBDBDBD));
+      }
+    }
+    return rec.endRecording().toImage(360, 640);
+  }
 
   /// Uses a photo from the gallery as the scene behind the person.
   Future<void> setBackgroundFile(File file, {bool addYourself = false}) async {
@@ -489,6 +721,8 @@ class LiveArController extends Notifier<LiveArState> {
         backgroundMode: ArBackgroundMode.replace,
         backgroundImage: () => img,
         backgroundLabel: () => 'Your photo',
+        transparentBackground: false,
+        backgroundVideoPath: () => null,
         addYourself: addYourself,
         personOffset: Offset.zero,
         personScale: addYourself ? 0.7 : 1,
@@ -597,6 +831,27 @@ class LiveArController extends Notifier<LiveArState> {
     final mask = tracked.mask;
     final s = state;
 
+    /// Skin smoothing, same as the live viewfinder.
+    void smoothSkin() {
+      final amount = s.active['makeup']?.makeup.smoothing ?? 0;
+      if (amount <= 0) return;
+      final sigma = size.width / 360 * 1.6;
+      for (final f in tracked.faces) {
+        final skin = ArEffectPainter.skinPath(f, size);
+        if (skin == null) continue;
+        canvas.save();
+        canvas.clipPath(skin);
+        canvas.drawImage(
+          photo,
+          Offset.zero,
+          Paint()
+            ..imageFilter = ui.ImageFilter.blur(sigmaX: sigma, sigmaY: sigma)
+            ..color = Color.fromRGBO(0, 0, 0, (amount * 0.8).clamp(0.0, 1.0)),
+        );
+        canvas.restore();
+      }
+    }
+
     void person() {
       if (s.addYourself) {
         canvas.save();
@@ -609,6 +864,7 @@ class LiveArController extends Notifier<LiveArState> {
       }
       canvas.saveLayer(rect, Paint());
       canvas.drawImage(photo, Offset.zero, Paint());
+      smoothSkin();
       canvas.drawImageRect(
         mask!.image,
         Rect.fromLTWH(0, 0, mask.width.toDouble(), mask.height.toDouble()),
@@ -618,7 +874,7 @@ class LiveArController extends Notifier<LiveArState> {
           ..filterQuality = FilterQuality.medium,
       );
       canvas.restore();
-      ArEffectPainter.paintEffects(canvas, size, tracked, s.effects, s.images, world.value);
+      ArEffectPainter.paintEffects(canvas, size, tracked, s.effects, s.images, world.value, perPerson: s.effectPerPerson);
       if (s.addYourself) canvas.restore();
     }
 
@@ -630,13 +886,16 @@ class LiveArController extends Notifier<LiveArState> {
           Offset.zero,
           Paint()..imageFilter = ui.ImageFilter.blur(sigmaX: sigma, sigmaY: sigma),
         );
+      } else if (s.transparentBackground) {
+        // Nothing behind the person: the PNG keeps the transparency.
       } else if (s.backgroundImage != null) {
         _drawCover(canvas, s.backgroundImage!, rect);
       }
       person();
     } else {
       canvas.drawImage(photo, Offset.zero, Paint());
-      ArEffectPainter.paintEffects(canvas, size, tracked, s.effects, s.images, world.value);
+      smoothSkin();
+      ArEffectPainter.paintEffects(canvas, size, tracked, s.effects, s.images, world.value, perPerson: s.effectPerPerson);
     }
 
     final out = await recorder.endRecording().toImage(photo.width, photo.height);
@@ -663,6 +922,28 @@ class LiveArController extends Notifier<LiveArState> {
       dst,
       Paint()..filterQuality = FilterQuality.medium,
     );
+  }
+
+  /// Downloads a 3D model once and keeps it on the phone (by URL).
+  static Future<String> _downloadModel(String id, String url) async {
+    final root = await getApplicationSupportDirectory();
+    final dir = Directory('${root.path}/ar_models');
+    if (!dir.existsSync()) dir.createSync(recursive: true);
+    final safeId = id.replaceAll(RegExp(r'[^A-Za-z0-9_-]'), '_');
+    final file = File('${dir.path}/${safeId}_${url.hashCode.toUnsigned(32)}.glb');
+    if (file.existsSync() && file.lengthSync() > 0) return file.path;
+    final res = await http.get(Uri.parse(url)).timeout(const Duration(seconds: 60));
+    if (res.statusCode != 200) throw HttpException('HTTP ${res.statusCode}');
+    final bytes = res.bodyBytes;
+    // glTF binaries start with "glTF"; refuse anything else (and huge files).
+    if (bytes.length < 12 || bytes.length > 40 * 1024 * 1024 ||
+        bytes[0] != 0x67 || bytes[1] != 0x6C || bytes[2] != 0x54 || bytes[3] != 0x46) {
+      throw const FormatException('Not a glTF binary');
+    }
+    final tmp = File('${file.path}.part');
+    await tmp.writeAsBytes(bytes, flush: true);
+    await tmp.rename(file.path);
+    return file.path;
   }
 
   static Future<ui.Image> _loadImage(String url) {

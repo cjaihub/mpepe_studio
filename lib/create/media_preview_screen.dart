@@ -11,6 +11,7 @@ import 'package:media_kit_video/media_kit_video.dart';
 import 'package:share_plus/share_plus.dart';
 
 import '../shared/theme/app_theme.dart';
+import '../backend/social/models/remix_source.dart';
 import '../backend/publishing/models/publishing_destination.dart';
 import '../backend/connections/linked_accounts.dart' show LinkedPlatform;
 import '../shared/widgets/linked_destinations_picker.dart';
@@ -34,12 +35,16 @@ class MediaPreviewScreen extends ConsumerStatefulWidget {
   final String? initialCoverPath;
   final int initialCoverTimeMs;
 
+  /// Set when the post remixes someone's post (attribution + earnings share).
+  final RemixSource? remixOf;
+
   const MediaPreviewScreen({
     super.key,
     required this.mediaPath,
     required this.isVideo,
     this.initialCoverPath,
     this.initialCoverTimeMs = 0,
+    this.remixOf,
   });
 
   @override
@@ -153,6 +158,7 @@ class _MediaPreviewScreenState extends ConsumerState<MediaPreviewScreen> {
           allowComments: restored.allowComments,
           allowDuet: restored.allowDuet,
           allowStitch: restored.allowStitch,
+          allowRemix: restored.allowRemix,
           allowDownload: restored.allowDownload,
           isAiGenerated: restored.isAiGenerated,
           isBrandedContent: restored.isBrandedContent,
@@ -222,6 +228,7 @@ class _MediaPreviewScreenState extends ConsumerState<MediaPreviewScreen> {
       allowComments: _advancedSettings.allowComments,
       allowDuet: _advancedSettings.allowDuet,
       allowStitch: _advancedSettings.allowStitch,
+      allowRemix: _advancedSettings.allowRemix,
       allowDownload: _advancedSettings.allowDownload,
       isAiGenerated: _advancedSettings.isAiGenerated,
       isBrandedContent: _advancedSettings.isBrandedContent,
@@ -337,6 +344,8 @@ class _MediaPreviewScreenState extends ConsumerState<MediaPreviewScreen> {
           'allowComments': _advancedSettings.allowComments,
           'allowDuet': _advancedSettings.allowDuet,
           'allowStitch': _advancedSettings.allowStitch,
+          'allowRemix': _advancedSettings.allowRemix,
+          if (widget.remixOf != null) 'remixOf': widget.remixOf!.toJson(),
           'allowDownload': _advancedSettings.allowDownload,
           'highQualityUploads': _highQualityUploads,
           'location': _advancedSettings.location,
@@ -489,6 +498,29 @@ class _MediaPreviewScreenState extends ConsumerState<MediaPreviewScreen> {
 
   // ── Build ───────────────────────────────────────────────────────────────
 
+  Widget _remixBanner(RemixSource r) => Container(
+        margin: const EdgeInsets.only(bottom: 10),
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+        decoration: BoxDecoration(
+          color: AppColors.brandPink.withValues(alpha: 0.1),
+          borderRadius: BorderRadius.circular(AppRadius.md),
+          border: Border.all(color: AppColors.brandPink.withValues(alpha: 0.35)),
+        ),
+        child: Row(
+          children: [
+            const Icon(Icons.auto_awesome, color: AppColors.brandPink, size: 18),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Text(
+                'Remix of ${r.authorName.isEmpty ? 'another creator' : '@${r.authorName}'}. They are credited on your post '
+                'and get ${(kRemixOriginalShare * 100).round()}% of the gift coins it earns.',
+                style: GoogleFonts.inter(color: context.textPrimary, fontSize: 12.5, fontWeight: FontWeight.w500, height: 1.35),
+              ),
+            ),
+          ],
+        ),
+      );
+
   @override
   Widget build(BuildContext context) {
     final searchService = ref.watch(postSearchServiceProvider);
@@ -550,6 +582,7 @@ class _MediaPreviewScreenState extends ConsumerState<MediaPreviewScreen> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
+              if (widget.remixOf != null) _remixBanner(widget.remixOf!),
               // Top Row: Caption Editor + Cover Thumbnail Scrubber Preview
               Row(
                 crossAxisAlignment: CrossAxisAlignment.start,

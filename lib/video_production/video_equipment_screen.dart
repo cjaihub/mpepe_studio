@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:go_router/go_router.dart';
 import '../shared/widgets/components.dart';
 import '../shared/widgets/studio_background.dart';
 import '../shared/theme/app_theme.dart';
@@ -16,6 +18,107 @@ class VideoEquipmentScreen extends ConsumerStatefulWidget {
 
 class _VideoEquipmentScreenState extends ConsumerState<VideoEquipmentScreen> {
   String _selectedCategory = 'All';
+
+  Future<void> _showAddEquipmentDialog(BuildContext context) async {
+    HapticFeedback.lightImpact();
+    final nameController = TextEditingController();
+    String category = 'Camera';
+
+    await showDialog<void>(
+      context: context,
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setModalState) => AlertDialog(
+          backgroundColor: ctx.surface,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(AppRadius.lg),
+            side: BorderSide(color: ctx.border),
+          ),
+          title: Text(
+            'Add Equipment',
+            style: TextStyle(
+              color: ctx.textPrimary,
+              fontSize: 17,
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              TextField(
+                controller: nameController,
+                style: TextStyle(color: ctx.textPrimary, fontSize: 13),
+                decoration: InputDecoration(
+                  isDense: true,
+                  labelText: 'Equipment Name',
+                  labelStyle: TextStyle(color: ctx.textMuted, fontSize: 12),
+                  filled: true,
+                  fillColor: ctx.surfaceMid,
+                  enabledBorder: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(AppRadius.sm),
+                    borderSide: BorderSide(color: ctx.border),
+                  ),
+                  focusedBorder: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(AppRadius.sm),
+                    borderSide: const BorderSide(color: AppColors.brandBlue),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 12),
+              DropdownButtonFormField<String>(
+                initialValue: category,
+                dropdownColor: ctx.surface,
+                style: TextStyle(color: ctx.textPrimary, fontSize: 13),
+                decoration: InputDecoration(
+                  isDense: true,
+                  labelText: 'Category',
+                  labelStyle: TextStyle(color: ctx.textMuted, fontSize: 12),
+                  filled: true,
+                  fillColor: ctx.surfaceMid,
+                  enabledBorder: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(AppRadius.sm),
+                    borderSide: BorderSide(color: ctx.border),
+                  ),
+                ),
+                items: const ['Camera', 'Lens', 'Lighting', 'Audio']
+                    .map((c) => DropdownMenuItem(value: c, child: Text(c)))
+                    .toList(),
+                onChanged: (val) {
+                  if (val != null) setModalState(() => category = val);
+                },
+              ),
+            ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(ctx).pop(),
+              child: Text('Cancel', style: TextStyle(color: ctx.textSecondary)),
+            ),
+            ElevatedButton(
+              style: ElevatedButton.styleFrom(
+                backgroundColor: AppColors.brandBlue,
+                foregroundColor: Colors.white,
+              ),
+              onPressed: () async {
+                final name = nameController.text.trim();
+                if (name.isEmpty) return;
+                final id = 'eq_${DateTime.now().millisecondsSinceEpoch}';
+                await ref.read(equipmentRepositoryProvider).addEquipment(
+                      EquipmentItem(
+                        id: id,
+                        name: name,
+                        category: category,
+                        imageUrl: '',
+                      ),
+                    );
+                if (ctx.mounted) Navigator.of(ctx).pop();
+              },
+              child: const Text('Add'),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -35,37 +138,31 @@ class _VideoEquipmentScreenState extends ConsumerState<VideoEquipmentScreen> {
                   Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Text('Equipment', style: TextStyle(fontSize: 28, fontWeight: FontWeight.bold, color: Theme.of(context).colorScheme.onSurface)),
-                      const SizedBox(height: 8),
+                      Text('Equipment', style: TextStyle(fontSize: 22, fontWeight: FontWeight.w800, color: context.textPrimary)),
+                      const SizedBox(height: 4),
                       Text(
                         "What's out, what's free",
-                        style: TextStyle(color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.6), fontSize: 13),
+                        style: TextStyle(color: context.textSecondary, fontSize: 12.5),
                       ),
                     ],
                   ),
-                  IconButton(
-                    icon: const Icon(Icons.add_box, color: AppColors.brandBlue),
-                    onPressed: () async {
-                      final repo = ref.read(equipmentRepositoryProvider);
-                      await repo.addEquipment(EquipmentItem(id: 'cam1', name: 'Sony FX3', category: 'Camera', imageUrl: ''));
-                      await repo.addEquipment(EquipmentItem(id: 'cam2', name: 'RED Komodo', category: 'Camera', imageUrl: ''));
-                      await repo.addEquipment(EquipmentItem(id: 'lens1', name: 'Sigma 24-70mm', category: 'Lens', imageUrl: ''));
-                      await repo.addEquipment(EquipmentItem(id: 'light1', name: 'Aputure 300d', category: 'Lighting', imageUrl: ''));
-                      await repo.addEquipment(EquipmentItem(id: 'mic1', name: 'Rode NTG4+', category: 'Audio', imageUrl: ''));
-                      if (context.mounted) {
-                        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Mock Data Seeded!')));
-                      }
-                    },
-                    tooltip: 'Seed Mock Data',
+                  Row(
+                    children: [
+                      IconButton(
+                        icon: const Icon(Icons.add_box_outlined, color: AppColors.brandBlue),
+                        onPressed: () => _showAddEquipmentDialog(context),
+                        tooltip: 'Add Equipment',
+                      ),
+                      IconButton(
+                        icon: const Icon(Icons.qr_code_scanner, color: AppColors.brandBlue),
+                        onPressed: () {
+                          HapticFeedback.lightImpact();
+                          context.push('/qr_scanner');
+                        },
+                        tooltip: 'Scan Equipment QR',
+                      ),
+                    ],
                   ),
-                  IconButton(
-                    icon: const Icon(Icons.qr_code_scanner, color: AppColors.brandBlue),
-                    onPressed: () {
-                      // Placeholder for Phase 1 Scanner integration
-                      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Scanner coming soon!')));
-                    },
-                    tooltip: 'Scan Equipment QR',
-                  )
                 ],
               ),
             ),

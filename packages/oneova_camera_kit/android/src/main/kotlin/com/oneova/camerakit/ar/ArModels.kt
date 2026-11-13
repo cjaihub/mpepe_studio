@@ -62,22 +62,37 @@ internal class ArFace(
     }
 }
 
-/** Upper body from pose detection, normalized like [ArFace]. */
+/** Full/upper body and hand/wrist pose landmarks, normalized like [ArFace]. */
 internal class ArBody(
     val leftShoulder: PointF,
     val rightShoulder: PointF,
     val leftHip: PointF?,
     val rightHip: PointF?,
+    val leftElbow: PointF? = null,
+    val rightElbow: PointF? = null,
+    val leftWrist: PointF? = null,
+    val rightWrist: PointF? = null,
+    val leftAnkle: PointF? = null,
+    val rightAnkle: PointF? = null,
 ) {
     val shoulderWidth: Float get() = dist(leftShoulder, rightShoulder)
     val shouldersCenter: PointF get() = lerp(leftShoulder, rightShoulder, 0.5f)
     val roll: Float get() = atan2(rightShoulder.y - leftShoulder.y, rightShoulder.x - leftShoulder.x)
 
+    private fun lerpOpt(a: PointF?, b: PointF?, t: Float): PointF? =
+        if (a != null && b != null) lerp(a, b, t) else b
+
     fun lerpTo(next: ArBody, t: Float) = ArBody(
         lerp(leftShoulder, next.leftShoulder, t),
         lerp(rightShoulder, next.rightShoulder, t),
-        next.leftHip,
-        next.rightHip,
+        lerpOpt(leftHip, next.leftHip, t),
+        lerpOpt(rightHip, next.rightHip, t),
+        lerpOpt(leftElbow, next.leftElbow, t),
+        lerpOpt(rightElbow, next.rightElbow, t),
+        lerpOpt(leftWrist, next.leftWrist, t),
+        lerpOpt(rightWrist, next.rightWrist, t),
+        lerpOpt(leftAnkle, next.leftAnkle, t),
+        lerpOpt(rightAnkle, next.rightAnkle, t),
     )
 }
 
@@ -94,6 +109,10 @@ internal class ArResult(
     val faces: List<ArFace>,
     val body: ArBody?,
     val mask: ArMask?,
+    /** Scene brightness 0..1 (mean luma of the analysis frame), for light-aware effects. */
+    val light: Float = 0.5f,
+    /** Average scene colour (r, g, b scaled so the largest is 1), or null. */
+    val tint: FloatArray? = null,
 )
 
 /** Which models the active effects need; models that are not needed are not run. */

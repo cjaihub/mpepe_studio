@@ -19,8 +19,6 @@ import 'package:go_router/go_router.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:image_picker/image_picker.dart';
 
-import '../../../backend/live/models/live_models.dart';
-import '../../../backend/live/services/live_service.dart';
 import '../../../backend/live_studio/contracts/studio_contracts.dart';
 import '../../../backend/live_studio/contracts/studio_ports.dart';
 import '../../../backend/live_studio/fun/studio_fun.dart';
@@ -28,11 +26,11 @@ import '../../../backend/live_studio/media/studio_media_api.dart';
 import '../../../backend/live_studio/security/studio_security_models.dart';
 import '../../../backend/live_studio/settings/studio_settings_controller.dart';
 import '../../../looks/live/live_looks_controller.dart';
-import '../../../looks/models/oneova_look.dart';
 import '../../../shared/theme/app_theme.dart';
 import '../go_live/go_live_sheets.dart';
 import '../studio_v2/join/device_preview.dart';
 import 'live_setup_config.dart';
+import 'live_beauty_panel.dart';
 import 'live_setup_previews.dart';
 
 enum _Step {
@@ -189,15 +187,7 @@ class _LiveSetupWizardScreenState extends ConsumerState<LiveSetupWizardScreen> {
   /// publishes the camera).
   Future<void> _syncBeauty() async {
     final looks = ref.read(liveLooksControllerProvider.notifier);
-    final beauty = _cfg.beautyOn
-        ? BoostBeautyConfig(
-            isEnabled: true,
-            smoothSkin: _cfg.smooth,
-            evenTone: _cfg.smooth * 0.6,
-            eyeBrighten: _cfg.brighten,
-            autoBoostLevel: _cfg.brighten * 0.5,
-          )
-        : const BoostBeautyConfig();
+    final beauty = _cfg.beauty.toBoost(enabled: _cfg.beautyOn);
     try {
       final p = _preview;
       final id = p is LiveKitDevicePreview ? p.videoTrackId : null;
@@ -273,79 +263,46 @@ class _LiveSetupWizardScreenState extends ConsumerState<LiveSetupWizardScreen> {
     // Remember this layout for next time (lsSetSettings with no stream).
     unawaited(_quiet(() => ref.read(studioSettingsApiProvider).save(null, partial)));
 
-    // 1. Solo Mode (Classic full-screen vertical live):
-    // Starts directly in Firestore via WebRTC mesh with zero cloud function latency or billing dependencies.
-    if (cfg.mode == LiveSetupMode.solo) {
-      final stream = await ref.read(liveServiceProvider).startStream(
-            title: cfg.effectiveTitle,
-            type: LiveStreamType.singleHost,
-            stageScene: LiveStageScene.holographicStage,
-            category: cfg.category,
-            audienceMode: cfg.audience.wire,
-            allowGuestRequests: cfg.acceptsRequests,
-            layoutMode: 'classic',
-          );
-      return (id: stream.id, route: '/live/viewer/${stream.id}');
-    }
-
-    // 2. Studio / Game Mode: Try LiveKit Studio v2 with instant direct fallback
-    StudioStartResult? started;
-    try {
-      started = await ref.read(studioMediaApiProvider).start(
-            cfg.effectiveTitle,
-            settings: partial,
-            gaming: cfg.mode == LiveSetupMode.game,
-            gameTitle: cfg.mode == LiveSetupMode.game ? cfg.gameTitle : null,
-            category: cfg.mode == LiveSetupMode.game ? null : cfg.category,
-            coverUrl: coverUrl,
-            audienceMode: cfg.audience.wire,
-            allowGuestRequests: cfg.acceptsRequests,
-          ).timeout(const Duration(seconds: 4));
-    } catch (e) {
-      debugPrint('[LiveSetup] LiveKit/Cloud Functions start unavailable: $e. Falling back to direct live...');
-    }
-
-    if (started != null && started.streamId.isNotEmpty) {
-      final id = started.streamId;
-      ref.read(studioStartCredentialsProvider)[id] = started.credentials;
-      ref.read(studioStartMediaProvider)[id] = (mic: cfg.micOn, camera: cfg.cameraOn);
-
-      final call = ref.read(studioCallPortProvider);
-      unawaited(_quiet(() => call.call(StudioSecurityWire.setJoinRequests, {'streamId': id, 'open': cfg.acceptsRequests})));
-      if (cfg.chatMode != LiveChatMode.open) {
-        unawaited(_quiet(() => call.call(StudioSecurityWire.setChatMode, {
-              'streamId': id,
-              'mode': cfg.chatMode.wire,
-              if (cfg.chatMode == LiveChatMode.slow) 'slowSeconds': cfg.slowSeconds,
-            })));
-      }
-      // 1080p recording and/or real-time restream (lsBroadcast egress).
-      final dests = _destinations ?? const <LiveDestination>[];
-      final restream = cfg.restream && dests.any((d) => d.enabled);
-      if (cfg.record || restream) {
-        unawaited(_quiet(() => ref.read(studioBroadcastApiProvider).start(
-              id,
-              record: cfg.record,
-              restream: restream,
-              frame: cfg.landscape ? 'landscape' : 'portrait',
-            )));
-      }
-      return (id: id, route: '/live/studio2/$id');
-    }
-
-    // Direct Firestore Live Stream fallback (always works, zero-cost, instant):
-    final layoutMode = cfg.mode == LiveSetupMode.studio ? 'studio' : 'classic';
-    final stream = await ref.read(liveServiceProvider).startStream(
-          title: cfg.effectiveTitle,
-          type: cfg.mode == LiveSetupMode.game ? LiveStreamType.screenShare : LiveStreamType.singleHost,
-          stageScene: LiveStageScene.holographicStage,
-          category: cfg.category,
+    // Solo, Studio and Game all open the same Live Studio; the mode only
+    // decides the starting panel (solo starts with join requests paused and
+    // the host can open them later without leaving the screen).
+    final started = await ref.read(studioMediaApiProvider).start(
+          cfg.effectiveTitle,
+          settings: partial,
+          gaming: cfg.mode == LiveSetupMode.game,
+          gameTitle: cfg.mode == LiveSetupMode.game ? cfg.gameTitle : null,
+          category: cfg.mode == LiveSetupMode.game ? null : cfg.category,
+          coverUrl: coverUrl,
           audienceMode: cfg.audience.wire,
           allowGuestRequests: cfg.acceptsRequests,
-          layoutMode: layoutMode,
-        );
+        ).timeout(const Duration(seconds: 25));
+    if (started.streamId.isEmpty) throw StateError('Could not start your live. Try again.');
 
-    return (id: stream.id, route: '/live/viewer/${stream.id}');
+    final id = started.streamId;
+    ref.read(studioStartCredentialsProvider)[id] = started.credentials;
+    ref.read(studioStartMediaProvider)[id] = (mic: cfg.micOn, camera: cfg.cameraOn);
+
+    final call = ref.read(studioCallPortProvider);
+    unawaited(_quiet(() => call.call(StudioSecurityWire.setJoinRequests, {'streamId': id, 'open': cfg.acceptsRequests})));
+    if (cfg.chatMode != LiveChatMode.open) {
+      unawaited(_quiet(() => call.call(StudioSecurityWire.setChatMode, {
+            'streamId': id,
+            'mode': cfg.chatMode.wire,
+            if (cfg.chatMode == LiveChatMode.slow) 'slowSeconds': cfg.slowSeconds,
+          })));
+    }
+    // 1080p recording and/or real-time restream (lsBroadcast egress).
+    final dests = _destinations ?? const <LiveDestination>[];
+    final restream = cfg.restream && dests.any((d) => d.enabled);
+    if (cfg.record || restream) {
+      unawaited(_quiet(() => ref.read(studioBroadcastApiProvider).start(
+            id,
+            record: cfg.record,
+            restream: restream,
+            frame: cfg.landscape ? 'landscape' : 'portrait',
+          )));
+    }
+    return (id: id, route: '/live/studio2/$id');
   }
 
   static Future<void> _quiet(Future<Object?> Function() f) async {
@@ -524,31 +481,17 @@ class _LiveSetupWizardScreenState extends ConsumerState<LiveSetupWizardScreen> {
           unawaited(_ensurePreview());
         },
       ),
-      _SwitchRow(
-        icon: Icons.auto_awesome_rounded,
-        title: 'Beauty',
-        subtitle: 'Natural skin smoothing and brightening',
-        value: _cfg.beautyOn,
-        accent: AppColors.brandPink,
-        onChanged: (v) {
+      const SizedBox(height: 4),
+      LiveBeautyPanel(
+        enabled: _cfg.beautyOn,
+        beauty: _cfg.beauty,
+        onEnabled: (v) {
           _set(_cfg.copyWith(beautyOn: v));
           unawaited(_syncBeauty());
         },
+        onChanged: (b) => _set(_cfg.copyWith(beauty: b)),
+        onCommit: () => unawaited(_syncBeauty()),
       ),
-      if (_cfg.beautyOn) ...[
-        _SliderRow(
-          label: 'Smooth',
-          value: _cfg.smooth,
-          onChanged: (v) => _set(_cfg.copyWith(smooth: v)),
-          onChangeEnd: (_) => unawaited(_syncBeauty()),
-        ),
-        _SliderRow(
-          label: 'Brighten',
-          value: _cfg.brighten,
-          onChanged: (v) => _set(_cfg.copyWith(brighten: v)),
-          onChangeEnd: (_) => unawaited(_syncBeauty()),
-        ),
-      ],
     ];
   }
 
@@ -586,7 +529,7 @@ class _LiveSetupWizardScreenState extends ConsumerState<LiveSetupWizardScreen> {
           icon: Icons.info_outline_rounded,
           text: _cfg.mode == LiveSetupMode.game
               ? 'Game Live keeps your game in the center and your camera in a bubble.'
-              : 'Solo keeps you on the center screen. Pick Studio to bring guests on stage.',
+              : 'Solo keeps you on the center screen. You can open the stage to guests during the live.',
           action: _cfg.mode == LiveSetupMode.solo ? 'Switch to Studio' : null,
           onAction: () => _set(_cfg.copyWith(mode: LiveSetupMode.studio)),
         )
@@ -1086,6 +1029,8 @@ class _Pill extends StatelessWidget {
           const SizedBox(width: 6),
           Flexible(
             child: Text(label,
+                maxLines: 1,
+                softWrap: false,
                 overflow: TextOverflow.ellipsis,
                 style: GoogleFonts.inter(
                     fontSize: 13, fontWeight: FontWeight.w700, color: selected ? AppColors.brandWhite : context.textPrimary)),
@@ -1120,6 +1065,9 @@ class _ActionTile extends StatelessWidget {
               const SizedBox(width: 10),
               Flexible(
                 child: Text(label,
+                    maxLines: 1,
+                    softWrap: false,
+                    overflow: TextOverflow.ellipsis,
                     style: GoogleFonts.inter(fontSize: 14, fontWeight: FontWeight.w700, color: context.textPrimary)),
               ),
             ]),
@@ -1170,11 +1118,10 @@ class _SwitchRow extends StatelessWidget {
 }
 
 class _SliderRow extends StatelessWidget {
-  const _SliderRow({required this.label, required this.value, required this.onChanged, this.onChangeEnd});
+  const _SliderRow({required this.label, required this.value, required this.onChanged});
   final String label;
   final double value;
   final ValueChanged<double> onChanged;
-  final ValueChanged<double>? onChangeEnd;
 
   @override
   Widget build(BuildContext context) => Padding(
@@ -1188,7 +1135,6 @@ class _SliderRow extends StatelessWidget {
             child: Slider(
               value: value.clamp(0, 1).toDouble(),
               onChanged: onChanged,
-              onChangeEnd: onChangeEnd,
               activeColor: AppColors.brandPink,
             ),
           ),

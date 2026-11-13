@@ -7,6 +7,9 @@ import 'package:speech_to_text/speech_to_text.dart' as stt;
 import 'package:reorderable_grid_view/reorderable_grid_view.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../backend/project_repository.dart';
+import '../shared/audio/cloud_dictation.dart';
+import '../shared/audio/mic_coordinator.dart';
+import '../shared/audio/speech_hub.dart';
 import '../shared/theme/app_theme.dart';
 import 'pdf_export_service.dart';
 
@@ -20,10 +23,13 @@ class StoryboardPresentationScreen extends ConsumerStatefulWidget {
 
 class _StoryboardPresentationScreenState extends ConsumerState<StoryboardPresentationScreen> {
   final PageController _pageController = PageController();
-  final stt.SpeechToText _speech = stt.SpeechToText();
+  final SpeechHub _speech = SpeechHub.instance;
+  MicLease? _micLease;
+  CloudDictation? _cloud;
+  bool _usingCloud = false;
   
   bool _isListening = false;
-  bool _speechEnabled = false;
+  bool _speechEnabled = true;
   int _currentIndex = 0;
   
   bool _isGridView = false;
@@ -61,11 +67,10 @@ class _StoryboardPresentationScreenState extends ConsumerState<StoryboardPresent
   }
 
   void _initSpeech() async {
-    _speechEnabled = await _speech.initialize(
-      onStatus: (status) => debugPrint('STT Status: $status'),
-      onError: (error) => debugPrint('STT Error: $error'),
-    );
-    if (mounted) setState(() {});
+    final ready = await _speech.ensureReady();
+    if (mounted) {
+      setState(() => _speechEnabled = ready || true);
+    }
   }
   
   void _updatePenSettings(Color color, double width) {
@@ -89,33 +94,118 @@ class _StoryboardPresentationScreenState extends ConsumerState<StoryboardPresent
     }
   }
 
+  Future<void> _releaseMic() async {
+    final lease = _micLease;
+    _micLease = null;
+    await lease?.release();
+  }
+
+  void _handleVoiceCommand(String rawWords) {
+    final words = rawWords.toLowerCase();
+    debugPrint('Recognized: $words');
+    if (words.contains('next')) {
+      _nextSlide();
+      _stopListening();
+    } else if (words.contains('back') || words.contains('previous')) {
+      _prevSlide();
+      _stopListening();
+    } else if (words.contains('clear')) {
+      _signatureControllers[_currentIndex].clear();
+      _stopListening();
+    } else if (words.contains('play')) {
+      _toggleSlideshow();
+      _stopListening();
+    }
+  }
+
   void _startListening() async {
-    if (!_speechEnabled) return;
-    await _speech.listen(
-      onResult: (result) {
-        final words = result.recognizedWords.toLowerCase();
-        debugPrint('Recognized: $words');
-        if (words.contains('next')) {
-          _nextSlide();
-          _stopListening();
-        } else if (words.contains('back') || words.contains('previous')) {
-          _prevSlide();
-          _stopListening();
-        } else if (words.contains('clear')) {
-          _signatureControllers[_currentIndex].clear();
-          _stopListening();
-        } else if (words.contains('play')) {
-          _toggleSlideshow();
+    if (!_speechEnabled || _isListening) return;
+    final got = await MicCoordinator.instance.acquire(
+      MicUser.assistant,
+      onPreempted: () async {
+        _usingCloud = false;
+        await _speech.cancel(this);
+        await _cloud?.cancel();
+        _micLease = null;
+        if (mounted) setState(() => _isListening = false);
+      },
+      onInterruption: (i) {
+        if (i == MicInterruption.heldByOtherApp && _isListening && mounted) {
           _stopListening();
         }
       },
     );
+    if (got is MicBusy || !mounted) {
+      if (got is MicLease) await got.release();
+      return;
+    }
+    _micLease = got as MicLease;
+    _usingCloud = false;
     setState(() => _isListening = true);
+
+    final started = await _speech.listen(
+      owner: this,
+      options: stt.SpeechListenOptions(partialResults: true, cancelOnError: true),
+      onStatus: (status) {
+        if (_usingCloud || !mounted) return;
+        if (status == 'done' || status == 'notListening' || status == 'preempted') {
+          if (_isListening) _stopListening();
+        }
+      },
+      onError: (err) {
+        if (_usingCloud || !mounted || !_isListening) return;
+        if (err.errorMsg == 'error_no_match' || err.errorMsg == 'error_speech_timeout') {
+          _stopListening();
+        } else {
+          unawaited(_startCloudCommand());
+        }
+      },
+      onResult: (result) {
+        if (_usingCloud || !mounted) return;
+        _handleVoiceCommand(result.recognizedWords);
+      },
+    );
+    if (!started && mounted && _isListening) {
+      await _startCloudCommand();
+    }
+  }
+
+  Future<void> _startCloudCommand() async {
+    if (_usingCloud || !mounted || !_isListening) return;
+    await _speech.cancel(this);
+    _usingCloud = true;
+    _cloud ??= CloudDictation();
+    final ok = await _cloud!.start(
+      autoStopOnSilence: true,
+      onSilenceCommit: () async {
+        if (!_usingCloud) return;
+        _usingCloud = false;
+        String text = '';
+        try {
+          text = (await _cloud?.stopAndTranscribe() ?? '').trim();
+        } catch (_) {}
+        await _releaseMic();
+        if (!mounted) return;
+        setState(() => _isListening = false);
+        if (text.isNotEmpty) _handleVoiceCommand(text);
+      },
+    );
+    if (!ok) {
+      _usingCloud = false;
+      await _releaseMic();
+      if (mounted) setState(() => _isListening = false);
+    }
   }
 
   void _stopListening() async {
-    await _speech.stop();
-    setState(() => _isListening = false);
+    final wasCloud = _usingCloud;
+    _usingCloud = false;
+    await _speech.stop(this);
+    if (wasCloud) {
+      await _cloud?.cancel();
+    }
+    await _releaseMic();
+    if (mounted) setState(() => _isListening = false);
   }
 
   void _nextSlide() {
@@ -178,6 +268,10 @@ class _StoryboardPresentationScreenState extends ConsumerState<StoryboardPresent
 
   @override
   void dispose() {
+    unawaited(_speech.cancel(this));
+    unawaited(_cloud?.dispose());
+    unawaited(_micLease?.release());
+    _micLease = null;
     _pageController.dispose();
     _slideshowTimer?.cancel();
     for (var controller in _signatureControllers) {

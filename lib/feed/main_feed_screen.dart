@@ -1,3 +1,4 @@
+import '../create/services/remix_launcher.dart';
 import 'package:oneova/shared/widgets/animated_loading_indicator.dart';
 import 'dart:math' as math;
 import 'package:cloud_firestore/cloud_firestore.dart';
@@ -21,7 +22,6 @@ import 'package:oneova/backend/observability/performance_monitor.dart';
 import 'package:oneova/backend/user_service.dart';
 import 'package:oneova/shared/theme/app_theme.dart';
 import 'package:oneova/backend/messaging_repository.dart';
-import 'package:oneova/shared/widgets/creation_type_modal.dart';
 import 'package:oneova/backend/notifications/providers/notification_service.dart';
 import '../social_hub/feed/widgets/author_side_panel.dart';
 import 'widgets/comment_bottom_sheet.dart';
@@ -37,6 +37,8 @@ import 'widgets/reel_likes_bottom_sheet.dart';
 import '../backend/live/services/live_service.dart';
 import '../backend/live/models/live_models.dart';
 import '../backend/notifications/services/follower_alert_service.dart';
+import 'widgets/about_reel_card.dart';
+import 'widgets/feed_pulse_card.dart';
 import 'widgets/live_feed_card.dart';
 import 'widgets/reel_palette.dart';
 import 'widgets/rolling_count.dart';
@@ -95,6 +97,44 @@ class _ShortVideoFeedScreenState extends ConsumerState<ShortVideoFeedScreen>
   bool _isAutoScrollEnabled = false;
   bool _isLoopModeEnabled = true;
   StreamSubscription? _playerCompletionSub;
+  bool _isRouteCurrent = true;
+  bool _isAppResumed = true;
+  bool _lastTickerEnabled = true;
+  VideoPlaybackManager? _playbackManager;
+  OnlineFeatureStore? _featureStore;
+
+  void _safeAnimateToNextPage() {
+    if (!mounted) return;
+    try {
+      if (_pageController.hasClients && _pageController.positions.length == 1) {
+        final pos = _pageController.positions.first;
+        if (pos.haveDimensions && pos is PageMetrics) {
+          final pageMetrics = pos as PageMetrics;
+          final current = pageMetrics.page?.round() ?? _currentPage;
+          final target = current + 1;
+          if (target < _pages.length) {
+            _pageController.animateToPage(
+              target,
+              duration: const Duration(milliseconds: 380),
+              curve: Curves.easeInOutCubic,
+            ).catchError((_) {});
+          }
+        }
+      }
+    } catch (_) {}
+  }
+
+  void _safeJumpToPage(int page) {
+    if (!mounted) return;
+    try {
+      if (_pageController.hasClients && _pageController.positions.length == 1) {
+        final pos = _pageController.positions.first;
+        if (pos.haveDimensions) {
+          _pageController.jumpToPage(page);
+        }
+      }
+    } catch (_) {}
+  }
 
   // Focus mode: enters by itself once a reel has played for 3s, then
   // stays until the user presses Back or draws a circle (which opens Ova).
@@ -131,14 +171,7 @@ class _ShortVideoFeedScreenState extends ConsumerState<ShortVideoFeedScreen>
     if (player != null) {
       _playerCompletionSub = player.stream.completed.listen((isCompleted) {
         if (isCompleted && _isAutoScrollEnabled && mounted && _currentPage < _pages.length - 1) {
-          if (_pageController.hasClients && _pageController.positions.length == 1) {
-            try {
-              _pageController.nextPage(
-                duration: const Duration(milliseconds: 380),
-                curve: Curves.easeInOutCubic,
-              );
-            } catch (_) {}
-          }
+          _safeAnimateToNextPage();
         }
       });
     }
@@ -178,18 +211,21 @@ class _ShortVideoFeedScreenState extends ConsumerState<ShortVideoFeedScreen>
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
+    _playbackManager = ref.read(videoPlaybackManagerProvider);
+    _featureStore = ref.read(onlineFeatureStoreProvider);
     final modalRoute = ModalRoute.of(context);
     if (modalRoute != null) {
-      mainFeedRouteObserver.subscribe(this, modalRoute);
+      homeBranchRouteObserver.subscribe(this, modalRoute);
     }
   }
 
   @override
   void didPushNext() {
-    // Another screen was pushed over this feed (e.g. Profile, Search, Notifications, Settings).
+    // Another screen was pushed over this feed (e.g. StoryViewer, Profile).
     // Instantly auto-mute audio and pause playback.
     debugPrint('[ShortVideoFeedScreen] didPushNext: route covered, auto-muting reels');
-    ref.read(videoPlaybackManagerProvider).setScreenActive(false);
+    _isRouteCurrent = false;
+    _playbackManager?.setScreenActive(false);
     super.didPushNext();
   }
 
@@ -197,11 +233,15 @@ class _ShortVideoFeedScreenState extends ConsumerState<ShortVideoFeedScreen>
   void didPopNext() {
     // Returned back to this feed after the top route was popped.
     debugPrint('[ShortVideoFeedScreen] didPopNext: returned to feed, restoring active reel');
-    final isCurrent = ModalRoute.of(context)?.isCurrent ?? true;
-    if (isCurrent && mounted) {
-      ref.read(videoPlaybackManagerProvider).setScreenActive(true);
-      if (_feed.isNotEmpty && _currentIndex < _feed.length) {
-        ref.read(videoPlaybackManagerProvider).ensureCurrentPlaying(_feed[_currentIndex].id);
+    _isRouteCurrent = true;
+    final mgr = _playbackManager;
+    if (mounted && _lastTickerEnabled && _isAppResumed && mgr != null) {
+      mgr.setScreenActive(true);
+      final item = _currentPage < _pages.length ? _pages[_currentPage] : null;
+      if (item is Content) {
+        mgr.ensureCurrentPlaying(item.id);
+      } else {
+        mgr.pauseAllSlots(clearActive: true);
       }
     }
     super.didPopNext();
@@ -209,23 +249,35 @@ class _ShortVideoFeedScreenState extends ConsumerState<ShortVideoFeedScreen>
 
   @override
   void didPop() {
-    ref.read(videoPlaybackManagerProvider).setScreenActive(false);
+    _isRouteCurrent = false;
+    _playbackManager?.setScreenActive(false);
     super.didPop();
+  }
+
+  @override
+  void deactivate() {
+    _playbackManager?.setScreenActive(false);
+    super.deactivate();
   }
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     super.didChangeAppLifecycleState(state);
+    final mgr = _playbackManager;
     if (state == AppLifecycleState.paused ||
         state == AppLifecycleState.inactive ||
         state == AppLifecycleState.hidden) {
-      ref.read(videoPlaybackManagerProvider).setScreenActive(false);
+      _isAppResumed = false;
+      mgr?.setScreenActive(false);
     } else if (state == AppLifecycleState.resumed) {
-      final isCurrent = ModalRoute.of(context)?.isCurrent ?? true;
-      if (isCurrent && mounted) {
-        ref.read(videoPlaybackManagerProvider).setScreenActive(true);
-        if (_feed.isNotEmpty && _currentIndex < _feed.length) {
-          ref.read(videoPlaybackManagerProvider).ensureCurrentPlaying(_feed[_currentIndex].id);
+      _isAppResumed = true;
+      if (_isRouteCurrent && _lastTickerEnabled && mounted && mgr != null) {
+        mgr.setScreenActive(true);
+        final item = _currentPage < _pages.length ? _pages[_currentPage] : null;
+        if (item is Content) {
+          mgr.ensureCurrentPlaying(item.id);
+        } else {
+          mgr.pauseAllSlots(clearActive: true);
         }
       }
     }
@@ -239,16 +291,25 @@ class _ShortVideoFeedScreenState extends ConsumerState<ShortVideoFeedScreen>
     if (!_autoFocusArmed) return;
     const tick = Duration(milliseconds: 500);
     _autoFocusTimer = Timer.periodic(tick, (t) {
-      if (!mounted || !_autoFocusArmed) return t.cancel();
-      if (ref.read(oneovaFocusModeProvider)) return t.cancel();
-      final visible = TickerMode.valuesOf(context).enabled && (ModalRoute.of(context)?.isCurrent ?? true);
-      final item = _currentPage < _pages.length ? _pages[_currentPage] : null;
-      final playing = item is Content &&
-          (ref.read(videoPlaybackManagerProvider).getController(item.id)?.player.state.playing ?? false);
-      _playedFor = (visible && playing) ? _playedFor + tick : Duration.zero;
-      if (_playedFor >= _autoFocusAfter) {
+      if (!mounted || !context.mounted || !_autoFocusArmed) return t.cancel();
+      if (!_isRouteCurrent || !_isAppResumed || !_lastTickerEnabled) return;
+      try {
+        if (ref.read(oneovaFocusModeProvider)) return t.cancel();
+        final item = _currentPage < _pages.length ? _pages[_currentPage] : null;
+        final playing = item is Content &&
+            ((_playbackManager ?? ref.read<VideoPlaybackManager>(videoPlaybackManagerProvider))
+                    .getController(item.id)
+                    ?.player
+                    .state
+                    .playing ??
+                false);
+        _playedFor = playing ? _playedFor + tick : Duration.zero;
+        if (_playedFor >= _autoFocusAfter) {
+          t.cancel();
+          ref.read(oneovaFocusModeProvider.notifier).set(true);
+        }
+      } catch (_) {
         t.cancel();
-        ref.read(oneovaFocusModeProvider.notifier).set(true);
       }
     });
   }
@@ -303,25 +364,31 @@ class _ShortVideoFeedScreenState extends ConsumerState<ShortVideoFeedScreen>
   /// Keeps the rolling window warm around reel [index]: player pool,
   /// disk prefetch, decoded covers for upcoming reels, and the next page.
   void _warmAround(int index) {
-    if (_feed.isEmpty) return;
-    ref.read(videoPlaybackManagerProvider).initializeAndPreload(_feed, index);
-    ref.read(reelPrefetcherProvider).update(_feed, index);
-    for (var i = index + 1; i <= index + 4 && i < _feed.length; i++) {
-      final c = _feed[i];
-      final url = c.type == ContentType.photo ? c.mediaUrl : c.mediaMetadata.thumbnailUrl;
-      if (url == null || url.isEmpty || !mounted) continue;
-      final mq = MediaQuery.of(context);
-      precacheImage(
-        ResizeImage.resizeIfNeeded(
-          (mq.size.width * mq.devicePixelRatio).round(),
-          null,
-          CachedNetworkImageProvider(url, cacheManager: ReelPrefetcher.thumbCache),
-        ),
-        context,
-        onError: (_, _) {},
-      );
-    }
-    if (_feed.length - index <= _pageAheadTrigger) _loadOlder();
+    if (!mounted || !context.mounted || _feed.isEmpty) return;
+    try {
+      ref.read(videoPlaybackManagerProvider).initializeAndPreload(_feed, index);
+      ref.read(reelPrefetcherProvider).update(_feed, index);
+      final mq = MediaQuery.maybeOf(context);
+      final rawPx = mq != null ? (mq.size.width * mq.devicePixelRatio) : 780.0;
+      final rawWidth = rawPx.isFinite ? rawPx.round() : 780;
+      final cacheWidth = rawWidth > 0 ? rawWidth : 780;
+      for (var i = index + 1; i <= index + 4 && i < _feed.length; i++) {
+        if (!mounted || !context.mounted) return;
+        final c = _feed[i];
+        final url = c.type == ContentType.photo ? c.mediaUrl : c.mediaMetadata.thumbnailUrl;
+        if (url == null || url.isEmpty) continue;
+        precacheImage(
+          ResizeImage.resizeIfNeeded(
+            cacheWidth,
+            null,
+            CachedNetworkImageProvider(url, cacheManager: ReelPrefetcher.thumbCache),
+          ),
+          context,
+          onError: (_, _) {},
+        );
+      }
+      if (_feed.length - index <= _pageAheadTrigger) _loadOlder();
+    } catch (_) {}
   }
 
   Future<void> _loadOlder() async {
@@ -439,9 +506,14 @@ class _ShortVideoFeedScreenState extends ConsumerState<ShortVideoFeedScreen>
 
     if (!mounted || generation != _feedGeneration) return;
     _feedPrimed = true;
+    final seenIds = <String>{};
+    final deduped = <Content>[
+      for (final c in recommendations)
+        if (seenIds.add(c.id)) c,
+    ];
     setState(() {
-      _feed = List<Content>.of(recommendations);
-      _pages = List<Object>.of(recommendations);
+      _feed = List<Content>.of(deduped);
+      _pages = List<Object>.of(deduped);
       _currentPage = 0;
       _isLoading = false;
     });
@@ -483,18 +555,19 @@ class _ShortVideoFeedScreenState extends ConsumerState<ShortVideoFeedScreen>
 
   @override
   void dispose() {
-    mainFeedRouteObserver.unsubscribe(this);
+    homeBranchRouteObserver.unsubscribe(this);
     WidgetsBinding.instance.removeObserver(this);
     _feedSub?.cancel();
     _autoFocusTimer?.cancel();
-    SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
     _playerCompletionSub?.cancel();
-    _pageController.dispose();
+    _playerCompletionSub = null;
+    SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
     final uid = FirebaseAuth.instance.currentUser?.uid;
     if (uid != null) {
-      ref.read(onlineFeatureStoreProvider).flushProfile(uid);
+      _featureStore?.flushProfile(uid);
     }
-    ref.read(videoPlaybackManagerProvider).disposeAll();
+    _playbackManager?.disposeAll();
+    _pageController.dispose();
     super.dispose();
   }
 
@@ -531,6 +604,15 @@ class _ShortVideoFeedScreenState extends ConsumerState<ShortVideoFeedScreen>
     });
   }
 
+  /// Reels shown this session (for the occasional feedback card).
+  int _reelsSeen = 0;
+
+  Future<void> _maybeQueuePulse(int page, Content item) async {
+    _reelsSeen++;
+    if (!await FeedPulsePolicy.shouldAsk(_reelsSeen) || !mounted) return;
+    setState(() => _pages.insert(math.min(page + 1, _pages.length), FeedPulseSlot(item)));
+  }
+
   void _onPageChanged(int page) {
     final previousWasVideo = _currentPage < _pages.length && _pages[_currentPage] is Content;
     _currentPage = page;
@@ -538,12 +620,14 @@ class _ShortVideoFeedScreenState extends ConsumerState<ShortVideoFeedScreen>
     if (item is! Content) {
       // Live card: every reel goes inactive (and pauses) while it is on screen.
       _playerCompletionSub?.cancel();
+      ref.read(videoPlaybackManagerProvider).pauseAllSlots(clearActive: true);
       _currentVideoStartTime = DateTime.now();
       setState(() {});
       return;
     }
     final index = _feed.indexOf(item);
     if (index < 0) return;
+    _maybeQueuePulse(page, item);
 
     final recommendationService = ref.read(recommendationServiceProvider);
     final now = DateTime.now();
@@ -552,10 +636,13 @@ class _ShortVideoFeedScreenState extends ConsumerState<ShortVideoFeedScreen>
     
     if (previousWasVideo && _feed.isNotEmpty && _currentIndex < _feed.length) {
       final prevVideo = _feed[_currentIndex];
-      final videoDurationMs = prevVideo.mediaMetadata.duration?.inMilliseconds ?? 15000;
-      final completionRate = (dwellMs / videoDurationMs).clamp(0.0, 5.0);
-      final loopCount = (dwellMs / videoDurationMs).floor();
-      final isFastSkip = dwellMs < 1500;
+      final rawDurationMs = prevVideo.mediaMetadata.duration?.inMilliseconds ?? 0;
+      final videoDurationMs = rawDurationMs > 0 ? rawDurationMs : 15000;
+      final safeDwellMs = math.max(0, dwellMs);
+      final rawRate = safeDwellMs / videoDurationMs;
+      final completionRate = rawRate.isFinite ? rawRate.clamp(0.0, 5.0) : 0.0;
+      final loopCount = rawRate.isFinite ? rawRate.floor() : 0;
+      final isFastSkip = safeDwellMs < 1500;
 
       final telemetry = VideoWatchTelemetry(
         userId: FirebaseAuth.instance.currentUser?.uid ?? 'currentUser',
@@ -563,7 +650,7 @@ class _ShortVideoFeedScreenState extends ConsumerState<ShortVideoFeedScreen>
         authorId: prevVideo.authorId,
         hashtags: prevVideo.hashtags,
         audioTrackId: prevVideo.mediaMetadata.musicId,
-        dwellTimeMs: dwellMs,
+        dwellTimeMs: safeDwellMs,
         videoDurationMs: videoDurationMs,
         completionRate: completionRate,
         loopCount: loopCount,
@@ -571,9 +658,9 @@ class _ShortVideoFeedScreenState extends ConsumerState<ShortVideoFeedScreen>
         timestamp: now,
       );
       recommendationService.recordWatchTelemetry(telemetry);
-      // Real watch time for the creator's insights (only when the length is known).
-      if (prevVideo.mediaMetadata.duration != null) {
-        WatchTimeRecorder.instance.add(prevVideo.id, dwellMs, videoDurationMs);
+      // Real watch time for the creator's insights (only when the length is known and > 0).
+      if (rawDurationMs > 0) {
+        WatchTimeRecorder.instance.add(prevVideo.id, safeDwellMs, videoDurationMs);
       }
     }
 
@@ -603,6 +690,25 @@ class _ShortVideoFeedScreenState extends ConsumerState<ShortVideoFeedScreen>
 
   @override
   Widget build(BuildContext context) {
+    final tickerEnabled = TickerMode.valuesOf(context).enabled;
+    if (tickerEnabled != _lastTickerEnabled) {
+      _lastTickerEnabled = tickerEnabled;
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted) return;
+        if (!tickerEnabled) {
+          ref.read(videoPlaybackManagerProvider).setScreenActive(false);
+        } else if (_isRouteCurrent && _isAppResumed) {
+          ref.read(videoPlaybackManagerProvider).setScreenActive(true);
+          final item = _currentPage < _pages.length ? _pages[_currentPage] : null;
+          if (item is Content) {
+            ref.read(videoPlaybackManagerProvider).ensureCurrentPlaying(item.id);
+          } else {
+            ref.read(videoPlaybackManagerProvider).pauseAllSlots(clearActive: true);
+          }
+        }
+      });
+    }
+
     // Reels follow Light / Dark mode unless the user pinned them to dark.
     final reelsTheme = (ref.watch(settingsProvider).value?['playback'] as Map?)?['reelsTheme'];
     _palette = ReelPalette(dark: reelsTheme == 'dark' || Theme.of(context).brightness == Brightness.dark);
@@ -649,6 +755,7 @@ class _ShortVideoFeedScreenState extends ConsumerState<ShortVideoFeedScreen>
             _buildEmptyState()
           else
             PageView.builder(
+              key: const ValueKey('short_video_feed_pageview'),
               controller: _pageController,
               scrollDirection: Axis.vertical,
               // Builds the reel above and below too, so a swipe lands on a
@@ -659,21 +766,19 @@ class _ShortVideoFeedScreenState extends ConsumerState<ShortVideoFeedScreen>
               itemBuilder: (context, index) {
                 final isScreenActive = ref.watch(videoPlaybackManagerProvider).isScreenActive;
                 final item = _pages[index];
+                if (item is FeedPulseSlot) {
+                  return FeedPulseCard(
+                    key: ValueKey(item.id),
+                    slot: item,
+                    onDone: () => _safeAnimateToNextPage(),
+                  );
+                }
                 if (item is LiveFeedSlot) {
                   return LiveFeedCard(
                     key: ValueKey('live_${item.streamId}'),
                     initial: item.initial,
                     isActive: index == _currentPage && isScreenActive,
-                    onSkip: () {
-                      if (_pageController.hasClients && _pageController.positions.length == 1) {
-                        try {
-                          _pageController.nextPage(
-                            duration: const Duration(milliseconds: 380),
-                            curve: Curves.easeInOutCubic,
-                          );
-                        } catch (_) {}
-                      }
-                    },
+                    onSkip: () => _safeAnimateToNextPage(),
                   );
                 }
                 final content = item as Content;
@@ -784,13 +889,18 @@ class _ShortVideoFeedScreenState extends ConsumerState<ShortVideoFeedScreen>
           child: child,
           builder: (context, child) {
             double page = _currentPage.toDouble();
-            if (_pageController.hasClients &&
-                _pageController.positions.length == 1 &&
-                _pageController.position.haveDimensions) {
-              try {
-                page = _pageController.page ?? page;
-              } catch (_) {}
-            }
+            try {
+              if (mounted &&
+                  _pageController.hasClients &&
+                  _pageController.positions.length == 1) {
+                final pos = _pageController.positions.first;
+                if (pos.haveDimensions && pos is PageMetrics) {
+                  final pageMetrics = pos as PageMetrics;
+                  final p = pageMetrics.page;
+                  if (p != null) page = p;
+                }
+              }
+            } catch (_) {}
             final delta = (page - index).abs().clamp(0.0, 1.0);
             final scale = 1.0 - (0.04 * delta) - (0.02 * t);
             final double radius = 18.0 + (8.0 * t);
@@ -901,7 +1011,7 @@ class _ShortVideoFeedScreenState extends ConsumerState<ShortVideoFeedScreen>
     );
   }
 
-  Widget _buildTopTabItem(String label, bool isSelected, VoidCallback onTap) {
+  Widget _buildTopTabItem(String label, bool isSelected, VoidCallback onTap, {IconData? icon}) {
     return GestureDetector(
       behavior: HitTestBehavior.opaque,
       onTap: () {
@@ -923,7 +1033,13 @@ class _ShortVideoFeedScreenState extends ConsumerState<ShortVideoFeedScreen>
                 letterSpacing: -0.2,
                 shadows: _palette.textShadow,
               ),
-              child: Text(label),
+              child: icon == null
+                  ? Text(label)
+                  : Row(mainAxisSize: MainAxisSize.min, children: [
+                      Icon(icon, size: 15, color: isSelected ? _palette.fg : _palette.fgSoft, shadows: _palette.textShadow),
+                      const SizedBox(width: 4),
+                      Text(label),
+                    ]),
             ),
             const SizedBox(height: 4),
             AnimatedContainer(
@@ -978,11 +1094,7 @@ class _ShortVideoFeedScreenState extends ConsumerState<ShortVideoFeedScreen>
               _currentIndex = 0;
               _currentPage = 0;
             });
-            if (_pageController.hasClients && _pageController.positions.length == 1) {
-              try {
-                _pageController.jumpToPage(0);
-              } catch (_) {}
-            }
+            _safeJumpToPage(0);
             _loadFeed();
           },
         ),
@@ -996,21 +1108,16 @@ class _ShortVideoFeedScreenState extends ConsumerState<ShortVideoFeedScreen>
               _currentIndex = 0;
               _currentPage = 0;
             });
-            if (_pageController.hasClients && _pageController.positions.length == 1) {
-              try {
-                _pageController.jumpToPage(0);
-              } catch (_) {}
-            }
+            _safeJumpToPage(0);
             _loadFeed();
           },
         ),
         const SizedBox(width: 18),
         _buildTopTabItem(
-          'Biz',
+          'Biz & Shop',
           false,
-          () {
-            context.push('/biz_feed');
-          },
+          () => context.push('/shops'),
+          icon: Icons.storefront_rounded,
         ),
       ],
     );
@@ -1528,6 +1635,7 @@ class _ShortVideoItemState extends ConsumerState<_ShortVideoItem> with TickerPro
   bool _captionExpanded = false;
   bool _showPlayPauseIndicator = false;
   Timer? _playPauseFadeTimer;
+  VideoPlaybackManager? _playbackManager;
 
   ReelPalette get _p => ReelPalette.of(context);
 
@@ -1580,6 +1688,21 @@ class _ShortVideoItemState extends ConsumerState<_ShortVideoItem> with TickerPro
         });
       }
     }
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    _playbackManager = ref.read(videoPlaybackManagerProvider);
+  }
+
+  @override
+  void deactivate() {
+    final player = _playbackManager?.getPlayer(widget.content.id);
+    player?.setVolume(0.0);
+    player?.pause();
+    _vinylController.stop();
+    super.deactivate();
   }
 
   @override
@@ -2115,10 +2238,13 @@ class _ShortVideoItemState extends ConsumerState<_ShortVideoItem> with TickerPro
       );
     }
     // Decoded at screen width only (not the source size) to keep image memory low.
-    final mq = MediaQuery.of(context);
+    final mq = MediaQuery.maybeOf(context);
+    final rawPx = mq != null ? (mq.size.width * mq.devicePixelRatio) : null;
+    final rawWidth = (rawPx != null && rawPx.isFinite) ? rawPx.round() : null;
+    final cacheWidth = (rawWidth != null && rawWidth > 0) ? rawWidth : null;
     return Image(
       image: ResizeImage.resizeIfNeeded(
-        (mq.size.width * mq.devicePixelRatio).round(),
+        cacheWidth,
         null,
         CachedNetworkImageProvider(url, cacheManager: ReelPrefetcher.thumbCache),
       ),
@@ -2436,7 +2562,7 @@ class _ShortVideoItemState extends ConsumerState<_ShortVideoItem> with TickerPro
                   AuthInteractionGate.requireAuth(
                     context,
                     actionTitle: 'remix and create studio content',
-                    onAuthenticated: () => CreationTypeModal.show(context),
+                    onAuthenticated: () => RemixLauncher.start(context, widget.content),
                   );
                 },
                 child: Column(
@@ -3048,8 +3174,14 @@ class _ShortVideoItemState extends ConsumerState<_ShortVideoItem> with TickerPro
     final player = ref.read(videoPlaybackManagerProvider).getController(widget.content.id)?.player;
     final isMuted = (player?.state.volume ?? 100) == 0;
 
+    final author = ref.read(_reelAuthorProvider(widget.content.authorId)).value;
+    final authorName = author?.username?.isNotEmpty == true
+        ? author!.username!
+        : (author?.fullName.isNotEmpty == true ? author!.fullName : 'this creator');
+
     showModalBottomSheet(
       context: context,
+      isScrollControlled: true,
       backgroundColor: context.surface,
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(AppRadius.xl)),
@@ -3073,6 +3205,10 @@ class _ShortVideoItemState extends ConsumerState<_ShortVideoItem> with TickerPro
         }
 
         return SafeArea(
+          child: ConstrainedBox(
+          constraints: BoxConstraints(maxHeight: MediaQuery.sizeOf(sheetContext).height * 0.85),
+          child: SingleChildScrollView(
+          padding: EdgeInsets.only(bottom: MediaQuery.viewInsetsOf(sheetContext).bottom),
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
@@ -3086,6 +3222,26 @@ class _ShortVideoItemState extends ConsumerState<_ShortVideoItem> with TickerPro
                 ),
               ),
               const SizedBox(height: 6),
+              AboutReelCard(
+                content: widget.content,
+                authorName: authorName,
+                onAskOva: (q) {
+                  Navigator.pop(sheetContext);
+                  OneOvaAssistantOverlay.show(
+                    context,
+                    userId: uid.isEmpty ? null : uid,
+                    contentId: widget.content.id,
+                    initialPrompt: q.trim().isNotEmpty
+                        ? '${q.trim()} (about this reel by @$authorName: "${widget.content.description}")'
+                        : 'Tell me about this reel by @$authorName: "${widget.content.description}"',
+                  );
+                },
+              ),
+              Divider(height: 20, color: sheetContext.border),
+              tile(Icons.check_circle_outline_rounded, 'Interested', () {
+                rec.markInterested(uid, widget.content.id);
+                messenger.showSnackBar(const SnackBar(content: Text("We'll show more videos like this.")));
+              }),
               tile(Icons.visibility_off_outlined, 'Not interested', () {
                 rec.markNotInterested(uid, widget.content.id);
                 messenger.showSnackBar(const SnackBar(content: Text("We'll show fewer videos like this.")));
@@ -3099,14 +3255,14 @@ class _ShortVideoItemState extends ConsumerState<_ShortVideoItem> with TickerPro
                   rec.hideTopic(uid, widget.content.hashtags.first);
                   messenger.showSnackBar(SnackBar(content: Text("You won't see videos about #${widget.content.hashtags.first}.")));
                 }),
-              tile(Icons.info_outline_rounded, 'Why am I seeing this?', () async {
+              tile(Icons.info_outline_rounded, 'Why you’re seeing this', () async {
                 final explanation = await rec.getWhyAmISeeingThis(widget.content.id, userId: uid.isEmpty ? null : uid);
                 if (!context.mounted) return;
                 showDialog(
                   context: context,
                   builder: (c) => AlertDialog(
                     backgroundColor: c.surface,
-                    title: Text('About this video', style: TextStyle(color: c.textPrimary)),
+                    title: Text('Why you’re seeing this', style: TextStyle(color: c.textPrimary)),
                     content: Text('${explanation['reason']}', style: TextStyle(color: c.textSecondary)),
                     actions: [
                       TextButton(
@@ -3185,6 +3341,8 @@ class _ShortVideoItemState extends ConsumerState<_ShortVideoItem> with TickerPro
               }, iconColor: AppColors.brandPink),
               const SizedBox(height: 6),
             ],
+          ),
+          ),
           ),
         );
       },
@@ -3859,7 +4017,7 @@ class _ShopChip extends ConsumerWidget {
       child: _PressScale(
         onTap: () {
           HapticFeedback.lightImpact();
-          context.push('/biz_feed');
+          context.push('/shops/$authorId');
         },
         child: Container(
           padding: const EdgeInsets.fromLTRB(4, 3, 10, 3),

@@ -39,7 +39,7 @@ class SubscriptionService {
     final uid = _userId;
     if (uid == null) return;
     
-    // In production, updating pricing usually creates a new Stripe Price object via Cloud Function
+    // In production, updating pricing creates a new price on the server via Cloud Function
     await _firestore
         .collection('creators')
         .doc(uid)
@@ -67,7 +67,7 @@ class SubscriptionService {
     final uid = _userId;
     if (uid == null) return;
 
-    // This creates an intent document. A Firebase Extension (like Stripe) picks it up,
+    // This creates an intent document. Oneova Pay picks it up on the server,
     // generates a checkout session URL or PaymentIntent, and returns it to the client.
     await _firestore
         .collection('users')
@@ -86,7 +86,7 @@ class SubscriptionService {
     final uid = _userId;
     if (uid == null) return;
 
-    // Trigger backend cancellation via Stripe/Apple API
+    // Trigger backend cancellation via Oneova Pay / store billing
     await _firestore
         .collection('users')
         .doc(uid)

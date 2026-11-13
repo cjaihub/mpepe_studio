@@ -9,6 +9,7 @@ import '../backend/inbox/platform_inbox.dart';
 import '../shared/theme/app_theme.dart';
 import '../shared/widgets/linked_destinations_picker.dart';
 import 'gmail/gmail_screens.dart';
+import 'google/google_services_screen.dart';
 
 /// Social Hub: the user's connected accounts (`/social_hub`).
 ///
@@ -130,6 +131,12 @@ class _SocialIntegrationDashboardState extends ConsumerState<SocialIntegrationDa
                       ],
                     ],
                   ),
+                ),
+                const SizedBox(height: 18),
+                const _Section(
+                  title: 'Google',
+                  subtitle: 'One Google account for the Google services you use.',
+                  child: GoogleServicesRow(),
                 ),
                 const SizedBox(height: 18),
                 const _Section(
@@ -301,7 +308,11 @@ class _PlatformRow extends StatelessWidget {
       );
     }
 
-    return Padding(
+    // TikTok has its own page (stats, videos, posting) once connected.
+    final opensPage = usable && platform == LinkedPlatform.tiktok;
+    return InkWell(
+      onTap: opensPage ? () => context.push('/social_hub/tiktok') : null,
+      child: Padding(
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
       child: Row(
         children: [
@@ -340,6 +351,7 @@ class _PlatformRow extends StatelessWidget {
           ),
           action,
         ],
+      ),
       ),
     );
   }

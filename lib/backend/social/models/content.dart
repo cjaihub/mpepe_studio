@@ -223,6 +223,8 @@ class Content {
       createdAt: (data['createdAt'] as Timestamp?)?.toDate() ?? DateTime.now(),
       destination: ContentDestination.fromMap(data['destination']),
       destinationClicks: (data['destinationClicks'] as num?)?.toInt() ?? 0,
+      permissions: CreatorPermissions.fromMap(data['permissions']),
+      attribution: ContentAttribution.fromMap(data['attribution']),
     );
   }
 
@@ -265,6 +267,18 @@ class CreatorPermissions {
     this.allowRemix = true,
     this.allowSharing = true,
   });
+
+  /// Posts saved before remixes had their own switch follow Duet.
+  factory CreatorPermissions.fromMap(Object? raw) {
+    final m = raw is Map ? raw : const {};
+    final duet = m['allowDuet'] as bool? ?? true;
+    return CreatorPermissions(
+      allowDuet: duet,
+      allowStitch: m['allowStitch'] as bool? ?? true,
+      allowRemix: m['allowRemix'] as bool? ?? duet,
+      allowSharing: m['allowSharing'] as bool? ?? true,
+    );
+  }
 }
 
 class ContentAttribution {
@@ -276,4 +290,13 @@ class ContentAttribution {
     this.originalAuthorId = "",
     this.derivativeType = DerivativeType.duet,
   });
+
+  static ContentAttribution? fromMap(Object? raw) {
+    if (raw is! Map || raw['originalContentId'] is! String) return null;
+    return ContentAttribution(
+      originalContentId: raw['originalContentId'] as String,
+      originalAuthorId: raw['originalAuthorId'] as String? ?? '',
+      derivativeType: DerivativeType.values.where((t) => t.name == raw['derivativeType']).firstOrNull ?? DerivativeType.remix,
+    );
+  }
 }

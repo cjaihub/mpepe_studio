@@ -4,6 +4,8 @@ import 'package:googleapis/gmail/v1.dart' as gmail;
 import 'package:googleapis/youtube/v3.dart' as yt;
 import 'package:http/http.dart' as http;
 
+import '../../backend/connections/google_services.dart';
+
 /// Google API access for Ova (Gmail, YouTube) through google_sign_in v7.
 /// The first use shows Google's own consent screen for exactly these scopes;
 /// later calls get a fresh token silently.
@@ -28,6 +30,12 @@ class OvaGoogleAccess {
 
   /// Returns an authorised client, or null if the user declined.
   static Future<http.Client?> client(List<String> scopes, {bool prompt = true}) async {
+    // YouTube turned on in Google services: use the server-held link, which
+    // works in the background and keeps no long-lived token on the phone.
+    if (identical(scopes, youtubeScopes)) {
+      final server = await GoogleServices.clientFor(GoogleService.youtube);
+      if (server != null) return server;
+    }
     try {
       final headers = await GoogleSignIn.instance.authorizationClient.authorizationHeaders(scopes, promptIfNecessary: prompt);
       if (headers == null) return null;

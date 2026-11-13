@@ -51,7 +51,7 @@ class _GmailConnectRowState extends ConsumerState<GmailConnectRow> {
                   ),
                 ]),
               ),
-            Text('You can disconnect here any time; that also removes Oneova\'s access in your Google account.',
+            Text('You can disconnect here any time, or remove the whole Google account in Google services.',
                 style: GoogleFonts.inter(fontSize: 11, color: ctx.textMuted)),
             const SizedBox(height: 14),
             SizedBox(
@@ -74,7 +74,7 @@ class _GmailConnectRowState extends ConsumerState<GmailConnectRow> {
     setState(() => _busy = true);
     try {
       final email = await ref.read(gmailServiceProvider).connect();
-      if (mounted) _snack('Gmail connected: $email');
+      if (mounted && email.isNotEmpty) _snack('Gmail connected: $email');
     } catch (e) {
       if (mounted) _snack(e.toString());
     } finally {
@@ -88,7 +88,7 @@ class _GmailConnectRowState extends ConsumerState<GmailConnectRow> {
       builder: (ctx) => AlertDialog(
         backgroundColor: ctx.surface,
         title: Text('Disconnect Gmail?', style: GoogleFonts.inter(fontSize: 16, fontWeight: FontWeight.w700, color: ctx.textPrimary)),
-        content: Text('$email will be disconnected and Oneova\'s access revoked at Google. Your email itself isn\'t touched.',
+        content: Text('Oneova stops reading and sending mail for $email. Your email itself isn\'t touched. To remove Oneova from your Google account completely, use Google services → Remove account.',
             style: GoogleFonts.inter(fontSize: 13, color: ctx.textSecondary)),
         actions: [
           TextButton(onPressed: () => Navigator.of(ctx).pop(false), child: const Text('Cancel')),

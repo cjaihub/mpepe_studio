@@ -52,6 +52,10 @@ class AppUser {
   final String? bio;
   final String? coverPhotoUrl;
   final bool isVerified;
+  /// Oneova ID levels, written only by the server: 2 = ID verified.
+  final int identityLevel;
+  /// 1 = registered business, 2 = Verified Business.
+  final int businessLevel;
 
   /// Ova Guard notes on this profile (server-written): `impersonationOf`
   /// (uid of the verified account whose name it copies) and `bio`
@@ -90,6 +94,8 @@ class AppUser {
     this.bio,
     this.coverPhotoUrl,
     this.isVerified = false,
+    this.identityLevel = 0,
+    this.businessLevel = 0,
     this.safety,
     this.isBusiness = false,
     this.location,
@@ -138,6 +144,8 @@ class AppUser {
       bio: map['bio'],
       coverPhotoUrl: map['coverPhotoUrl'],
       isVerified: map['isVerified'] ?? false,
+      identityLevel: (map['identityLevel'] as num?)?.toInt() ?? 0,
+      businessLevel: (map['businessLevel'] as num?)?.toInt() ?? 0,
       safety: map['safety'] is Map ? Map<String, dynamic>.from(map['safety'] as Map) : null,
       isBusiness: map['isBusiness'] ?? false,
       location: map['location'],
@@ -180,6 +188,8 @@ class AppUser {
       if (bio != null) 'bio': bio,
       if (coverPhotoUrl != null) 'coverPhotoUrl': coverPhotoUrl,
       'isVerified': isVerified,
+      if (identityLevel > 0) 'identityLevel': identityLevel,
+      if (businessLevel > 0) 'businessLevel': businessLevel,
       'isBusiness': isBusiness,
       if (location != null) 'location': location,
       'createdAt': FieldValue.serverTimestamp(),
@@ -299,20 +309,6 @@ class UserService extends AsyncNotifier<List<AppUser>> {
     } catch (e) {
       debugPrint('Error checking username: $e');
       return false;
-    }
-  }
-
-  Future<void> requestVerification(String uid, Map<String, dynamic> data) async {
-    try {
-      await _firestore.collection('verification_requests').doc(uid).set({
-        'userId': uid,
-        'status': 'pending',
-        'createdAt': FieldValue.serverTimestamp(),
-        ...data,
-      }, SetOptions(merge: true));
-    } catch (e) {
-      debugPrint('Error submitting verification request: $e');
-      rethrow;
     }
   }
 }

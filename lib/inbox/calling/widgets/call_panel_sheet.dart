@@ -188,10 +188,16 @@ class _MeSection extends ConsumerWidget {
                 onTap: controller.switchCamera,
               ),
             CallControlButton(
-              icon: Icons.graphic_eq_rounded,
+              icon: media.isVoiceEnhanced ? Icons.graphic_eq_rounded : Icons.graphic_eq_rounded,
               label: media.isVoiceEnhanced ? 'HD Voice' : 'Natural',
               active: media.isVoiceEnhanced,
               onTap: controller.toggleVoiceEnhance,
+            ),
+            CallControlButton(
+              icon: media.isScreenSharingActive ? Icons.stop_screen_share_rounded : Icons.screen_share_rounded,
+              label: media.isScreenSharingActive ? 'Stop share' : 'Share screen',
+              active: media.isScreenSharingActive,
+              onTap: controller.toggleScreenShare,
             ),
           ],
         ),

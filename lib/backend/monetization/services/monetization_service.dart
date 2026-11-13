@@ -34,7 +34,7 @@ class MonetizationService {
     final uid = _userId;
     if (uid == null) return;
     
-    // In production, this would trigger a Cloud Function to verify identity, Stripe KYC, etc.
+    // In production, this would trigger a Cloud Function to verify identity (Oneova KYC), etc.
     // For now we assume eligibility is pre-checked.
     
     final update = {

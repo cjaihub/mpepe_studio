@@ -194,7 +194,6 @@ class NotificationService extends AsyncNotifier<List<AppNotification>> {
   }
 }
 
-// For demo purposes, we will assume the current logged-in user has the ID "mock_current_user".
 final notificationProvider = AsyncNotifierProvider<NotificationService, List<AppNotification>>(() {
   return NotificationService(); 
 });

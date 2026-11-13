@@ -1,10 +1,15 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:google_fonts/google_fonts.dart';
+import 'package:permission_handler/permission_handler.dart';
 import 'package:speech_to_text/speech_to_text.dart' as stt;
 import 'package:go_router/go_router.dart';
 import 'package:flutter_animate/flutter_animate.dart';
 
+import '../shared/audio/cloud_dictation.dart';
+import '../shared/audio/mic_coordinator.dart';
+import '../shared/audio/speech_hub.dart';
 import '../shared/theme/app_theme.dart';
 import 'models/omnichannel_upload_task.dart';
 import 'services/ai_upload_assistant.dart';
@@ -18,72 +23,152 @@ class AiVoiceManagerScreen extends ConsumerStatefulWidget {
 }
 
 class _AiVoiceManagerScreenState extends ConsumerState<AiVoiceManagerScreen> {
-  late stt.SpeechToText _speech;
+  final SpeechHub _speech = SpeechHub.instance;
+  MicLease? _micLease;
+  CloudDictation? _cloud;
+  bool _usingCloud = false;
   bool _isListening = false;
   String _transcript = '';
   String _aiResponse = "Hi! I'm your Upload Manager. What would you like me to do with your content today?";
   bool _isProcessing = false;
 
   @override
-  void initState() {
-    super.initState();
-    _speech = stt.SpeechToText();
-    _initSpeech();
+  void dispose() {
+    unawaited(_speech.cancel(this));
+    unawaited(_cloud?.dispose());
+    unawaited(_micLease?.release());
+    _micLease = null;
+    super.dispose();
   }
 
-  Future<void> _initSpeech() async {
-    await _speech.initialize(
-      onStatus: (status) {
-        if (status == 'done' || status == 'notListening') {
-          if (_isListening) {
-             _stopListeningAndProcess();
-          }
-        }
-      },
-      onError: (error) {
-        setState(() {
-          _isListening = false;
-          _isProcessing = false;
-          _aiResponse = "Sorry, I couldn't hear that clearly. Try again?";
-        });
-      },
-    );
+  Future<void> _releaseMic() async {
+    final lease = _micLease;
+    _micLease = null;
+    await lease?.release();
   }
 
-  void _startListening() async {
-    if (await _speech.hasPermission) {
-      setState(() {
-        _isListening = true;
-        _transcript = '';
-        _aiResponse = 'Listening...';
-      });
-      await _speech.listen(
-        onResult: (result) {
-          setState(() {
-            _transcript = result.recognizedWords;
-          });
-        },
-      );
-    } else {
+  Future<void> _startListening() async {
+    if (_isListening || _isProcessing) return;
+    final perm = await Permission.microphone.request();
+    if (!mounted) return;
+    if (!perm.isGranted) {
       setState(() {
         _aiResponse = "I need microphone access to hear you. Please enable it in your device settings.";
       });
+      return;
+    }
+
+    final got = await MicCoordinator.instance.acquire(
+      MicUser.assistant,
+      onPreempted: () async {
+        _usingCloud = false;
+        await _speech.cancel(this);
+        await _cloud?.cancel();
+        _micLease = null;
+        if (mounted) setState(() => _isListening = false);
+      },
+      onInterruption: (i) {
+        if (i == MicInterruption.heldByOtherApp && _isListening && mounted) {
+          unawaited(_stopListeningAndProcess());
+        }
+      },
+    );
+    if (got is MicBusy) {
+      if (mounted) setState(() => _aiResponse = got.message);
+      return;
+    }
+    _micLease = got as MicLease;
+    if (!mounted) {
+      await _releaseMic();
+      return;
+    }
+
+    _usingCloud = false;
+    setState(() {
+      _isListening = true;
+      _transcript = '';
+      _aiResponse = 'Listening...';
+    });
+
+    final started = await _speech.listen(
+      owner: this,
+      options: stt.SpeechListenOptions(partialResults: true, cancelOnError: true),
+      onStatus: (status) {
+        if (_usingCloud || !mounted) return;
+        if ((status == 'done' || status == 'notListening' || status == 'preempted') && _isListening) {
+          unawaited(_stopListeningAndProcess());
+        }
+      },
+      onError: (error) {
+        if (_usingCloud || !mounted || !_isListening) return;
+        if (error.errorMsg == 'error_no_match' || error.errorMsg == 'error_speech_timeout') {
+          unawaited(_stopListeningAndProcess());
+        } else {
+          unawaited(_startCloudFallback());
+        }
+      },
+      onResult: (result) {
+        if (_usingCloud || !mounted) return;
+        setState(() {
+          _transcript = result.recognizedWords;
+        });
+      },
+    );
+
+    if (!started && mounted && _isListening) {
+      await _startCloudFallback();
     }
   }
 
-  void _stopListeningAndProcess() async {
-    setState(() {
-      _isListening = false;
-      _isProcessing = true;
-      _aiResponse = "Processing your request...";
-    });
-    
-    await _speech.stop();
-    
-    if (_transcript.isNotEmpty) {
+  Future<void> _startCloudFallback() async {
+    if (_usingCloud || !mounted || !_isListening) return;
+    await _speech.cancel(this);
+    _usingCloud = true;
+    _cloud ??= CloudDictation();
+    final ok = await _cloud!.start(
+      autoStopOnSilence: true,
+      onSilenceCommit: () => unawaited(_stopListeningAndProcess()),
+    );
+    if (!ok) {
+      _usingCloud = false;
+      await _releaseMic();
+      if (mounted) {
+        setState(() {
+          _isListening = false;
+          _isProcessing = false;
+          _aiResponse = "Sorry, I couldn't start the microphone right now. Try again?";
+        });
+      }
+    }
+  }
+
+  Future<void> _stopListeningAndProcess() async {
+    if (!_isListening && !_usingCloud) return;
+    final wasCloud = _usingCloud;
+    _usingCloud = false;
+    if (mounted) {
+      setState(() {
+        _isListening = false;
+        _isProcessing = true;
+        _aiResponse = "Processing your request...";
+      });
+    }
+
+    await _speech.stop(this);
+    if (wasCloud) {
+      try {
+        final text = (await _cloud?.stopAndTranscribe() ?? '').trim();
+        if (text.isNotEmpty) _transcript = text;
+      } catch (_) {}
+    }
+    await _releaseMic();
+    if (!mounted) return;
+
+    if (_transcript.trim().isNotEmpty) {
       final assistant = ref.read(aiUploadAssistantProvider);
-      final intent = await assistant.processVoiceCommand(_transcript);
-      
+      final intent = await assistant.processVoiceCommand(_transcript.trim());
+      if (!mounted) return;
+
       setState(() {
         _aiResponse = intent.rawResponse;
         _isProcessing = false;
@@ -93,14 +178,16 @@ class _AiVoiceManagerScreenState extends ConsumerState<AiVoiceManagerScreen> {
       if (intent.type == AiIntentType.generateMetadata && intent.generatedMetadata.isNotEmpty) {
         final engine = ref.read(omnichannelUploadEngineProvider.notifier);
         final tasks = ref.read(omnichannelUploadEngineProvider);
-        final pendingTask = tasks.firstWhere((t) => t.status == UploadStatus.pending, orElse: () => tasks.first);
-        
-        engine.updateTaskMetadata(
-          pendingTask.id,
-          title: intent.generatedMetadata['title'],
-          description: intent.generatedMetadata['description'],
-          tags: List<String>.from(intent.generatedMetadata['tags'] ?? []),
-        );
+        if (tasks.isNotEmpty) {
+          final pendingTask = tasks.firstWhere((t) => t.status == UploadStatus.pending, orElse: () => tasks.first);
+
+          engine.updateTaskMetadata(
+            pendingTask.id,
+            title: intent.generatedMetadata['title'],
+            description: intent.generatedMetadata['description'],
+            tags: List<String>.from(intent.generatedMetadata['tags'] ?? []),
+          );
+        }
       }
     } else {
       setState(() {

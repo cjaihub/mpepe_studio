@@ -31,10 +31,14 @@ internal class ArVideoRecorder(
     fps: Int,
     withAudio: Boolean,
     val startNs: Long,
+    /** Degrees players rotate the video by (landscape takes). */
+    orientationHint: Int = 0,
 ) {
     private class Sample(val track: Int, val data: ByteBuffer, val info: MediaCodec.BufferInfo)
 
-    private val muxer = MediaMuxer(file.absolutePath, MediaMuxer.OutputFormat.MUXER_OUTPUT_MPEG_4)
+    private val muxer = MediaMuxer(file.absolutePath, MediaMuxer.OutputFormat.MUXER_OUTPUT_MPEG_4).apply {
+        if (orientationHint != 0) setOrientationHint(orientationHint)
+    }
     private val video: MediaCodec = MediaCodec.createEncoderByType(MediaFormat.MIMETYPE_VIDEO_AVC)
     val inputSurface: Surface
 
@@ -48,6 +52,18 @@ internal class ArVideoRecorder(
     private var lastVideoUs = 0L
 
     private var audioRecord: AudioRecord? = null
+
+    /**
+     * True when Android silenced our microphone (another app holds it), or
+     * there was no microphone: the video records without sound.
+     */
+    val micSilenced: Boolean
+        get() {
+            val r = audioRecord ?: return wantedAudio
+            if (android.os.Build.VERSION.SDK_INT < 29) return false
+            return runCatching { r.activeRecordingConfiguration?.isClientSilenced == true }.getOrDefault(false)
+        }
+    private var wantedAudio = false
     private var audioCodec: MediaCodec? = null
     private var audioThread: Thread? = null
     @Volatile private var audioRunning = false
@@ -188,18 +204,28 @@ internal class ArVideoRecorder(
 
     @SuppressLint("MissingPermission") // Checked by the camera screen; failure → silent video.
     private fun startAudio() {
+        wantedAudio = true
         val rate = 44_100
         val minBuf = AudioRecord.getMinBufferSize(rate, AudioFormat.CHANNEL_IN_MONO, AudioFormat.ENCODING_PCM_16BIT)
         if (minBuf <= 0) return
-        val record = try {
-            AudioRecord(MediaRecorder.AudioSource.CAMCORDER, rate, AudioFormat.CHANNEL_IN_MONO, AudioFormat.ENCODING_PCM_16BIT, minBuf * 4)
-        } catch (e: RuntimeException) {
-            Log.w(TAG, "No microphone; recording without audio", e)
-            return
+        val sources = intArrayOf(
+            MediaRecorder.AudioSource.CAMCORDER,
+            MediaRecorder.AudioSource.MIC,
+            MediaRecorder.AudioSource.DEFAULT,
+        )
+        var record: AudioRecord? = null
+        for (src in sources) {
+            val candidate = runCatching {
+                AudioRecord(src, rate, AudioFormat.CHANNEL_IN_MONO, AudioFormat.ENCODING_PCM_16BIT, minBuf * 4)
+            }.getOrNull() ?: continue
+            if (candidate.state == AudioRecord.STATE_INITIALIZED) {
+                record = candidate
+                break
+            }
+            candidate.release()
         }
-        if (record.state != AudioRecord.STATE_INITIALIZED) {
-            record.release()
-            Log.w(TAG, "Microphone unavailable; recording without audio")
+        if (record == null) {
+            Log.w(TAG, "Microphone unavailable on all audio sources; recording without audio")
             return
         }
         val codec = MediaCodec.createEncoderByType(MediaFormat.MIMETYPE_AUDIO_AAC)

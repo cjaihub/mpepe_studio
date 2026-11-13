@@ -57,8 +57,8 @@ class SubscriptionTier {
   final String currency;
   final SubscriptionPerks perks;
   final bool isActive;
-  final String? stripeProductId; // e.g. prod_xxx
-  final String? stripePriceId;   // e.g. price_xxx
+  final String? productRef; // payment partner's product id
+  final String? priceRef;   // payment partner's price id
 
   const SubscriptionTier({
     required this.id,
@@ -69,8 +69,8 @@ class SubscriptionTier {
     this.currency = 'USD',
     required this.perks,
     this.isActive = true,
-    this.stripeProductId,
-    this.stripePriceId,
+    this.productRef,
+    this.priceRef,
   });
 
   factory SubscriptionTier.fromFirestore(DocumentSnapshot doc) {
@@ -84,8 +84,8 @@ class SubscriptionTier {
       currency: data['currency'] ?? 'USD',
       perks: SubscriptionPerks.fromMap(data['perks'] ?? {}),
       isActive: data['isActive'] ?? true,
-      stripeProductId: data['stripeProductId'],
-      stripePriceId: data['stripePriceId'],
+      productRef: data['productRef'],
+      priceRef: data['priceRef'],
     );
   }
 
@@ -98,8 +98,8 @@ class SubscriptionTier {
       'currency': currency,
       'perks': perks.toMap(),
       'isActive': isActive,
-      'stripeProductId': stripeProductId,
-      'stripePriceId': stripePriceId,
+      'productRef': productRef,
+      'priceRef': priceRef,
     };
   }
 }

@@ -1,5 +1,4 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:uuid/uuid.dart';
 
 enum StoryMediaType {
   photo,
@@ -152,34 +151,4 @@ class Story {
     );
   }
 
-  factory Story.mock({
-    required String authorName,
-    bool isExpired = false,
-    bool isArchived = false,
-  }) {
-    final now = DateTime.now();
-    return Story(
-      id: const Uuid().v4(),
-      authorId: 'user_mock',
-      authorName: authorName,
-      authorAvatarUrl: 'https://i.pravatar.cc/150?u=$authorName',
-      mediaType: StoryMediaType.photo,
-      mediaUrl: 'https://picsum.photos/1080/1920',
-      createdAt: isExpired ? now.subtract(const Duration(hours: 25)) : now.subtract(const Duration(hours: 2)),
-      expiresAt: isExpired ? now.subtract(const Duration(hours: 1)) : now.add(const Duration(hours: 22)),
-      privacy: StoryPrivacy.public,
-      lifecycle: isArchived ? StoryLifecycle.archived : (isExpired ? StoryLifecycle.expired : StoryLifecycle.active),
-      viewers: ['user1', 'user2', 'user3'],
-      reactions: {'user1': '🔥', 'user2': '❤️'},
-      replyCount: 1,
-      interactiveElements: [
-        const InteractiveElement(
-          type: 'location',
-          x: 0.5,
-          y: 0.2,
-          data: {'name': 'New York City'},
-        ),
-      ],
-    );
-  }
 }

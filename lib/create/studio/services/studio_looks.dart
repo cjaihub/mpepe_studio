@@ -4,6 +4,7 @@ import 'dart:ui' as ui;
 import 'package:flutter/material.dart';
 
 import '../../../looks/engine/look_compiler.dart';
+import '../../../looks/filters/oneova_filter_library.dart';
 import '../../../looks/models/oneova_look.dart';
 import '../models/studio_project.dart';
 
@@ -317,22 +318,32 @@ class StudioLooks {
     ),
   ];
 
-  static StudioLookDef byId(String id) => presets.firstWhere((p) => p.id == id, orElse: () => presets.first);
+  /// A Studio preset or any Oneova filter (`ov_…` ids from the library).
+  static StudioLookDef byId(String id) {
+    if (OneovaFilterLibrary.isFilterId(id)) {
+      final f = OneovaFilterLibrary.byId(id);
+      if (f != null) return StudioLookDef(f.id, f.name, f.category, f.look);
+    }
+    return presets.firstWhere((p) => p.id == id, orElse: () => presets.first);
+  }
 
   static double _l(double from, double to, double t) => from + (to - from) * t;
 
   /// Preset at [t] (0 = neutral, 1 = full) plus the clip's tone and detail
   /// adjustments; null when nothing would change.
-  static OneovaLook? forClip(StudioClip c) {
-    final a = c.adjust;
-    if (c.lookId == 'none' && !a.hasLookKeys) return null;
-    final p = byId(c.lookId).look;
-    final t = c.lookId == 'none' ? 0.0 : c.lookIntensity.clamp(0.0, 1.0);
+  static OneovaLook? forClip(StudioClip c) => forLook(c.lookId, c.lookIntensity, c.adjust);
+
+  /// [forClip] without a clip (the camera's live filter uses it, so the
+  /// viewfinder matches the editor and the export exactly).
+  static OneovaLook? forLook(String lookId, double intensity, StudioAdjust a) {
+    if (lookId == 'none' && !a.hasLookKeys) return null;
+    final p = byId(lookId).look;
+    final t = lookId == 'none' ? 0.0 : intensity.clamp(0.0, 1.0);
     ColorWheel w(ColorWheel x) => ColorWheel(r: x.r * t, g: x.g * t, b: x.b * t, lum: x.lum * t);
     HslBand h(HslBand x) => HslBand(hue: x.hue * t, sat: x.sat * t, lum: x.lum * t);
     List<CurvePoint> cv(List<CurvePoint> pts) => [for (final q in pts) CurvePoint(q.x, _l(q.x, q.y, t))];
     return OneovaLook(
-      id: 'studio_clip_${c.lookId}_${t.toStringAsFixed(2)}_${a.toJson().values.join('_')}',
+      id: 'studio_clip_${lookId}_${t.toStringAsFixed(2)}_${a.toJson().values.join('_')}',
       primary: LookPrimary(
         exposure: p.primary.exposure * t,
         contrast: _l(1, p.primary.contrast, t),

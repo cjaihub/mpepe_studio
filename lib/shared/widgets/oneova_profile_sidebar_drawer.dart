@@ -62,7 +62,8 @@ class OneovaProfileSidebarDrawer extends ConsumerStatefulWidget {
     ]),
     _SideSection('SOCIAL', [
       _SideLink(Icons.explore_outlined, 'Discover', '/hub/discover'),
-      _SideLink(Icons.storefront_outlined, 'Business', '/biz_feed'),
+      _SideLink(Icons.storefront_outlined, 'Biz & Shop', '/shops'),
+      _SideLink(Icons.business_center_outlined, 'My business', '/business'),
       _SideLink(Icons.all_inbox_rounded, 'Inbox', '/hub/messages'),
       _SideLink(Icons.hub_outlined, 'Connected accounts', '/social_hub'),
     ]),

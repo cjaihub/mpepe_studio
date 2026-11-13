@@ -6,6 +6,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_storage/firebase_storage.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../builtin/builtin_effects.dart';
 import '../models/ar_effect.dart';
 
 enum ArEffectSort {
@@ -146,6 +147,8 @@ class ArEffectRepository {
   Future<List<ArEffect>> fetchByIds(List<String> ids) async {
     // Single gets, so one effect its creator made private can't fail the rest.
     final docs = await Future.wait(ids.map((id) async {
+      final builtIn = BuiltInEffects.byId(id);
+      if (builtIn != null) return builtIn.effect;
       try {
         final d = await _effects.doc(id).get();
         return d.exists ? ArEffect.fromDoc(d) : null;

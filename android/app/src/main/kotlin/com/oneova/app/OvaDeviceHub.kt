@@ -151,8 +151,19 @@ object OvaDeviceHub {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
             val cb = object : AudioManager.AudioRecordingCallback() {
                 override fun onRecordingConfigChanged(configs: MutableList<android.media.AudioRecordingConfiguration>) {
-                    // Only our own recordings are visible here; silenced = another app has the mic.
-                    val silenced = configs.any { it.isClientSilenced }
+                    // Ignore background hotword/DSP configs (e.g. Google Assistant hotword
+                    // silenced BY Oneova itself when we open the mic) and only report
+                    // genuine call/external-recorder preemption when non-hotword streams
+                    // are silenced during an active phone/VoIP call mode.
+                    val nonHotword = configs.filter { cfg ->
+                        // 1999 = MediaRecorder.AudioSource.HOTWORD (hidden @SystemApi constant).
+                        cfg.clientAudioSource != 1999
+                    }
+                    val inExternalCall = audio.mode == AudioManager.MODE_IN_CALL ||
+                        audio.mode == AudioManager.MODE_RINGTONE
+                    val silenced = nonHotword.isNotEmpty() &&
+                        nonHotword.all { it.isClientSilenced } &&
+                        inExternalCall
                     emit("mic_silenced", mapOf("silenced" to silenced))
                 }
             }

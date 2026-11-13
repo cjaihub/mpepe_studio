@@ -138,7 +138,10 @@ class _OvaLiveVoiceViewState extends ConsumerState<OvaLiveVoiceView> {
           if (state.errorMessage != null)
             Padding(
               padding: const EdgeInsets.fromLTRB(16, 4, 16, 0),
-              child: _VoiceErrorBanner(message: state.errorMessage!),
+              child: _VoiceErrorBanner(
+                message: state.errorMessage!,
+                onRetry: notifier.retryMicrophone,
+              ),
             ),
 
           // 2. Center Status, Fluid Orb & Transcripts
@@ -222,9 +225,9 @@ class _OvaLiveVoiceViewState extends ConsumerState<OvaLiveVoiceView> {
                       size: 46,
                       icon: Icons.call_end_rounded,
                       tooltip: 'End voice session',
-                      fillColor: const Color(0xFFEF4444),
+                      fillColor: AppColors.brandPink,
                       iconColor: AppColors.brandWhite,
-                      glowColor: const Color(0xFFEF4444),
+                      glowColor: AppColors.brandPink,
                       onTap: () {
                         notifier.endSession();
                         widget.onBack();
@@ -375,7 +378,11 @@ class _OvaOverlayVoiceCardState extends ConsumerState<OvaOverlayVoiceCard> {
 
           if (state.errorMessage != null) ...[
             const SizedBox(height: 8),
-            _VoiceErrorBanner(message: state.errorMessage!, compact: true),
+            _VoiceErrorBanner(
+              message: state.errorMessage!,
+              compact: true,
+              onRetry: notifier.retryMicrophone,
+            ),
           ],
 
           const SizedBox(height: 6),
@@ -815,14 +822,18 @@ class _VoiceMicroToggle extends StatelessWidget {
 class _VoiceErrorBanner extends StatelessWidget {
   final String message;
   final bool compact;
+  final VoidCallback? onRetry;
 
   const _VoiceErrorBanner({
     required this.message,
     this.compact = false,
+    this.onRetry,
   });
 
   @override
   Widget build(BuildContext context) {
+    final isPerm = message.toLowerCase().contains('settings') ||
+        message.toLowerCase().contains('permission');
     return Container(
       padding: EdgeInsets.symmetric(horizontal: 10, vertical: compact ? 6 : 8),
       decoration: BoxDecoration(
@@ -840,17 +851,49 @@ class _VoiceErrorBanner extends StatelessWidget {
               style: GoogleFonts.inter(fontSize: 11.5, color: context.textPrimary),
             ),
           ),
-          InkWell(
-            onTap: openAppSettings,
-            child: Text(
-              'Settings',
-              style: GoogleFonts.inter(
-                fontSize: 11.5,
-                fontWeight: FontWeight.w700,
-                color: AppColors.brandBlue,
+          if (onRetry != null) ...[
+            const SizedBox(width: 6),
+            InkWell(
+              borderRadius: BorderRadius.circular(AppRadius.xs),
+              onTap: onRetry,
+              child: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                decoration: BoxDecoration(
+                  color: AppColors.brandBlue,
+                  borderRadius: BorderRadius.circular(AppRadius.xs),
+                ),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    const Icon(Icons.refresh_rounded, size: 12, color: Colors.white),
+                    const SizedBox(width: 3),
+                    Text(
+                      'Retry Mic',
+                      style: GoogleFonts.inter(
+                        fontSize: 10.8,
+                        fontWeight: FontWeight.w700,
+                        color: Colors.white,
+                      ),
+                    ),
+                  ],
+                ),
               ),
             ),
-          ),
+          ],
+          if (isPerm) ...[
+            const SizedBox(width: 8),
+            InkWell(
+              onTap: openAppSettings,
+              child: Text(
+                'Settings',
+                style: GoogleFonts.inter(
+                  fontSize: 11.5,
+                  fontWeight: FontWeight.w700,
+                  color: AppColors.brandBlue,
+                ),
+              ),
+            ),
+          ],
         ],
       ),
     );

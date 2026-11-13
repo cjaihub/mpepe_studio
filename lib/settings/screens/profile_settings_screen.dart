@@ -19,7 +19,6 @@ import '../../shared/undo/undo_manager.dart';
 import '../commands/update_setting_command.dart';
 import '../widgets/oneova_about_account_sheet.dart';
 import '../widgets/oneova_profile_qr_sheet.dart';
-import '../widgets/oneova_verification_request_sheet.dart';
 import '../widgets/settings_kit.dart';
 import '../../auth/widgets/profile_completion_reminder_card.dart';
 import '../widgets/oneova_ai_bio_sheet.dart';
@@ -1214,9 +1213,7 @@ class _ProfileSettingsScreenState extends ConsumerState<ProfileSettingsScreen> {
                             const SizedBox(width: 8),
                             ElevatedButton(
                               onPressed: () {
-                                if (appUser != null) {
-                                  OneovaVerificationRequestSheet.show(context, appUser, isBusiness: true);
-                                }
+                                context.push('/id/business');
                               },
                               style: ElevatedButton.styleFrom(
                                 backgroundColor: AppColors.brandBlue,
@@ -1361,9 +1358,7 @@ class _ProfileSettingsScreenState extends ConsumerState<ProfileSettingsScreen> {
                     accentColor: appUser?.isVerified == true ? const Color(0xFF10B981) : AppColors.brandBlue,
                     trailing: appUser?.isVerified == true ? const Icon(Icons.check_circle_rounded, color: Color(0xFF10B981), size: 18) : null,
                     onTap: () {
-                      if (appUser != null && !appUser.isVerified) {
-                        OneovaVerificationRequestSheet.show(context, appUser);
-                      }
+                      context.push('/id');
                     },
                   ),
                   const SizedBox(height: 8),

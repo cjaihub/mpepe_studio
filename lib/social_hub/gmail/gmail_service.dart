@@ -2,7 +2,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:cloud_functions/cloud_functions.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:google_sign_in/google_sign_in.dart';
+import '../../backend/connections/google_services.dart';
 
 /// The user's own Gmail, connected per user (functions/src/gmailUser.ts).
 ///
@@ -27,14 +27,15 @@ class GmailService {
 
   final _fn = FirebaseFunctions.instance;
 
+  /// Links Gmail through Google services (functions/src/googleLink.ts), so
+  /// it shows on the person's Google account with their other services.
+  /// Returns '' if they cancelled Google's screen.
   Future<String> connect() async {
-    final auth = await GoogleSignIn.instance.authorizationClient.authorizeServer(scopes);
-    final code = auth?.serverAuthCode;
-    if (code == null || code.isEmpty) {
-      throw const GmailException('Google didn\'t return access. Try again and allow all three permissions.');
+    try {
+      return await GoogleServices.link(GoogleService.gmail) ?? '';
+    } on GoogleServicesException catch (e) {
+      throw GmailException(e.message);
     }
-    final res = await _call('gmailConnect', {'serverAuthCode': code});
-    return (res['email'] ?? '').toString();
   }
 
   Future<void> disconnect() => _call('gmailDisconnect', const {});

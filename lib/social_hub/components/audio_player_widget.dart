@@ -1,5 +1,8 @@
+import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:audio_waveforms/audio_waveforms.dart' as aw;
+import 'package:http/http.dart' as http;
+import 'package:path_provider/path_provider.dart';
 import '../../shared/theme/app_theme.dart';
 
 class AudioPlayerWidget extends StatefulWidget {
@@ -30,8 +33,26 @@ class _AudioPlayerWidgetState extends State<AudioPlayerWidget> {
 
   Future<void> _initAudio() async {
     try {
+      String resolvedPath = widget.audioUrl;
+      if (resolvedPath.startsWith('http://') || resolvedPath.startsWith('https://')) {
+        try {
+          final tempDir = await getTemporaryDirectory();
+          final hash = widget.audioUrl.hashCode.abs();
+          final cachedFile = File('${tempDir.path}/voice_cache_$hash.m4a');
+          if (!await cachedFile.exists()) {
+            final res = await http.get(Uri.parse(widget.audioUrl));
+            if (res.statusCode == 200) {
+              await cachedFile.writeAsBytes(res.bodyBytes);
+              resolvedPath = cachedFile.path;
+            }
+          } else {
+            resolvedPath = cachedFile.path;
+          }
+        } catch (_) {}
+      }
+
       await _controller.preparePlayer(
-        path: widget.audioUrl,
+        path: resolvedPath,
         shouldExtractWaveform: false,
         volume: 1.0,
       );

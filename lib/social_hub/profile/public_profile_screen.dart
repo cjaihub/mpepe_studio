@@ -25,6 +25,7 @@ import 'owner_profile_menu.dart';
 import '../../settings/widgets/oneova_profile_qr_sheet.dart';
 import '../../settings/widgets/oneova_about_account_sheet.dart';
 import '../coins/coin_screens.dart';
+import '../../identity/widgets/oneova_verified_badge.dart';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Providers
@@ -562,8 +563,9 @@ class _PublicProfileScreenState extends ConsumerState<PublicProfileScreen>
               ),
               if (user.isVerified) ...[
                 const SizedBox(width: 6),
-                const Icon(Icons.verified_rounded,
-                    color: AppColors.brandBlue, size: 18),
+                user.businessLevel > 0
+                    ? OneovaVerifiedBadge(kind: VerifiedKind.business, level: user.businessLevel, size: 18)
+                    : const OneovaVerifiedBadge(size: 18),
               ],
               const SizedBox(width: 6),
               GifterLevelBadge(uid: _resolvedTargetUserId),

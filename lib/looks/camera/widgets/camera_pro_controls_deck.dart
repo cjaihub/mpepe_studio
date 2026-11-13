@@ -17,7 +17,8 @@ class CameraProControlsDeck extends StatefulWidget {
   final ValueChanged<double?> onShutterChanged;
   final void Function(String mode, {int? kelvin}) onWbChanged;
   final ValueChanged<double?> onFocusChanged;
-  final VoidCallback onTogglePeaking;
+  /// Focus peaking toggle; the button is hidden when null.
+  final VoidCallback? onTogglePeaking;
   final VoidCallback onClose;
 
   const CameraProControlsDeck({
@@ -29,7 +30,7 @@ class CameraProControlsDeck extends StatefulWidget {
     required this.onShutterChanged,
     required this.onWbChanged,
     required this.onFocusChanged,
-    required this.onTogglePeaking,
+    this.onTogglePeaking,
     required this.onClose,
   });
 
@@ -77,12 +78,12 @@ class _CameraProControlsDeckState extends State<CameraProControlsDeck> {
                   const Icon(Icons.tune_rounded, color: AppColors.brandBlue, size: 16),
                   const SizedBox(width: 6),
                   Text(
-                    'PRO TELEMETRY',
+                    'Camera Controls',
                     style: GoogleFonts.inter(
-                      fontSize: 11,
-                      fontWeight: FontWeight.w800,
+                      fontSize: 12.5,
+                      fontWeight: FontWeight.w700,
                       color: Colors.white,
-                      letterSpacing: 0.8,
+                      letterSpacing: -0.2,
                     ),
                   ),
                 ],
@@ -97,9 +98,17 @@ class _CameraProControlsDeckState extends State<CameraProControlsDeck> {
           ),
           const SizedBox(height: 8),
 
-          // Subnav Pills: EV | ISO | SHUTTER | WB | FOCUS
+          // Subnav Pills: friendly labels
           Row(
-            children: ['EV', 'ISO', 'SHUTTER', 'WB', 'FOCUS'].map((tab) {
+            children: const [
+              ('EV', 'Brightness'),
+              ('ISO', 'Light'),
+              ('SHUTTER', 'Speed'),
+              ('WB', 'Tone'),
+              ('FOCUS', 'Focus'),
+            ].map((item) {
+              final tab = item.$1;
+              final label = item.$2;
               final isSelected = _activeTab == tab;
               return Expanded(
                 child: Padding(
@@ -118,10 +127,10 @@ class _CameraProControlsDeckState extends State<CameraProControlsDeck> {
                       ),
                       alignment: Alignment.center,
                       child: Text(
-                        tab,
+                        label,
                         style: GoogleFonts.inter(
-                          fontSize: 10,
-                          fontWeight: isSelected ? FontWeight.w800 : FontWeight.w600,
+                          fontSize: 10.5,
+                          fontWeight: isSelected ? FontWeight.w700 : FontWeight.w500,
                           color: Colors.white,
                         ),
                       ),
@@ -328,7 +337,7 @@ class _CameraProControlsDeckState extends State<CameraProControlsDeck> {
             Row(
               children: [
                 Text(
-                  isManual ? 'Manual Focus: ${(dist * 100).toInt()}%' : 'Auto Focus (AF)',
+                  isManual ? 'Focus Distance: ${(dist * 100).toInt()}%' : 'Auto Focus',
                   style: GoogleFonts.inter(fontSize: 11.5, color: Colors.white),
                 ),
                 const SizedBox(width: 8),
@@ -340,12 +349,13 @@ class _CameraProControlsDeckState extends State<CameraProControlsDeck> {
                     backgroundColor: Colors.white12,
                   ),
                   child: Text(
-                    isManual ? 'Reset AF' : 'Enable Manual',
+                    isManual ? 'Auto' : 'Manual',
                     style: GoogleFonts.inter(fontSize: 10, color: Colors.white70),
                   ),
                 ),
               ],
             ),
+            if (widget.onTogglePeaking != null)
             TextButton.icon(
               onPressed: widget.onTogglePeaking,
               icon: Icon(
@@ -369,20 +379,28 @@ class _CameraProControlsDeckState extends State<CameraProControlsDeck> {
           ],
         ),
         if (isManual)
-          SliderTheme(
-            data: SliderTheme.of(context).copyWith(
-              activeTrackColor: AppColors.brandBlue,
-              inactiveTrackColor: Colors.white24,
-              thumbColor: Colors.white,
-              trackHeight: 3.0,
-              thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 7),
-            ),
-            child: Slider(
-              value: dist,
-              min: 0.0,
-              max: 1.0,
-              onChanged: (v) => widget.onFocusChanged(v),
-            ),
+          Row(
+            children: [
+              Text('Close-up', style: GoogleFonts.inter(fontSize: 10, color: Colors.white60)),
+              Expanded(
+                child: SliderTheme(
+                  data: SliderTheme.of(context).copyWith(
+                    activeTrackColor: AppColors.brandBlue,
+                    inactiveTrackColor: Colors.white24,
+                    thumbColor: Colors.white,
+                    trackHeight: 3.0,
+                    thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 7),
+                  ),
+                  child: Slider(
+                    value: dist,
+                    min: 0.0,
+                    max: 1.0,
+                    onChanged: (v) => widget.onFocusChanged(v),
+                  ),
+                ),
+              ),
+              Text('Far', style: GoogleFonts.inter(fontSize: 10, color: Colors.white60)),
+            ],
           ),
       ],
     );

@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../create/studio/services/studio_agent.dart';
 import '../../create/studio/services/studio_effects.dart';
 import '../../create/studio/services/studio_looks.dart';
+import '../../looks/filters/oneova_filter_library.dart';
 import '../../create/studio/services/studio_text_templates.dart';
 import '../core/ova_tool_result.dart';
 import 'ova_tool_registry.dart';
@@ -51,7 +52,7 @@ class OvaStudioTools {
         OvaToolSpec(
           'studio_edit',
           'Edit a Studio project; every edit is baked into the export. Actions:\n'
-              '- look: name = ${StudioLooks.presets.map((l) => l.id).join('|')}; value = strength 0-1\n'
+              '- look: name = ${StudioLooks.presets.map((l) => l.id).join('|')} or any Oneova filter name (e.g. "Lagoon Warm", "Bronze Soft", "Ink"; categories ${OneovaFilterLibrary.categories.join(', ')}; variants Soft, Bold, Warm, Cool, Faded, Matte, Bright, Deep, Punch, Grain, Muted); value = strength 0-1\n'
               '- filter: name = a filter id; value = strength 0-1\n'
               '- adjust: name = brightness|contrast|saturation|exposure|warmth|tint|fade|highlights|shadows|whites|blacks|vibrance|sharpen|grain|vignette; value -1..1\n'
               '- retouch (face & skin): name = smooth|even|bright|warm|eyes|teeth|slim|bigEyes|nose|chin; value 0..1 (warm, chin -1..1)\n'

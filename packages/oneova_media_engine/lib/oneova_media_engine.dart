@@ -251,6 +251,19 @@ class OneovaMediaEngine {
     }
   }
 
+  /// Removes a photo's background on the device (ML Kit Subject
+  /// Segmentation: every person and the main subject; the selfie model while
+  /// that downloads). Writes a PNG with a transparent background to [out].
+  /// Returns (path, width, height, method).
+  static Future<(String, int, int, String)> cutout(String path, {required String out, int maxSide = 2048}) async {
+    try {
+      final m = await _channel.invokeMethod<Map<dynamic, dynamic>>('cutout', {'path': path, 'out': out, 'maxSide': maxSide});
+      return (m!['path'] as String, (m['width'] as num).toInt(), (m['height'] as num).toInt(), m['method'] as String? ?? '');
+    } on PlatformException catch (e) {
+      throw MediaEngineException(e.code, e.message ?? e.code);
+    }
+  }
+
   /// Renders [spec] (see TimelineExporter.kt) and returns the output path.
   static Future<String> export(Map<String, Object?> spec) async {
     try {

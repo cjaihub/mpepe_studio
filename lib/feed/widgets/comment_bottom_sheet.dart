@@ -21,6 +21,7 @@ import '../../../shared/services/draft_store.dart';
 import 'oneova_gif_picker_sheet.dart';
 import 'voice_comment_card.dart';
 import '../../../shared/widgets/oneova_voice_typing_button.dart';
+import '../../../shared/widgets/oneova_smart_status_banner.dart';
 
 final _commentAuthorProvider = StreamProvider.autoDispose
     .family<AppUser?, String>((ref, uid) {
@@ -237,8 +238,16 @@ class _CommentBottomSheetState extends ConsumerState<CommentBottomSheet> {
       }
     } catch (e) {
       if (mounted) {
-        setState(
-          () => _inlineError = 'Could not post comment: ${e.toString()}',
+        final msg = 'Could not post comment: $e';
+        setState(() => _inlineError = msg);
+        OneovaSmartStatus.show(
+          context,
+          title: 'Comment could not be sent',
+          subtitle: 'Check connection and tap Retry.',
+          source: 'Comments',
+          kind: OneovaStatusKind.error,
+          actionLabel: 'Retry',
+          onAction: _postComment,
         );
         HapticFeedback.mediumImpact();
       }
@@ -655,126 +664,208 @@ class _CommentBottomSheetState extends ConsumerState<CommentBottomSheet> {
                         ),
                       ),
                       Row(
+                        crossAxisAlignment: CrossAxisAlignment.end,
                         children: [
                           // User Avatar
-                          CircleAvatar(
-                            radius: 17,
-                            backgroundColor: context.surfaceMid,
-                            backgroundImage:
-                                (currentUser?.photoURL != null &&
-                                    currentUser!.photoURL!.isNotEmpty)
-                                ? NetworkImage(currentUser.photoURL!)
-                                : null,
-                            child:
-                                (currentUser?.photoURL == null ||
-                                    currentUser!.photoURL!.isEmpty)
-                                ? Icon(
-                                    Icons.person,
-                                    color: context.textSecondary,
-                                    size: 18,
-                                  )
-                                : null,
+                          Padding(
+                            padding: const EdgeInsets.only(bottom: 4),
+                            child: CircleAvatar(
+                              radius: 17,
+                              backgroundColor: context.surfaceMid,
+                              backgroundImage:
+                                  (currentUser?.photoURL != null &&
+                                      currentUser!.photoURL!.isNotEmpty)
+                                  ? NetworkImage(currentUser.photoURL!)
+                                  : null,
+                              child:
+                                  (currentUser?.photoURL == null ||
+                                      currentUser!.photoURL!.isEmpty)
+                                  ? Icon(
+                                      Icons.person,
+                                      color: context.textSecondary,
+                                      size: 18,
+                                    )
+                                  : null,
+                            ),
                           ),
                           const SizedBox(width: 10),
-                          // Input TextField Container
+                          // Full-width adaptive 2-tier Executive Composer Card
                           Expanded(
                             child: Container(
-                              padding: const EdgeInsets.symmetric(
-                                horizontal: 14,
-                              ),
+                              padding: const EdgeInsets.fromLTRB(12, 8, 8, 6),
                               decoration: BoxDecoration(
                                 color: context.surfaceMid,
                                 borderRadius: BorderRadius.circular(
                                   AppRadius.md,
                                 ),
                                 border: Border.all(
-                                  color: context.border,
+                                  color: _focusNode.hasFocus
+                                      ? AppColors.brandBlue.withValues(alpha: 0.65)
+                                      : context.border,
                                   width: 1.0,
                                 ),
                               ),
-                              child: Row(
+                              child: Column(
+                                mainAxisSize: MainAxisSize.min,
+                                crossAxisAlignment: CrossAxisAlignment.stretch,
                                 children: [
-                                  Expanded(
-                                    child: TextField(
-                                      controller: _commentController,
-                                      focusNode: _focusNode,
-                                      style: GoogleFonts.inter(
-                                        color: context.textPrimary,
+                                  TextField(
+                                    controller: _commentController,
+                                    focusNode: _focusNode,
+                                    style: GoogleFonts.inter(
+                                      color: context.textPrimary,
+                                      fontSize: 13.5,
+                                      height: 1.38,
+                                    ),
+                                    decoration: InputDecoration(
+                                      hintText: _replyToName != null
+                                          ? 'Reply to @$_replyToName...'
+                                          : 'Add a comment...',
+                                      hintStyle: GoogleFonts.inter(
+                                        color: context.textMuted,
                                         fontSize: 13,
                                       ),
-                                      decoration: InputDecoration(
-                                        hintText: 'Add a comment...',
-                                        hintStyle: GoogleFonts.inter(
-                                          color: context.textMuted,
-                                          fontSize: 13,
+                                      border: InputBorder.none,
+                                      enabledBorder: InputBorder.none,
+                                      focusedBorder: InputBorder.none,
+                                      filled: false,
+                                      isDense: true,
+                                      contentPadding:
+                                          const EdgeInsets.symmetric(
+                                            vertical: 4,
+                                          ),
+                                    ),
+                                    minLines: 1,
+                                    maxLines: 5,
+                                    textInputAction: TextInputAction.send,
+                                    onSubmitted: (_) => _postComment(),
+                                  ),
+                                  const SizedBox(height: 4),
+                                  Row(
+                                    children: [
+                                      OneovaVoiceTypingButton(
+                                        controller: _commentController,
+                                        focusNode: _focusNode,
+                                        onChanged: (_) => setState(() {}),
+                                        iconSize: 18,
+                                        padding: const EdgeInsets.symmetric(
+                                          horizontal: 4,
+                                          vertical: 2,
                                         ),
-                                        border: InputBorder.none,
-                                        isDense: true,
-                                        contentPadding:
-                                            const EdgeInsets.symmetric(
-                                              vertical: 10,
+                                        tooltip: 'Voice typing comment',
+                                        showTranslateAction: true,
+                                      ),
+                                      const SizedBox(width: 4),
+                                      Tooltip(
+                                        message: 'Insert GIF',
+                                        child: InkWell(
+                                          borderRadius: BorderRadius.circular(
+                                            AppRadius.sm,
+                                          ),
+                                          onTap: _pickGif,
+                                          child: Padding(
+                                            padding: const EdgeInsets.symmetric(
+                                              horizontal: 6,
+                                              vertical: 4,
                                             ),
+                                            child: Icon(
+                                              Icons.gif_box_outlined,
+                                              color: _stagedGif != null
+                                                  ? AppColors.brandPink
+                                                  : context.textSecondary,
+                                              size: 20,
+                                            ),
+                                          ),
+                                        ),
                                       ),
-                                      maxLines: null,
-                                      textInputAction: TextInputAction.send,
-                                      onSubmitted: (_) => _postComment(),
-                                    ),
-                                  ),
-                                  OneovaVoiceTypingButton(
-                                    controller: _commentController,
-                                    onChanged: (_) => setState(() {}),
-                                    iconSize: 20,
-                                    padding: const EdgeInsets.symmetric(horizontal: 4),
-                                    tooltip: 'Voice typing comment',
-                                    showTranslateAction: true,
-                                  ),
-                                  GestureDetector(
-                                    behavior: HitTestBehavior.opaque,
-                                    onTap: _pickGif,
-                                    child: Padding(
-                                      padding: const EdgeInsets.only(left: 6),
-                                      child: Icon(
-                                        Icons.gif_box_outlined,
-                                        color: context.textSecondary,
-                                        size: 22,
-                                      ),
-                                    ),
+                                      const Spacer(),
+                                      if (_commentController.text.isNotEmpty)
+                                        Padding(
+                                          padding: const EdgeInsets.only(
+                                            right: 8,
+                                          ),
+                                          child: Text(
+                                            '${_commentController.text.trim().length}',
+                                            style: AppTypography.caption(
+                                              context.textMuted,
+                                            ),
+                                          ),
+                                        ),
+                                      _isPosting
+                                          ? const SizedBox(
+                                              width: 32,
+                                              height: 30,
+                                              child: Padding(
+                                                padding: EdgeInsets.all(6),
+                                                child: AnimatedLoadingIndicator(
+                                                  color: AppColors.brandBlue,
+                                                  strokeWidth: 2,
+                                                ),
+                                              ),
+                                            )
+                                          : InkWell(
+                                              borderRadius:
+                                                  BorderRadius.circular(
+                                                    AppRadius.full,
+                                                  ),
+                                              onTap:
+                                                  (_commentController.text
+                                                              .trim()
+                                                              .isNotEmpty ||
+                                                          _stagedGif != null)
+                                                      ? _postComment
+                                                      : null,
+                                              child: AnimatedContainer(
+                                                duration: const Duration(
+                                                  milliseconds: 160,
+                                                ),
+                                                padding:
+                                                    const EdgeInsets.symmetric(
+                                                      horizontal: 12,
+                                                      vertical: 6,
+                                                    ),
+                                                decoration: BoxDecoration(
+                                                  color:
+                                                      (_commentController.text
+                                                                  .trim()
+                                                                  .isNotEmpty ||
+                                                              _stagedGif !=
+                                                                  null)
+                                                          ? AppColors.brandBlue
+                                                          : context.border,
+                                                  borderRadius:
+                                                      BorderRadius.circular(
+                                                        AppRadius.full,
+                                                      ),
+                                                ),
+                                                child: Row(
+                                                  mainAxisSize:
+                                                      MainAxisSize.min,
+                                                  children: [
+                                                    Icon(
+                                                      Icons.send_rounded,
+                                                      color:
+                                                          (_commentController
+                                                                      .text
+                                                                      .trim()
+                                                                      .isNotEmpty ||
+                                                                  _stagedGif !=
+                                                                      null)
+                                                              ? Colors.white
+                                                              : context
+                                                                    .textMuted,
+                                                      size: 15,
+                                                    ),
+                                                  ],
+                                                ),
+                                              ),
+                                            ),
+                                    ],
                                   ),
                                 ],
                               ),
                             ),
                           ),
-                          const SizedBox(width: 8),
-                          // Send Button
-                          _isPosting
-                              ? const SizedBox(
-                                  width: 38,
-                                  height: 38,
-                                  child: Padding(
-                                    padding: EdgeInsets.all(9),
-                                    child: AnimatedLoadingIndicator(
-                                      color: AppColors.brandBlue,
-                                      strokeWidth: 2,
-                                    ),
-                                  ),
-                                )
-                              : IconButton(
-                                  icon: Icon(
-                                    Icons.send_rounded,
-                                    color:
-                                        (_commentController.text.trim().isNotEmpty || _stagedGif != null)
-                                            ? AppColors.brandBlue
-                                            : context.textMuted.withValues(
-                                                alpha: 0.5,
-                                              ),
-                                    size: 22,
-                                  ),
-                                  onPressed:
-                                      (_commentController.text.trim().isNotEmpty || _stagedGif != null)
-                                          ? _postComment
-                                          : null,
-                                  splashRadius: 20,
-                                ),
                         ],
                       ),
                     ],

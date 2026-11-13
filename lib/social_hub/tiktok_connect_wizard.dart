@@ -577,11 +577,11 @@ class _TikTokConnectWizardState extends ConsumerState<TikTokConnectWizard>
             ).animate().fadeIn(delay: 400.ms).slideY(begin: 0.1),
           const SizedBox(height: 48),
           _buildPrimaryButton(
-            label: 'Go to Dashboard',
+            label: 'Open TikTok in Oneova',
             icon: Icons.dashboard_rounded,
             onPressed: () {
               ref.read(tiktokOAuthProvider.notifier).reset();
-              context.push('/social_hub');
+              context.pushReplacement('/social_hub/tiktok');
             },
             delay: 500.ms,
           ),

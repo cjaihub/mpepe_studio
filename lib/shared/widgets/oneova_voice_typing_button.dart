@@ -1,13 +1,17 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:google_fonts/google_fonts.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:speech_to_text/speech_to_text.dart' as stt;
+
+import '../audio/cloud_dictation.dart';
+import '../audio/mic_coordinator.dart';
+import '../audio/speech_hub.dart';
 
 import '../services/oneova_language_service.dart';
 import '../theme/app_theme.dart';
 import 'oneova_language_action_sheet.dart';
+import 'oneova_smart_status_banner.dart';
 
 /// Oneova Voice Typing Button
 ///
@@ -59,9 +63,12 @@ class OneovaVoiceTypingButton extends StatefulWidget {
 
 class OneovaVoiceTypingButtonState extends State<OneovaVoiceTypingButton>
     with SingleTickerProviderStateMixin {
-  final stt.SpeechToText _speech = stt.SpeechToText();
+  final SpeechHub _speech = SpeechHub.instance;
+  CloudDictation? _cloud;
+  MicLease? _lease;
   bool _isListening = false;
-  bool _isSpeechReady = false;
+  bool _usingCloud = false;
+  bool _transcribing = false;
   String _initialPrefix = '';
 
   late final AnimationController _pulseController = AnimationController(
@@ -86,38 +93,41 @@ class OneovaVoiceTypingButtonState extends State<OneovaVoiceTypingButton>
   @override
   void dispose() {
     _pulseController.dispose();
-    _speech.cancel();
+    unawaited(_speech.cancel(this));
+    unawaited(_cloud?.dispose());
+    unawaited(_lease?.release());
     super.dispose();
+  }
+
+  void _toast(String text, {Color? color, SnackBarAction? action}) {
+    if (!mounted) return;
+    final isAlert = color == AppColors.brandPink;
+    OneovaSmartStatus.show(
+      context,
+      title: text,
+      source: 'Voice Dictation',
+      kind: isAlert ? OneovaStatusKind.warning : OneovaStatusKind.info,
+      actionLabel: action?.label,
+      onAction: action?.onPressed,
+    );
   }
 
   Future<bool> _ensureMicPermission() async {
     final status = await Permission.microphone.request();
     if (status.isGranted) return true;
-
-    if (!mounted) return false;
-    ScaffoldMessenger.maybeOf(context)?.showSnackBar(
-      SnackBar(
-        content: Text(
-          status.isPermanentlyDenied
-              ? 'Microphone access is disabled for Oneova. Enable it in Settings to use voice typing.'
-              : 'Microphone permission is required for voice typing.',
-          style: GoogleFonts.inter(fontSize: 12.5),
-        ),
-        behavior: SnackBarBehavior.floating,
-        backgroundColor: AppColors.brandBlue,
-        action: status.isPermanentlyDenied
-            ? SnackBarAction(
-                label: 'Settings',
-                textColor: AppColors.brandPink,
-                onPressed: openAppSettings,
-              )
-            : null,
-      ),
+    _toast(
+      status.isPermanentlyDenied
+          ? 'Microphone access is disabled for Oneova. Enable it in Settings to use voice typing.'
+          : 'Microphone permission is required for voice typing.',
+      action: status.isPermanentlyDenied
+          ? SnackBarAction(label: 'Settings', textColor: AppColors.brandPink, onPressed: openAppSettings)
+          : null,
     );
     return false;
   }
 
   Future<void> toggleListening() async {
+    if (_transcribing) return;
     if (_isListening) {
       await stopListening();
       return;
@@ -126,93 +136,127 @@ class OneovaVoiceTypingButtonState extends State<OneovaVoiceTypingButton>
     HapticFeedback.lightImpact();
     if (!await _ensureMicPermission()) return;
 
-    if (!_isSpeechReady) {
-      try {
-        _isSpeechReady = await _speech.initialize(
-          onStatus: (status) {
-            if ((status == 'done' || status == 'notListening') && mounted && _isListening) {
-              _handleListeningStopped();
-            }
-          },
-          onError: (_) {
-            if (mounted && _isListening) {
-              _handleListeningStopped();
-            }
-          },
-        );
-      } catch (_) {
-        _isSpeechReady = false;
-      }
+    // Take the mic: stops Ova / AI voice / a voice note if one is running and
+    // pauses other apps' audio. A call keeps the mic.
+    final got = await MicCoordinator.instance.acquire(
+      MicUser.voiceTyping,
+      onPreempted: _onPreempted,
+      onInterruption: (i) {
+        if (i == MicInterruption.heldByOtherApp && _isListening) {
+          _toast('Another app is using the microphone. Voice typing paused.', color: AppColors.brandPink);
+          unawaited(stopListening());
+        }
+      },
+    );
+    if (got is MicBusy) {
+      _toast(got.message, color: AppColors.brandPink);
+      return;
     }
-
-    if (!_isSpeechReady) {
-      if (!mounted) return;
-      ScaffoldMessenger.maybeOf(context)?.showSnackBar(
-        SnackBar(
-          content: Text(
-            'Voice typing is unavailable on this device.',
-            style: GoogleFonts.inter(fontSize: 12.5),
-          ),
-          behavior: SnackBarBehavior.floating,
-          backgroundColor: AppColors.brandPink,
-        ),
-      );
+    _lease = got as MicLease;
+    if (!mounted) {
+      await _lease?.release();
       return;
     }
 
     if (widget.focusNode != null && !widget.focusNode!.hasFocus) {
       widget.focusNode!.requestFocus();
     }
-
     final currentText = widget.controller.text;
-    _initialPrefix = widget.append && currentText.trim().isNotEmpty
-        ? '${currentText.trim()} '
-        : '';
+    _initialPrefix = widget.append && currentText.trim().isNotEmpty ? '${currentText.trim()} ' : '';
 
-    setState(() {
-      _isListening = true;
-    });
+    setState(() => _isListening = true);
     widget.onListeningChanged?.call(true);
     _pulseController.forward();
 
-    try {
-      await _speech.listen(
-        listenOptions: stt.SpeechListenOptions(
-          partialResults: true,
-          cancelOnError: true,
-        ),
-        onResult: (result) {
-          if (!mounted || !_isListening) return;
+    final started = await _speech.listen(
+      owner: this,
+      options: stt.SpeechListenOptions(partialResults: true, cancelOnError: true),
+      onStatus: (status) {
+        if (!mounted || !_isListening || _usingCloud) return;
+        if (status == 'done' || status == 'notListening' || status == 'preempted') {
+          _handleListeningStopped();
+        }
+      },
+      onError: (error) {
+        if (!mounted || !_isListening || _usingCloud) return;
+        // No speech heard is a normal end; anything else means the phone's
+        // recognizer failed, so carry on with Oneova's own dictation.
+        if (error.errorMsg == 'error_no_match' || error.errorMsg == 'error_speech_timeout') {
+          _handleListeningStopped();
+        } else {
+          unawaited(_startCloud());
+        }
+      },
+      onResult: (result) {
+        if (!mounted || !_isListening || _usingCloud) return;
+        _write(result.recognizedWords);
+        if (result.finalResult) HapticFeedback.selectionClick();
+      },
+    );
+    if (!started) await _startCloud();
+  }
 
-          final words = result.recognizedWords;
-          final updatedText = '$_initialPrefix$words';
+  void _write(String words) {
+    final updatedText = '$_initialPrefix$words';
+    widget.controller.text = updatedText;
+    widget.controller.selection = TextSelection.collapsed(offset: widget.controller.text.length);
+    widget.onChanged?.call(updatedText);
+  }
 
-          widget.controller.text = updatedText;
-          widget.controller.selection = TextSelection.collapsed(
-            offset: widget.controller.text.length,
-          );
-
-          widget.onChanged?.call(updatedText);
-
-          if (result.finalResult) {
-            // Completed recognition sentence
-            HapticFeedback.selectionClick();
-          }
-        },
-      );
-    } catch (_) {
+  /// The phone's speech service is missing or busy: record and transcribe here.
+  Future<void> _startCloud() async {
+    if (_usingCloud || !mounted || !_isListening) return;
+    await _speech.cancel(this);
+    _usingCloud = true;
+    _cloud ??= CloudDictation();
+    final ok = await _cloud!.start();
+    if (!ok) {
+      _usingCloud = false;
+      _toast('Voice typing is unavailable right now.', color: AppColors.brandPink);
       _handleListeningStopped();
+      return;
     }
+    if (mounted) setState(() {});
+  }
+
+  Future<void> _onPreempted() async {
+    await _speech.cancel(this);
+    if (_usingCloud) {
+      _usingCloud = false;
+      await _cloud?.cancel();
+    }
+    _lease = null;
+    if (mounted && _isListening) _handleListeningStopped();
   }
 
   Future<void> stopListening() async {
-    await _speech.stop();
+    if (_usingCloud) {
+      _usingCloud = false;
+      setState(() => _transcribing = true);
+      try {
+        final text = await _cloud!.stopAndTranscribe();
+        if (mounted && text.isNotEmpty) _write(text);
+      } catch (_) {
+        _toast('Could not transcribe. Check your connection and try again.', color: AppColors.brandPink);
+      }
+      if (mounted) setState(() => _transcribing = false);
+    } else {
+      await _speech.stop(this);
+    }
     _handleListeningStopped();
   }
 
   void _handleListeningStopped() {
     if (!_isListening) return;
     HapticFeedback.lightImpact();
+    _isListening = false;
+    if (_usingCloud) {
+      _usingCloud = false;
+      unawaited(_cloud?.cancel());
+    }
+    final lease = _lease;
+    _lease = null;
+    unawaited(lease?.release());
     if (mounted) {
       setState(() {
         _isListening = false;
@@ -225,36 +269,20 @@ class OneovaVoiceTypingButtonState extends State<OneovaVoiceTypingButton>
       if (widget.enableLanguageDetectionToast && widget.controller.text.trim().isNotEmpty) {
         final detected = OneovaLanguageService.instance.detectLanguage(widget.controller.text);
         if (mounted) {
-          ScaffoldMessenger.maybeOf(context)?.hideCurrentSnackBar();
-          ScaffoldMessenger.maybeOf(context)?.showSnackBar(
-            SnackBar(
-              content: Row(
-                children: [
-                  Text(detected.flag, style: const TextStyle(fontSize: 15)),
-                  const SizedBox(width: 8),
-                  Expanded(
-                    child: Text(
-                      'Detected: ${detected.name} · Tap to translate or polish',
-                      style: GoogleFonts.inter(fontSize: 12, fontWeight: FontWeight.w600, color: Colors.white),
-                    ),
-                  ),
-                ],
-              ),
-              action: SnackBarAction(
-                label: 'Actions',
-                textColor: AppColors.brandPink,
-                onPressed: () {
-                  OneovaLanguageActionSheet.show(
-                    context,
-                    controller: widget.controller,
-                    onTextChanged: widget.onChanged,
-                  );
-                },
-              ),
-              backgroundColor: AppColors.darkSurface,
-              behavior: SnackBarBehavior.floating,
-              duration: const Duration(seconds: 4),
-            ),
+          OneovaSmartStatus.show(
+            context,
+            title: '${detected.flag} Detected ${detected.name}',
+            subtitle: 'Tap Actions to translate or polish your voice draft',
+            source: 'Voice Dictation',
+            kind: OneovaStatusKind.live,
+            actionLabel: 'Actions',
+            onAction: () {
+              OneovaLanguageActionSheet.show(
+                context,
+                controller: widget.controller,
+                onTextChanged: widget.onChanged,
+              );
+            },
           );
         }
       }
@@ -277,7 +305,11 @@ class OneovaVoiceTypingButtonState extends State<OneovaVoiceTypingButton>
     final hasText = widget.controller.text.trim().isNotEmpty;
 
     final micWidget = Tooltip(
-      message: _isListening ? 'Listening… Tap to stop' : widget.tooltip,
+      message: _transcribing
+          ? 'Transcribing…'
+          : _isListening
+              ? 'Listening… Tap to stop'
+              : widget.tooltip,
       child: InkWell(
         onTap: toggleListening,
         onLongPress: _openLanguageActionSheet,

@@ -7,9 +7,7 @@ enum PaymentProvider {
   flutterwaveAirtel('Airtel Money (Kenya/Uganda/Nigeria)', '🇰🇪 🇺🇬 🇳🇬', 'mobile_money'),
   flutterwaveVodafone('Telecel / Vodafone Cash (Ghana)', '🇬🇭', 'mobile_money'),
   flutterwaveOrange('Orange Money (Francophone Africa)', '🇨🇲 🇸🇳 🇨🇮', 'mobile_money'),
-  stripeCard('Global Credit / Debit Card', '💳', 'card'),
-  stripeApplePay('Apple Pay', '', 'digital_wallet'),
-  stripeGooglePay('Google Pay', 'G', 'digital_wallet');
+  partnerCard('Debit / Credit Card', '💳', 'card');
 
   final String label;
   final String icon;

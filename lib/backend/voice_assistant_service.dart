@@ -1,7 +1,11 @@
+import 'dart:async';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_tts/flutter_tts.dart';
 import 'package:speech_to_text/speech_to_text.dart' as stt;
+import '../shared/audio/cloud_dictation.dart';
+import '../shared/audio/mic_coordinator.dart';
+import '../shared/audio/speech_hub.dart';
 import 'ai_brain_service.dart';
 
 enum VoiceState { idle, listening, processing, speaking }
@@ -40,11 +44,21 @@ class VoiceAssistantState {
 
 class VoiceAssistantService extends Notifier<VoiceAssistantState> {
   final FlutterTts _tts = FlutterTts();
-  final stt.SpeechToText _stt = stt.SpeechToText();
+  final SpeechHub _speech = SpeechHub.instance;
+  MicLease? _micLease;
+  CloudDictation? _cloud;
+  bool _usingCloud = false;
 
   @override
   VoiceAssistantState build() {
     _initTTS();
+    ref.onDispose(() {
+      unawaited(_speech.cancel(this));
+      unawaited(_cloud?.dispose());
+      unawaited(_micLease?.release());
+      _micLease = null;
+      unawaited(_tts.stop());
+    });
     return VoiceAssistantState();
   }
 
@@ -96,32 +110,112 @@ class VoiceAssistantService extends Notifier<VoiceAssistantState> {
     state = state.copyWith(currentVoice: voice["name"]);
   }
 
+  Future<void> _releaseMic() async {
+    final lease = _micLease;
+    _micLease = null;
+    await lease?.release();
+  }
+
   Future<void> startListening({bool continuous = false}) async {
-    bool available = await _stt.initialize(
+    final got = await MicCoordinator.instance.acquire(
+      MicUser.assistant,
+      onPreempted: () async {
+        _usingCloud = false;
+        await _speech.cancel(this);
+        await _cloud?.cancel();
+        _micLease = null;
+        if (ref.mounted) {
+          state = state.copyWith(state: VoiceState.idle, isContinuous: false);
+        }
+      },
+      onInterruption: (i) {
+        if (i == MicInterruption.heldByOtherApp && ref.mounted && state.state == VoiceState.listening) {
+          unawaited(stopListening(force: true));
+        }
+      },
+    );
+    if (got is MicBusy) {
+      state = state.copyWith(state: VoiceState.idle, isContinuous: false);
+      return;
+    }
+    _micLease = got as MicLease;
+    _usingCloud = false;
+
+    state = state.copyWith(state: VoiceState.listening, currentText: '', soundLevel: 0.0, isContinuous: continuous);
+    await _tts.stop(); // Stop any ongoing speech
+
+    final started = await _speech.listen(
+      owner: this,
+      options: stt.SpeechListenOptions(partialResults: true, cancelOnError: true),
       onStatus: (status) {
-        if (status == 'done' || status == 'notListening') {
+        if (_usingCloud || !ref.mounted) return;
+        if (status == 'done' || status == 'notListening' || status == 'preempted') {
           if (state.state == VoiceState.listening) {
-            _processVoiceInput();
+            unawaited(_finishListeningAndProcess());
           }
         }
       },
       onError: (val) {
         debugPrint('STT Error: $val');
-        state = state.copyWith(state: VoiceState.idle, isContinuous: false);
+        if (_usingCloud || !ref.mounted) return;
+        if (val.errorMsg == 'error_no_match' || val.errorMsg == 'error_speech_timeout') {
+          unawaited(_finishListeningAndProcess());
+        } else {
+          unawaited(_startCloudFallback());
+        }
+      },
+      onResult: (val) {
+        if (_usingCloud || !ref.mounted) return;
+        state = state.copyWith(currentText: val.recognizedWords);
+      },
+      onSoundLevel: (level) {
+        if (_usingCloud || !ref.mounted) return;
+        state = state.copyWith(soundLevel: level);
       },
     );
+    if (!started && ref.mounted && state.state == VoiceState.listening) {
+      await _startCloudFallback();
+    }
+  }
 
-    if (available) {
-      state = state.copyWith(state: VoiceState.listening, currentText: '', soundLevel: 0.0, isContinuous: continuous);
-      _tts.stop(); // Stop any ongoing speech
-      _stt.listen(
-        onResult: (val) {
-          state = state.copyWith(currentText: val.recognizedWords);
-        },
-        onSoundLevelChange: (level) {
-          state = state.copyWith(soundLevel: level);
+  Future<void> _startCloudFallback() async {
+    if (_usingCloud || !ref.mounted || state.state != VoiceState.listening) return;
+    await _speech.cancel(this);
+    _usingCloud = true;
+    _cloud ??= CloudDictation();
+    final ok = await _cloud!.start(
+      autoStopOnSilence: true,
+      onLevel: (level) {
+        if (ref.mounted && _usingCloud) {
+          state = state.copyWith(soundLevel: level * 10.0);
         }
-      );
+      },
+      onSilenceCommit: () => unawaited(_finishListeningAndProcess()),
+    );
+    if (!ok) {
+      _usingCloud = false;
+      await _releaseMic();
+      if (ref.mounted) {
+        state = state.copyWith(state: VoiceState.idle, isContinuous: false);
+      }
+    }
+  }
+
+  Future<void> _finishListeningAndProcess() async {
+    final wasCloud = _usingCloud;
+    _usingCloud = false;
+    await _speech.stop(this);
+    if (wasCloud) {
+      try {
+        final text = (await _cloud?.stopAndTranscribe() ?? '').trim();
+        if (ref.mounted && text.isNotEmpty) {
+          state = state.copyWith(currentText: text);
+        }
+      } catch (_) {}
+    }
+    await _releaseMic();
+    if (ref.mounted) {
+      await _processVoiceInput();
     }
   }
 
@@ -129,8 +223,13 @@ class VoiceAssistantService extends Notifier<VoiceAssistantState> {
     if (force) {
       state = state.copyWith(isContinuous: false);
     }
-    await _stt.stop();
-    // processVoiceInput is called from status handler 'done'
+    if (state.state == VoiceState.listening) {
+      await _finishListeningAndProcess();
+    } else {
+      await _speech.stop(this);
+      await _cloud?.cancel();
+      await _releaseMic();
+    }
   }
 
   Future<void> _processVoiceInput() async {

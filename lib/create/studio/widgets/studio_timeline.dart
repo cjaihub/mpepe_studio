@@ -41,6 +41,9 @@ class StudioTimeline extends StatefulWidget {
   final VoidCallback onCover;
   final VoidCallback onToggleMuteAll;
 
+  /// New clip order after a drag (long-press a clip to start).
+  final ValueChanged<List<StudioClip>>? onReorderClips;
+
   const StudioTimeline({
     super.key,
     required this.playback,
@@ -64,6 +67,7 @@ class StudioTimeline extends StatefulWidget {
     this.onAddOverlay,
     required this.onCover,
     required this.onToggleMuteAll,
+    this.onReorderClips,
   });
 
   @override
@@ -76,6 +80,9 @@ class _StudioTimelineState extends State<StudioTimeline> {
   double _ppsAtScaleStart = 64;
   bool _userScrolling = false;
   bool _programmatic = false;
+
+  /// Clip order while the reorder strip is open (null when closed).
+  List<StudioClip>? _order;
 
   static const _clipH = 54.0;
   static const _rowH = 26.0;
@@ -193,7 +200,9 @@ class _StudioTimelineState extends State<StudioTimeline> {
                 ),
               ),
             ),
+            if (_order != null) Positioned.fill(child: _reorderStrip()),
             // Add clip
+            if (_order == null)
             Positioned(
               right: 10,
               top: 28 + (_clipH - 40) / 2 + 4,
@@ -259,6 +268,13 @@ class _StudioTimelineState extends State<StudioTimeline> {
         height: _clipH,
         child: GestureDetector(
           onTap: () => widget.onSelectClip(selected ? null : clip.id),
+          onLongPress: widget.onReorderClips == null || p.clips.length < 2
+              ? null
+              : () {
+                  HapticFeedback.mediumImpact();
+                  if (widget.playback.playing) widget.playback.pause();
+                  setState(() => _order = [...p.clips]);
+                },
           child: _ClipStrip(clip: clip, width: w, pps: _pps, selected: selected),
         ),
       ));
@@ -269,6 +285,84 @@ class _StudioTimelineState extends State<StudioTimeline> {
       start += clip.outDurationMs;
     }
     return Stack(clipBehavior: Clip.none, children: children);
+  }
+
+  /// Equal-size clip tiles to drag into a new order; Done commits it.
+  Widget _reorderStrip() {
+    final order = _order!;
+    return Container(
+      color: context.surface,
+      padding: const EdgeInsets.fromLTRB(12, 6, 6, 6),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(Icons.drag_indicator_rounded, size: 16, color: context.textMuted),
+              const SizedBox(width: 6),
+              Expanded(
+                child: Text('Drag clips to change their order',
+                    style: GoogleFonts.inter(color: context.textSecondary, fontSize: 12.5, fontWeight: FontWeight.w600)),
+              ),
+              TextButton(
+                onPressed: () => setState(() => _order = null),
+                child: Text('Cancel', style: GoogleFonts.inter(color: context.textMuted, fontWeight: FontWeight.w600)),
+              ),
+              TextButton(
+                onPressed: () {
+                  HapticFeedback.selectionClick();
+                  final changed = [for (var i = 0; i < order.length; i++) order[i].id != widget.project.clips[i].id].any((d) => d);
+                  if (changed) widget.onReorderClips?.call(order);
+                  setState(() => _order = null);
+                },
+                child: Text('Done', style: GoogleFonts.inter(color: AppColors.brandBlue, fontWeight: FontWeight.w800)),
+              ),
+            ],
+          ),
+          SizedBox(
+            height: 80,
+            child: ReorderableListView.builder(
+              scrollDirection: Axis.horizontal,
+              buildDefaultDragHandles: false,
+              itemCount: order.length,
+              proxyDecorator: (child, _, _) => Material(color: Colors.transparent, elevation: 6, child: child),
+              onReorderItem: (from, to) {
+                HapticFeedback.selectionClick();
+                setState(() {
+                  final c = order.removeAt(from);
+                  order.insert(to, c);
+                });
+              },
+              itemBuilder: (context, i) {
+                final clip = order[i];
+                return ReorderableDragStartListener(
+                  key: ValueKey(clip.id),
+                  index: i,
+                  child: Padding(
+                    padding: const EdgeInsets.only(right: 8),
+                    child: SizedBox(
+                      width: 64,
+                      child: Column(
+                        children: [
+                          SizedBox(
+                            width: 64,
+                            height: 56,
+                            child: _ClipStrip(clip: clip, width: 64, pps: _pps, selected: false),
+                          ),
+                          const SizedBox(height: 3),
+                          Text('${i + 1} · ${studioClock(clip.outDurationMs)}',
+                              style: GoogleFonts.inter(color: context.textMuted, fontSize: 10, fontWeight: FontWeight.w600)),
+                        ],
+                      ),
+                    ),
+                  ),
+                );
+              },
+            ),
+          ),
+        ],
+      ),
+    );
   }
 
   Widget _leadButton(IconData icon, String label, VoidCallback onTap) => GestureDetector(

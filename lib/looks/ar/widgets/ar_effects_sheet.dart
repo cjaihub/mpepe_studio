@@ -1,3 +1,7 @@
+import 'package:path_provider/path_provider.dart';
+import 'package:oneova_media_engine/oneova_media_engine.dart';
+import 'package:file_picker/file_picker.dart';
+import 'dart:ui' as ui;
 import 'dart:async';
 import 'dart:io';
 
@@ -13,10 +17,12 @@ import '../../../shared/widgets/oneova_file_picker.dart';
 import '../controllers/live_ar_controller.dart';
 import '../models/ar_effect.dart';
 import '../services/ar_effect_repository.dart';
+import '../builtin/builtin_effects.dart';
+import 'ar_makeup_studio_sheet.dart';
 
 /// Opens the AR effects picker over the camera. The sheet stays short so the
 /// live preview keeps showing what each effect does.
-Future<void> showArEffectsSheet(BuildContext context) {
+Future<void> showArEffectsSheet(BuildContext context, {Future<String?> Function()? captureStill}) {
   HapticFeedback.lightImpact();
   return showModalBottomSheet<void>(
     context: context,
@@ -24,12 +30,15 @@ Future<void> showArEffectsSheet(BuildContext context) {
     useSafeArea: true,
     barrierColor: Colors.transparent,
     backgroundColor: Colors.transparent,
-    builder: (_) => const ArEffectsSheet(),
+    builder: (_) => ArEffectsSheet(captureStill: captureStill),
   );
 }
 
 class ArEffectsSheet extends ConsumerStatefulWidget {
-  const ArEffectsSheet({super.key});
+  /// Passed on to Makeup Studio for "Match my face".
+  final Future<String?> Function()? captureStill;
+
+  const ArEffectsSheet({super.key, this.captureStill});
 
   @override
   ConsumerState<ArEffectsSheet> createState() => _ArEffectsSheetState();
@@ -161,9 +170,16 @@ class _ArEffectsSheetState extends ConsumerState<ArEffectsSheet> {
             scrollDirection: Axis.horizontal,
             child: Row(
               children: [
+                _toolChip(context, Icons.groups_rounded, 'Per person', ar.effectPerPerson,
+                    () => ctrl.setEffectPerPerson(!ar.effectPerPerson)),
                 _toolChip(context, Icons.blur_on_rounded, 'Blur', blur, () => ctrl.setBlur(!blur)),
                 _toolChip(context, Icons.wallpaper_rounded, replace && !ar.addYourself ? (ar.backgroundLabel ?? 'Scene') : 'Background',
                     replace && !ar.addYourself, () => _pickBackground(addYourself: false)),
+                _toolChip(context, Icons.palette_outlined, ar.backgroundLabel == 'Colour' ? 'Colour' : 'Colour',
+                    ar.backgroundLabel == 'Colour', () => _pickColour(ctrl)),
+                _toolChip(context, Icons.movie_outlined, 'Video', ar.backgroundVideoPath != null, _pickVideo),
+                _toolChip(context, Icons.layers_outlined, 'Transparent', ar.transparentBackground,
+                    () => ar.transparentBackground ? ctrl.clearBackground() : ctrl.setTransparentBackground()),
                 _toolChip(context, Icons.person_add_alt_1_rounded, 'Add yourself', ar.addYourself,
                     () => replace ? ctrl.setAddYourself(!ar.addYourself) : _pickBackground(addYourself: true)),
                 if (ar.backgroundMode != ArBackgroundMode.none)
@@ -186,6 +202,16 @@ class _ArEffectsSheetState extends ConsumerState<ArEffectsSheet> {
                 ),
               ],
             ),
+          if (ar.effectPerPerson)
+            Text(
+              'Up to 3 people: the first person wears the first face effect you picked, the next person the next one.',
+              style: GoogleFonts.inter(fontSize: 11, color: context.textSecondary),
+            ),
+          if (ar.transparentBackground)
+            Text(
+              'Photos save as transparent PNGs. Videos record on key green so the background can be removed in any editor.',
+              style: GoogleFonts.inter(fontSize: 11, color: context.textSecondary),
+            ),
           if (ar.addYourself)
             Text(
               'Pinch and drag on the preview to place yourself in the scene.',
@@ -194,6 +220,54 @@ class _ArEffectsSheetState extends ConsumerState<ArEffectsSheet> {
         ],
       ),
     );
+  }
+
+  static const _bgColours = <Color>[
+    Color(0xFFFFFFFF), Color(0xFF111114), AppColors.brandBlue, AppColors.brandPink, Color(0xFF00B140),
+    Color(0xFFF4C430), Color(0xFF7B2CBF), Color(0xFF0FA3B1), Color(0xFFF77F00), Color(0xFFEDE0D4),
+  ];
+
+  Future<void> _pickColour(LiveArController ctrl) async {
+    final c = await showModalBottomSheet<Color>(
+      context: context,
+      backgroundColor: context.surface,
+      builder: (ctx) => SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.all(20),
+          child: Wrap(
+            spacing: 12,
+            runSpacing: 12,
+            children: [
+              for (final col in _bgColours)
+                GestureDetector(
+                  onTap: () => Navigator.pop(ctx, col),
+                  child: Container(
+                    width: 44,
+                    height: 44,
+                    decoration: BoxDecoration(color: col, shape: BoxShape.circle, border: Border.all(color: ctx.border)),
+                  ),
+                ),
+            ],
+          ),
+        ),
+      ),
+    );
+    if (c != null) await ctrl.setBackgroundColor(c);
+  }
+
+  /// A video from the phone, looping behind you (first frame for photos).
+  Future<void> _pickVideo() async {
+    final res = await FilePicker.pickFile(type: FileType.video);
+    final path = res?.path;
+    if (path == null) return;
+    ui.Image? still;
+    try {
+      final dir = await getTemporaryDirectory();
+      final frame = await OneovaMediaEngine.frame(path, ms: 0, out: '${dir.path}/bgv_${DateTime.now().millisecondsSinceEpoch}.jpg', maxSide: 1280);
+      final codec = await ui.instantiateImageCodec(await File(frame).readAsBytes());
+      still = (await codec.getNextFrame()).image;
+    } catch (_) {}
+    await ref.read(liveArControllerProvider.notifier).setBackgroundVideo(path, firstFrame: still);
   }
 
   Future<void> _pickBackground({required bool addYourself}) async {
@@ -289,12 +363,22 @@ class _ArEffectsSheetState extends ConsumerState<ArEffectsSheet> {
   List<Widget> _body(BuildContext context, LiveArState ar) {
     switch (_tab) {
       case _Tab.explore:
+        final builtIn = BuiltInEffects.filter(
+          search: _query.search,
+          category: _query.category,
+          audience: _query.audience,
+        );
         return [
           SliverToBoxAdapter(child: _filters(context)),
+          if (_query.category == null || _query.category == ArEffectCategory.makeup || _query.category == ArEffectCategory.eyes)
+            SliverToBoxAdapter(child: _studioCard(context)),
+          SliverToBoxAdapter(child: _section(context, 'Built in', '${builtIn.length} · work offline')),
+          _grid(context, ar, AsyncValue.data(builtIn), empty: 'No built-in effects match.'),
+          SliverToBoxAdapter(child: _section(context, 'Community', 'made with AI or uploaded')),
           _grid(context, ar, ref.watch(arEffectCatalogProvider(_query)),
               empty: _query.search.isEmpty && _query.category == null && _query.audience == null
-                  ? 'No effects in the catalog yet. Create the first one with AI.'
-                  : 'No effects match. Try another word or create it with AI.'),
+                  ? 'No community effects yet. Create the first one with AI.'
+                  : 'No community effects match. Try another word or create it with AI.'),
         ];
       case _Tab.favorites:
         return [
@@ -316,6 +400,59 @@ class _ArEffectsSheetState extends ConsumerState<ArEffectsSheet> {
           ),
         ];
     }
+  }
+
+  Widget _section(BuildContext context, String title, String meta) => Padding(
+        padding: const EdgeInsets.fromLTRB(16, 12, 16, 8),
+        child: Row(
+          children: [
+            Text(title, style: GoogleFonts.inter(fontSize: 14, fontWeight: FontWeight.w700, color: context.textPrimary)),
+            const SizedBox(width: 8),
+            Text(meta, style: GoogleFonts.inter(fontSize: 11, color: context.textMuted)),
+          ],
+        ),
+      );
+
+  Widget _studioCard(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 4, 16, 0),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(AppRadius.md),
+        onTap: () => showArMakeupStudio(context, captureStill: widget.captureStill),
+        child: Container(
+          padding: const EdgeInsets.all(12),
+          decoration: BoxDecoration(
+            color: AppColors.brandBlue.withValues(alpha: 0.08),
+            borderRadius: BorderRadius.circular(AppRadius.md),
+            border: Border.all(color: AppColors.brandBlue.withValues(alpha: 0.4), width: 1),
+          ),
+          child: Row(
+            children: [
+              Container(
+                width: 36,
+                height: 36,
+                decoration: const BoxDecoration(color: AppColors.brandBlue, shape: BoxShape.circle),
+                child: const Icon(Icons.brush_rounded, color: Colors.white, size: 18),
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text('Makeup Studio',
+                        style: GoogleFonts.inter(fontSize: 13.5, fontWeight: FontWeight.w700, color: context.textPrimary)),
+                    const SizedBox(height: 2),
+                    Text('Lips, eyes, liner, brows, contour, smooth skin. AI builds a look from words or your face.',
+                        style: GoogleFonts.inter(fontSize: 11, color: context.textSecondary, height: 1.3)),
+                  ],
+                ),
+              ),
+              const Icon(Icons.chevron_right_rounded, color: AppColors.brandBlue),
+            ],
+          ),
+        ),
+      ),
+    );
   }
 
   Widget _filters(BuildContext context) {
@@ -501,6 +638,7 @@ class _EffectTile extends ConsumerWidget {
         HapticFeedback.selectionClick();
         ref.read(liveArControllerProvider.notifier).toggle(effect);
       },
+      onLongPress: effect.attribution.isEmpty && effect.license.isEmpty ? null : () => _showCredit(context),
       child: Column(
         children: [
           Expanded(
@@ -519,9 +657,13 @@ class _EffectTile extends ConsumerWidget {
                 children: [
                   Padding(
                     padding: const EdgeInsets.all(8),
-                    child: thumb != null
-                        ? CachedNetworkImage(imageUrl: thumb, fit: BoxFit.contain)
-                        : _makeupSwatch(effect.makeup),
+                    child: BuiltInEffects.byId(effect.id)?.hasArt == true
+                        ? _BuiltInThumb(id: effect.id)
+                        : thumb != null
+                            ? CachedNetworkImage(imageUrl: thumb, fit: BoxFit.contain)
+                            : effect.kind == ArEffectKind.vfx
+                                ? _vfxThumb(effect.id)
+                                : _makeupSwatch(effect.makeup),
                   ),
                   if (loading)
                     const Center(
@@ -557,7 +699,27 @@ class _EffectTile extends ConsumerWidget {
                       ),
                     ),
                   ),
-                  if (effect.source == 'ai')
+                  if (effect.is3d)
+                    Positioned(
+                      left: 3,
+                      bottom: 3,
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 1),
+                        decoration: BoxDecoration(color: AppColors.brandBlue, borderRadius: BorderRadius.circular(4)),
+                        child: Text('3D', style: GoogleFonts.inter(fontSize: 8.5, fontWeight: FontWeight.w800, color: Colors.white)),
+                      ),
+                    )
+                  else if (effect.kind == ArEffectKind.vfx)
+                    Positioned(
+                      left: 3,
+                      bottom: 3,
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 1),
+                        decoration: BoxDecoration(color: AppColors.brandPink, borderRadius: BorderRadius.circular(4)),
+                        child: Text('VFX', style: GoogleFonts.inter(fontSize: 8.5, fontWeight: FontWeight.w800, color: Colors.white)),
+                      ),
+                    )
+                  else if (effect.source == 'ai')
                     Positioned(
                       left: 4,
                       bottom: 4,
@@ -573,6 +735,35 @@ class _EffectTile extends ConsumerWidget {
             maxLines: 1,
             overflow: TextOverflow.ellipsis,
             style: GoogleFonts.inter(fontSize: 10.5, fontWeight: FontWeight.w500, color: context.textSecondary),
+          ),
+        ],
+      ),
+    );
+  }
+
+  /// Credit for openly licensed models and art (long-press a tile).
+  void _showCredit(BuildContext context) {
+    showDialog<void>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: ctx.surface,
+        title: Text(effect.name, style: GoogleFonts.inter(fontWeight: FontWeight.w800, color: ctx.textPrimary)),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            if (effect.attribution.isNotEmpty)
+              Text(effect.attribution, style: GoogleFonts.inter(fontSize: 13, color: ctx.textSecondary)),
+            if (effect.license.isNotEmpty) ...[
+              const SizedBox(height: 8),
+              Text('License: ${effect.license}', style: GoogleFonts.inter(fontSize: 12, color: ctx.textMuted)),
+            ],
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: Text('OK', style: GoogleFonts.inter(color: AppColors.brandBlue, fontWeight: FontWeight.w700)),
           ),
         ],
       ),
@@ -601,6 +792,32 @@ class _EffectTile extends ConsumerWidget {
               decoration: BoxDecoration(color: c, shape: BoxShape.circle),
             ),
         ],
+      ),
+    );
+  }
+
+  Widget _vfxThumb(String id) {
+    final icon = switch (id) {
+      'builtin_vfx_neon_aura' => Icons.accessibility_new_rounded,
+      'builtin_vfx_cyber_hud' => Icons.radar_rounded,
+      'builtin_vfx_angel_glow' => Icons.flare_rounded,
+      'builtin_vfx_soul_clone' => Icons.switch_account_rounded,
+      'builtin_vfx_hand_sparks' => Icons.back_hand_rounded,
+      _ => Icons.auto_fix_high_rounded,
+    };
+    return Center(
+      child: Container(
+        width: 38,
+        height: 38,
+        decoration: const BoxDecoration(
+          shape: BoxShape.circle,
+          gradient: LinearGradient(
+            colors: [AppColors.brandBlue, AppColors.brandPink],
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
+          ),
+        ),
+        child: Icon(icon, color: Colors.white, size: 20),
       ),
     );
   }
@@ -858,6 +1075,23 @@ class _ArCreatePanelState extends ConsumerState<_ArCreatePanel> {
           ),
         ],
       ),
+    );
+  }
+}
+
+/// Picker tile art for a built-in effect, drawn on device.
+class _BuiltInThumb extends StatelessWidget {
+  final String id;
+
+  const _BuiltInThumb({required this.id});
+
+  @override
+  Widget build(BuildContext context) {
+    return FutureBuilder(
+      future: BuiltInEffects.thumb(id),
+      builder: (context, snap) => snap.hasData
+          ? RawImage(image: snap.data, fit: BoxFit.contain)
+          : const SizedBox.shrink(),
     );
   }
 }

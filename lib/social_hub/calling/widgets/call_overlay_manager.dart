@@ -189,7 +189,7 @@ class _CallOverlayManagerState extends ConsumerState<CallOverlayManager> {
   }
 }
 
-/// Draggable floating window for a minimised call.
+/// Draggable floating window for a minimised call with camera preview & screen share support.
 class _MiniCallWindow extends ConsumerStatefulWidget {
   final VoidCallback onOpen;
   const _MiniCallWindow({required this.onOpen});
@@ -199,7 +199,37 @@ class _MiniCallWindow extends ConsumerStatefulWidget {
 }
 
 class _MiniCallWindowState extends ConsumerState<_MiniCallWindow> {
+  final RTCVideoRenderer _localRenderer = RTCVideoRenderer();
+  bool _localReady = false;
+  String? _boundLocalTrackId;
   Offset? _pos;
+
+  @override
+  void initState() {
+    super.initState();
+    _localRenderer.initialize().then((_) {
+      if (mounted) setState(() => _localReady = true);
+    });
+  }
+
+  @override
+  void dispose() {
+    _localRenderer.dispose();
+    super.dispose();
+  }
+
+  void _syncLocalTrack(CallMediaState media) {
+    if (!_localReady) return;
+    final stream = media.isScreenSharingActive ? media.screenStream : media.localStream;
+    final track = stream?.getVideoTracks().firstOrNull;
+    if (track?.id == _boundLocalTrackId) return;
+    _boundLocalTrackId = track?.id;
+    if (stream != null && track != null) {
+      _localRenderer.srcObject = stream;
+    } else {
+      _localRenderer.srcObject = null;
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -207,32 +237,46 @@ class _MiniCallWindowState extends ConsumerState<_MiniCallWindow> {
     final media = ref.watch(callMediaServiceProvider);
     final mesh = ref.watch(webrtcConnectionManagerProvider);
     final controller = ref.read(activeCallControllerProvider.notifier);
+    _syncLocalTrack(media);
+
     final head = callHeadline(s);
     final remote = s.remoteParticipants.where((p) => p.status == ParticipantStatus.joined).firstOrNull;
     final peer = remote != null && mesh.peers.containsKey(remote.userId)
         ? mesh.peers[remote.userId]
         : mesh.peers.values.firstOrNull;
     final renderer = peer?.renderer;
-    final showVideo = renderer != null &&
-        renderer.renderVideo &&
+
+    final remoteVideoActive = renderer != null &&
+        (renderer.renderVideo || renderer.srcObject != null) &&
         (peer?.hasRemoteVideo ?? false) &&
         !(remote?.isVideoMuted ?? false);
 
+    final localVideoActive = (media.isVideoOn || media.isScreenSharingActive) &&
+        _localReady &&
+        _localRenderer.srcObject != null;
+
+    final showVideo = remoteVideoActive || localVideoActive;
+
     final size = MediaQuery.sizeOf(context);
-    const w = 132.0;
-    final h = showVideo ? 188.0 : 132.0;
-    final pos = _pos ?? Offset(size.width - w - 14, size.height - h - 150);
-    final textStyle = GoogleFonts.inter(fontSize: 11, fontWeight: FontWeight.w600, color: AppColors.brandWhite);
+    const w = 138.0;
+    final h = showVideo ? 198.0 : 138.0;
+    final pos = _pos ?? Offset(size.width - w - 16, size.height - h - 140);
+    final textStyle = GoogleFonts.inter(fontSize: 10.5, fontWeight: FontWeight.w600, color: AppColors.brandWhite);
 
     return Positioned(
       left: pos.dx.clamp(8.0, size.width - w - 8),
-      top: pos.dy.clamp(MediaQuery.paddingOf(context).top + 8, size.height - h - 8),
+      top: pos.dy.clamp(MediaQuery.paddingOf(context).top + 8, size.height - h - 16),
       child: GestureDetector(
         onTap: () {
           HapticFeedback.lightImpact();
           widget.onOpen();
         },
         onPanUpdate: (d) => setState(() => _pos = pos + d.delta),
+        onPanEnd: (_) {
+          final centerX = pos.dx + w / 2;
+          final targetX = centerX < size.width / 2 ? 12.0 : size.width - w - 12.0;
+          setState(() => _pos = Offset(targetX, pos.dy));
+        },
         child: Material(
           color: Colors.transparent,
           child: Container(
@@ -240,32 +284,109 @@ class _MiniCallWindowState extends ConsumerState<_MiniCallWindow> {
             height: h,
             clipBehavior: Clip.antiAlias,
             decoration: BoxDecoration(
-              color: AppColors.brandBlue,
+              color: AppColors.darkSurface,
               borderRadius: BorderRadius.circular(AppRadius.lg),
-              border: Border.all(color: AppColors.brandWhite.withValues(alpha: 0.18), width: 1),
+              border: Border.all(
+                color: media.isScreenSharingActive
+                    ? AppColors.brandPink
+                    : AppColors.brandWhite.withValues(alpha: 0.22),
+                width: 1.5,
+              ),
               boxShadow: AppShadows.md,
             ),
             child: Stack(
               fit: StackFit.expand,
               children: [
-                if (showVideo)
+                if (remoteVideoActive)
                   RTCVideoView(renderer, objectFit: RTCVideoViewObjectFit.RTCVideoViewObjectFitCover)
+                else if (localVideoActive)
+                  RTCVideoView(
+                    _localRenderer,
+                    mirror: media.isFrontCamera && !media.isScreenSharingActive,
+                    objectFit: RTCVideoViewObjectFit.RTCVideoViewObjectFitCover,
+                  )
                 else
                   Column(
                     mainAxisAlignment: MainAxisAlignment.center,
                     children: [
-                      CallAvatar(url: head.avatar, name: head.name, size: 42),
+                      CallAvatar(url: head.avatar, name: head.name, size: 44),
                       const SizedBox(height: 6),
                       Padding(
                         padding: const EdgeInsets.symmetric(horizontal: 8),
                         child: Text(head.name, maxLines: 1, overflow: TextOverflow.ellipsis, style: textStyle),
                       ),
-                      const SizedBox(height: 22),
+                      const SizedBox(height: 24),
                     ],
                   ),
+
+                // Corner PiP self-view when remote video is shown and local camera is on ("stay camera")
+                if (remoteVideoActive && localVideoActive)
+                  Positioned(
+                    top: 6,
+                    right: 6,
+                    width: 44,
+                    height: 58,
+                    child: Container(
+                      clipBehavior: Clip.antiAlias,
+                      decoration: BoxDecoration(
+                        borderRadius: BorderRadius.circular(AppRadius.sm),
+                        border: Border.all(color: AppColors.brandWhite.withValues(alpha: 0.35), width: 1),
+                        color: AppColors.brandBlack,
+                      ),
+                      child: RTCVideoView(
+                        _localRenderer,
+                        mirror: media.isFrontCamera && !media.isScreenSharingActive,
+                        objectFit: RTCVideoViewObjectFit.RTCVideoViewObjectFitCover,
+                      ),
+                    ),
+                  ),
+
+                // Live status gradient vignette
                 Positioned(
-                  left: 8,
-                  right: 8,
+                  left: 0,
+                  right: 0,
+                  bottom: 0,
+                  height: 56,
+                  child: DecoratedBox(
+                    decoration: BoxDecoration(
+                      gradient: LinearGradient(
+                        begin: Alignment.bottomCenter,
+                        end: Alignment.topCenter,
+                        colors: [
+                          AppColors.brandBlack.withValues(alpha: 0.85),
+                          Colors.transparent,
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
+
+                // Screen sharing badge if active
+                if (media.isScreenSharingActive)
+                  Positioned(
+                    top: 6,
+                    left: 6,
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                      decoration: BoxDecoration(
+                        color: AppColors.brandPink,
+                        borderRadius: BorderRadius.circular(AppRadius.xs),
+                      ),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          const Icon(Icons.screen_share_rounded, size: 10, color: AppColors.brandWhite),
+                          const SizedBox(width: 3),
+                          Text('LIVE', style: GoogleFonts.inter(fontSize: 8.5, fontWeight: FontWeight.w800, color: AppColors.brandWhite)),
+                        ],
+                      ),
+                    ),
+                  ),
+
+                // Bottom row: Timer / Status + Mute + Hangup
+                Positioned(
+                  left: 6,
+                  right: 6,
                   bottom: 6,
                   child: Row(
                     children: [
@@ -276,10 +397,10 @@ class _MiniCallWindowState extends ConsumerState<_MiniCallWindow> {
                       ),
                       _miniButton(
                         media.isAudioMuted ? Icons.mic_off_rounded : Icons.mic_rounded,
-                        AppColors.brandWhite.withValues(alpha: 0.2),
+                        media.isAudioMuted ? AppColors.brandPink : AppColors.brandWhite.withValues(alpha: 0.22),
                         controller.toggleMute,
                       ),
-                      const SizedBox(width: 6),
+                      const SizedBox(width: 4),
                       _miniButton(Icons.call_end_rounded, AppColors.brandPink, controller.hangUp),
                     ],
                   ),
@@ -302,7 +423,7 @@ class _MiniCallWindowState extends ConsumerState<_MiniCallWindow> {
         width: 26,
         height: 26,
         decoration: BoxDecoration(color: fill, shape: BoxShape.circle),
-        child: Icon(icon, size: 14, color: AppColors.brandWhite),
+        child: Icon(icon, size: 13, color: AppColors.brandWhite),
       ),
     );
   }

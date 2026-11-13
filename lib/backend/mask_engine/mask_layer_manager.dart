@@ -15,7 +15,7 @@ class MaskLayer {
   const MaskLayer({
     required this.id,
     required this.name,
-    this.colorLabel = const Color(0xFF990000),
+    this.colorLabel = const Color(0xFF0C4FA8),
     this.activeMask,
     this.grading = const ColorGradingPayload(),
     this.isVisible = true,
@@ -103,9 +103,21 @@ class MaskLayerManager extends ChangeNotifier {
     }
   }
 
+  void removeLayer(String layerId) {
+    final index = layers.indexWhere((l) => l.id == layerId);
+    if (index == -1 || layers[index].isLocked) return;
+    layers.removeAt(index);
+    if (activeLayerId == layerId) {
+      activeLayerId = layers.isNotEmpty ? layers.last.id : null;
+    }
+    notifyListeners();
+  }
+
   void rehydrateState(List<dynamic> serializedState) {
-    // In production, maps the snapshot layer states back to living objects
-    // ... logic
+    layers = serializedState.whereType<MaskLayer>().toList();
+    if (activeLayerId != null && !layers.any((l) => l.id == activeLayerId)) {
+      activeLayerId = layers.isNotEmpty ? layers.last.id : null;
+    }
     notifyListeners();
   }
 }

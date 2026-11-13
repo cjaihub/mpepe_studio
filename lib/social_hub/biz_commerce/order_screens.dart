@@ -6,11 +6,27 @@ import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
-import '../../backend/finance/stripe_commerce_service.dart';
+import '../../backend/finance/commerce_service.dart';
+import '../../backend/money/money_models.dart';
+import '../../backend/money/money_service.dart';
+import '../../backend/pay/oneova_pay_service.dart';
+import '../../backend/pay/oneova_pay_sheet.dart';
 import '../../shared/theme/app_theme.dart';
+import '../../shops3d/widgets/reviews.dart' show showReviewSheet;
 import 'checkout_screen.dart' show formatMoney;
 
 const _steps = ['paid', 'assigned', 'in_transit', 'completed'];
+
+/// Seller's preparation steps (set from the business portal).
+const _fulfilmentSteps = ['new', 'packed', 'ready', 'shipped'];
+const _fulfilmentLabels = ['Received', 'Packed', 'Ready', 'Shipped'];
+
+/// `product_reviews/{orderId}` (public): the buyer's review, once given.
+Stream<int?> _reviewStars(String orderId) => FirebaseFirestore.instance
+    .collection('product_reviews')
+    .doc(orderId)
+    .snapshots()
+    .map((d) => d.exists ? ((d.data()?['stars'] ?? d.data()?['rating']) as num?)?.toInt() ?? 5 : null);
 
 String _statusLabel(String s) => switch (s) {
       'awaiting_payment' => 'Waiting for payment',
@@ -22,6 +38,8 @@ String _statusLabel(String s) => switch (s) {
       'completed' => 'Delivered',
       'release_failed' => 'Delivered; payout pending',
       'refunding' || 'refunded' => 'Refunded',
+      'refund_review' => 'Refund on its way',
+      'payment_mismatch' => 'Payment being checked',
       'cancelled' => 'Cancelled',
       _ => s,
     };
@@ -41,7 +59,7 @@ class _OrderDetailScreenState extends ConsumerState<OrderDetailScreen> {
   bool _busy = false;
   final _code = TextEditingController();
 
-  StripeCommerceService get _svc => ref.read(stripeCommerceServiceProvider);
+  CommerceService get _svc => ref.read(commerceServiceProvider);
   String get _me => FirebaseAuth.instance.currentUser?.uid ?? '';
 
   @override
@@ -122,6 +140,14 @@ class _OrderDetailScreenState extends ConsumerState<OrderDetailScreen> {
                   style: TextStyle(fontSize: 12.5, color: context.textSecondary)),
               const SizedBox(height: 14),
               _statusCard(status, step, hasDelivery),
+              if (o['fulfilment'] is String && ['paid', 'assigned'].contains(status)) ...[
+                const SizedBox(height: 10),
+                _fulfilmentCard(o['fulfilment'] as String),
+              ],
+              if (isBuyer && status == 'completed') ...[
+                const SizedBox(height: 10),
+                _rateCard(o['productName'] as String? ?? 'your order'),
+              ],
               const SizedBox(height: 12),
               if (hasDelivery && (isRider || isSeller) && ['paid', 'assigned', 'in_transit'].contains(status))
                 _handoverCode(),
@@ -190,6 +216,48 @@ class _OrderDetailScreenState extends ConsumerState<OrderDetailScreen> {
       ),
     );
   }
+
+  Widget _fulfilmentCard(String current) {
+    final at = _fulfilmentSteps.indexOf(current).clamp(0, 3);
+    return Container(
+      padding: const EdgeInsets.all(14),
+      decoration: AppDecorations.card(context),
+      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        Text('The shop is preparing your order', style: TextStyle(fontSize: 13, fontWeight: FontWeight.w700, color: context.textPrimary)),
+        const SizedBox(height: 10),
+        Row(children: [
+          for (var i = 0; i < 4; i++)
+            Expanded(
+              child: Column(children: [
+                Icon(i <= at ? Icons.check_circle_rounded : Icons.radio_button_unchecked_rounded,
+                    size: 18, color: i <= at ? AppColors.brandPink : context.textMuted),
+                const SizedBox(height: 4),
+                Text(_fulfilmentLabels[i],
+                    style: TextStyle(fontSize: 10.5, fontWeight: i == at ? FontWeight.w800 : FontWeight.w500,
+                        color: i <= at ? context.textPrimary : context.textMuted)),
+              ]),
+            ),
+        ]),
+      ]),
+    );
+  }
+
+  Widget _rateCard(String productName) => StreamBuilder<int?>(
+        stream: _reviewStars(widget.orderId),
+        builder: (context, snap) {
+          if (!snap.hasData && snap.connectionState == ConnectionState.waiting) return const SizedBox.shrink();
+          final stars = snap.data;
+          if (stars != null) {
+            return Row(children: [
+              const Icon(Icons.star_rounded, color: AppColors.brandPink, size: 18),
+              const SizedBox(width: 6),
+              Text('You rated this $stars/5. Thanks!', style: TextStyle(fontSize: 12.5, color: context.textSecondary)),
+            ]);
+          }
+          return _primary('Rate your order', Icons.star_rounded,
+              () => showReviewSheet(context, ref, orderId: widget.orderId, productName: productName));
+        },
+      );
 
   Widget _handoverCode() => StreamBuilder<String?>(
         stream: _svc.watchHandoverCode(widget.orderId),
@@ -266,22 +334,32 @@ class _OrderDetailScreenState extends ConsumerState<OrderDetailScreen> {
       );
 
   Widget _breakdown(Map<String, dynamic> o, String currency) {
-    Widget line(String l, num v) => Padding(
+    Widget text(String l, String v) => Padding(
           padding: const EdgeInsets.symmetric(vertical: 3),
-          child: Row(children: [
-            Text(l, style: TextStyle(fontSize: 12.5, color: context.textSecondary)),
-            const Spacer(),
-            Text(formatMoney(v, currency), style: TextStyle(fontSize: 12.5, color: context.textPrimary, fontWeight: FontWeight.w600)),
+          child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+            Expanded(child: Text(l, style: TextStyle(fontSize: 12.5, color: context.textSecondary))),
+            const SizedBox(width: 8),
+            Text(v, style: TextStyle(fontSize: 12.5, color: context.textPrimary, fontWeight: FontWeight.w600)),
           ]),
         );
+    Widget line(String l, num v) => text(l, formatMoney(v, currency));
     final d = o['delivery'] as Map<String, dynamic>?;
+    final qty = (o['quantity'] as num?) ?? 1;
+    final discount = (o['discountAmount'] as num?) ?? 0;
+    final items = (o['itemsAmount'] as num? ?? 0) + discount;
     return Container(
       padding: const EdgeInsets.all(12),
       decoration: AppDecorations.card(context),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          line('Items', o['itemsAmount'] as num? ?? 0),
+          for (final c in (o['customization'] as List? ?? const []))
+            if (c is Map)
+              text('${c['label']}: ${c['value']}',
+                  ((c['priceDelta'] as num?) ?? 0) > 0 ? '+${formatMoney((c['priceDelta'] as num) * qty, currency)}' : 'Included'),
+          if (o['dealPercent'] is num) text('Live deal', '${o['dealPercent']}% off'),
+          line('Items', items),
+          if (discount > 0) text('Code ${o['discountCode'] ?? ''}', '−${formatMoney(discount, currency)}'),
           if (d != null) line('Delivery (${d['distanceKm']} km)', o['deliveryFee'] as num? ?? 0),
           Divider(height: 16, color: context.border),
           line('Total', o['totalAmount'] as num? ?? 0),
@@ -321,7 +399,7 @@ class OrdersScreen extends ConsumerWidget {
         ],
       ),
       body: StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
-        stream: ref.read(stripeCommerceServiceProvider).myOrders(),
+        stream: ref.read(commerceServiceProvider).myOrders(),
         builder: (context, snap) {
           if (snap.hasError) return Center(child: Text('Could not load orders.', style: TextStyle(color: context.textSecondary)));
           if (!snap.hasData) return const Center(child: CircularProgressIndicator(color: AppColors.brandBlue));
@@ -353,8 +431,21 @@ class OrdersScreen extends ConsumerWidget {
                     style: TextStyle(fontSize: 13.5, fontWeight: FontWeight.w600, color: context.textPrimary)),
                 subtitle: Text('$role · ${_statusLabel(o['status'] as String? ?? '')}',
                     style: TextStyle(fontSize: 11.5, color: context.textSecondary)),
-                trailing: Text(formatMoney(o['totalAmount'] as num? ?? 0, o['currency'] as String? ?? 'usd'),
-                    style: TextStyle(fontSize: 12.5, fontWeight: FontWeight.w700, color: context.textPrimary)),
+                trailing: role == 'Bought' && o['status'] == 'completed'
+                    ? StreamBuilder<int?>(
+                        stream: _reviewStars(docs[i].id),
+                        builder: (context, r) => r.hasData || r.connectionState == ConnectionState.waiting
+                            ? Text(formatMoney(o['totalAmount'] as num? ?? 0, o['currency'] as String? ?? 'usd'),
+                                style: TextStyle(fontSize: 12.5, fontWeight: FontWeight.w700, color: context.textPrimary))
+                            : TextButton.icon(
+                                onPressed: () => showReviewSheet(context, ref,
+                                    orderId: docs[i].id, productName: o['productName'] as String? ?? 'your order'),
+                                icon: const Icon(Icons.star_rounded, size: 16, color: AppColors.brandPink),
+                                label: const Text('Rate', style: TextStyle(fontWeight: FontWeight.w800)),
+                              ),
+                      )
+                    : Text(formatMoney(o['totalAmount'] as num? ?? 0, o['currency'] as String? ?? 'usd'),
+                        style: TextStyle(fontSize: 12.5, fontWeight: FontWeight.w700, color: context.textPrimary)),
               );
             },
           );
@@ -364,7 +455,9 @@ class OrdersScreen extends ConsumerWidget {
   }
 }
 
-/// Get paid as a seller or delivery partner (Stripe Express). `/biz/payouts`
+/// Get paid as a seller or delivery partner: your Oneova balance from
+/// confirmed orders, your identity check and payout methods, and withdraw.
+/// `/biz/payouts`
 class PayoutsScreen extends ConsumerStatefulWidget {
   const PayoutsScreen({super.key});
 
@@ -372,43 +465,91 @@ class PayoutsScreen extends ConsumerStatefulWidget {
   ConsumerState<PayoutsScreen> createState() => _PayoutsScreenState();
 }
 
-class _PayoutsScreenState extends ConsumerState<PayoutsScreen> with WidgetsBindingObserver {
+class _PayoutsScreenState extends ConsumerState<PayoutsScreen> {
   late Future<PayoutStatus> _status = _load();
   bool _busy = false;
 
-  Future<PayoutStatus> _load() => ref.read(stripeCommerceServiceProvider).payoutStatus().catchError((_) => const PayoutStatus());
+  Future<PayoutStatus> _load() => ref.read(commerceServiceProvider).payoutStatus().catchError((_) => const PayoutStatus());
 
-  @override
-  void initState() {
-    super.initState();
-    WidgetsBinding.instance.addObserver(this);
-  }
+  void _toast(String t) => ScaffoldMessenger.maybeOf(context)?.showSnackBar(SnackBar(content: Text(t), behavior: SnackBarBehavior.floating));
 
-  @override
-  void dispose() {
-    WidgetsBinding.instance.removeObserver(this);
-    super.dispose();
-  }
-
-  // Coming back from Stripe's onboarding page: refresh.
-  @override
-  void didChangeAppLifecycleState(AppLifecycleState state) {
-    if (state == AppLifecycleState.resumed) setState(() => _status = _load());
-  }
-
-  Future<void> _onboard() async {
+  Future<void> _withdraw(String currency, int availableMinor) async {
+    final methods = (ref.read(payoutMethodsProvider).value ?? const <PayoutMethod>[]).where((m) => m.currency.toUpperCase() == currency).toList();
+    if (methods.isEmpty) {
+      _toast('Add a $currency payout method first.');
+      context.push('/wallet/withdraw');
+      return;
+    }
+    final amount = TextEditingController(text: (availableMinor / _pow(currency)).toStringAsFixed(currencyExponent(currency)));
+    PayoutMethod method = methods.first;
+    final ok = await showModalBottomSheet<bool>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: context.surface,
+      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(AppRadius.xl))),
+      builder: (c) => StatefulBuilder(
+        builder: (c, set) => Padding(
+          padding: EdgeInsets.fromLTRB(20, 18, 20, 20 + MediaQuery.viewInsetsOf(c).bottom),
+          child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+            Text('Withdraw $currency', style: TextStyle(fontSize: 18, fontWeight: FontWeight.w800, color: c.textPrimary)),
+            const SizedBox(height: 4),
+            Text('Available ${formatMinor(availableMinor, currency)}', style: TextStyle(fontSize: 13, color: c.textSecondary)),
+            const SizedBox(height: 14),
+            for (final m in methods)
+              ListTile(
+                contentPadding: EdgeInsets.zero,
+                leading: Icon(m.rail == 'bank' ? Icons.account_balance_rounded : Icons.phone_android_rounded, color: AppColors.brandBlue),
+                title: Text('${m.label} ••${m.last4}', style: TextStyle(color: c.textPrimary, fontWeight: FontWeight.w700)),
+                subtitle: Text(m.holderName, style: TextStyle(color: c.textSecondary)),
+                trailing: Icon(method.id == m.id ? Icons.radio_button_checked_rounded : Icons.radio_button_off_rounded, color: AppColors.brandBlue),
+                onTap: () => set(() => method = m),
+              ),
+            const SizedBox(height: 6),
+            TextField(
+              controller: amount,
+              keyboardType: const TextInputType.numberWithOptions(decimal: true),
+              decoration: InputDecoration(labelText: 'Amount ($currency)', border: const OutlineInputBorder()),
+            ),
+            const SizedBox(height: 6),
+            Text('Fee: 1.5% mobile money, 1% bank.', style: TextStyle(fontSize: 12, color: c.textMuted)),
+            const SizedBox(height: 14),
+            FilledButton(
+              onPressed: () => Navigator.pop(c, true),
+              style: FilledButton.styleFrom(backgroundColor: AppColors.brandBlue, minimumSize: const Size.fromHeight(46)),
+              child: const Text('Withdraw', style: TextStyle(fontWeight: FontWeight.w800)),
+            ),
+          ]),
+        ),
+      ),
+    );
+    if (ok != true || !mounted) return;
+    final minor = ((double.tryParse(amount.text.replaceAll(',', '')) ?? 0) * _pow(currency)).round();
+    if (minor <= 0 || minor > availableMinor) {
+      _toast('Enter an amount up to your available balance.');
+      return;
+    }
     setState(() => _busy = true);
     try {
-      await ref.read(stripeCommerceServiceProvider).startPayoutOnboarding();
+      final r = await ref.read(oneovaPayServiceProvider).withdraw(
+            methodId: method.id,
+            amountMinor: minor,
+            currency: currency,
+            idempotencyKey: '${DateTime.now().microsecondsSinceEpoch}${method.id}'.replaceAll(RegExp(r'[^A-Za-z0-9_-]'), ''),
+          );
+      _toast(r['review'] == true ? 'Withdrawal is being checked. We’ll send it shortly.' : 'Withdrawal sent — you’ll get a notification when it lands.');
+      setState(() => _status = _load());
     } on FirebaseFunctionsException catch (e) {
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.message ?? 'Could not open payout setup.')));
+      _toast(e.message ?? 'The withdrawal didn’t go through.');
     } finally {
       if (mounted) setState(() => _busy = false);
     }
   }
 
+  static int _pow(String currency) => currencyExponent(currency) == 0 ? 1 : 100;
+
   @override
   Widget build(BuildContext context) {
+    final methods = ref.watch(payoutMethodsProvider).value ?? const <PayoutMethod>[];
     return Scaffold(
       backgroundColor: context.bg,
       appBar: AppBar(
@@ -418,57 +559,182 @@ class _PayoutsScreenState extends ConsumerState<PayoutsScreen> with WidgetsBindi
         leading: IconButton(icon: Icon(Icons.arrow_back_rounded, color: context.textPrimary), onPressed: () => context.pop()),
         title: Text('Payouts', style: TextStyle(fontSize: 17, fontWeight: FontWeight.w700, color: context.textPrimary)),
       ),
-      body: FutureBuilder<PayoutStatus>(
-        future: _status,
-        builder: (context, snap) {
-          final s = snap.data;
-          final ready = s?.payoutsEnabled == true;
-          return ListView(
-            padding: const EdgeInsets.all(16),
-            children: [
-              Container(
-                padding: const EdgeInsets.all(14),
-                decoration: AppDecorations.card(context),
-                child: Row(
-                  children: [
-                    Icon(ready ? Icons.check_circle_rounded : Icons.account_balance_outlined, color: AppColors.brandBlue),
+      body: RefreshIndicator(
+        color: AppColors.brandBlue,
+        onRefresh: () async {
+          setState(() => _status = _load());
+          await _status;
+        },
+        child: FutureBuilder<PayoutStatus>(
+          future: _status,
+          builder: (context, snap) {
+            final s = snap.data;
+            final ready = s?.payoutsEnabled == true;
+            final kyc = s?.kycStatus ?? 'none';
+            final kycText = switch (kyc) {
+              'verified' => 'Identity verified',
+              'review' => 'Identity check in review',
+              'rejected' => 'Identity check needs another try',
+              'collecting' => 'Finish your identity check',
+              _ => 'Verify your identity',
+            };
+            return ListView(
+              padding: const EdgeInsets.all(16),
+              children: [
+                Container(
+                  padding: const EdgeInsets.all(14),
+                  decoration: AppDecorations.card(context),
+                  child: Row(children: [
+                    Icon(ready ? Icons.check_circle_rounded : Icons.account_balance_wallet_outlined, color: AppColors.brandBlue),
                     const SizedBox(width: 10),
                     Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            !snap.hasData ? 'Checking…' : ready ? 'Payouts are on' : (s!.connected ? 'Finish setting up payouts' : 'Get paid on Oneova'),
-                            style: TextStyle(fontSize: 14, fontWeight: FontWeight.w700, color: context.textPrimary),
-                          ),
-                          const SizedBox(height: 2),
-                          Text(
-                            ready
-                                ? 'Money from your sales and deliveries goes to your bank after each confirmed order.'
-                                : 'Add your bank details with Stripe to sell in your shop or deliver as a partner.',
-                            style: TextStyle(fontSize: 12, color: context.textSecondary),
-                          ),
-                        ],
-                      ),
+                      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                        Text(!snap.hasData ? 'Checking…' : ready ? 'Payouts are on' : 'Get paid on Oneova',
+                            style: TextStyle(fontSize: 14, fontWeight: FontWeight.w700, color: context.textPrimary)),
+                        const SizedBox(height: 2),
+                        Text(
+                          ready
+                              ? 'Money from confirmed orders and deliveries lands in your Oneova balance. Withdraw it any time.'
+                              : 'Verify your identity and add mobile money or a bank account to sell or deliver.',
+                          style: TextStyle(fontSize: 12, color: context.textSecondary),
+                        ),
+                      ]),
                     ),
-                  ],
+                  ]),
                 ),
-              ),
-              const SizedBox(height: 14),
-              if (snap.hasData)
-                FilledButton(
-                  onPressed: _busy ? null : _onboard,
-                  style: FilledButton.styleFrom(
-                    backgroundColor: AppColors.brandBlue,
-                    minimumSize: const Size.fromHeight(42),
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(AppRadius.sm)),
+                const SizedBox(height: 14),
+                if (s != null && s.balances.isNotEmpty)
+                  for (final e in s.balances.entries)
+                    Container(
+                      margin: const EdgeInsets.only(bottom: 10),
+                      padding: const EdgeInsets.all(16),
+                      decoration: BoxDecoration(
+                        gradient: const LinearGradient(colors: [AppColors.brandBlue, AppColors.brandPink]),
+                        borderRadius: BorderRadius.circular(AppRadius.lg),
+                      ),
+                      child: Row(children: [
+                        Expanded(
+                          child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                            const Text('Available', style: TextStyle(color: Colors.white70, fontSize: 12, fontWeight: FontWeight.w600)),
+                            Text(formatMinor(e.value.available, e.key), style: const TextStyle(color: Colors.white, fontSize: 24, fontWeight: FontWeight.w800)),
+                            if (e.value.locked > 0)
+                              Text('${formatMinor(e.value.locked, e.key)} on its way', style: const TextStyle(color: Colors.white70, fontSize: 12)),
+                          ]),
+                        ),
+                        FilledButton(
+                          onPressed: _busy || e.value.available <= 0 || !ready ? null : () => _withdraw(e.key, e.value.available),
+                          style: FilledButton.styleFrom(backgroundColor: Colors.white, foregroundColor: AppColors.brandBlue),
+                          child: const Text('Withdraw', style: TextStyle(fontWeight: FontWeight.w800)),
+                        ),
+                      ]),
+                    ),
+                _TopUpTile(onDone: () => setState(() => _status = _load())),
+                ListTile(
+                  contentPadding: EdgeInsets.zero,
+                  leading: const Icon(Icons.receipt_long_rounded, color: AppColors.brandBlue),
+                  title: Text('Payment history', style: TextStyle(fontWeight: FontWeight.w700, color: context.textPrimary)),
+                  subtitle: Text('Orders, top-ups and refunds', style: TextStyle(color: context.textSecondary, fontSize: 12)),
+                  trailing: const Icon(Icons.chevron_right_rounded),
+                  onTap: () => context.push('/wallet/payments'),
+                ),
+                ListTile(
+                  contentPadding: EdgeInsets.zero,
+                  leading: Icon(kyc == 'verified' ? Icons.verified_user_rounded : Icons.badge_outlined, color: AppColors.brandBlue),
+                  title: Text(kycText, style: TextStyle(fontWeight: FontWeight.w700, color: context.textPrimary)),
+                  subtitle: Text('Your ID and a selfie, checked by our team.', style: TextStyle(color: context.textSecondary, fontSize: 12)),
+                  trailing: kyc == 'verified' ? null : const Icon(Icons.chevron_right_rounded),
+                  onTap: kyc == 'verified' ? null : () => context.push('/wallet/verify').then((_) => setState(() => _status = _load())),
+                ),
+                ListTile(
+                  contentPadding: EdgeInsets.zero,
+                  leading: const Icon(Icons.account_balance_rounded, color: AppColors.brandBlue),
+                  title: Text(methods.isEmpty ? 'Add a payout method' : 'Payout methods (${methods.length})',
+                      style: TextStyle(fontWeight: FontWeight.w700, color: context.textPrimary)),
+                  subtitle: Text(
+                    methods.isEmpty ? 'Mobile money or a bank account in your name.' : methods.map((m) => '${m.label} ••${m.last4}').join(' · '),
+                    style: TextStyle(color: context.textSecondary, fontSize: 12),
                   ),
-                  child: Text(ready ? 'Update bank details' : 'Set up payouts', style: const TextStyle(fontWeight: FontWeight.w700)),
+                  trailing: const Icon(Icons.chevron_right_rounded),
+                  onTap: () => context.push('/wallet/withdraw').then((_) => setState(() => _status = _load())),
                 ),
-            ],
-          );
-        },
+              ],
+            );
+          },
+        ),
       ),
     );
   }
+}
+
+/// "Add money" to the Oneova balance (shown only when the balance is switched on).
+class _TopUpTile extends ConsumerStatefulWidget {
+  const _TopUpTile({required this.onDone});
+  final VoidCallback onDone;
+
+  @override
+  ConsumerState<_TopUpTile> createState() => _TopUpTileState();
+}
+
+class _TopUpTileState extends ConsumerState<_TopUpTile> {
+  late final Future<PayOptions?> _opts = ref.read(oneovaPayServiceProvider).options().then<PayOptions?>((o) => o, onError: (_) => null);
+
+  Future<void> _topUp(PayOptions o) async {
+    final amount = TextEditingController();
+    final value = await showModalBottomSheet<num>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: context.surface,
+      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(AppRadius.xl))),
+      builder: (c) => Padding(
+        padding: EdgeInsets.fromLTRB(20, 18, 20, 20 + MediaQuery.viewInsetsOf(c).bottom),
+        child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+          Text('Add money', style: TextStyle(fontSize: 18, fontWeight: FontWeight.w800, color: c.textPrimary)),
+          const SizedBox(height: 12),
+          TextField(
+            controller: amount,
+            autofocus: true,
+            keyboardType: const TextInputType.numberWithOptions(decimal: true),
+            decoration: InputDecoration(labelText: 'Amount (${o.currency})', border: const OutlineInputBorder()),
+          ),
+          const SizedBox(height: 14),
+          FilledButton(
+            onPressed: () => Navigator.pop(c, num.tryParse(amount.text.replaceAll(',', ''))),
+            style: FilledButton.styleFrom(backgroundColor: AppColors.brandBlue, minimumSize: const Size.fromHeight(46)),
+            child: const Text('Continue', style: TextStyle(fontWeight: FontWeight.w800)),
+          ),
+        ]),
+      ),
+    );
+    if (value == null || value <= 0 || !mounted) return;
+    final f = currencyExponent(o.currency) == 0 ? 1 : 100;
+    final paid = await showOneovaPaySheet(
+      context,
+      purpose: 'topup',
+      topupAmount: value,
+      amountMinor: (value * f).round(),
+      currency: o.currency,
+      title: 'Add to your balance',
+    );
+    if (paid?.succeeded == true) widget.onDone();
+  }
+
+  @override
+  Widget build(BuildContext context) => FutureBuilder<PayOptions?>(
+        future: _opts,
+        builder: (context, snap) {
+          final o = snap.data;
+          if (o == null || !o.walletEnabled) return const SizedBox.shrink();
+          return ListTile(
+            contentPadding: EdgeInsets.zero,
+            leading: const Icon(Icons.add_card_rounded, color: AppColors.brandPink),
+            title: Text('Add money', style: TextStyle(fontWeight: FontWeight.w700, color: context.textPrimary)),
+            subtitle: Text(
+              o.balanceMinor == null ? 'Top up with mobile money or card' : 'Balance ${formatMinor(o.balanceMinor!, o.currency)}',
+              style: TextStyle(color: context.textSecondary, fontSize: 12),
+            ),
+            trailing: const Icon(Icons.chevron_right_rounded),
+            onTap: () => _topUp(o),
+          );
+        },
+      );
 }

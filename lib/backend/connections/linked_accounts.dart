@@ -116,12 +116,16 @@ class LinkedAccount {
     if (platform == null || platform == LinkedPlatform.youtube) return null;
 
     final tokenKey = data['tokenKey'];
-    final hasGrant = platform == LinkedPlatform.gmail
-        ? (data['email'] is String &&
-            (data['email'] as String).isNotEmpty &&
-            data['grantedScopes'] is List &&
-            data['tokenStore'] == 'server')
-        : (tokenKey is String && tokenKey.isNotEmpty);
+    final hasGrant = switch (platform) {
+      LinkedPlatform.gmail => data['email'] is String &&
+          (data['email'] as String).isNotEmpty &&
+          data['grantedScopes'] is List &&
+          data['tokenStore'] == 'server',
+      // TikTok tokens live on the server (tiktokExchangeCode); older
+      // phone-only grants expired after a day and need a reconnect.
+      LinkedPlatform.tiktok => data['tokenStore'] == 'server',
+      _ => tokenKey is String && tokenKey.isNotEmpty,
+    };
     final expiresAt = _time(data['tokenExpiresAt']);
     final status = !hasGrant
         ? LinkStatus.needsReconnect

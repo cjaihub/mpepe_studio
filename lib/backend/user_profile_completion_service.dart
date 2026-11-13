@@ -553,7 +553,7 @@ class UserProfileCompletionService {
                 ),
                 const SizedBox(height: 8),
                 Text(
-                  'Paste an image URL or choose a high-resolution avatar for your creator card.',
+                  'Paste a link to your photo for your creator card.',
                   style: GoogleFonts.inter(fontSize: 12, color: AppColors.textSecondary),
                 ),
                 const SizedBox(height: 16),
@@ -563,7 +563,7 @@ class UserProfileCompletionService {
                     color: isDark ? AppColors.textPrimary : AppColors.lightTextPrimary,
                   ),
                   decoration: InputDecoration(
-                    hintText: 'https://images.unsplash.com/...',
+                    hintText: 'https://…',
                     hintStyle: GoogleFonts.inter(color: AppColors.textMuted),
                     filled: true,
                     fillColor: isDark ? AppColors.darkSurfaceHighlight : AppColors.lightSurfaceHighlight,
@@ -573,31 +573,6 @@ class UserProfileCompletionService {
                       borderSide: BorderSide(color: isDark ? AppColors.outline : AppColors.lightBorder),
                     ),
                   ),
-                ),
-                const SizedBox(height: 14),
-                // Quick presets
-                Wrap(
-                  spacing: 8,
-                  children: [
-                    ActionChip(
-                      label: const Text('Preset 1'),
-                      onPressed: () {
-                        controller.text = 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?q=80&w=600&auto=format&fit=crop';
-                      },
-                    ),
-                    ActionChip(
-                      label: const Text('Preset 2'),
-                      onPressed: () {
-                        controller.text = 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?q=80&w=600&auto=format&fit=crop';
-                      },
-                    ),
-                    ActionChip(
-                      label: const Text('Preset 3'),
-                      onPressed: () {
-                        controller.text = 'https://images.unsplash.com/photo-1529626455594-4ff0802cfb7e?q=80&w=600&auto=format&fit=crop';
-                      },
-                    ),
-                  ],
                 ),
                 const SizedBox(height: 18),
                 SizedBox(

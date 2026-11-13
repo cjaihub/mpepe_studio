@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:record/record.dart';
@@ -5,6 +6,7 @@ import 'package:firebase_storage/firebase_storage.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:path_provider/path_provider.dart';
 import '../../backend/user_service.dart';
+import '../../shared/audio/mic_coordinator.dart';
 import 'package:flutter/foundation.dart';
 
 enum VoiceEnrollmentState {
@@ -47,9 +49,15 @@ class AiVoicePersonalizationService extends Notifier<VoicePersonalizationState> 
   final AudioRecorder _audioRecorder = AudioRecorder();
   final FirebaseStorage _storage = FirebaseStorage.instance;
   final FirebaseAuth _auth = FirebaseAuth.instance;
+  MicLease? _micLease;
 
   @override
   VoicePersonalizationState build() {
+    ref.onDispose(() {
+      unawaited(_micLease?.release());
+      _micLease = null;
+      unawaited(_audioRecorder.dispose());
+    });
     final authState = _auth.currentUser;
     if (authState != null) {
       try {
@@ -65,22 +73,55 @@ class AiVoicePersonalizationService extends Notifier<VoicePersonalizationState> 
     return VoicePersonalizationState(state: VoiceEnrollmentState.initial);
   }
 
+  Future<void> _releaseMic() async {
+    final lease = _micLease;
+    _micLease = null;
+    await lease?.release();
+  }
+
   Future<void> startRecording() async {
     try {
       if (await _audioRecorder.hasPermission()) {
+        final got = await MicCoordinator.instance.acquire(
+          MicUser.voiceNote,
+          onPreempted: () async {
+            try {
+              await _audioRecorder.stop();
+            } catch (_) {}
+            _micLease = null;
+            if (ref.mounted && state.state == VoiceEnrollmentState.recording) {
+              state = state.copyWith(
+                state: VoiceEnrollmentState.error,
+                errorMessage: 'Microphone was taken by another feature.',
+              );
+            }
+          },
+        );
+        if (got is MicBusy) {
+          state = state.copyWith(state: VoiceEnrollmentState.error, errorMessage: got.message);
+          return;
+        }
+        _micLease = got as MicLease;
+
         final directory = await getApplicationDocumentsDirectory();
         final path = '${directory.path}/voice_sample.m4a';
 
-        await _audioRecorder.start(
-          const RecordConfig(encoder: AudioEncoder.aacLc, sampleRate: 16000),
-          path: path,
-        );
+        try {
+          await _audioRecorder.start(
+            const RecordConfig(encoder: AudioEncoder.aacLc, sampleRate: 16000),
+            path: path,
+          );
+        } catch (e) {
+          await _releaseMic();
+          rethrow;
+        }
 
         state = state.copyWith(state: VoiceEnrollmentState.recording, recordPath: path);
       } else {
         state = state.copyWith(state: VoiceEnrollmentState.error, errorMessage: 'Microphone permission denied.');
       }
     } catch (e) {
+      await _releaseMic();
       state = state.copyWith(state: VoiceEnrollmentState.error, errorMessage: e.toString());
     }
   }
@@ -92,6 +133,7 @@ class AiVoicePersonalizationService extends Notifier<VoicePersonalizationState> 
       state = state.copyWith(state: VoiceEnrollmentState.processing);
       
       final path = await _audioRecorder.stop();
+      await _releaseMic();
       if (path == null) throw Exception('Recording failed to produce a file.');
 
       final uid = _auth.currentUser?.uid;
@@ -113,6 +155,7 @@ class AiVoicePersonalizationService extends Notifier<VoicePersonalizationState> 
 
       state = state.copyWith(state: VoiceEnrollmentState.enrolled, isEnrolled: true);
     } catch (e) {
+      await _releaseMic();
       state = state.copyWith(state: VoiceEnrollmentState.error, errorMessage: e.toString());
     }
   }

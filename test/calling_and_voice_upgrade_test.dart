@@ -1,6 +1,7 @@
 import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
+import 'package:oneova/backend/calling/providers/call_media_service.dart';
 import 'package:oneova/backend/calling/providers/call_room_controller.dart';
 import 'package:oneova/backend/calling/providers/webrtc_connection_manager.dart';
 import 'package:oneova/backend/calling/services/call_ice_config.dart';
@@ -138,6 +139,32 @@ void main() {
       expect(calls, equals(1));
       expect(results[0].translated, equals('Hello friend'));
       expect(results[1].voiceName, equals('Charon'));
+    });
+  });
+
+  group('Screen Share with Stay Camera & Background Muting', () {
+    test('CallMediaState handles screen sharing while preserving camera state', () {
+      const state = CallMediaState(
+        isVideoOn: true,
+        isFrontCamera: true,
+        isScreenSharing: false,
+      );
+
+      final sharing = state.copyWith(
+        isScreenSharing: true,
+      );
+
+      expect(sharing.isVideoOn, isTrue); // Camera stays active!
+      expect(sharing.isFrontCamera, isTrue);
+      expect(sharing.isScreenSharing, isTrue);
+
+      final stopped = sharing.copyWith(
+        clearScreenStream: true,
+        isScreenSharing: false,
+      );
+
+      expect(stopped.isVideoOn, isTrue); // Camera still preserved!
+      expect(stopped.isScreenSharing, isFalse);
     });
   });
 }

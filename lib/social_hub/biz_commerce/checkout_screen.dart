@@ -1,12 +1,15 @@
+import 'dart:async';
+
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:cloud_functions/cloud_functions.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:flutter_stripe/flutter_stripe.dart';
 import 'package:go_router/go_router.dart';
 
-import '../../backend/finance/stripe_commerce_service.dart';
+import '../../backend/finance/commerce_service.dart';
+import '../../backend/pay/oneova_pay_service.dart' show currencyExponent;
+import '../../shops3d/models/shop_models.dart' show LiveDeal;
 import '../../shared/location/geo_services.dart';
 import '../../shared/theme/app_theme.dart';
 
@@ -17,11 +20,17 @@ String formatMoney(num amount, String currency) {
 }
 
 /// Buy one product: quantity, delivery to where you are now (priced live from
-/// the route), and pay with Stripe. The money is held until you confirm you
+/// the route), and pay with Oneova Pay. The money is held until you confirm you
 /// have the goods. `/biz/checkout/:productId`
 class CheckoutScreen extends ConsumerStatefulWidget {
-  const CheckoutScreen({super.key, required this.productId});
+  const CheckoutScreen({super.key, required this.productId, this.variantId, this.customization = const {}});
   final String productId;
+
+  /// Buyer's customization (optionId → choiceId or text); the server re-prices it.
+  final Map<String, String> customization;
+
+  /// The option the buyer picked (colour, size…); the server re-validates it.
+  final String? variantId;
 
   @override
   ConsumerState<CheckoutScreen> createState() => _CheckoutScreenState();
@@ -35,18 +44,123 @@ class _CheckoutScreenState extends ConsumerState<CheckoutScreen> {
   bool _quoting = false;
   bool _paying = false;
   final _address = TextEditingController();
+  final _codeField = TextEditingController();
 
-  StripeCommerceService get _svc => ref.read(stripeCommerceServiceProvider);
+  /// Applied seller code and its previewed discount (the server re-checks both).
+  String? _code;
+  num _discount = 0;
+  num? _discountFor;
+  String? _codeError;
+  bool _checkingCode = false;
+
+  CommerceService get _svc => ref.read(commerceServiceProvider);
+
+  /// The seller's live deal (`biz_shops/{seller}.liveDeal`); the server
+  /// applies the same one when it prices the order.
+  LiveDeal? _deal;
+  StreamSubscription<LiveDeal?>? _dealSub;
 
   @override
   void initState() {
     super.initState();
     _refreshQuote();
+    final db = FirebaseFirestore.instance;
+    _dealSub = db.collection('products').doc(widget.productId).snapshots().asyncExpand((d) {
+      final p = d.data();
+      final seller = '${p?['ownerId'] ?? p?['userId'] ?? p?['uid'] ?? ''}';
+      if (seller.isEmpty) return Stream<LiveDeal?>.value(null);
+      return db.collection('biz_shops').doc(seller).snapshots().map((s) => LiveDeal.parse(s.data()?['liveDeal']));
+    }).listen((d) {
+      if (mounted) setState(() => _deal = d);
+    }, onError: (_) {});
+  }
+
+  static num _roundMoney(num v, String currency) {
+    final f = currencyExponent(currency) == 0 ? 1 : 100;
+    return (v * f).round() / f;
+  }
+
+  static num _money(Object? v) {
+    final n = v is num ? v : num.tryParse('$v');
+    return n != null && n.isFinite && n > 0 ? (n > 1000000 ? 1000000 : n) : 0;
+  }
+
+  /// The buyer's customization as (label, value, extra price), like the server prices it.
+  List<(String, String, num)> _customLines(Map<String, dynamic> p) {
+    final out = <(String, String, num)>[];
+    for (final raw in (p['customization'] as List? ?? const []).take(12)) {
+      if (raw is! Map) continue;
+      final id = '${raw['id'] ?? ''}';
+      final label = '${raw['label'] ?? 'Option'}';
+      final v = widget.customization[id];
+      if (v == null || v.trim().isEmpty) continue;
+      if (raw['type'] == 'text') {
+        out.add((label, v.trim(), _money(raw['priceDelta'])));
+        continue;
+      }
+      for (final c in (raw['choices'] as List? ?? const [])) {
+        if (c is Map && '${c['id']}' == v) out.add((label, '${c['label'] ?? c['id']}', _money(c['priceDelta'])));
+      }
+    }
+    return out;
+  }
+
+  Future<void> _applyCode(String sellerId, num items, String currency) async {
+    final code = _codeField.text.toUpperCase().replaceAll(RegExp(r'[^A-Z0-9]'), '');
+    if (code.isEmpty) return;
+    FocusScope.of(context).unfocus();
+    setState(() {
+      _checkingCode = true;
+      _codeError = null;
+    });
+    try {
+      final r = await FirebaseFunctions.instance.httpsCallable('bizCheckCode').call<Map<String, dynamic>>({
+        'sellerId': sellerId,
+        'code': code,
+        'itemsAmount': items,
+        'currency': currency.toUpperCase(),
+      });
+      if (!mounted) return;
+      setState(() {
+        _code = '${r.data['code'] ?? code}';
+        _discount = (r.data['discount'] as num?) ?? 0;
+        _discountFor = items;
+      });
+    } on FirebaseFunctionsException catch (e) {
+      if (mounted) {
+        setState(() {
+          _code = null;
+          _discount = 0;
+          _codeError = e.message ?? 'That code isn’t valid.';
+        });
+      }
+    } catch (_) {
+      if (mounted) setState(() => _codeError = 'Couldn’t check the code. Try again.');
+    } finally {
+      if (mounted) setState(() => _checkingCode = false);
+    }
+  }
+
+  /// Deal price rounded to the currency's smallest unit, exactly as the server does.
+  static num _dealPrice(num price, int percentOff, String currency) {
+    final f = currencyExponent(currency) == 0 ? 1 : 100;
+    return (price * (100 - percentOff) / 100 * f).round() / f;
+  }
+
+  String? _variantName(Map<String, dynamic> p) {
+    final id = widget.variantId;
+    if (id == null) return null;
+    for (final v in (p['variants'] as List? ?? const [])) {
+      if (v is Map && v['id'] == id) return (v['name'] ?? id).toString();
+    }
+    return null;
   }
 
   @override
   void dispose() {
+    _dealSub?.cancel();
     _address.dispose();
+    _codeField.dispose();
     super.dispose();
   }
 
@@ -84,6 +198,9 @@ class _CheckoutScreenState extends ConsumerState<CheckoutScreen> {
         quantity: _qty,
         quoteId: _deliver ? _quote?.id : null,
         address: _deliver ? _address.text.trim() : null,
+        variantId: widget.variantId,
+        customization: widget.customization,
+        code: _code,
       );
       if (!mounted) return;
       if (outcome == CheckoutOutcome.paid) {
@@ -91,8 +208,6 @@ class _CheckoutScreenState extends ConsumerState<CheckoutScreen> {
       }
     } on FirebaseFunctionsException catch (e) {
       _toast(e.message ?? 'Payment could not start. Please try again.');
-    } on StripeException catch (e) {
-      _toast(e.error.localizedMessage ?? 'Payment did not go through.');
     } on StateError catch (e) {
       _toast(e.message);
     } catch (_) {
@@ -128,9 +243,22 @@ class _CheckoutScreenState extends ConsumerState<CheckoutScreen> {
           if (!snap.hasData) return const Center(child: CircularProgressIndicator(color: AppColors.brandBlue));
           final p = snap.data!.data();
           if (p == null) return _center('This product is no longer available.');
-          final price = (p['price'] as num?) ?? 0;
+          final listPrice = (p['price'] as num?) ?? 0;
           final currency = (p['currency'] as String? ?? 'usd').toLowerCase();
-          final items = price * _qty;
+          final deal = (_deal?.appliesTo(widget.productId) ?? false) ? _deal : null;
+          final price = deal == null ? listPrice : _dealPrice(listPrice, deal.percentOff, currency);
+          final custom = _customLines(p);
+          final unit = _roundMoney(price + custom.fold<num>(0, (s, l) => s + l.$3), currency);
+          final sellerId = '${p['ownerId'] ?? p['userId'] ?? p['uid'] ?? ''}';
+          final items = unit * _qty;
+          // Quantity changed after a code was applied: preview it again.
+          if (_code != null && _discountFor != items && !_checkingCode) {
+            _discountFor = items;
+            WidgetsBinding.instance.addPostFrameCallback((_) {
+              if (mounted) _applyCode(sellerId, items, currency);
+            });
+          }
+          final discount = _code == null ? 0 : _roundMoney(_discount > items ? items : _discount, currency);
           final delivery = _deliver ? (_quote?.fee ?? 0) : 0;
           final canPay = price > 0 && !_paying && (!_deliver || _quote != null);
           return ListView(
@@ -157,9 +285,25 @@ class _CheckoutScreenState extends ConsumerState<CheckoutScreen> {
                             maxLines: 2,
                             overflow: TextOverflow.ellipsis,
                             style: TextStyle(fontSize: 14, fontWeight: FontWeight.w700, color: context.textPrimary)),
+                        if (_variantName(p) case final v?) ...[
+                          const SizedBox(height: 2),
+                          Text(v, style: TextStyle(fontSize: 12, fontWeight: FontWeight.w500, color: context.textSecondary)),
+                        ],
                         const SizedBox(height: 4),
-                        Text(formatMoney(price, currency),
-                            style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w700, color: AppColors.brandBlue)),
+                        Wrap(spacing: 6, runSpacing: 2, crossAxisAlignment: WrapCrossAlignment.center, children: [
+                          Text(formatMoney(price, currency),
+                              style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w700, color: AppColors.brandBlue)),
+                          if (deal != null) ...[
+                            Text(formatMoney(listPrice, currency),
+                                style: TextStyle(fontSize: 12, color: context.textMuted, decoration: TextDecoration.lineThrough)),
+                            Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                              decoration: BoxDecoration(color: AppColors.brandPink, borderRadius: BorderRadius.circular(AppRadius.full)),
+                              child: Text('${deal.percentOff}% OFF',
+                                  style: const TextStyle(fontSize: 10.5, fontWeight: FontWeight.w800, color: Colors.white)),
+                            ),
+                          ],
+                        ]),
                       ],
                     ),
                   ),
@@ -227,12 +371,65 @@ class _CheckoutScreenState extends ConsumerState<CheckoutScreen> {
                 ],
               )),
               const SizedBox(height: 12),
+              _card(_code != null
+                  ? Row(children: [
+                      const Icon(Icons.local_offer_rounded, size: 18, color: AppColors.brandPink),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: Text('Code $_code applied',
+                            style: TextStyle(fontSize: 13.5, fontWeight: FontWeight.w700, color: context.textPrimary)),
+                      ),
+                      TextButton(
+                        onPressed: () => setState(() {
+                          _code = null;
+                          _discount = 0;
+                          _codeField.clear();
+                        }),
+                        child: const Text('Remove'),
+                      ),
+                    ])
+                  : Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                      Row(children: [
+                        Expanded(
+                          child: TextField(
+                            controller: _codeField,
+                            textCapitalization: TextCapitalization.characters,
+                            maxLength: 20,
+                            style: TextStyle(fontSize: 13, color: context.textPrimary),
+                            decoration: InputDecoration(
+                              isDense: true,
+                              counterText: '',
+                              hintText: 'Add a shop code',
+                              prefixIcon: const Icon(Icons.local_offer_outlined, size: 18),
+                              border: OutlineInputBorder(borderRadius: BorderRadius.circular(AppRadius.sm), borderSide: BorderSide(color: context.border)),
+                              enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(AppRadius.sm), borderSide: BorderSide(color: context.border)),
+                            ),
+                            onSubmitted: (_) => _applyCode(sellerId, items, currency),
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        TextButton(
+                          onPressed: _checkingCode || sellerId.isEmpty ? null : () => _applyCode(sellerId, items, currency),
+                          child: _checkingCode
+                              ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2))
+                              : const Text('Apply', style: TextStyle(fontWeight: FontWeight.w700)),
+                        ),
+                      ]),
+                      if (_codeError != null) ...[
+                        const SizedBox(height: 6),
+                        Text(_codeError!, style: const TextStyle(fontSize: 12, color: AppColors.brandPink)),
+                      ],
+                    ])),
+              const SizedBox(height: 12),
               _card(Column(
                 children: [
+                  for (final (label, value, extra) in custom)
+                    _line('$label: $value', extra > 0 ? '+${formatMoney(extra * _qty, currency)}' : 'Included'),
                   _line('Items', formatMoney(items, currency)),
+                  if (_code != null && discount > 0) _line('Code $_code', '−${formatMoney(discount, currency)}'),
                   if (_deliver) _line('Delivery', _quote == null ? '—' : formatMoney(delivery, currency)),
                   Divider(height: 18, color: context.border),
-                  _line('Total', formatMoney(items + delivery, currency), bold: true),
+                  _line('Total', formatMoney(items - discount + delivery, currency), bold: true),
                 ],
               )),
               const SizedBox(height: 12),
@@ -258,7 +455,7 @@ class _CheckoutScreenState extends ConsumerState<CheckoutScreen> {
                 ),
                 child: _paying
                     ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
-                    : Text('Pay ${formatMoney(items + delivery, currency)}',
+                    : Text('Pay ${formatMoney(items - discount + delivery, currency)}',
                         style: const TextStyle(fontSize: 13.5, fontWeight: FontWeight.w700)),
               ),
             ],

@@ -1,15 +1,47 @@
+import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:flutter_animate/flutter_animate.dart';
+import '../backend/project_repository.dart';
 import '../shared/theme/app_theme.dart';
 import '../shared/widgets/components.dart';
 import '../shared/widgets/studio_background.dart';
 
-class AudioDashboardScreen extends StatelessWidget {
+final _audioArtistsCountProvider = StreamProvider<int>((ref) {
+  final uid = FirebaseAuth.instance.currentUser?.uid ?? '';
+  if (uid.isEmpty) return Stream.value(0);
+  return FirebaseFirestore.instance
+      .collection('users')
+      .doc(uid)
+      .collection('audio_artists')
+      .snapshots()
+      .map((s) => s.docs.length);
+});
+
+class AudioDashboardScreen extends ConsumerWidget {
   const AudioDashboardScreen({super.key});
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
+    final projectsAsync = ref.watch(projectsStreamProvider);
+    final artistsCountAsync = ref.watch(_audioArtistsCountProvider);
+
+    final audioProjects = (projectsAsync.asData?.value ?? const <StudioProject>[])
+        .where((p) => p.category == 'Audio')
+        .toList();
+    final activeCount = audioProjects
+        .where((p) => p.status.toLowerCase() != 'done' && p.status.toLowerCase() != 'delivered')
+        .length;
+    final reviewCount = audioProjects
+        .where((p) => p.status.toLowerCase().contains('review'))
+        .length;
+    final doneCount = audioProjects
+        .where((p) => p.status.toLowerCase() == 'done' || p.status.toLowerCase() == 'delivered' || p.status.toLowerCase() == 'mastered')
+        .length;
+    final artistsCount = artistsCountAsync.asData?.value ?? 0;
+
     return StudioBackground(
       backgroundIcons: const [Icons.mic_none, Icons.music_note, Icons.headphones],
       child: SafeArea(
@@ -28,26 +60,25 @@ class AudioDashboardScreen extends StatelessWidget {
                 },
                 child: Row(
                   children: [
-                    Icon(Icons.chevron_left, color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.6), size: 16),
+                    Icon(Icons.chevron_left, color: context.textSecondary, size: 16),
                     const SizedBox(width: 4),
                     Text(
                       'Studio Home',
-                      style: AppTheme.bodyStyle.copyWith(color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.6), fontSize: 12),
+                      style: AppTheme.bodyStyle.copyWith(color: context.textSecondary, fontSize: 12),
                     ),
                   ],
                 ),
               ),
               const SizedBox(height: 14),
-              const SizedBox(height: 14),
               buildFriendlyHeader(context).animate().fadeIn(duration: 400.ms).slideY(begin: -0.05),
               const SizedBox(height: 24),
               Row(
                 children: [
-                  Expanded(child: _StatCard(title: 'ACTIVE', value: '6').animate().fadeIn(duration: 400.ms).slideY(begin: 0.1)),
+                  Expanded(child: _StatCard(title: 'ACTIVE', value: '$activeCount').animate().fadeIn(duration: 400.ms).slideY(begin: 0.1)),
                   const SizedBox(width: 10),
-                  Expanded(child: _StatCard(title: 'IN REVIEW', value: '3').animate().fadeIn(delay: 100.ms, duration: 400.ms).slideY(begin: 0.1)),
+                  Expanded(child: _StatCard(title: 'IN REVIEW', value: '$reviewCount').animate().fadeIn(delay: 100.ms, duration: 400.ms).slideY(begin: 0.1)),
                   const SizedBox(width: 10),
-                  Expanded(child: _StatCard(title: 'DONE', value: '14', valueColor: Theme.of(context).colorScheme.primary).animate().fadeIn(delay: 200.ms, duration: 400.ms).slideY(begin: 0.1)),
+                  Expanded(child: _StatCard(title: 'DONE', value: '$doneCount', valueColor: AppColors.brandBlue).animate().fadeIn(delay: 200.ms, duration: 400.ms).slideY(begin: 0.1)),
                 ],
               ),
               const SizedBox(height: 18),
@@ -57,7 +88,7 @@ class AudioDashboardScreen extends StatelessWidget {
                     child: _Tile(
                       icon: Icons.graphic_eq_rounded,
                       title: 'Library',
-                      meta: '23 tracks',
+                      meta: '${audioProjects.length} tracks',
                       onTap: () => context.push('/audio/library'),
                     ).animate().fadeIn(delay: 300.ms).scaleXY(begin: 0.95),
                   ),
@@ -66,7 +97,7 @@ class AudioDashboardScreen extends StatelessWidget {
                     child: _Tile(
                       icon: Icons.group_outlined,
                       title: 'Artists',
-                      meta: '2 new requests',
+                      meta: '$artistsCount registered',
                       onTap: () => context.push('/audio/artists'),
                     ).animate().fadeIn(delay: 400.ms).scaleXY(begin: 0.95),
                   ),
@@ -76,27 +107,42 @@ class AudioDashboardScreen extends StatelessWidget {
               Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
-                  Text('Active productions', style: AppTheme.h2Style),
+                  Text('Active productions', style: AppTheme.h2Style.copyWith(color: context.textPrimary)),
                   GestureDetector(
                     onTap: () => context.push('/audio/productions'),
-                    child: Text('See all', style: TextStyle(color: Theme.of(context).colorScheme.primary, fontWeight: FontWeight.bold, fontSize: 13)),
+                    child: const Text('See all', style: TextStyle(color: AppColors.brandBlue, fontWeight: FontWeight.bold, fontSize: 13)),
                   ),
                 ],
               ),
               const SizedBox(height: 14),
-              _ProductionCard(
-                title: '"Late Nights" — Amara J.',
-                subtitle: 'Producer: Josiah M.',
-                status: 'In production',
-                statusColor: Theme.of(context).colorScheme.primary,
-              ).animate().fadeIn(delay: 500.ms).slideX(begin: 0.1),
-              const SizedBox(height: 10),
-              _ProductionCard(
-                title: '"Homecoming" — DJ Rue',
-                subtitle: 'Producer: Wanjiru K.',
-                status: 'In review',
-                statusColor: Theme.of(context).colorScheme.secondary,
-              ).animate().fadeIn(delay: 600.ms).slideX(begin: 0.1),
+              if (projectsAsync.isLoading)
+                const Center(child: Padding(padding: EdgeInsets.all(20), child: CircularProgressIndicator(color: AppColors.brandBlue)))
+              else if (audioProjects.isEmpty)
+                OneovaCard(
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(vertical: 12),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text('No active audio productions yet', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13.5, color: context.textPrimary)),
+                        const SizedBox(height: 4),
+                        Text('Open the Audio Library to add a new track or production project.', style: TextStyle(color: context.textSecondary, fontSize: 12)),
+                      ],
+                    ),
+                  ),
+                )
+              else
+                ...audioProjects.take(5).map((p) {
+                  return Padding(
+                    padding: const EdgeInsets.only(bottom: 10),
+                    child: _ProductionCard(
+                      title: p.title,
+                      subtitle: p.toolsUsed.isNotEmpty ? p.toolsUsed.join(' • ') : 'Audio Studio',
+                      status: p.status,
+                      statusColor: p.status.toLowerCase().contains('review') ? AppColors.brandPink : AppColors.brandBlue,
+                    ).animate().fadeIn(duration: 300.ms).slideX(begin: 0.05),
+                  );
+                }),
               const SizedBox(height: 40),
             ],
           ),
@@ -111,12 +157,12 @@ class AudioDashboardScreen extends StatelessWidget {
       children: [
         Text(
           'Audio Production Studio',
-          style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold, color: Theme.of(context).colorScheme.onSurface),
+          style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold, color: context.textPrimary),
         ),
         const SizedBox(height: 4),
         Text(
           'Manage your tracks, coordinate with artists, and master your audio.',
-          style: TextStyle(fontSize: 14, color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.7)),
+          style: TextStyle(fontSize: 13, color: context.textSecondary),
         ),
       ],
     );

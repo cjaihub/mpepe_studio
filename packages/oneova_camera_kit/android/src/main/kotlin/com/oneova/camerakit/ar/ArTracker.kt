@@ -56,9 +56,37 @@ internal class ArTracker(private val onResult: (ArResult, Double) -> Unit) : Ima
     }
     @Volatile private var closed = false
 
+    /**
+     * [worker] that drops work after [close]: ML Kit can finish a frame after
+     * the camera closed, and posting its result to a shut-down pool threw
+     * RejectedExecutionException on the main thread and killed the app.
+     */
+    private val safeWorker = java.util.concurrent.Executor { r ->
+        try {
+            worker.execute(r)
+        } catch (e: java.util.concurrent.RejectedExecutionException) {
+            Log.d(TAG, "Tracking result dropped after close")
+        }
+    }
+
     private var meshDetector: FaceMeshDetector? = null
     private var segmenter: Segmenter? = null
     private var poseDetector: PoseDetector? = null
+
+    // Per-person face tracks with stable ids; only touched on [worker].
+    private class Track(val id: Int, var face: ArFace, var seenNs: Long)
+    private val tracks = ArrayList<Track>(MAX_FACES)
+    private var nextTrackId = 0
+
+    // Auto-optimised scheduling: when a frame takes longer than the camera's
+    // frame time, segmentation and pose run on alternate frames (the last
+    // result is reused between) so face tracking keeps ~30 fps.
+    @Volatile private var lastTrackMs = 0.0
+
+    /** Heat guard from the camera screen: heavy models on alternate frames. */
+    @Volatile var throttle = false
+    private var frameNo = 0L
+    private var lastMask: ArMask? = null
 
     // Smoothing state; only touched on [worker].
     private var lastFace: ArFace? = null
@@ -66,10 +94,12 @@ internal class ArTracker(private val onResult: (ArResult, Double) -> Unit) : Ima
     private var lastConf: FloatArray? = null
 
     fun reset() {
-        worker.execute {
+        safeWorker.execute {
             lastFace = null
             lastBody = null
             lastConf = null
+            lastMask = null
+            tracks.clear()
         }
     }
 
@@ -95,13 +125,17 @@ internal class ArTracker(private val onResult: (ArResult, Double) -> Unit) : Ima
         val uh = (if (upright) image.width else image.height).toFloat()
         val space = FovSpace(uw, uh, previewAspect, mirror)
 
+        val heavy = lastTrackMs > 30.0 || throttle
+        val alternate = heavy && (frameNo++ % 2L == 1L)
+        val light = meanLuma(media)
+        val tint = meanTint(media)
         val faceTask: Task<List<FaceMesh>>? = if (n.face) mesh().process(input) else null
-        val maskTask: Task<SegmentationMask>? = if (n.mask) segmenter().process(input) else null
-        val poseTask: Task<Pose>? = if (n.body) pose().process(input) else null
+        val maskTask: Task<SegmentationMask>? = if (n.mask && !(alternate && lastMask != null)) segmenter().process(input) else null
+        val poseTask: Task<Pose>? = if (n.body && !(alternate && lastBody != null)) pose().process(input) else null
         val tasks = listOfNotNull<Task<*>>(faceTask, maskTask, poseTask)
         val timestamp = image.imageInfo.timestamp
 
-        Tasks.whenAllComplete(tasks).addOnCompleteListener(worker) {
+        Tasks.whenAllComplete(tasks).addOnCompleteListener(safeWorker) {
             try {
                 if (closed) return@addOnCompleteListener
                 val result = build(
@@ -110,8 +144,14 @@ internal class ArTracker(private val onResult: (ArResult, Double) -> Unit) : Ima
                     faceTask?.takeIf { it.isSuccessful }?.result,
                     maskTask?.takeIf { it.isSuccessful }?.result,
                     poseTask?.takeIf { it.isSuccessful }?.result,
+                    reuseMask = n.mask && maskTask == null,
+                    reuseBody = n.body && poseTask == null,
+                    light = light,
+                    tint = tint,
                 )
-                onResult(result, (SystemClock.elapsedRealtimeNanos() - started) / 1e6)
+                val ms = (SystemClock.elapsedRealtimeNanos() - started) / 1e6
+                lastTrackMs = lastTrackMs * 0.8 + ms * 0.2
+                onResult(result, ms)
             } catch (e: RuntimeException) {
                 Log.w(TAG, "AR tracking frame failed", e)
             } finally {
@@ -122,7 +162,7 @@ internal class ArTracker(private val onResult: (ArResult, Double) -> Unit) : Ima
 
     fun close() {
         closed = true
-        worker.execute {
+        safeWorker.execute {
             meshDetector?.close()
             segmenter?.close()
             poseDetector?.close()
@@ -154,28 +194,120 @@ internal class ArTracker(private val onResult: (ArResult, Double) -> Unit) : Ima
         meshes: List<FaceMesh>?,
         seg: SegmentationMask?,
         pose: Pose?,
+        reuseMask: Boolean = false,
+        reuseBody: Boolean = false,
+        light: Float = 0.5f,
+        tint: FloatArray? = null,
     ): ArResult {
-        val faces = ArrayList<ArFace>(2)
-        meshes?.take(2)?.forEach { m -> faceFromMesh(m, space)?.let(faces::add) }
-        if (faces.isNotEmpty()) {
-            val prev = lastFace
-            if (prev != null && dist(prev.eyesCenter, faces[0].eyesCenter) < prev.width) {
-                faces[0] = prev.lerpTo(faces[0], 0.55f)
-            }
-            lastFace = faces[0]
-        } else if (meshes != null) {
-            lastFace = null
-        }
+        val faces = if (meshes != null) trackFaces(timestamp, meshes.take(MAX_FACES).mapNotNull { faceFromMesh(it, space) })
+            else tracks.map { it.face }
+        lastFace = faces.firstOrNull()
 
         var body = pose?.let { bodyFromPose(it, space) }
         if (body != null) {
-            lastBody?.let { body = it.lerpTo(body!!, 0.5f) }
+            lastBody?.let { prev ->
+                // Same speed-adaptive smoothing as faces.
+                val speed = dist(prev.leftShoulder, body!!.leftShoulder) / maxOf(0.05f, prev.shoulderWidth)
+                body = prev.lerpTo(body!!, (0.6f + speed * 6f).coerceIn(0.6f, 1f))
+            }
             lastBody = body
+        } else if (reuseBody) {
+            body = lastBody
+        } else if (pose != null) {
+            lastBody = null
         }
 
-        val mask = seg?.let { maskFrom(it, space) }
-        return ArResult(timestamp, faces, body, mask)
+        val mask = seg?.let { maskFrom(it, space) } ?: if (reuseMask) lastMask else null
+        if (seg != null) lastMask = mask
+        return ArResult(timestamp, faces, body, mask, light, tint)
     }
+
+    /**
+     * Matches detections to the previous people (nearest eyes within a face
+     * width), smooths each by how fast it moves — still faces don't jitter,
+     * fast turns don't lag — keeps a lost face for [HOLD_NS] so a missed
+     * frame doesn't make effects blink, and snaps when a face reappears.
+     */
+    private fun trackFaces(ts: Long, detected: List<ArFace>): List<ArFace> {
+        val used = HashSet<Int>()
+        for (f in detected) {
+            val match = tracks.filter { it.id !in used }
+                .minByOrNull { dist(it.face.eyesCenter, f.eyesCenter) }
+                ?.takeIf { dist(it.face.eyesCenter, f.eyesCenter) < it.face.width * 1.2f && ts - it.seenNs < HOLD_NS * 2 }
+            if (match != null) {
+                val speed = dist(match.face.eyesCenter, f.eyesCenter) / maxOf(0.02f, match.face.width)
+                // Light smoothing at rest, none while moving: effects stay glued
+                // to the face instead of trailing behind a turn.
+                val t = (0.6f + speed * 8f).coerceIn(0.6f, 1f)
+                match.face = match.face.lerpTo(f, t)
+                match.seenNs = ts
+                used += match.id
+            } else if (tracks.size < MAX_FACES * 2) {
+                val tr = Track(nextTrackId++, f, ts)
+                tracks += tr
+                used += tr.id
+            }
+        }
+        // Faces at the frame edge or very close are the ones the detector
+        // drops for a frame or two: hold them longer so effects don't blink.
+        tracks.removeAll {
+            val c = it.face.eyesCenter
+            val edgy = c.x < 0.15f || c.x > 0.85f || c.y < 0.12f || c.y > 0.88f || it.face.width > 0.5f
+            it.id !in used && ts - it.seenNs > (if (edgy) HOLD_NS * 3 else HOLD_NS)
+        }
+        // Stable order (first person seen first) for per-person effects.
+        return tracks.sortedBy { it.id }.take(MAX_FACES).map { it.face }
+    }
+
+    /** Mean luma of the frame from a sparse grid of the Y plane. */
+    private fun meanLuma(img: android.media.Image): Float = runCatching {
+        val p = img.planes[0]
+        val buf = p.buffer
+        val w = img.width
+        val h = img.height
+        var sum = 0L
+        var n = 0
+        var y = h / 16
+        while (y < h) {
+            var x = w / 16
+            while (x < w) {
+                sum += buf.get(y * p.rowStride + x * p.pixelStride).toInt() and 0xFF
+                n++
+                x += w / 8
+            }
+            y += h / 8
+        }
+        if (n == 0) 0.5f else sum / (n * 255f)
+    }.getOrDefault(0.5f)
+
+    /** Average colour of the frame from a sparse grid of the chroma planes. */
+    private fun meanTint(img: android.media.Image): FloatArray? = runCatching {
+        val y = img.planes[0]
+        val u = img.planes[1]
+        val v = img.planes[2]
+        val cw = img.width / 2
+        val ch = img.height / 2
+        var sy = 0L; var su = 0L; var sv = 0L; var n = 0
+        var r = ch / 16
+        while (r < ch) {
+            var c = cw / 16
+            while (c < cw) {
+                sy += y.buffer.get(r * 2 * y.rowStride + c * 2 * y.pixelStride).toInt() and 0xFF
+                su += u.buffer.get(r * u.rowStride + c * u.pixelStride).toInt() and 0xFF
+                sv += v.buffer.get(r * v.rowStride + c * v.pixelStride).toInt() and 0xFF
+                n++
+                c += cw / 8
+            }
+            r += ch / 8
+        }
+        if (n == 0) return@runCatching null
+        val yy = sy.toFloat() / n
+        val uu = su.toFloat() / n - 128f
+        val vv = sv.toFloat() / n - 128f
+        val rgb = floatArrayOf(yy + 1.402f * vv, yy - 0.344f * uu - 0.714f * vv, yy + 1.772f * uu).map { it.coerceAtLeast(1f) }
+        val m = rgb.max()
+        floatArrayOf(rgb[0] / m, rgb[1] / m, rgb[2] / m)
+    }.getOrNull()
 
     // ── Face mesh → anchors (same mapping as the Dart ArTrackingService) ──
 
@@ -243,19 +375,31 @@ internal class ArTracker(private val onResult: (ArResult, Double) -> Unit) : Ima
     private fun bodyFromPose(pose: Pose, space: FovSpace): ArBody? {
         fun p(type: Int): PointF? {
             val l = pose.getPoseLandmark(type) ?: return null
-            if (l.inFrameLikelihood < 0.5f) return null
+            if (l.inFrameLikelihood < 0.45f) return null
             return space.map(l.position.x, l.position.y)
         }
         val a = p(PoseLandmark.LEFT_SHOULDER) ?: return null
         val b = p(PoseLandmark.RIGHT_SHOULDER) ?: return null
         val ha = p(PoseLandmark.LEFT_HIP)
         val hb = p(PoseLandmark.RIGHT_HIP)
+        val ea = p(PoseLandmark.LEFT_ELBOW)
+        val eb = p(PoseLandmark.RIGHT_ELBOW)
+        val wa = p(PoseLandmark.LEFT_WRIST)
+        val wb = p(PoseLandmark.RIGHT_WRIST)
+        val aa = p(PoseLandmark.LEFT_ANKLE)
+        val ab = p(PoseLandmark.RIGHT_ANKLE)
         val aLeft = a.x <= b.x
         return ArBody(
             leftShoulder = if (aLeft) a else b,
             rightShoulder = if (aLeft) b else a,
             leftHip = if (aLeft) ha else hb,
             rightHip = if (aLeft) hb else ha,
+            leftElbow = if (aLeft) ea else eb,
+            rightElbow = if (aLeft) eb else ea,
+            leftWrist = if (aLeft) wa else wb,
+            rightWrist = if (aLeft) wb else wa,
+            leftAnkle = if (aLeft) aa else ab,
+            rightAnkle = if (aLeft) ab else aa,
         )
     }
 
@@ -282,7 +426,14 @@ internal class ArTracker(private val onResult: (ArResult, Double) -> Unit) : Ima
                 val uy = space.unmapY(ny) * sy - 0.5f
                 var v = bilinear(src, mw, mh, ux, uy)
                 val i = y * outW + x
-                if (prev != null) v = prev[i] * 0.35f + v * 0.65f
+                // Motion-aware smoothing: steady areas keep most of the last
+                // frame (no edge flicker); where the mask moves it follows at
+                // once (no ghosting behind fast motion).
+                if (prev != null) {
+                    val d = kotlin.math.abs(v - prev[i])
+                    val keep = if (d < 0.12f) 0.6f else if (d < 0.3f) 0.3f else 0.08f
+                    v = prev[i] * keep + v * (1f - keep)
+                }
                 conf[i] = v
                 confBytes[i] = (v * 255f).roundToInt().coerceIn(0, 255).toByte()
                 // Soft threshold so edges stay feathered but the background drops out.
@@ -357,6 +508,9 @@ internal class ArTracker(private val onResult: (ArResult, Double) -> Unit) : Ima
 
     companion object {
         private const val TAG = "OneovaArTracker"
-        const val MASK_HEIGHT = 256
+        // 384 rows keeps hair and fingers; the GPU refines edges further.
+        const val MASK_HEIGHT = 384
+        const val MAX_FACES = 3
+        const val HOLD_NS = 150_000_000L
     }
 }

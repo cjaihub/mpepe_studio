@@ -1,19 +1,26 @@
+import 'dart:io';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_animate/flutter_animate.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:intl/intl.dart';
-import 'package:url_launcher/url_launcher.dart';
+import 'package:firebase_storage/firebase_storage.dart';
+import 'package:image_picker/image_picker.dart';
 
 import '../../backend/money/insights_logic.dart';
 import '../../backend/money/money_models.dart';
 import '../../backend/money/money_service.dart';
 import '../../shared/theme/app_theme.dart';
 import 'money_widgets.dart';
+import '../../identity/id_guide.dart';
+import '../../identity/id_photo_check.dart';
 
-/// Identity check before payouts (`/wallet/verify`), on Stripe Identity's
-/// secure page. Oneova keeps only the result, never the photos.
+/// Identity check before payouts (`/wallet/verify`): your ID and a selfie,
+/// uploaded to a private folder only Oneova's review team can open, then
+/// checked by a person (an automatic pre-check helps them). Payouts go only
+/// to the name on the verified ID.
 class KycScreen extends ConsumerStatefulWidget {
   const KycScreen({super.key});
 
@@ -21,39 +28,71 @@ class KycScreen extends ConsumerStatefulWidget {
   ConsumerState<KycScreen> createState() => _KycScreenState();
 }
 
-class _KycScreenState extends ConsumerState<KycScreen> with WidgetsBindingObserver {
+class _KycScreenState extends ConsumerState<KycScreen> {
   bool _busy = false;
-  bool _opened = false;
+  bool _capturing = false;
+  final _name = TextEditingController();
+  String _country = '';
+  String _docType = 'id_card';
+  File? _front;
+  File? _back;
+  File? _selfie;
+  final _photoFacts = <String, Object?>{};
+
+  static const _docTypes = {'id_card': 'National ID', 'passport': 'Passport', 'driving_license': 'Driving licence'};
 
   @override
   void initState() {
     super.initState();
-    WidgetsBinding.instance.addObserver(this);
+    final locale = WidgetsBinding.instance.platformDispatcher.locale.countryCode;
+    _country = (locale ?? '').toUpperCase();
   }
 
   @override
   void dispose() {
-    WidgetsBinding.instance.removeObserver(this);
+    _name.dispose();
     super.dispose();
   }
 
-  @override
-  void didChangeAppLifecycleState(AppLifecycleState state) {
-    if (state == AppLifecycleState.resumed && _opened) {
-      _opened = false;
-      ref.read(moneyServiceProvider).refreshKyc().catchError((_) => '');
-    }
+  Future<void> _shoot(String which) async {
+    HapticFeedback.selectionClick();
+    final x = await ImagePicker().pickImage(
+      source: ImageSource.camera,
+      preferredCameraDevice: which == 'selfie' ? CameraDevice.front : CameraDevice.rear,
+      imageQuality: 85,
+      maxWidth: 1800,
+    );
+    if (x == null || !mounted) return;
+    final check = await IdPhotoCheck.check(File(x.path), face: which == 'selfie' ? 'selfie' : (which == 'front' ? 'document' : 'none'));
+    _photoFacts.addAll(check.asGuideFacts(which));
+    if (!mounted || !await IdPhotoCheck.review(context, check)) return;
+    setState(() {
+      final f = File(x.path);
+      if (which == 'front') _front = f;
+      if (which == 'back') _back = f;
+      if (which == 'selfie') _selfie = f;
+    });
   }
 
-  Future<void> _start() async {
-    HapticFeedback.selectionClick();
+  bool get _ready => _name.text.trim().length >= 3 && RegExp(r'^[A-Z]{2}$').hasMatch(_country) && _front != null && _selfie != null;
+
+  Future<void> _submit() async {
+    if (!_ready || _busy) return;
+    HapticFeedback.mediumImpact();
     setState(() => _busy = true);
     try {
-      final url = await ref.read(moneyServiceProvider).startKyc();
-      if (url != null) {
-        _opened = true;
-        await launchUrl(Uri.parse(url), mode: LaunchMode.inAppBrowserView);
-      }
+      final svc = ref.read(moneyServiceProvider);
+      final s = await svc.startKyc();
+      if (s == null) return; // already in review or verified
+      final store = FirebaseStorage.instance;
+      final meta = SettableMetadata(contentType: 'image/jpeg');
+      await Future.wait([
+        store.ref('${s.path}/id_front.jpg').putFile(_front!, meta),
+        store.ref('${s.path}/selfie.jpg').putFile(_selfie!, meta),
+        if (_back != null) store.ref('${s.path}/id_back.jpg').putFile(_back!, meta),
+      ]);
+      await svc.submitKyc(sessionId: s.sessionId, fullName: _name.text.trim(), country: _country, documentType: _docType);
+      if (mounted) setState(() => _capturing = false);
     } catch (e) {
       if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(moneyError(e))));
     } finally {
@@ -64,12 +103,14 @@ class _KycScreenState extends ConsumerState<KycScreen> with WidgetsBindingObserv
   @override
   Widget build(BuildContext context) {
     final kyc = ref.watch(kycProvider).value ?? const KycState();
+    if (_capturing) return _captureForm();
     final (icon, title, body) = switch (kyc.status) {
       'verified' => (Icons.verified_rounded, 'You’re verified', 'Thanks${kyc.verifiedName != null ? ', ${kyc.verifiedName!.split(' ').first}' : ''}! You can withdraw your earnings any time.'),
-      'processing' => (Icons.hourglass_top_rounded, 'Checking your ID', 'This usually takes a few minutes. We’ll notify you when it’s done.'),
-      'requires_input' when kyc.lastError != null => (Icons.refresh_rounded, 'Let’s try that again', _errorText(kyc.lastError!)),
+      'review' => (Icons.hourglass_top_rounded, 'Checking your ID', 'Our team is reviewing it — usually within a day. We’ll notify you when it’s done.'),
+      'rejected' => (Icons.refresh_rounded, 'Let’s try that again', kyc.lastError ?? 'We couldn’t confirm your ID. Try again with clear photos in good light.'),
       _ => (Icons.badge_rounded, 'Verify your identity', 'A one-time check that keeps your earnings safe and makes sure only you can withdraw them.'),
     };
+    final canStart = !kyc.verified && kyc.status != 'review';
     return MoneyScaffold(
       title: 'Identity',
       body: ListView(
@@ -89,7 +130,7 @@ class _KycScreenState extends ConsumerState<KycScreen> with WidgetsBindingObserv
             padding: const EdgeInsets.fromLTRB(32, 6, 32, 20),
             child: Text(body, textAlign: TextAlign.center, style: TextStyle(fontSize: 13, height: 1.4, color: context.textSecondary)),
           ),
-          if (!kyc.verified) ...[
+          if (canStart) ...[
             MoneyCard(
               child: Column(
                 children: [
@@ -122,45 +163,128 @@ class _KycScreenState extends ConsumerState<KycScreen> with WidgetsBindingObserv
             Padding(
               padding: const EdgeInsets.symmetric(horizontal: 16),
               child: PrimaryButton(
-                label: kyc.status == 'processing' ? 'Refresh status' : kyc.status == 'requires_input' ? 'Continue verification' : 'Start verification',
+                label: kyc.status == 'rejected' ? 'Try again' : 'Start verification',
                 icon: Icons.verified_user_rounded,
-                busy: _busy,
-                onPressed: kyc.status == 'processing' ? () => ref.read(moneyServiceProvider).refreshKyc() : _start,
+                onPressed: () => setState(() => _capturing = true),
               ),
             ),
-          ] else
+          ] else if (kyc.verified)
             Padding(
               padding: const EdgeInsets.symmetric(horizontal: 16),
               child: PrimaryButton(label: 'Withdraw now', icon: Icons.north_east_rounded, onPressed: () => context.pushReplacement('/wallet/withdraw')),
             ),
-          Padding(
-            padding: const EdgeInsets.fromLTRB(20, 18, 20, 0),
-            child: Row(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Icon(Icons.lock_rounded, size: 14, color: context.textMuted),
-                const SizedBox(width: 6),
-                Expanded(
-                  child: Text(
-                    'The check runs on Stripe’s secure page. Oneova never sees or stores your ID photos or selfie; we keep only your verified name, country and the result.',
-                    style: TextStyle(fontSize: 11, height: 1.4, color: context.textMuted),
-                  ),
-                ),
-              ],
-            ),
-          ),
+          _privacy(),
         ],
       ),
     );
   }
 
-  String _errorText(String code) => switch (code) {
-        'document_expired' => 'That ID has expired. Please use a valid one.',
-        'document_unverified_other' || 'document_type_not_supported' => 'We couldn’t read that ID. Try another document in good light.',
-        'selfie_face_mismatch' => 'The selfie didn’t match the ID photo. Try again in good light, without glasses or a hat.',
-        'consent_declined' => 'Verification needs your consent to continue.',
-        _ => 'Something didn’t work. Please try again in good light.',
-      };
+  Widget _privacy() => Padding(
+        padding: const EdgeInsets.fromLTRB(20, 18, 20, 0),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Icon(Icons.lock_rounded, size: 14, color: context.textMuted),
+            const SizedBox(width: 6),
+            Expanded(
+              child: Text(
+                'Your photos go to a private, encrypted folder that only Oneova’s review team can open. They’re used only to confirm it’s you.',
+                style: TextStyle(fontSize: 11, height: 1.4, color: context.textMuted),
+              ),
+            ),
+          ],
+        ),
+      );
+
+  Widget _shot(String which, String label, IconData icon, File? file) => Expanded(
+        child: GestureDetector(
+          onTap: _busy ? null : () => _shoot(which),
+          child: AspectRatio(
+            aspectRatio: 0.82,
+            child: Container(
+              clipBehavior: Clip.antiAlias,
+              decoration: BoxDecoration(
+                color: context.surfaceMid,
+                borderRadius: BorderRadius.circular(AppRadius.md),
+                border: Border.all(color: file != null ? AppColors.brandBlue : context.border, width: file != null ? 2 : 1),
+              ),
+              child: file != null
+                  ? Image.file(file, fit: BoxFit.cover)
+                  : Column(mainAxisAlignment: MainAxisAlignment.center, children: [
+                      Icon(icon, color: AppColors.brandBlue, size: 28),
+                      const SizedBox(height: 6),
+                      Text(label, textAlign: TextAlign.center, style: TextStyle(fontSize: 11.5, fontWeight: FontWeight.w700, color: context.textPrimary)),
+                    ]),
+            ),
+          ),
+        ),
+      );
+
+  Widget _captureForm() {
+    return MoneyScaffold(
+      title: 'Verify identity',
+      actions: [Padding(padding: const EdgeInsets.only(right: 8), child: IdGuideButton(guideContext: IdGuideContext(screen: 'verify_id', extra: _photoFacts)))],
+      body: ListView(
+        padding: const EdgeInsets.fromLTRB(16, 16, 16, 32),
+        children: [
+          Text('Name exactly as on your ID', style: TextStyle(fontSize: 13, fontWeight: FontWeight.w700, color: context.textPrimary)),
+          const SizedBox(height: 6),
+          TextField(
+            controller: _name,
+            textCapitalization: TextCapitalization.words,
+            onChanged: (_) => setState(() {}),
+            decoration: InputDecoration(hintText: 'Full name', border: OutlineInputBorder(borderRadius: BorderRadius.circular(AppRadius.sm))),
+          ),
+          const SizedBox(height: 14),
+          Row(children: [
+            Expanded(
+              child: DropdownButtonFormField<String>(
+                initialValue: _docType,
+                decoration: InputDecoration(labelText: 'ID type', border: OutlineInputBorder(borderRadius: BorderRadius.circular(AppRadius.sm))),
+                items: [for (final e in _docTypes.entries) DropdownMenuItem(value: e.key, child: Text(e.value))],
+                onChanged: (v) => setState(() => _docType = v ?? 'id_card'),
+              ),
+            ),
+            const SizedBox(width: 10),
+            SizedBox(
+              width: 110,
+              child: TextFormField(
+                initialValue: _country,
+                maxLength: 2,
+                textCapitalization: TextCapitalization.characters,
+                onChanged: (v) => setState(() => _country = v.trim().toUpperCase()),
+                decoration: InputDecoration(labelText: 'Country', counterText: '', hintText: 'KE', border: OutlineInputBorder(borderRadius: BorderRadius.circular(AppRadius.sm))),
+              ),
+            ),
+          ]),
+          const SizedBox(height: 18),
+          Text('Photos', style: TextStyle(fontSize: 13, fontWeight: FontWeight.w700, color: context.textPrimary)),
+          const SizedBox(height: 4),
+          Text('Flat surface, good light, all four corners visible.', style: TextStyle(fontSize: 11.5, color: context.textSecondary)),
+          const SizedBox(height: 10),
+          Row(children: [
+            _shot('front', 'ID front', Icons.badge_outlined, _front),
+            const SizedBox(width: 10),
+            _shot('back', 'ID back\n(if any)', Icons.flip_rounded, _back),
+            const SizedBox(width: 10),
+            _shot('selfie', 'Selfie', Icons.face_retouching_natural_rounded, _selfie),
+          ]),
+          const SizedBox(height: 20),
+          PrimaryButton(
+            label: 'Send for review',
+            icon: Icons.verified_user_rounded,
+            busy: _busy,
+            onPressed: _ready ? _submit : null,
+          ),
+          TextButton(
+            onPressed: _busy ? null : () => setState(() => _capturing = false),
+            child: Text('Cancel', style: TextStyle(color: context.textSecondary)),
+          ),
+          _privacy(),
+        ],
+      ),
+    );
+  }
 }
 
 /// Every withdrawal (`/wallet/withdrawals`).

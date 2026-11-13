@@ -253,6 +253,8 @@ class PendingPostQueue extends Notifier<List<PendingPost>> {
           allowComments: a['allowComments'] as bool? ?? true,
           allowDuet: a['allowDuet'] as bool? ?? true,
           allowStitch: a['allowStitch'] as bool? ?? true,
+          allowRemix: a['allowRemix'] as bool? ?? (a['allowDuet'] as bool? ?? true),
+          remixOf: a['remixOf'] is Map ? Map<String, dynamic>.from(a['remixOf'] as Map) : null,
           allowDownload: a['allowDownload'] as bool? ?? true,
           highQualityUploads: a['highQualityUploads'] as bool? ?? false,
           location: a['location'] as String?,

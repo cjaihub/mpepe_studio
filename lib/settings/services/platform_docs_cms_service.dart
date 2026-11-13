@@ -442,7 +442,7 @@ class OneovaPlatformDocsCatalog {
         PlatformDocSection(
           heading: '1. Africa-First & Global Creator Economy Infrastructure',
           bullets: [
-            'Seamless support for African mobile money (M-Pesa, MTN MoMo, Airtel Money, Orange Money, Telecel/Vodafone, Wave via Flutterwave) alongside global cards, Apple Pay, Google Pay, Stripe, and required App Store / Play Billing.',
+            'Seamless support for African mobile money (M-Pesa, MTN MoMo, Airtel Money, Orange Money, Telecel/Vodafone, Wave via Flutterwave) alongside cards on licensed partners’ secure pages and required App Store / Play Billing, all through Oneova Pay.',
             'Biz profiles can sell physical products directly from Reels/Live chips or package custom LUTs & grades as commercial `.oneovapack` bundles.',
             'Cryptographic webhook verification and server-only double-entry accounting protect every single coin and payout.',
           ],

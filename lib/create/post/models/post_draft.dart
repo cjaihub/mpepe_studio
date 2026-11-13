@@ -18,6 +18,7 @@ class PostDraft {
   final bool allowComments;
   final bool allowDuet;
   final bool allowStitch;
+  final bool allowRemix;
   final bool allowDownload;
   final bool isAiGenerated;
   final bool isBrandedContent;
@@ -48,6 +49,7 @@ class PostDraft {
     this.allowComments = true,
     this.allowDuet = true,
     this.allowStitch = true,
+    this.allowRemix = true,
     this.allowDownload = true,
     this.isAiGenerated = false,
     this.isBrandedContent = false,
@@ -79,6 +81,7 @@ class PostDraft {
     bool? allowComments,
     bool? allowDuet,
     bool? allowStitch,
+    bool? allowRemix,
     bool? allowDownload,
     bool? isAiGenerated,
     bool? isBrandedContent,
@@ -109,6 +112,7 @@ class PostDraft {
       allowComments: allowComments ?? this.allowComments,
       allowDuet: allowDuet ?? this.allowDuet,
       allowStitch: allowStitch ?? this.allowStitch,
+      allowRemix: allowRemix ?? this.allowRemix,
       allowDownload: allowDownload ?? this.allowDownload,
       isAiGenerated: isAiGenerated ?? this.isAiGenerated,
       isBrandedContent: isBrandedContent ?? this.isBrandedContent,
@@ -142,6 +146,7 @@ class PostDraft {
       'allowComments': allowComments,
       'allowDuet': allowDuet,
       'allowStitch': allowStitch,
+      'allowRemix': allowRemix,
       'allowDownload': allowDownload,
       'isAiGenerated': isAiGenerated,
       'isBrandedContent': isBrandedContent,
@@ -175,6 +180,7 @@ class PostDraft {
       allowComments: map['allowComments'] as bool? ?? true,
       allowDuet: map['allowDuet'] as bool? ?? true,
       allowStitch: map['allowStitch'] as bool? ?? true,
+      allowRemix: map['allowRemix'] as bool? ?? true,
       allowDownload: map['allowDownload'] as bool? ?? true,
       isAiGenerated: map['isAiGenerated'] as bool? ?? false,
       isBrandedContent: map['isBrandedContent'] as bool? ?? false,

@@ -4,6 +4,8 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_webrtc/flutter_webrtc.dart';
 
+import '../../../shared/audio/mic_coordinator.dart';
+
 /// Where call audio plays.
 enum AudioRoute { earpiece, speaker, bluetooth, wired }
 
@@ -32,6 +34,10 @@ class CallMediaState {
   final AudioRoute audioRoute;
   final List<AudioOutputOption> outputs;
 
+  /// Display media stream when screen sharing is active.
+  final MediaStream? screenStream;
+  final bool isScreenSharing;
+
   const CallMediaState({
     this.localStream,
     this.isAudioMuted = false,
@@ -41,10 +47,13 @@ class CallMediaState {
     this.streamRevision = 0,
     this.audioRoute = AudioRoute.earpiece,
     this.outputs = const [],
+    this.screenStream,
+    this.isScreenSharing = false,
   });
 
   bool get hasVideoTrack => localStream?.getVideoTracks().isNotEmpty ?? false;
   bool get hasBluetooth => outputs.any((o) => o.route == AudioRoute.bluetooth);
+  bool get isScreenSharingActive => isScreenSharing && screenStream != null;
 
   CallMediaState copyWith({
     MediaStream? localStream,
@@ -55,6 +64,9 @@ class CallMediaState {
     int? streamRevision,
     AudioRoute? audioRoute,
     List<AudioOutputOption>? outputs,
+    MediaStream? screenStream,
+    bool? isScreenSharing,
+    bool clearScreenStream = false,
   }) {
     return CallMediaState(
       localStream: localStream ?? this.localStream,
@@ -65,6 +77,8 @@ class CallMediaState {
       streamRevision: streamRevision ?? this.streamRevision,
       audioRoute: audioRoute ?? this.audioRoute,
       outputs: outputs ?? this.outputs,
+      screenStream: clearScreenStream ? null : (screenStream ?? this.screenStream),
+      isScreenSharing: isScreenSharing ?? (clearScreenStream ? false : this.isScreenSharing),
     );
   }
 }
@@ -76,6 +90,11 @@ final callMediaServiceProvider =
 class CallMediaService extends Notifier<CallMediaState> {
   @override
   CallMediaState build() => const CallMediaState();
+
+  /// The call owns the mic for its whole length: Ova, AI voice, voice typing
+  /// and voice notes are stopped before WebRTC opens it, and can't take it
+  /// until the call ends. WebRTC handles audio focus itself.
+  MicLease? _micLease;
 
   static const Map<String, dynamic> _videoConstraints = {
     'facingMode': 'user',
@@ -113,6 +132,12 @@ class CallMediaService extends Notifier<CallMediaState> {
   /// Opens the microphone (and camera for video calls).
   Future<void> initializeMedia({required bool video}) async {
     if (state.localStream != null) return;
+    final got = await MicCoordinator.instance.acquire(
+      MicUser.call,
+      onPreempted: () async {},
+      takeFocus: false,
+    );
+    if (got is MicLease) _micLease = got;
     final stream = await navigator.mediaDevices.getUserMedia({
       'audio': _audioConstraints(enhanced: state.isVoiceEnhanced),
       'video': video ? _videoConstraints : false,
@@ -351,14 +376,87 @@ class CallMediaService extends Notifier<CallMediaState> {
     }
   }
 
+  /// Starts device screen sharing while preserving the camera stream ("stay camera").
+  /// Returns the screen video track so the WebRTC mesh can replace the outgoing track.
+  Future<MediaStreamTrack?> startScreenShare() async {
+    if (state.isScreenSharing) return state.screenStream?.getVideoTracks().firstOrNull;
+    try {
+      final stream = await navigator.mediaDevices.getDisplayMedia({
+        'video': {
+          'width': {'ideal': 1920},
+          'height': {'ideal': 1080},
+          'frameRate': {'ideal': 30, 'max': 30},
+        },
+        'audio': false,
+      });
+      final track = stream.getVideoTracks().firstOrNull;
+      if (track == null) return null;
+
+      track.onEnded = () {
+        debugPrint('[CallMedia] screen sharing ended by system');
+        stopScreenShare();
+      };
+
+      state = state.copyWith(
+        screenStream: stream,
+        isScreenSharing: true,
+        streamRevision: state.streamRevision + 1,
+      );
+      return track;
+    } catch (e) {
+      debugPrint('[CallMedia] startScreenShare failed: $e');
+      return null;
+    }
+  }
+
+  /// Stops screen sharing and restores the local camera track ("stay camera").
+  /// Returns the camera video track (or null if camera is off) to swap back into WebRTC.
+  Future<MediaStreamTrack?> stopScreenShare() async {
+    final stream = state.screenStream;
+    if (stream != null) {
+      for (final t in stream.getTracks()) {
+        try {
+          await t.stop();
+        } catch (_) {}
+      }
+      try {
+        await stream.dispose();
+      } catch (_) {}
+    }
+
+    state = state.copyWith(
+      clearScreenStream: true,
+      isScreenSharing: false,
+      streamRevision: state.streamRevision + 1,
+    );
+
+    // Return the camera track to resume camera video if camera is on
+    final camTracks = state.localStream?.getVideoTracks() ?? const <MediaStreamTrack>[];
+    return state.isVideoOn && camTracks.isNotEmpty ? camTracks.first : null;
+  }
+
   Future<void> disposeMedia() async {
     navigator.mediaDevices.ondevicechange = null;
+    final lease = _micLease;
+    _micLease = null;
+    unawaited(lease?.release());
     final stream = state.localStream;
+    final screen = state.screenStream;
     final keepVoiceClean = state.isVoiceEnhanced;
     state = CallMediaState(isVoiceEnhanced: keepVoiceClean);
     try {
       await Helper.setSpeakerphoneOn(false);
     } catch (_) {}
+    if (screen != null) {
+      for (final t in screen.getTracks()) {
+        try {
+          await t.stop();
+        } catch (_) {}
+      }
+      try {
+        await screen.dispose();
+      } catch (_) {}
+    }
     if (stream == null) return;
     for (final t in stream.getTracks()) {
       try {

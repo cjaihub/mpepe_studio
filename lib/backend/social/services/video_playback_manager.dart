@@ -7,14 +7,24 @@ import 'package:media_kit_video/media_kit_video.dart';
 import '../models/content.dart';
 import 'recommendation_service.dart';
 import '../../../feed/services/reel_prefetcher.dart';
+import '../../../shared/audio/mic_coordinator.dart';
 
 final videoPlaybackManagerProvider = Provider<VideoPlaybackManager>((ref) {
-  return VideoPlaybackManager(ref.read(recommendationServiceProvider), ref.read(reelPrefetcherProvider));
+  final manager = VideoPlaybackManager(
+    ref.read(recommendationServiceProvider),
+    ref.read(reelPrefetcherProvider),
+  );
+  ref.onDispose(manager.dispose);
+  return manager;
 });
 
-/// Global route observer used by feed screens to detect when another full screen
+/// Global route observer used by root routes to detect when another full screen
 /// or route is pushed on top, enabling auto-mute and auto-pause.
 final RouteObserver<ModalRoute<void>> mainFeedRouteObserver = RouteObserver<ModalRoute<void>>();
+
+/// Separate route observer for the nested `/hub/home` branch Navigator so a
+/// single [NavigatorObserver] is never attached to two Navigators simultaneously.
+final RouteObserver<ModalRoute<void>> homeBranchRouteObserver = RouteObserver<ModalRoute<void>>();
 
 /// One reusable media_kit [Player] + [VideoController] pair.
 class _PlayerSlot {
@@ -71,11 +81,90 @@ class VideoPlaybackManager {
   bool get isScreenActive => _isScreenActive;
   final ValueNotifier<bool> screenActiveNotifier = ValueNotifier<bool>(true);
 
+  /// When true, a phone or video call is active (ringing, connecting, or connected).
+  /// All video playback and audio across feeds is forced silent (0.0 volume) and paused.
+  bool _isCallActive = false;
+  bool get isCallActive => _isCallActive;
+
+  /// True whenever reels must stay completely silent and paused:
+  /// screen not active, active phone/video call, or any microphone session active.
+  bool get isSilenced =>
+      !_isScreenActive ||
+      _isCallActive ||
+      MicCoordinator.instance.owner.value != null;
+
+  void _silenceAllSlots() {
+    for (final slot in _slots) {
+      slot.player.setVolume(0.0);
+      if (slot.contentId != null || slot.player.state.playing) {
+        slot.player.pause();
+      }
+    }
+    activeReelBuffering.value = false;
+    _prefetcher.setActiveReelBuffering(false);
+  }
+
+  void _restoreActiveSlot() {
+    if (isSilenced || _activeContentId == null) return;
+    final slot = _slotFor(_activeContentId!);
+    if (slot != null) {
+      slot.player.setVolume(_isMuted ? 0.0 : 100.0);
+      if (slot.player.state.completed) {
+        slot.player.seek(Duration.zero);
+      }
+      if (!slot.player.state.playing) {
+        slot.player.play();
+      }
+      activeReelBuffering.value = slot.player.state.buffering;
+      _prefetcher.setActiveReelBuffering(slot.player.state.buffering);
+    }
+  }
+
+  /// Pauses and mutes all cached slots immediately (e.g. when scrolling onto a
+  /// non-video card like a Live slot or photo).
+  void pauseAllSlots({bool clearActive = false}) {
+    if (clearActive) {
+      _activeContentId = null;
+    }
+    _silenceAllSlots();
+    slotsRevision.value++;
+  }
+
+  void _onMicOwnerChanged() {
+    final micOwner = MicCoordinator.instance.owner.value;
+    debugPrint('[VideoPlaybackManager] mic owner changed: $micOwner');
+    if (micOwner != null) {
+      _silenceAllSlots();
+      slotsRevision.value++;
+    } else if (!isSilenced) {
+      _restoreActiveSlot();
+      slotsRevision.value++;
+    }
+  }
+
+  /// Sets whether a live phone/video call is active. When true, all background video
+  /// audio is auto-muted and playback is paused. When false (call finished), playback
+  /// and volume are cleanly restored if the feed is on screen.
+  void setCallActive(bool inCall) {
+    if (_isCallActive == inCall) return;
+    _isCallActive = inCall;
+    debugPrint('[VideoPlaybackManager] setCallActive: $inCall');
+
+    if (inCall || isSilenced) {
+      _silenceAllSlots();
+      slotsRevision.value++;
+    } else {
+      _restoreActiveSlot();
+      slotsRevision.value++;
+    }
+  }
+
   /// Active content currently on screen.
   String? _activeContentId;
+  String? get activeContentId => _activeContentId;
 
-  /// Slot that was playing when the app went to the background.
-  _PlayerSlot? _pausedByLifecycle;
+  /// True when the active reel was playing right before the app entered background.
+  bool _pausedActiveForBackground = false;
 
   late final AppLifecycleListener _lifecycle;
   AppLifecycleListener get lifecycle => _lifecycle;
@@ -93,13 +182,20 @@ class VideoPlaybackManager {
       onResume: _resumeFromBackground,
       onShow: _resumeFromBackground,
     );
+    MicCoordinator.instance.owner.addListener(_onMicOwnerChanged);
     _startStallWatchdog();
+  }
+
+  void dispose() {
+    MicCoordinator.instance.owner.removeListener(_onMicOwnerChanged);
+    _stallWatchdog?.cancel();
+    _lifecycle.dispose();
   }
 
   void _startStallWatchdog() {
     _stallWatchdog?.cancel();
     _stallWatchdog = Timer.periodic(const Duration(milliseconds: 1500), (_) {
-      if (!_isScreenActive) return;
+      if (isSilenced) return;
       final activeId = _activeContentId;
       if (activeId == null) return;
       final slot = _slotFor(activeId);
@@ -132,7 +228,7 @@ class VideoPlaybackManager {
   Future<void> _recoverStalledSlot(_PlayerSlot slot) async {
     final id = slot.contentId;
     final url = slot.mediaUrl;
-    if (id == null || url == null || slot.isRecovering || !_isScreenActive) return;
+    if (id == null || url == null || slot.isRecovering || isSilenced || _activeContentId != id) return;
 
     slot.isRecovering = true;
     _stallTicks = 0;
@@ -142,10 +238,16 @@ class VideoPlaybackManager {
       await slot.player.stop();
       // If we loaded from a local cached file, evict in case of corruption
       await _prefetcher.evictCorruptVideo(url);
-      if (slot.contentId == id && _isScreenActive) {
-        await slot.player.open(Media(url), play: true);
-        if (pos > Duration.zero) {
+      if (slot.contentId == id) {
+        final canPlay = _activeContentId == id && !isSilenced;
+        slot.player.setVolume(canPlay ? (_isMuted ? 0.0 : 100.0) : 0.0);
+        await slot.player.open(Media(url), play: canPlay);
+        if (pos > Duration.zero && slot.contentId == id) {
           await slot.player.seek(pos);
+        }
+        if (slot.contentId != id || _activeContentId != id || isSilenced) {
+          slot.player.setVolume(0.0);
+          await slot.player.pause();
         }
       }
     } catch (e) {
@@ -156,22 +258,22 @@ class VideoPlaybackManager {
   }
 
   void _pauseForBackground() {
-    for (final slot in _slots) {
-      slot.player.setVolume(0.0);
-      if (slot.contentId != null && slot.player.state.playing) {
-        _pausedByLifecycle = slot;
-        slot.player.pause();
+    final activeId = _activeContentId;
+    if (activeId != null) {
+      final activeSlot = _slotFor(activeId);
+      if (activeSlot != null && activeSlot.player.state.playing) {
+        _pausedActiveForBackground = true;
       }
     }
+    _silenceAllSlots();
   }
 
   void _resumeFromBackground() {
-    final slot = _pausedByLifecycle;
-    _pausedByLifecycle = null;
-    if (!_isScreenActive) return;
-    if (slot != null && slot.contentId != null) {
-      slot.player.setVolume(_isMuted ? 0.0 : 100.0);
-      slot.player.play();
+    final shouldResume = _pausedActiveForBackground;
+    _pausedActiveForBackground = false;
+    if (isSilenced) return;
+    if (shouldResume) {
+      _restoreActiveSlot();
     }
   }
 
@@ -197,35 +299,13 @@ class VideoPlaybackManager {
     if (_isScreenActive == active) return;
     _isScreenActive = active;
     screenActiveNotifier.value = active;
-    debugPrint('[VideoPlaybackManager] setScreenActive: $active (muted: $_isMuted, activeContent: $_activeContentId)');
+    debugPrint('[VideoPlaybackManager] setScreenActive: $active (callActive: $_isCallActive, mic: ${MicCoordinator.instance.owner.value}, muted: $_isMuted, activeContent: $_activeContentId)');
 
-    if (!active) {
-      // Force-mute all slots and pause any playing video
-      for (final slot in _slots) {
-        slot.player.setVolume(0.0);
-        if (slot.player.state.playing) {
-          slot.player.pause();
-        }
-      }
-      activeReelBuffering.value = false;
-      _prefetcher.setActiveReelBuffering(false);
+    if (isSilenced) {
+      _silenceAllSlots();
       slotsRevision.value++;
     } else {
-      // Restore current video volume and resume playback (honoring user's manual mute choice)
-      if (_activeContentId != null) {
-        final slot = _slotFor(_activeContentId!);
-        if (slot != null) {
-          slot.player.setVolume(_isMuted ? 0.0 : 100.0);
-          if (slot.player.state.completed) {
-            slot.player.seek(Duration.zero);
-          }
-          if (!slot.player.state.playing) {
-            slot.player.play();
-          }
-          activeReelBuffering.value = slot.player.state.buffering;
-          _prefetcher.setActiveReelBuffering(slot.player.state.buffering);
-        }
-      }
+      _restoreActiveSlot();
       slotsRevision.value++;
     }
   }
@@ -233,14 +313,20 @@ class VideoPlaybackManager {
   /// Ensures that the active reel is actively playing without stalling
   void ensureCurrentPlaying(String contentId) {
     _activeContentId = contentId;
+    for (final s in _slots) {
+      if (s.contentId != contentId) {
+        s.player.setVolume(0.0);
+        if (s.contentId != null || s.player.state.playing) {
+          s.player.pause();
+        }
+      }
+    }
     final slot = _slotFor(contentId);
     if (slot != null) {
       final p = slot.player;
-      if (!_isScreenActive) {
+      if (isSilenced) {
         p.setVolume(0.0);
-        if (p.state.playing) {
-          p.pause();
-        }
+        p.pause();
         return;
       }
       p.setVolume(_isMuted ? 0.0 : 100.0);
@@ -270,8 +356,14 @@ class VideoPlaybackManager {
     if (currentIndex < feed.length - 2) {
       keepIds.add(feed[currentIndex + 2].id);
     }
-    final currentId = feed[currentIndex].id;
+    final currentContent = feed[currentIndex];
+    final currentId = currentContent.id;
     _activeContentId = currentId;
+
+    if (currentContent.type == ContentType.photo) {
+      activeReelBuffering.value = false;
+      _prefetcher.setActiveReelBuffering(false);
+    }
 
     // Release slots holding content outside the keep set
     for (final slot in _slots) {
@@ -293,10 +385,11 @@ class VideoPlaybackManager {
         if (slot == null) continue;
         _loadIntoSlot(slot, content, isCurrent);
       } else {
-        // Strict audio isolation: only current reel plays audio when screen is active
-        existing.player.setVolume((isCurrent && _isScreenActive) ? (_isMuted ? 0.0 : 100.0) : 0.0);
-        // Play if current and screen is active, pause if preloaded background buffer or screen inactive
-        if (isCurrent && _isScreenActive) {
+        final canPlay = isCurrent && !isSilenced;
+        // Strict audio isolation: only current reel plays audio when screen is active & unsilenced
+        existing.player.setVolume(canPlay ? (_isMuted ? 0.0 : 100.0) : 0.0);
+        // Play if current and unsilenced, pause if preloaded background buffer or silenced
+        if (canPlay) {
           activeReelBuffering.value = existing.player.state.buffering;
           _prefetcher.setActiveReelBuffering(existing.player.state.buffering);
           if (existing.player.state.completed) {
@@ -323,8 +416,31 @@ class VideoPlaybackManager {
     final player = Player(configuration: const PlayerConfiguration(bufferSize: playerBufferBytes));
     final slot = _PlayerSlot(player, VideoController(player));
 
+    // Ironclad playback & audio guard: if libmpv finishes async open/demux after
+    // the user scrolled away, switched tabs, or activated a mic/call, silence & pause immediately.
+    player.stream.playing.listen((isPlaying) {
+      if (!isPlaying) return;
+      final allowed = slot.contentId != null &&
+          slot.contentId == _activeContentId &&
+          !isSilenced;
+      if (!allowed) {
+        player.setVolume(0.0);
+        player.pause();
+      } else {
+        player.setVolume(_isMuted ? 0.0 : 100.0);
+      }
+    });
+
     // Track real playback events for whichever content the slot currently holds
     player.stream.position.listen((pos) {
+      final allowed = slot.contentId != null &&
+          slot.contentId == _activeContentId &&
+          !isSilenced;
+      if (!allowed && (player.state.playing || player.state.volume > 0.0)) {
+        player.setVolume(0.0);
+        player.pause();
+        return;
+      }
       // Keep track of the max position reached as watch time
       if (slot.contentId != null && pos > slot.watchTime) {
         slot.watchTime = pos;
@@ -338,7 +454,7 @@ class VideoPlaybackManager {
     });
 
     player.stream.buffering.listen((isBuffering) {
-      if (slot.contentId == _activeContentId) {
+      if (slot.contentId == _activeContentId && !isSilenced) {
         activeReelBuffering.value = isBuffering;
         _prefetcher.setActiveReelBuffering(isBuffering);
       }
@@ -349,7 +465,10 @@ class VideoPlaybackManager {
       final url = slot.mediaUrl;
       if (url != null) {
         unawaited(_prefetcher.evictCorruptVideo(url));
-        if (slot.contentId != null && !slot.isRecovering) {
+        if (slot.contentId != null &&
+            slot.contentId == _activeContentId &&
+            !isSilenced &&
+            !slot.isRecovering) {
           _recoverStalledSlot(slot);
         }
       }
@@ -365,8 +484,8 @@ class VideoPlaybackManager {
     slot.mediaUrl = content.mediaUrl;
     slot.watchTime = Duration.zero;
     final player = slot.player;
-    final shouldPlay = autoPlay && _isScreenActive;
-    // Strict audio isolation: only active reel gets volume if screen is active
+    final shouldPlay = autoPlay && !isSilenced && _activeContentId == content.id;
+    // Strict audio isolation: only active reel gets volume if screen is active & unsilenced
     player.setVolume(shouldPlay ? (_isMuted ? 0.0 : 100.0) : 0.0);
     player.setPlaylistMode(PlaylistMode.single);
 
@@ -376,7 +495,8 @@ class VideoPlaybackManager {
       player.open(Media(local), play: shouldPlay);
       slotsRevision.value++;
     } else {
-      // Open network source immediately for zero startup latency, then resolve local cache
+      // Open network source immediately for zero startup latency, then upgrade
+      // background preloaded slots to the local cached file WITHOUT auto-playing.
       player.open(Media(content.mediaUrl), play: shouldPlay);
       slotsRevision.value++;
 
@@ -384,8 +504,10 @@ class VideoPlaybackManager {
         if (resolved != content.mediaUrl &&
             slot.contentId == content.id &&
             slot.generation == gen &&
+            _activeContentId != content.id &&
             !player.state.playing) {
-          player.open(Media(resolved), play: shouldPlay);
+          player.setVolume(0.0);
+          player.open(Media(resolved), play: false);
         }
       }).catchError((_) {});
     }
@@ -402,6 +524,7 @@ class VideoPlaybackManager {
     slot.mediaUrl = null;
     slot.watchTime = Duration.zero;
     slot.generation++;
+    slot.player.setVolume(0.0);
     // stop() unloads the media and frees its buffers; the mpv handle is kept for reuse.
     slot.player.stop();
     slotsRevision.value++;
@@ -413,8 +536,8 @@ class VideoPlaybackManager {
       final player = slot.player;
       if (player.state.playing) {
         player.pause();
-      } else {
-        player.setVolume((_isMuted || !_isScreenActive) ? 0.0 : 100.0);
+      } else if (!isSilenced && _activeContentId == contentId) {
+        player.setVolume(_isMuted ? 0.0 : 100.0);
         player.play();
       }
     }
@@ -423,7 +546,7 @@ class VideoPlaybackManager {
   void setMute(String contentId, bool mute) {
     _isMuted = mute;
     for (final slot in _slots) {
-      if (slot.contentId == contentId && _isScreenActive) {
+      if (slot.contentId == contentId && _activeContentId == contentId && !isSilenced) {
         slot.player.setVolume(mute ? 0.0 : 100.0);
       } else {
         slot.player.setVolume(0.0);

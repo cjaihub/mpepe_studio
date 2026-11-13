@@ -1,10 +1,59 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:oneova/backend/mask_engine/api/mask_engine_provider.dart';
 import 'package:oneova/shared/theme/app_theme.dart';
 
 class MaskStackPanel extends ConsumerWidget {
   const MaskStackPanel({super.key});
+
+  Future<void> _confirmDeleteMask(
+    BuildContext context,
+    WidgetRef ref,
+    String layerId,
+    String layerName,
+  ) async {
+    HapticFeedback.lightImpact();
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: ctx.surface,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(AppRadius.lg),
+          side: BorderSide(color: ctx.border),
+        ),
+        title: Text(
+          'Delete Mask Layer',
+          style: TextStyle(
+            color: ctx.textPrimary,
+            fontSize: 16,
+            fontWeight: FontWeight.w700,
+          ),
+        ),
+        content: Text(
+          'Remove "$layerName" from the mask stack?',
+          style: TextStyle(color: ctx.textSecondary, fontSize: 13),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(false),
+            child: Text('Cancel', style: TextStyle(color: ctx.textSecondary)),
+          ),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(
+              backgroundColor: AppColors.brandPink,
+              foregroundColor: Colors.white,
+            ),
+            onPressed: () => Navigator.of(ctx).pop(true),
+            child: const Text('Delete'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed == true) {
+      ref.read(maskLayerManagerProvider).removeLayer(layerId);
+    }
+  }
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -17,29 +66,38 @@ class MaskStackPanel extends ConsumerWidget {
         return Container(
           width: 240,
           decoration: BoxDecoration(
-            color: AppColors.darkSurface.withValues(alpha: 0.85),
-            border: Border(right: BorderSide(color: AppColors.outline.withValues(alpha: 0.5))),
+            color: context.surface.withValues(alpha: 0.92),
+            border: Border(right: BorderSide(color: context.border)),
           ),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              const Padding(
-                padding: EdgeInsets.all(12.0),
-                child: Text('MASKS', style: TextStyle(color: AppColors.textSecondary, fontWeight: FontWeight.bold, fontSize: 12)),
+              Padding(
+                padding: const EdgeInsets.all(12.0),
+                child: Text(
+                  'MASKS',
+                  style: TextStyle(
+                    color: context.textSecondary,
+                    fontWeight: FontWeight.bold,
+                    fontSize: 12,
+                  ),
+                ),
               ),
-              const Divider(height: 1, color: Colors.white12),
+              Divider(height: 1, color: context.border),
               Expanded(
                 child: layers.isEmpty
-                    ? const Center(
-                        child: Text('No masks created', style: TextStyle(color: AppColors.textSecondary, fontSize: 12)),
+                    ? Center(
+                        child: Text(
+                          'No masks created',
+                          style: TextStyle(color: context.textSecondary, fontSize: 12),
+                        ),
                       )
                     : ListView.builder(
                         itemCount: layers.length,
                         itemBuilder: (context, index) {
-                          // Reverse order to show newest on top (typical stack)
                           final layer = layers[layers.length - 1 - index];
                           final isActive = layerManager.activeLayerId == layer.id;
-    
+
                           return InkWell(
                             onTap: () {
                               ref.read(maskLayerManagerProvider).selectLayer(layer.id);
@@ -54,7 +112,7 @@ class MaskStackPanel extends ConsumerWidget {
                                     child: Icon(
                                       layer.isVisible ? Icons.visibility : Icons.visibility_off,
                                       size: 18,
-                                      color: layer.isVisible ? AppColors.textPrimary : AppColors.textSecondary,
+                                      color: layer.isVisible ? context.textPrimary : context.textSecondary,
                                     ),
                                   ),
                                   const SizedBox(width: 8),
@@ -62,7 +120,7 @@ class MaskStackPanel extends ConsumerWidget {
                                     child: Text(
                                       layer.name,
                                       style: TextStyle(
-                                        color: isActive ? AppColors.brandBlue : AppColors.textPrimary,
+                                        color: isActive ? AppColors.brandBlue : context.textPrimary,
                                         fontWeight: isActive ? FontWeight.bold : FontWeight.normal,
                                         fontSize: 13,
                                       ),
@@ -73,18 +131,18 @@ class MaskStackPanel extends ConsumerWidget {
                                     child: Icon(
                                       layer.isLocked ? Icons.lock : Icons.lock_open,
                                       size: 16,
-                                      color: layer.isLocked ? AppColors.textPrimary : AppColors.textSecondary,
+                                      color: layer.isLocked ? context.textPrimary : context.textSecondary,
                                     ),
                                   ),
                                   const SizedBox(width: 8),
                                   GestureDetector(
-                                    onTap: () {
-                                      // TODO: Delete logic
-                                    },
-                                    child: const Icon(
+                                    onTap: layer.isLocked
+                                        ? null
+                                        : () => _confirmDeleteMask(context, ref, layer.id, layer.name),
+                                    child: Icon(
                                       Icons.delete_outline,
                                       size: 16,
-                                      color: AppColors.textSecondary,
+                                      color: layer.isLocked ? context.textMuted : context.textSecondary,
                                     ),
                                   ),
                                 ],
@@ -97,7 +155,7 @@ class MaskStackPanel extends ConsumerWidget {
             ],
           ),
         );
-      }
+      },
     );
   }
 }

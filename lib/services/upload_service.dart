@@ -24,7 +24,10 @@ class UploadService {
     required bool allowComments,
     required bool allowDuet,
     bool allowStitch = true,
+    bool allowRemix = true,
     bool allowDownload = true,
+    // {contentId, authorId, authorName} of the post this remixes.
+    Map<String, dynamic>? remixOf,
     required bool highQualityUploads,
     String? location,
     String? link,
@@ -211,7 +214,23 @@ class UploadService {
           'allowComments': allowComments,
           'allowDuet': allowDuet,
           'allowStitch': allowStitch,
+          'allowRemix': allowRemix,
           'allowDownload': allowDownload,
+        },
+        // Checked by the remixOnCreate function, which records the earnings
+        // split (remix_links) or rejects a remix the creator did not allow.
+        if (remixOf != null && remixOf['contentId'] is String) ...{
+          'remixOf': {
+            'contentId': remixOf['contentId'],
+            'authorId': remixOf['authorId'],
+            'authorName': remixOf['authorName'] ?? '',
+            'status': 'pending',
+          },
+          'attribution': {
+            'originalContentId': remixOf['contentId'],
+            'originalAuthorId': remixOf['authorId'],
+            'derivativeType': 'remix',
+          },
         },
         'crossPublishChannels': allDestinations.map((d) => d.name).toList(),
         'isFastTrendBoosted': isFastTrendBoosted,

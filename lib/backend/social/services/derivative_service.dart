@@ -1,3 +1,4 @@
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:uuid/uuid.dart';
 import '../models/content.dart';
@@ -89,9 +90,21 @@ class DerivativeService {
       createdAt: DateTime.now(),
     );
 
-    // In a real app: await _firestore.collection('content').doc(derivativeContent.id).set(derivativeContent.toMap());
-    await Future.delayed(const Duration(milliseconds: 300));
-    
+    // Saved like any post; a remix also carries remixOf so the server
+    // (functions/src/remix.ts) can verify it and record the earnings split.
+    await FirebaseFirestore.instance.collection('content').doc(derivativeContent.id).set({
+      ...derivativeContent.toMap(),
+      'id': derivativeContent.id,
+      'permissions': {'allowDuet': true, 'allowStitch': true, 'allowRemix': true, 'allowComments': true},
+      'attribution': {
+        'originalContentId': originalContent.id,
+        'originalAuthorId': originalContent.authorId,
+        'derivativeType': type.name,
+      },
+      if (type == DerivativeType.remix)
+        'remixOf': {'contentId': originalContent.id, 'authorId': originalContent.authorId, 'status': 'pending'},
+    });
+
     return derivativeContent;
   }
 }

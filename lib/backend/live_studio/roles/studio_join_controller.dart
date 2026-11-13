@@ -79,6 +79,7 @@ class StudioJoinController extends Notifier<StudioJoinView> {
   StreamSubscription<StudioRequestDoc?>? _docSub;
   StudioRequestDoc? _doc;
   StudioRole _role = StudioRole.viewer;
+  bool _initialized = false;
   int? _rejoinedFor;
   Future<void>? _rejoining;
 
@@ -86,8 +87,10 @@ class StudioJoinController extends Notifier<StudioJoinView> {
 
   @override
   StudioJoinView build() {
+    _initialized = false;
     final uid = ref.watch(studioMyUidProvider);
     final room = ref.watch(studioRolesRoomProvider(streamId));
+    _role = ref.read(studioMyRoleProvider(streamId)).value ?? StudioRole.viewer;
     _eventsSub = room.events.listen((e) {
       if (e is JoinRequestEvent && e.request.uid == uid) _onEvent(e.request);
     });
@@ -103,12 +106,19 @@ class StudioJoinController extends Notifier<StudioJoinView> {
       if (r == null) return;
       _role = r;
       _recompute();
-    }, fireImmediately: true);
+    });
     ref.onDispose(() {
+      _initialized = false;
       unawaited(_eventsSub?.cancel());
       unawaited(_docSub?.cancel());
     });
-    return const StudioJoinView();
+    final initialPhase = _phaseFor(_role, _doc?.request.status);
+    _initialized = true;
+    return StudioJoinView(
+      phase: initialPhase,
+      role: _role,
+      publishing: _role == StudioRole.coHost,
+    );
   }
 
   StudioJoinPhase _phaseFor(StudioRole role, JoinRequestStatus? status) {
@@ -123,7 +133,7 @@ class StudioJoinController extends Notifier<StudioJoinView> {
   }
 
   void _recompute() {
-    if (!ref.mounted) return;
+    if (!_initialized || !ref.mounted) return;
     final phase = _phaseFor(_role, _doc?.request.status);
     state = state.copyWith(
       phase: phase,

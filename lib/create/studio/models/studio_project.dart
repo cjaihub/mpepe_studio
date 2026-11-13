@@ -3,6 +3,8 @@ import 'dart:math' as math;
 import 'package:uuid/uuid.dart';
 
 import 'studio_text_style.dart';
+import '../../../backend/social/models/remix_source.dart';
+export '../../../backend/social/models/remix_source.dart' show RemixSource;
 
 export 'studio_text_style.dart';
 
@@ -970,6 +972,9 @@ class StudioProject {
   /// Short side picked in the export sheet (0 = best for the media).
   final int exportShortSide;
 
+  /// Set when this project remixes someone's post.
+  final RemixSource? remixOf;
+
   const StudioProject({
     required this.id,
     required this.title,
@@ -985,9 +990,10 @@ class StudioProject {
     this.coverMs = 0,
     this.thumbnailPath,
     this.exportShortSide = 0,
+    this.remixOf,
   });
 
-  factory StudioProject.create({required bool isPhoto, List<StudioClip> clips = const [], int exportShortSide = 0}) {
+  factory StudioProject.create({required bool isPhoto, List<StudioClip> clips = const [], int exportShortSide = 0, RemixSource? remixOf}) {
     final now = DateTime.now();
     return StudioProject(
       id: _uuid.v4(),
@@ -998,6 +1004,7 @@ class StudioProject {
       aspect: StudioAspect.original,
       clips: clips,
       exportShortSide: exportShortSide,
+      remixOf: remixOf,
     );
   }
 
@@ -1065,6 +1072,7 @@ class StudioProject {
         coverMs: coverMs ?? this.coverMs,
         thumbnailPath: thumbnailPath ?? this.thumbnailPath,
         exportShortSide: exportShortSide ?? this.exportShortSide,
+        remixOf: remixOf,
       );
 
   Map<String, dynamic> toJson() => {
@@ -1082,6 +1090,7 @@ class StudioProject {
         'coverMs': coverMs,
         'thumbnailPath': thumbnailPath,
         'exportShortSide': exportShortSide,
+        if (remixOf != null) 'remixOf': remixOf!.toJson(),
       };
 
   factory StudioProject.fromJson(Map<String, dynamic> m) => StudioProject(
@@ -1098,6 +1107,7 @@ class StudioProject {
         overlays: [for (final o in (m['overlays'] as List? ?? const [])) StudioOverlay.fromJson((o as Map).cast<String, dynamic>())],
         coverMs: (m['coverMs'] as num?)?.toInt() ?? 0,
         thumbnailPath: m['thumbnailPath'] as String?,
+        remixOf: RemixSource.fromJson(m['remixOf']),
         exportShortSide: (m['exportShortSide'] as num?)?.toInt() ?? 0,
       );
 }

@@ -1,5 +1,3 @@
-import 'package:uuid/uuid.dart';
-
 enum CollectionType {
   playlist,
   learningSeries,
@@ -66,41 +64,32 @@ class MediaCollection {
     this.items = const [],
   });
 
-  factory MediaCollection.mockPlaylist() {
+  factory MediaCollection.fromMap(String id, Map<String, dynamic> m) {
+    T pick<T extends Enum>(List<T> values, Object? raw, T fallback) =>
+        values.firstWhere((v) => v.name == raw, orElse: () => fallback);
+    final rawItems = (m['items'] as List?) ?? const [];
     return MediaCollection(
-      id: const Uuid().v4(),
-      creatorId: 'user_1',
-      type: CollectionType.playlist,
-      title: 'Cinematic Vlogs 2026',
-      description: 'A collection of all my cinematic vlogs from this year.',
-      coverUrl: 'https://picsum.photos/400/400?random=10',
-      visibility: CollectionVisibility.public,
+      id: id,
+      creatorId: (m['creatorId'] as String?) ?? '',
+      type: pick(CollectionType.values, m['type'], CollectionType.playlist),
+      title: (m['title'] as String?) ?? '',
+      description: (m['description'] as String?) ?? '',
+      coverUrl: (m['coverUrl'] as String?) ?? '',
+      visibility: pick(CollectionVisibility.values, m['visibility'], CollectionVisibility.public),
+      accessPolicy: pick(AccessPolicy.values, m['accessPolicy'], AccessPolicy.free),
+      price: (m['price'] as num?)?.toDouble(),
+      previewVideoUrl: m['previewVideoUrl'] as String?,
+      averageRating: (m['averageRating'] as num?)?.toDouble() ?? 0,
+      reviewCount: (m['reviewCount'] as num?)?.toInt() ?? 0,
       items: [
-        PlaylistItem(id: const Uuid().v4(), postId: 'post_1', orderIndex: 0),
-        PlaylistItem(id: const Uuid().v4(), postId: 'post_2', orderIndex: 1),
-      ],
-    );
-  }
-
-  factory MediaCollection.mockPremiumSeries() {
-    return MediaCollection(
-      id: const Uuid().v4(),
-      creatorId: 'user_2',
-      type: CollectionType.premiumSeries,
-      title: 'Advanced Video Editing Masterclass',
-      description: 'Learn how to edit like a pro using ONEROVA.',
-      coverUrl: 'https://picsum.photos/400/400?random=11',
-      visibility: CollectionVisibility.public,
-      accessPolicy: AccessPolicy.premium,
-      price: 29.99,
-      previewVideoUrl: 'https://sample-videos.com/video123/mp4/720/big_buck_bunny_720p_1mb.mp4',
-      averageRating: 4.8,
-      reviewCount: 124,
-      items: [
-        PlaylistItem(id: const Uuid().v4(), postId: 'post_10', orderIndex: 0),
-        PlaylistItem(id: const Uuid().v4(), postId: 'post_11', orderIndex: 1),
-        PlaylistItem(id: const Uuid().v4(), postId: 'post_12', orderIndex: 2),
-      ],
+        for (var i = 0; i < rawItems.length; i++)
+          if (rawItems[i] is Map)
+            PlaylistItem(
+              id: (rawItems[i]['id'] as String?) ?? '$id-$i',
+              postId: (rawItems[i]['postId'] as String?) ?? '',
+              orderIndex: (rawItems[i]['orderIndex'] as num?)?.toInt() ?? i,
+            ),
+      ]..sort((x, y) => x.orderIndex.compareTo(y.orderIndex)),
     );
   }
 }

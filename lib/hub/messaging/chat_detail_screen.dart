@@ -44,7 +44,10 @@ import 'package:url_launcher/url_launcher.dart';
 import 'chat_assist_service.dart';
 import 'widgets/chat_compact_cards.dart';
 import 'widgets/chat_background.dart';
+import 'package:firebase_storage/firebase_storage.dart';
 import '../../security/widgets/link_safety_gate.dart';
+import '../../shared/audio/mic_coordinator.dart';
+import '../../shared/widgets/oneova_smart_status_banner.dart';
 
 part 'chat_detail_upgrades.dart';
 
@@ -62,6 +65,8 @@ class _ChatDetailScreenState extends ConsumerState<ChatDetailScreen> with Single
   bool _isTyping = false;
   bool _isRecordingVoice = false;
   final AudioRecorder _audioRecorder = AudioRecorder();
+  MicLease? _voiceMicLease;
+  MessagingRepository? _messagingRepo;
   bool _showAttachments = false;
   MessageModel? _replyingTo;
 
@@ -126,6 +131,10 @@ class _ChatDetailScreenState extends ConsumerState<ChatDetailScreen> with Single
   String? _aiRepliesFor;
   bool _aiSummarizing = false;
   final List<MessageModel> _pendingLocalMessages = [];
+  String? _uploadingFileName;
+  double? _uploadProgress;
+  UploadTask? _activeUploadTask;
+  StreamSubscription<TaskSnapshot>? _uploadProgressSub;
 
   void _refresh(VoidCallback fn) {
     if (mounted) setState(fn);
@@ -225,11 +234,18 @@ class _ChatDetailScreenState extends ConsumerState<ChatDetailScreen> with Single
         
         // Report typing status to backend
         final currentUserId = FirebaseAuth.instance.currentUser?.uid;
-        if (currentUserId != null) {
-          ref.read(messagingRepositoryProvider).setTypingStatus(widget.chatId, currentUserId, isTyping);
+        if (mounted && currentUserId != null) {
+          (_messagingRepo ?? ref.read<MessagingRepository>(messagingRepositoryProvider))
+              .setTypingStatus(widget.chatId, currentUserId, isTyping);
         }
       }
     });
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    _messagingRepo = ref.read(messagingRepositoryProvider);
   }
 
   void _toggleEmojiPanel() {
@@ -829,6 +845,58 @@ class _ChatDetailScreenState extends ConsumerState<ChatDetailScreen> with Single
     }
   }
   
+  Future<void> _confirmCancelActiveUpload() async {
+    final task = _activeUploadTask;
+    if (task == null || !mounted) return;
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: ctx.surface,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(AppRadius.lg),
+          side: BorderSide(color: ctx.border, width: 1.0),
+        ),
+        title: Text(
+          'Cancel upload?',
+          style: AppTypography.sectionTitle(ctx.textPrimary),
+        ),
+        content: Text(
+          'Stop uploading "${_uploadingFileName ?? 'attachment'}"?',
+          style: AppTypography.body(ctx.textSecondary),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(false),
+            child: Text('Keep uploading', style: AppTypography.small(ctx.textSecondary)),
+          ),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(backgroundColor: AppColors.brandPink),
+            onPressed: () => Navigator.of(ctx).pop(true),
+            child: const Text('Stop upload'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed == true) {
+      await _uploadProgressSub?.cancel();
+      _uploadProgressSub = null;
+      await task.cancel();
+      if (mounted) {
+        setState(() {
+          _activeUploadTask = null;
+          _uploadingFileName = null;
+          _uploadProgress = null;
+        });
+        OneovaSmartStatus.show(
+          context,
+          title: 'Upload canceled',
+          source: 'Chat Media',
+          kind: OneovaStatusKind.info,
+        );
+      }
+    }
+  }
+
   Future<void> _uploadFileAndSend(
     File file, 
     String type, 
@@ -846,27 +914,10 @@ class _ChatDetailScreenState extends ConsumerState<ChatDetailScreen> with Single
     } catch (_) {}
 
     if (!silent && mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-        content: Row(
-          children: [
-            const SizedBox(
-              width: 14,
-              height: 14,
-              child: CircularProgressIndicator(strokeWidth: 2, color: AppColors.brandPink),
-            ),
-            const SizedBox(width: 12),
-            Expanded(
-              child: Text(
-                'Uploading $fileName...',
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-              ),
-            ),
-          ],
-        ),
-        backgroundColor: AppColors.brandBlue,
-        duration: const Duration(seconds: 4),
-      ));
+      setState(() {
+        _uploadingFileName = fileName;
+        _uploadProgress = 0.02;
+      });
     }
     
     final currentUserId = FirebaseAuth.instance.currentUser?.uid ?? 'guest';
@@ -886,20 +937,37 @@ class _ChatDetailScreenState extends ConsumerState<ChatDetailScreen> with Single
         } catch (e) {
           debugPrint('Media encryption failed: $e');
           if (mounted) {
-            ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-              content: Text('Could not encrypt this file, so it was not sent.'),
-              backgroundColor: AppColors.brandPink,
-            ));
+            OneovaSmartStatus.show(
+              context,
+              title: 'Could not encrypt this file',
+              subtitle: 'For your privacy, the attachment was not sent.',
+              source: 'Chat Security',
+              kind: OneovaStatusKind.error,
+            );
           }
           return;
         }
       }
-      final downloadUrl = await storage.uploadFile(toUpload, path);
+
+      await _uploadProgressSub?.cancel();
+      final uploadTask = storage.uploadFileWithProgress(toUpload, path);
+      _activeUploadTask = uploadTask;
+      _uploadProgressSub = uploadTask.snapshotEvents.listen((snap) {
+        if (!silent && mounted && snap.totalBytes > 0) {
+          setState(() {
+            _uploadProgress = (snap.bytesTransferred / snap.totalBytes).clamp(0.02, 0.99);
+          });
+        }
+      });
+
+      final snapshot = await uploadTask;
+      final String downloadUrl = await snapshot.ref.getDownloadURL();
+
       if (!identical(toUpload, file)) {
         toUpload.delete().catchError((_) => toUpload);
       }
 
-      if (downloadUrl != null) {
+      if (downloadUrl.isNotEmpty) {
         if (type == 'audio' && peerKey == null) {
           VoiceAudioDiskCache.seedLocalFile(downloadUrl, file.path);
         }
@@ -917,29 +985,129 @@ class _ChatDetailScreenState extends ConsumerState<ChatDetailScreen> with Single
           hasVoiceMemo: type == 'audio',
         );
         if (!silent && mounted) {
-          ScaffoldMessenger.of(context).hideCurrentSnackBar();
+          OneovaSmartStatus.show(
+            context,
+            title: 'Sent $fileName',
+            source: 'Chat Media',
+            kind: OneovaStatusKind.success,
+            duration: const Duration(milliseconds: 2400),
+          );
         }
       } else {
         if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-            content: Text('Upload failed. Please check internet connection.'),
-            backgroundColor: AppColors.brandPink,
-          ));
+          OneovaSmartStatus.show(
+            context,
+            title: 'Upload failed',
+            subtitle: 'Check your connection and tap Retry.',
+            source: 'Chat Media',
+            kind: OneovaStatusKind.error,
+            actionLabel: 'Retry',
+            onAction: () => _uploadFileAndSend(
+              file,
+              type,
+              fileName,
+              voiceDuration: voiceDuration,
+              voiceWaveform: voiceWaveform,
+              silent: silent,
+            ),
+          );
         }
       }
+    } on FirebaseException catch (e) {
+      if (e.code == 'canceled') return;
+      debugPrint('Chat upload FirebaseException: $e');
+      if (mounted) {
+        OneovaSmartStatus.show(
+          context,
+          title: 'Could not upload $fileName',
+          subtitle: e.message ?? 'Connection interrupted.',
+          source: 'Chat Media',
+          kind: OneovaStatusKind.error,
+          actionLabel: 'Retry',
+          onAction: () => _uploadFileAndSend(
+            file,
+            type,
+            fileName,
+            voiceDuration: voiceDuration,
+            voiceWaveform: voiceWaveform,
+            silent: silent,
+          ),
+        );
+      }
+    } catch (e) {
+      debugPrint('Chat upload error: $e');
+      if (mounted) {
+        OneovaSmartStatus.show(
+          context,
+          title: 'Could not send $fileName',
+          subtitle: 'Tap Retry to send again.',
+          source: 'Chat Media',
+          kind: OneovaStatusKind.error,
+          actionLabel: 'Retry',
+          onAction: () => _uploadFileAndSend(
+            file,
+            type,
+            fileName,
+            voiceDuration: voiceDuration,
+            voiceWaveform: voiceWaveform,
+            silent: silent,
+          ),
+        );
+      }
     } finally {
-      if (optimisticId != null && mounted) {
+      await _uploadProgressSub?.cancel();
+      _uploadProgressSub = null;
+      _activeUploadTask = null;
+      if (mounted) {
         setState(() {
-          _pendingLocalMessages.removeWhere((m) => m.id == optimisticId);
+          _uploadingFileName = null;
+          _uploadProgress = null;
+          if (optimisticId != null) {
+            _pendingLocalMessages.removeWhere((m) => m.id == optimisticId);
+          }
         });
       }
     }
+  }
+
+  Future<void> _releaseVoiceMic() async {
+    final lease = _voiceMicLease;
+    _voiceMicLease = null;
+    await lease?.release();
   }
 
   Future<void> _startRecording() async {
     final currentUserId = FirebaseAuth.instance.currentUser?.uid;
     if (_isRecordingVoice) return;
     if (await _audioRecorder.hasPermission()) {
+      final got = await MicCoordinator.instance.acquire(
+        MicUser.voiceNote,
+        onPreempted: () async {
+          _voiceMicLease = null;
+          if (_isRecordingVoice) {
+            await _cancelRecording(releaseLease: false);
+          }
+        },
+        onInterruption: (i) {
+          if (i == MicInterruption.heldByOtherApp && _isRecordingVoice && !_voicePaused && mounted) {
+            unawaited(_toggleVoicePause());
+          }
+        },
+      );
+      if (got is MicBusy) {
+        if (mounted) {
+          ScaffoldMessenger.maybeOf(context)?.showSnackBar(
+            SnackBar(content: Text(got.message), behavior: SnackBarBehavior.floating),
+          );
+        }
+        return;
+      }
+      _voiceMicLease = got as MicLease;
+      if (!mounted) {
+        await _releaseVoiceMic();
+        return;
+      }
+
       final dir = await getTemporaryDirectory();
       _recordedFilePath = '${dir.path}/voice_note_${DateTime.now().millisecondsSinceEpoch}.m4a';
       _recordedWaveformSamples.clear();
@@ -951,21 +1119,26 @@ class _ChatDetailScreenState extends ConsumerState<ChatDetailScreen> with Single
 
       // Zero-cost hardware DSP (AEC + Noise Suppression + Auto-Gain) + compact
       // 48kbps 24kHz mono AAC-LC (~3x smaller & faster upload than 128kbps stereo).
-      await _audioRecorder.start(
-        const RecordConfig(
-          encoder: AudioEncoder.aacLc,
-          bitRate: 48000,
-          sampleRate: 24000,
-          numChannels: 1,
-          echoCancel: true,
-          noiseSuppress: true,
-          autoGain: true,
-          androidConfig: AndroidRecordConfig(
-            audioSource: AndroidAudioSource.voiceCommunication,
+      try {
+        await _audioRecorder.start(
+          const RecordConfig(
+            encoder: AudioEncoder.aacLc,
+            bitRate: 48000,
+            sampleRate: 24000,
+            numChannels: 1,
+            echoCancel: true,
+            noiseSuppress: true,
+            autoGain: true,
+            androidConfig: AndroidRecordConfig(
+              audioSource: AndroidAudioSource.voiceCommunication,
+            ),
           ),
-        ),
-        path: _recordedFilePath!,
-      );
+          path: _recordedFilePath!,
+        );
+      } catch (e) {
+        await _releaseVoiceMic();
+        rethrow;
+      }
 
       _recordingTimer?.cancel();
       _recordingTimer = Timer.periodic(const Duration(seconds: 1), (t) {
@@ -995,12 +1168,13 @@ class _ChatDetailScreenState extends ConsumerState<ChatDetailScreen> with Single
       });
       HapticFeedback.mediumImpact();
       if (currentUserId != null) {
-        ref.read(messagingRepositoryProvider).setRecordingStatus(widget.chatId, currentUserId, true);
+        (_messagingRepo ?? ref.read<MessagingRepository>(messagingRepositoryProvider))
+            .setRecordingStatus(widget.chatId, currentUserId, true);
       }
     }
   }
 
-  Future<void> _cancelRecording() async {
+  Future<void> _cancelRecording({bool releaseLease = true}) async {
     _recordingTimer?.cancel();
     _amplitudeTimer?.cancel();
     final currentUserId = FirebaseAuth.instance.currentUser?.uid;
@@ -1011,6 +1185,9 @@ class _ChatDetailScreenState extends ConsumerState<ChatDetailScreen> with Single
         if (await f.exists()) await f.delete();
       }
     } catch (_) {}
+    if (releaseLease) {
+      await _releaseVoiceMic();
+    }
     if (mounted) {
       setState(() {
         _isRecordingVoice = false;
@@ -1022,7 +1199,8 @@ class _ChatDetailScreenState extends ConsumerState<ChatDetailScreen> with Single
     }
     HapticFeedback.lightImpact();
     if (currentUserId != null) {
-      ref.read(messagingRepositoryProvider).setRecordingStatus(widget.chatId, currentUserId, false);
+      (_messagingRepo ?? (mounted ? ref.read(messagingRepositoryProvider) : null))
+          ?.setRecordingStatus(widget.chatId, currentUserId, false);
     }
   }
 
@@ -1030,7 +1208,10 @@ class _ChatDetailScreenState extends ConsumerState<ChatDetailScreen> with Single
     _recordingTimer?.cancel();
     _amplitudeTimer?.cancel();
     final currentUserId = FirebaseAuth.instance.currentUser?.uid;
-    if (!_isRecordingVoice) return;
+    if (!_isRecordingVoice) {
+      await _releaseVoiceMic();
+      return;
+    }
     String? path;
     try {
       if (await _audioRecorder.isRecording()) {
@@ -1039,19 +1220,23 @@ class _ChatDetailScreenState extends ConsumerState<ChatDetailScreen> with Single
     } catch (e) {
       debugPrint('[Chat] audioRecorder stop error: $e');
     }
+    await _releaseVoiceMic();
     final durationSecs = _recordingDurationSeconds > 0 ? _recordingDurationSeconds : 1;
     final samples = downsampleLevels(_recordedWaveformSamples, 24);
 
-    setState(() {
-      _isRecordingVoice = false;
-      _recordingDurationSeconds = 0;
-      _voiceLocked = false;
-      _voicePaused = false;
-      _voiceSlide = Offset.zero;
-    });
+    if (mounted) {
+      setState(() {
+        _isRecordingVoice = false;
+        _recordingDurationSeconds = 0;
+        _voiceLocked = false;
+        _voicePaused = false;
+        _voiceSlide = Offset.zero;
+      });
+    }
     HapticFeedback.lightImpact();
     if (currentUserId != null) {
-      ref.read(messagingRepositoryProvider).setRecordingStatus(widget.chatId, currentUserId, false);
+      (_messagingRepo ?? (mounted ? ref.read(messagingRepositoryProvider) : null))
+          ?.setRecordingStatus(widget.chatId, currentUserId, false);
     }
     if (path != null && File(path).existsSync()) {
       final m = durationSecs ~/ 60;
@@ -1117,14 +1302,17 @@ class _ChatDetailScreenState extends ConsumerState<ChatDetailScreen> with Single
 
   @override
   void dispose() {
+    _uploadProgressSub?.cancel();
     _micHoldTimer?.cancel();
     _recordingTimer?.cancel();
     _amplitudeTimer?.cancel();
     _inChatSearchController.dispose();
     final currentUserId = FirebaseAuth.instance.currentUser?.uid;
     if (currentUserId != null && _isRecordingVoice) {
-      ref.read(messagingRepositoryProvider).setRecordingStatus(widget.chatId, currentUserId, false);
+      _messagingRepo?.setRecordingStatus(widget.chatId, currentUserId, false);
     }
+    unawaited(_voiceMicLease?.release());
+    _voiceMicLease = null;
     _videoSession?.cancel();
     _composerFocus.dispose();
     _messageController.dispose();
@@ -3251,6 +3439,14 @@ class _ChatDetailScreenState extends ConsumerState<ChatDetailScreen> with Single
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
+            if (_uploadingFileName != null)
+              OneovaInlineStatusBanner(
+                title: 'Uploading $_uploadingFileName',
+                subtitle: 'Encrypted cloud delivery in progress',
+                kind: OneovaStatusKind.uploading,
+                progress: _uploadProgress,
+                onClose: _confirmCancelActiveUpload,
+              ),
             OvaChatSuggestionBar(
               chatId: widget.chatId,
               myUid: FirebaseAuth.instance.currentUser?.uid ?? '',
@@ -3348,10 +3544,10 @@ class _ChatDetailScreenState extends ConsumerState<ChatDetailScreen> with Single
                       ),
                     ],
                   ),
-                  child: Center(
+                  child: const Center(
                     child: Icon(
                       Icons.auto_awesome_rounded,
-                      color: context.textPrimary,
+                      color: Colors.white,
                       size: 19,
                     ),
                   ),
@@ -3399,6 +3595,7 @@ class _ChatDetailScreenState extends ConsumerState<ChatDetailScreen> with Single
                               ),
                             ),
                           ),
+                          suffixIconConstraints: const BoxConstraints(minWidth: 28, minHeight: 28),
                           suffixIcon: OneovaVoiceTypingButton(
                             controller: _messageController,
                             onChanged: (_) {

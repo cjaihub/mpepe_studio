@@ -67,6 +67,15 @@ internal class ArCameraChannel(
                 s.setScene(call.arguments as? Map<*, *> ?: emptyMap<String, Any>())
                 result.success(null)
             }
+            "putModel" -> {
+                val id = call.argument<String>("id")
+                val path = call.argument<String>("path")
+                if (id == null || path == null) {
+                    result.error("bad_args", "id and path are required", null)
+                } else {
+                    s.putModel(id, path) { err -> if (err == null) result.success(null) else result.error("model_failed", err, null) }
+                }
+            }
             "putImage" -> {
                 val id = call.argument<String>("id")
                 val image = call.argument<Map<*, *>>("image")
@@ -76,6 +85,10 @@ internal class ArCameraChannel(
                     s.putImage(id, image)
                     result.success(null)
                 }
+            }
+            "setBackgroundVideo" -> {
+                s.setBackgroundVideo(call.argument<String>("path"))
+                result.success(null)
             }
             "setBackground" -> {
                 s.setBackground(call.argument<Map<*, *>>("image"))
@@ -114,15 +127,91 @@ internal class ArCameraChannel(
                 if (ms >= 0) result.success(ms) else result.error("record_failed", "Nothing was recorded", null)
             }
             "stats" -> result.success(s.stats())
+            "focusAt" -> s.focusAt(
+                (call.argument<Number>("x") ?: 0.5).toFloat(),
+                (call.argument<Number>("y") ?: 0.5).toFloat(),
+                call.argument<Boolean>("lock") == true,
+            ) { ok -> result.success(ok) }
+            "unlockFocus" -> {
+                s.unlock()
+                result.success(null)
+            }
+            "exposureInfo" -> result.success(s.exposureInfo())
+            "setExposure" -> result.success(s.setExposure((call.argument<Number>("ev") ?: 0).toFloat()).toDouble())
+            "manualInfo" -> result.success(s.manualInfo())
+            "setManual" -> {
+                s.setManual(
+                    call.argument<Number>("iso")?.toInt(),
+                    call.argument<Number>("exposureNs")?.toLong(),
+                    call.argument<Number>("awb")?.toInt(),
+                    call.argument<Number>("focus")?.toFloat(),
+                )
+                result.success(null)
+            }
+            "setGrade" -> {
+                try {
+                    val look = (call.argument<Map<*, *>>("look"))?.let { com.oneova.camerakit.NativeLookData.fromMap(it) }
+                    val m = call.argument<List<Number>>("matrix")?.map { it.toFloat() }?.toFloatArray()
+                    s.setGrade(look, m)
+                    result.success(null)
+                } catch (e: IllegalArgumentException) {
+                    result.error("bad_look", e.message, null)
+                }
+            }
+            "setLowLight" -> {
+                s.setLowLight(call.argument<Boolean>("on") == true)
+                result.success(null)
+            }
+            "zoomInfo" -> result.success(s.zoomInfo())
+            "setDeviceRotation" -> {
+                s.setDeviceRotation(call.argument<Int>("rotation") ?: 0)
+                result.success(null)
+            }
+            "micBusy" -> result.success(s.micBusy())
+            "thermalStatus" -> result.success(s.thermalStatus())
+            "playSound" -> {
+                s.playSound(call.argument<String>("kind") ?: "shutter")
+                result.success(null)
+            }
+            "setThrottle" -> {
+                s.setThrottle(call.argument<Boolean>("on") == true)
+                result.success(null)
+            }
+            "setSceneMode" -> {
+                s.setSceneMode(call.argument<String>("mode") ?: "auto")
+                result.success(null)
+            }
+            "dualSupported" -> result.success(s.dualSupported())
+            "setDual" -> s.setDual(call.argument<Boolean>("on") == true, dualLayout(call)) { err ->
+                if (err == null) result.success(null) else result.error(err, err, null)
+            }
+            "setDualLayout" -> {
+                s.setDualLayout(dualLayout(call))
+                result.success(null)
+            }
             else -> result.notImplemented()
         }
     }
+
+    private fun dualLayout(call: MethodCall) = ArGlPipeline.DualLayout(
+        mode = if (call.argument<String>("layout") == "split") 1 else 0,
+        x = (call.argument<Number>("x") ?: 0.62).toFloat(),
+        y = (call.argument<Number>("y") ?: 0.12).toFloat(),
+        w = (call.argument<Number>("w") ?: 0.32).toFloat(),
+        h = (call.argument<Number>("h") ?: 0.3).toFloat(),
+        swap = call.argument<Boolean>("swap") == true,
+    )
 
     private fun open(call: MethodCall, result: MethodChannel.Result) {
         session?.close()
         val front = call.argument<Boolean>("front") == true
         val needs = ArNeeds.fromMap(call.argument<Map<*, *>>("needs"))
-        val s = ArCameraSession(context, textures, front, needs) { event -> sink?.success(event) }
+        val s = ArCameraSession(
+            context, textures, front, needs,
+            emit = { event -> sink?.success(event) },
+            aspect43 = call.argument<Boolean>("aspect43") == true,
+            quality = call.argument<String>("quality") ?: "1080p30",
+        )
         session = s
         s.open { size, err ->
             if (session !== s) {

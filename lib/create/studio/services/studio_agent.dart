@@ -16,6 +16,7 @@ import 'studio_color.dart';
 import 'studio_effects.dart';
 import 'studio_faces.dart';
 import 'studio_looks.dart';
+import '../../../looks/filters/oneova_filter_library.dart';
 import 'studio_media.dart';
 import 'studio_project_store.dart';
 import 'studio_publisher.dart';
@@ -126,8 +127,15 @@ class StudioAgent {
     String done;
     switch (action) {
       case 'look':
-        final def = StudioLooks.presets.where((l) => l.id == name || l.name.toLowerCase() == (name ?? '').toLowerCase()).firstOrNull;
-        if (def == null) return StudioAgentResult(false, 'Unknown look "$name". Looks: ${StudioLooks.presets.map((l) => l.id).join(', ')}.');
+        final want = (name ?? '').toLowerCase();
+        // A Studio preset, or any of the Oneova library filters by id or name.
+        final lib = OneovaFilterLibrary.all.where((f) => f.id == name || f.name.toLowerCase() == want).firstOrNull;
+        final def = StudioLooks.presets.where((l) => l.id == name || l.name.toLowerCase() == want).firstOrNull ??
+            (lib == null ? null : StudioLooks.byId(lib.id));
+        if (def == null) {
+          final close = OneovaFilterLibrary.search(want).take(8).map((f) => f.name).join(', ');
+          return StudioAgentResult(false, 'Unknown look "$name". Studio looks: ${StudioLooks.presets.map((l) => l.id).join(', ')}.${close.isEmpty ? '' : ' Close filters: $close.'}');
+        }
         p = _mapClips(p, clip, (c) => c.copyWith(lookId: def.id, lookIntensity: (v ?? 1).clamp(0.0, 1.0)));
         done = 'Applied the ${def.name} look';
       case 'filter':

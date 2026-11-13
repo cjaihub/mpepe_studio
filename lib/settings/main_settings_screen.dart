@@ -484,6 +484,16 @@ class _MainSettingsScreenState extends ConsumerState<MainSettingsScreen> {
                         ),
                       _buildSettingsTile(
                         context,
+                        icon: Icons.rate_review_outlined,
+                        title: 'Feedback',
+                        subtitle: 'Tell us what you wish Oneova had',
+                        route: '/feedback',
+                        categoryKey: 'feedback',
+                        showDivider: true,
+                        healthReport: healthReport,
+                      ),
+                      _buildSettingsTile(
+                        context,
                         icon: Icons.info_outline_rounded,
                         title: 'About Oneova',
                         subtitle: 'Version, promises & policy shortcuts',

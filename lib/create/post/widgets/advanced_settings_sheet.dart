@@ -11,6 +11,7 @@ class AdvancedPostSettings {
   final bool allowComments;
   final bool allowDuet;
   final bool allowStitch;
+  final bool allowRemix;
   final bool allowDownload;
   final bool isAiGenerated;
   final bool isBrandedContent;
@@ -24,6 +25,7 @@ class AdvancedPostSettings {
     this.allowComments = true,
     this.allowDuet = true,
     this.allowStitch = true,
+    this.allowRemix = true,
     this.allowDownload = true,
     this.isAiGenerated = false,
     this.isBrandedContent = false,
@@ -38,6 +40,7 @@ class AdvancedPostSettings {
     bool? allowComments,
     bool? allowDuet,
     bool? allowStitch,
+    bool? allowRemix,
     bool? allowDownload,
     bool? isAiGenerated,
     bool? isBrandedContent,
@@ -51,6 +54,7 @@ class AdvancedPostSettings {
       allowComments: allowComments ?? this.allowComments,
       allowDuet: allowDuet ?? this.allowDuet,
       allowStitch: allowStitch ?? this.allowStitch,
+      allowRemix: allowRemix ?? this.allowRemix,
       allowDownload: allowDownload ?? this.allowDownload,
       isAiGenerated: isAiGenerated ?? this.isAiGenerated,
       isBrandedContent: isBrandedContent ?? this.isBrandedContent,
@@ -81,6 +85,7 @@ class _AdvancedSettingsSheetState extends State<AdvancedSettingsSheet> {
   late bool _allowComments;
   late bool _allowDuet;
   late bool _allowStitch;
+  late bool _allowRemix;
   late bool _allowDownload;
   late bool _isAiGenerated;
   late bool _isBrandedContent;
@@ -97,6 +102,7 @@ class _AdvancedSettingsSheetState extends State<AdvancedSettingsSheet> {
     _allowComments = s.allowComments;
     _allowDuet = s.allowDuet;
     _allowStitch = s.allowStitch;
+    _allowRemix = s.allowRemix;
     _allowDownload = s.allowDownload;
     _isAiGenerated = s.isAiGenerated;
     _isBrandedContent = s.isBrandedContent;
@@ -120,6 +126,7 @@ class _AdvancedSettingsSheetState extends State<AdvancedSettingsSheet> {
       allowComments: _allowComments,
       allowDuet: _allowDuet,
       allowStitch: _allowStitch,
+      allowRemix: _allowRemix,
       allowDownload: _allowDownload,
       isAiGenerated: _isAiGenerated,
       isBrandedContent: _isBrandedContent,
@@ -268,6 +275,7 @@ class _AdvancedSettingsSheetState extends State<AdvancedSettingsSheet> {
                       _buildSwitchTile('Allow Duet', 'Let creators make side-by-side duets with your video', _allowDuet, (v) => setState(() => _allowDuet = v)),
                       Divider(color: context.border, height: 1),
                       _buildSwitchTile('Allow Stitch', 'Let creators clip up to 5s into their own reels', _allowStitch, (v) => setState(() => _allowStitch = v)),
+                      _buildSwitchTile('Allow Remix', 'Let creators remix this post. You get 25% of what their remix earns in gifts', _allowRemix, (v) => setState(() => _allowRemix = v)),
                       Divider(color: context.border, height: 1),
                       _buildSwitchTile('Allow High-Res Downloads', 'Allow viewers to download master copy to their device', _allowDownload, (v) => setState(() => _allowDownload = v)),
                     ],

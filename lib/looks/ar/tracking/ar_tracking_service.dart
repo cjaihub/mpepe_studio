@@ -338,7 +338,7 @@ class ArTrackingService {
   TrackedBody? _bodyFromPose(Pose pose, Size size, bool mirror) {
     Offset? p(PoseLandmarkType t) {
       final l = pose.landmarks[t];
-      if (l == null || l.likelihood < 0.5) return null;
+      if (l == null || l.likelihood < 0.45) return null;
       return _norm(l.x, l.y, size, mirror);
     }
 
@@ -347,12 +347,24 @@ class ArTrackingService {
     if (a == null || b == null) return null;
     final ha = p(PoseLandmarkType.leftHip);
     final hb = p(PoseLandmarkType.rightHip);
+    final ea = p(PoseLandmarkType.leftElbow);
+    final eb = p(PoseLandmarkType.rightElbow);
+    final wa = p(PoseLandmarkType.leftWrist);
+    final wb = p(PoseLandmarkType.rightWrist);
+    final aa = p(PoseLandmarkType.leftAnkle);
+    final ab = p(PoseLandmarkType.rightAnkle);
     final aLeft = a.dx <= b.dx;
     return TrackedBody(
       leftShoulder: aLeft ? a : b,
       rightShoulder: aLeft ? b : a,
       leftHip: aLeft ? ha : hb,
       rightHip: aLeft ? hb : ha,
+      leftElbow: aLeft ? ea : eb,
+      rightElbow: aLeft ? eb : ea,
+      leftWrist: aLeft ? wa : wb,
+      rightWrist: aLeft ? wb : wa,
+      leftAnkle: aLeft ? aa : ab,
+      rightAnkle: aLeft ? ab : aa,
     );
   }
 

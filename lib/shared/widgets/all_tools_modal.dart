@@ -194,6 +194,7 @@ class _AllToolsModalState extends State<AllToolsModal> {
     final quickActions = [
       _AllToolItem('PiP Studio', Icons.picture_in_picture_alt_rounded, '/create/camera?mode=pip', 'Dual-camera simultaneous reaction and streaming.'),
       _AllToolItem('Go Live', Icons.sensors_rounded, '/live/setup', 'Full-screen LIVE to your followers.'),
+      _AllToolItem('My business', Icons.business_center_outlined, '/business', 'Orders, products, stock, codes and sales for your shop.'),
       _AllToolItem('Live Studio', Icons.view_quilt_rounded, '/live/setup?mode=studio', 'Guests as video windows on studio walls.'),
       _AllToolItem('Game Live', Icons.sports_esports, '/live/setup?mode=gaming', 'Stream your phone game with your camera in a bubble.'),
       _AllToolItem('Gaming lives', Icons.videogame_asset_rounded, '/live/gaming', 'Watch game lives that are on air right now.'),

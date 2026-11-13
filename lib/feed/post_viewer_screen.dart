@@ -13,6 +13,8 @@ import '../social_hub/feed/widgets/share_sheet.dart';
 import '../backend/social/models/content.dart';
 import '../backend/social/repositories/interaction_repository.dart';
 import '../backend/social/services/content_deletion_service.dart';
+import '../backend/social/services/video_playback_manager.dart';
+import '../shared/audio/mic_coordinator.dart';
 import '../shared/theme/app_theme.dart';
 import 'widgets/comment_bottom_sheet.dart';
 import 'widgets/reel_destination_chip.dart';
@@ -28,22 +30,102 @@ class PostViewerScreen extends ConsumerStatefulWidget {
   ConsumerState<PostViewerScreen> createState() => _PostViewerScreenState();
 }
 
-class _PostViewerScreenState extends ConsumerState<PostViewerScreen> {
+class _PostViewerScreenState extends ConsumerState<PostViewerScreen> with RouteAware {
   Player? _player;
   VideoController? _video;
   String? _openedUrl;
   bool _deleting = false;
+  bool _routeCurrent = true;
+  bool _appResumed = true;
+  late final AppLifecycleListener _lifecycle;
 
   String get _uid => FirebaseAuth.instance.currentUser?.uid ?? '';
+
+  bool get _canPlay =>
+      mounted &&
+      _routeCurrent &&
+      _appResumed &&
+      !_deleting &&
+      MicCoordinator.instance.owner.value == null;
 
   @override
   void initState() {
     super.initState();
+    _lifecycle = AppLifecycleListener(
+      onPause: () => _onLifecycle(false),
+      onInactive: () => _onLifecycle(false),
+      onHide: () => _onLifecycle(false),
+      onResume: () => _onLifecycle(true),
+      onShow: () => _onLifecycle(true),
+    );
+    MicCoordinator.instance.owner.addListener(_syncPlayback);
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) ref.read(videoPlaybackManagerProvider).setScreenActive(false);
+    });
     if (_uid.isNotEmpty) ref.read(interactionRepositoryProvider).recordView(_uid, widget.contentId);
   }
 
   @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    final route = ModalRoute.of(context);
+    if (route != null) {
+      mainFeedRouteObserver.subscribe(this, route);
+    }
+  }
+
+  @override
+  void didPushNext() {
+    _routeCurrent = false;
+    _syncPlayback();
+    super.didPushNext();
+  }
+
+  @override
+  void didPopNext() {
+    _routeCurrent = true;
+    _syncPlayback();
+    super.didPopNext();
+  }
+
+  @override
+  void didPop() {
+    _routeCurrent = false;
+    _syncPlayback();
+    super.didPop();
+  }
+
+  void _onLifecycle(bool resumed) {
+    _appResumed = resumed;
+    _syncPlayback();
+  }
+
+  void _syncPlayback() {
+    final p = _player;
+    if (p == null) return;
+    if (_canPlay) {
+      p.setVolume(100.0);
+      if (!p.state.playing) p.play();
+    } else {
+      p.setVolume(0.0);
+      p.pause();
+    }
+  }
+
+  @override
+  void deactivate() {
+    _player?.setVolume(0.0);
+    _player?.pause();
+    super.deactivate();
+  }
+
+  @override
   void dispose() {
+    mainFeedRouteObserver.unsubscribe(this);
+    MicCoordinator.instance.owner.removeListener(_syncPlayback);
+    _lifecycle.dispose();
+    _player?.setVolume(0.0);
+    _player?.stop();
     _player?.dispose();
     super.dispose();
   }
@@ -52,11 +134,21 @@ class _PostViewerScreenState extends ConsumerState<PostViewerScreen> {
     final isVideo = c.type != ContentType.photo && c.mediaUrl.isNotEmpty;
     if (!isVideo || _openedUrl == c.mediaUrl) return;
     _openedUrl = c.mediaUrl;
-    _player ??= Player();
+    if (_player == null) {
+      final p = Player();
+      p.stream.playing.listen((playing) {
+        if (playing && !_canPlay) {
+          p.setVolume(0.0);
+          p.pause();
+        }
+      });
+      _player = p;
+    }
     _video ??= VideoController(_player!);
     _player!
+      ..setVolume(_canPlay ? 100.0 : 0.0)
       ..setPlaylistMode(PlaylistMode.loop)
-      ..open(Media(c.mediaUrl));
+      ..open(Media(c.mediaUrl), play: _canPlay);
   }
 
   Future<void> _delete(Content c) async {

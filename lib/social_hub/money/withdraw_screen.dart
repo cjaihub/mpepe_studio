@@ -6,7 +6,6 @@ import 'package:flutter_animate/flutter_animate.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:local_auth/local_auth.dart';
-import 'package:url_launcher/url_launcher.dart';
 
 import '../../backend/money/insights_logic.dart';
 import '../../backend/money/money_models.dart';
@@ -16,7 +15,7 @@ import 'money_widgets.dart';
 
 /// Withdraw earnings (`/wallet/withdraw`). Identity must be verified first;
 /// the country comes from location (falling back to SIM / phone / language),
-/// which picks the rails: mobile money and banks in Africa, Stripe elsewhere.
+/// which picks the rails: local mobile money and banks.
 class WithdrawScreen extends ConsumerStatefulWidget {
   const WithdrawScreen({super.key});
 
@@ -70,7 +69,7 @@ class _WithdrawScreenState extends ConsumerState<WithdrawScreen> {
 
   Widget _form(PayoutOptions o, CreatorWallet wallet) {
     final methods = (ref.watch(payoutMethodsProvider).value ?? const <PayoutMethod>[])
-        .where((m) => o.rails.any((r) => r.rail == m.rail && r.provider == m.provider) && m.country == o.country || (m.rail == 'stripe' && o.rails.any((r) => r.rail == 'stripe')))
+        .where((m) => o.rails.any((r) => r.rail == m.rail && r.provider == m.provider) && m.country == o.country)
         .toList();
     final method = methods.where((m) => m.id == _methodId).firstOrNull ?? methods.firstOrNull;
     final maxUsd = min(wallet.availableUsd, o.maxUsd > 0 ? o.maxUsd : wallet.availableUsd);
@@ -78,7 +77,7 @@ class _WithdrawScreenState extends ConsumerState<WithdrawScreen> {
     final usd = enough ? (_usd ?? maxUsd).clamp(o.minUsd, maxUsd).toDouble() : 0.0;
     final fee = method == null ? 0.0 : PayoutOptions.feeFor(method.rail, usd);
     final net = max(0.0, usd - fee);
-    final localCurrency = method?.rail == 'stripe' ? 'USD' : o.currency;
+    final localCurrency = o.currency;
     final rate = localCurrency == 'USD' ? 1.0 : (o.usdRate ?? 0);
 
     return ListView(
@@ -364,7 +363,7 @@ class _CountryCard extends StatelessWidget {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text('Paying out in ${o.countryName ?? o.country}', style: TextStyle(fontSize: 13.5, fontWeight: FontWeight.w700, color: context.textPrimary)),
-                Text('Found from $from · ${o.africa ? 'local mobile money & banks' : 'bank or card via Stripe'}',
+                Text('Found from $from · ${o.africa ? 'local mobile money & banks' : 'payouts opening soon in your country'}',
                     style: TextStyle(fontSize: 11.5, color: context.textSecondary)),
               ],
             ),
@@ -442,7 +441,7 @@ class _AddMethodSheet extends ConsumerStatefulWidget {
   ConsumerState<_AddMethodSheet> createState() => _AddMethodSheetState();
 }
 
-class _AddMethodSheetState extends ConsumerState<_AddMethodSheet> with WidgetsBindingObserver {
+class _AddMethodSheetState extends ConsumerState<_AddMethodSheet> {
   late RailOption _rail = widget.options.rails.first;
   String? _network;
   final _phone = TextEditingController();
@@ -450,29 +449,12 @@ class _AddMethodSheetState extends ConsumerState<_AddMethodSheet> with WidgetsBi
   ({String code, String name})? _bank;
   Future<List<({String code, String name})>>? _banks;
   bool _busy = false;
-  bool _waitingForStripe = false;
-
-  @override
-  void initState() {
-    super.initState();
-    WidgetsBinding.instance.addObserver(this);
-  }
 
   @override
   void dispose() {
-    WidgetsBinding.instance.removeObserver(this);
     _phone.dispose();
     _account.dispose();
     super.dispose();
-  }
-
-  @override
-  void didChangeAppLifecycleState(AppLifecycleState state) {
-    // Back from Stripe onboarding: save the method if payouts are on.
-    if (state == AppLifecycleState.resumed && _waitingForStripe) {
-      _waitingForStripe = false;
-      _save();
-    }
   }
 
   InputDecoration _dec(String hint, {String? prefix}) => InputDecoration(
@@ -489,15 +471,6 @@ class _AddMethodSheetState extends ConsumerState<_AddMethodSheet> with WidgetsBi
     final svc = ref.read(moneyServiceProvider);
     setState(() => _busy = true);
     try {
-      if (_rail.rail == 'stripe') {
-        final enabled = await svc.refreshStripe().catchError((_) => false);
-        if (!enabled) {
-          final url = await svc.stripeOnboardingUrl(widget.options.country);
-          _waitingForStripe = true;
-          await launchUrl(Uri.parse(url), mode: LaunchMode.inAppBrowserView);
-          return;
-        }
-      }
       final id = await svc.savePayoutMethod({
         'rail': _rail.rail,
         'country': widget.options.country,
@@ -603,11 +576,7 @@ class _AddMethodSheetState extends ConsumerState<_AddMethodSheet> with WidgetsBi
                   style: TextStyle(fontSize: 13, color: context.textPrimary),
                   decoration: _dec('Account number'),
                 ),
-              ] else
-                Text(
-                  'Stripe pays out to your bank account or debit card in your country. You’ll add the details on Stripe’s secure page, then come back here.',
-                  style: TextStyle(fontSize: 12.5, height: 1.4, color: context.textSecondary),
-                ),
+              ],
               const SizedBox(height: 12),
               Row(
                 children: [
@@ -623,7 +592,7 @@ class _AddMethodSheetState extends ConsumerState<_AddMethodSheet> with WidgetsBi
               ),
               const SizedBox(height: 16),
               PrimaryButton(
-                label: _rail.rail == 'stripe' ? 'Continue with Stripe' : 'Save',
+                label: 'Save',
                 busy: _busy,
                 onPressed: canSave ? _save : null,
               ),

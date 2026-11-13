@@ -8,16 +8,24 @@ void main() {
   final now = DateTime(2026, 10, 24, 12);
 
   group('LinkedAccount.fromConnectionDoc', () {
-    test('TikTok / Meta records with a token key are connected', () {
+    test('TikTok (server-held tokens) / Meta (token key) records are connected', () {
       final tt = LinkedAccount.fromConnectionDoc('tiktok', {
         'platform': 'tiktok',
         'accountName': 'Amina',
         'openId': 'open-1',
-        'tokenKey': 'tiktok_token_open-1',
+        'tokenStore': 'server',
       }, now: now)!;
       expect(tt.platform, LinkedPlatform.tiktok);
       expect(tt.status, LinkStatus.connected);
       expect(tt.accountId, 'open-1');
+
+      // Old phone-only TikTok grants expired after a day: reconnect.
+      final oldTt = LinkedAccount.fromConnectionDoc('tiktok', {
+        'platform': 'tiktok',
+        'openId': 'open-1',
+        'tokenKey': 'tiktok_token_open-1',
+      }, now: now)!;
+      expect(oldTt.status, LinkStatus.needsReconnect);
 
       final ig = LinkedAccount.fromConnectionDoc('instagram', {
         'platform': 'instagram',
@@ -92,7 +100,7 @@ void main() {
   test('combine joins both collections in platform order', () async {
     final db = FakeFirebaseFirestore();
     final user = db.collection('users').doc('u1');
-    await user.collection('social_connections').doc('tiktok').set({'platform': 'tiktok', 'tokenKey': 'k', 'accountName': 'tt'});
+    await user.collection('social_connections').doc('tiktok').set({'platform': 'tiktok', 'tokenStore': 'server', 'accountName': 'tt'});
     await user.collection('social_connections').doc('gmail').set({'platform': 'gmail', 'email': 'a@b.c', 'grantedScopes': ['s']});
     await user.collection('youtube_accounts').doc('g1').set({'googleId': 'g1', 'accountName': 'yt', 'channels': []});
 

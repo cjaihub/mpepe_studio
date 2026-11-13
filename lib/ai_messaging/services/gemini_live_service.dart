@@ -8,7 +8,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter/widgets.dart' show AppLifecycleListener;
 import 'package:record/record.dart';
 
-import '../../ova_assistant/services/ova_device_hub.dart';
+import '../../shared/audio/mic_coordinator.dart';
 
 enum LiveVoiceState {
   disconnected,
@@ -83,10 +83,10 @@ class GeminiLiveService extends Notifier<GeminiLiveState> {
   StreamSubscription<Uint8List>? _recorderSubscription;
   bool _receiving = false;
 
-  // Audio focus (Android): pause other audio while Live runs, hand the mic
-  // over when a call or another recorder needs it, take it back afterwards.
-  final OvaDeviceHub _hub = OvaDeviceHub();
-  StreamSubscription<String>? _focusSub;
+  // The mic goes through MicCoordinator: other apps' audio pauses while Live
+  // runs, the mic is handed over when a call or another app needs it and
+  // taken back afterwards, and starting voice typing / Ova ends Live cleanly.
+  MicLease? _lease;
   AppLifecycleListener? _lifecycle;
 
   @override
@@ -135,9 +135,20 @@ class GeminiLiveService extends Notifier<GeminiLiveState> {
         );
         _session = await model.connect();
         unawaited(_receive());
-        await _hub.acquireAudioFocus();
-        await _focusSub?.cancel();
-        _focusSub = _hub.audioFocusEvents.listen(_onFocus);
+        final got = await MicCoordinator.instance.acquire(
+          MicUser.aiLive,
+          onPreempted: () async {
+            _lease = null;
+            disconnect();
+          },
+          onInterruption: (i) => _onFocus(i == MicInterruption.heldByOtherApp ? 'loss' : 'gain'),
+        );
+        if (got is MicBusy) {
+          await _cleanup();
+          state = state.copyWith(state: LiveVoiceState.disconnected, currentError: got.message);
+          return;
+        }
+        _lease = got as MicLease;
         await _startRecording();
         state = state.copyWith(state: LiveVoiceState.listening);
         return;
@@ -179,7 +190,6 @@ class GeminiLiveService extends Notifier<GeminiLiveState> {
   Future<void> _resumeMic() async {
     if (_session == null) return;
     state = state.copyWith(heldByOtherApp: false);
-    await _hub.acquireAudioFocus();
     if (_recorderSubscription == null) await _startRecording();
   }
 
@@ -297,9 +307,9 @@ class GeminiLiveService extends Notifier<GeminiLiveState> {
   Future<void> _cleanup() async {
     final session = _session;
     _session = null;
-    await _focusSub?.cancel();
-    _focusSub = null;
-    unawaited(_hub.releaseAudioFocus());
+    final lease = _lease;
+    _lease = null;
+    unawaited(lease?.release());
     try {
       if (state.heldByOtherApp) state = state.copyWith(heldByOtherApp: false);
     } catch (_) {

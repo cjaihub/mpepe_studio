@@ -56,11 +56,7 @@ class _FeedReelPlayerState extends State<FeedReelPlayer> with SingleTickerProvid
 
   @override
   Widget build(BuildContext context) {
-    // In a real implementation, this would use `video_player` package.
-    // For now, we use a network image with a dark overlay as a structural placeholder.
-    final imageUrl = widget.post.attachments.isNotEmpty 
-        ? widget.post.attachments.first 
-        : 'https://picsum.photos/800/1200';
+    final imageUrl = widget.post.attachments.isNotEmpty ? widget.post.attachments.first : null;
 
     return GestureDetector(
       onTap: _togglePlayPause,
@@ -68,6 +64,9 @@ class _FeedReelPlayerState extends State<FeedReelPlayer> with SingleTickerProvid
       child: Stack(
         fit: StackFit.expand,
         children: [
+          if (imageUrl == null)
+            Container(color: Colors.grey[900])
+          else
           Image.network(
             imageUrl,
             fit: BoxFit.cover,

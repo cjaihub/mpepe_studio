@@ -12,6 +12,9 @@ import 'package:permission_handler/permission_handler.dart';
 import 'package:record/record.dart';
 import 'package:speech_to_text/speech_to_text.dart' as stt;
 import '../../auth/widgets/auth_interaction_gate.dart';
+import '../../shared/audio/cloud_dictation.dart';
+import '../../shared/audio/mic_coordinator.dart';
+import '../../shared/audio/speech_hub.dart';
 import '../../shared/theme/app_theme.dart';
 import 'oneova_gif_picker_sheet.dart';
 import 'reel_palette.dart';
@@ -53,7 +56,10 @@ class ReelCommentBar extends ConsumerStatefulWidget {
 class _ReelCommentBarState extends ConsumerState<ReelCommentBar> with SingleTickerProviderStateMixin {
   static const _maxVoice = Duration(seconds: 60);
 
-  final stt.SpeechToText _speech = stt.SpeechToText();
+  final SpeechHub _speech = SpeechHub.instance;
+  MicLease? _micLease;
+  CloudDictation? _cloud;
+  bool _usingCloud = false;
   AudioRecorder? _recorder;
   _BarMode _mode = _BarMode.idle;
   String _transcript = '';
@@ -71,13 +77,20 @@ class _ReelCommentBarState extends ConsumerState<ReelCommentBar> with SingleTick
   void dispose() {
     _recTimer?.cancel();
     _pulse.dispose();
-    try {
-      _speech.cancel();
-    } catch (_) {}
+    unawaited(_speech.cancel(this));
+    unawaited(_cloud?.dispose());
+    unawaited(_micLease?.release());
+    _micLease = null;
     try {
       _recorder?.dispose();
     } catch (_) {}
     super.dispose();
+  }
+
+  Future<void> _releaseMic() async {
+    final lease = _micLease;
+    _micLease = null;
+    await lease?.release();
   }
 
   void _snack(String msg, {SnackBarAction? action}) {
@@ -108,42 +121,113 @@ class _ReelCommentBarState extends ConsumerState<ReelCommentBar> with SingleTick
 
   Future<void> _toggleTranscribe() async {
     if (_mode == _BarMode.transcribing) {
-      await _speech.stop();
-      if (mounted) setState(() => _mode = _BarMode.idle);
+      await _finishTranscribe(commitCloud: true);
       return;
     }
     if (_mode != _BarMode.idle) return;
     HapticFeedback.lightImpact();
     if (!await _ensureMic()) return;
-    final ready = await _speech.initialize(
-      onStatus: (s) {
-        if ((s == 'done' || s == 'notListening') && mounted && _mode == _BarMode.transcribing) {
-          setState(() => _mode = _BarMode.idle);
+
+    final got = await MicCoordinator.instance.acquire(
+      MicUser.voiceTyping,
+      onPreempted: () async {
+        await _finishTranscribe(commitCloud: false, releaseLease: false);
+        _micLease = null;
+      },
+      onInterruption: (i) {
+        if (i == MicInterruption.heldByOtherApp && _mode == _BarMode.transcribing && mounted) {
+          unawaited(_finishTranscribe(commitCloud: true));
         }
       },
-      onError: (_) {
-        if (mounted && _mode == _BarMode.transcribing) setState(() => _mode = _BarMode.idle);
-      },
     );
-    if (!ready) {
-      if (mounted) _snack('Voice typing is not available on this device.');
+    if (got is MicBusy) {
+      if (mounted) _snack(got.message);
       return;
     }
-    if (!mounted) return;
+    _micLease = got as MicLease;
+    if (!mounted) {
+      await _releaseMic();
+      return;
+    }
+
+    _usingCloud = false;
     setState(() {
       _mode = _BarMode.transcribing;
       _transcript = '';
     });
-    await _speech.listen(
-      listenOptions: stt.SpeechListenOptions(partialResults: true, cancelOnError: true),
+
+    final ready = await _speech.listen(
+      owner: this,
+      options: stt.SpeechListenOptions(partialResults: true, cancelOnError: true),
+      onStatus: (s) {
+        if (_usingCloud || !mounted || _mode != _BarMode.transcribing) return;
+        if (s == 'done' || s == 'notListening' || s == 'preempted') {
+          unawaited(_finishTranscribe(commitCloud: false));
+        }
+      },
+      onError: (err) {
+        if (_usingCloud || !mounted || _mode != _BarMode.transcribing) return;
+        if (err.errorMsg == 'error_no_match' || err.errorMsg == 'error_speech_timeout') {
+          unawaited(_finishTranscribe(commitCloud: false));
+        } else {
+          unawaited(_startCloudTranscribe());
+        }
+      },
       onResult: (r) {
-        if (mounted) setState(() => _transcript = r.recognizedWords);
+        if (_usingCloud || !mounted) return;
+        setState(() => _transcript = r.recognizedWords);
       },
     );
+    if (!ready && mounted && _mode == _BarMode.transcribing) {
+      await _startCloudTranscribe();
+    }
+  }
+
+  Future<void> _startCloudTranscribe() async {
+    if (_usingCloud || !mounted || _mode != _BarMode.transcribing) return;
+    await _speech.cancel(this);
+    _usingCloud = true;
+    _cloud ??= CloudDictation();
+    final ok = await _cloud!.start(
+      autoStopOnSilence: true,
+      onSilenceCommit: () => unawaited(_finishTranscribe(commitCloud: true)),
+    );
+    if (!ok) {
+      _usingCloud = false;
+      if (mounted) _snack('Voice typing is not available right now.');
+      await _finishTranscribe(commitCloud: false);
+    }
+  }
+
+  Future<void> _finishTranscribe({required bool commitCloud, bool releaseLease = true}) async {
+    final wasCloud = _usingCloud;
+    _usingCloud = false;
+    await _speech.stop(this);
+    if (wasCloud) {
+      if (commitCloud) {
+        try {
+          final text = (await _cloud?.stopAndTranscribe() ?? '').trim();
+          if (mounted && text.isNotEmpty) {
+            setState(() => _transcript = text);
+          }
+        } catch (_) {}
+      } else {
+        await _cloud?.cancel();
+      }
+    }
+    if (releaseLease) {
+      await _releaseMic();
+    }
+    if (mounted && _mode == _BarMode.transcribing) {
+      setState(() => _mode = _BarMode.idle);
+    }
   }
 
   void _clearTranscript() {
-    _speech.cancel();
+    _usingCloud = false;
+    unawaited(_speech.cancel(this));
+    unawaited(_cloud?.cancel());
+    unawaited(_releaseMic());
     setState(() {
       _transcript = '';
       _mode = _BarMode.idle;
@@ -151,9 +235,12 @@ class _ReelCommentBarState extends ConsumerState<ReelCommentBar> with SingleTick
   }
 
   Future<void> _sendTranscript() async {
+    if (_sending) return;
+    if (_mode == _BarMode.transcribing) {
+      await _finishTranscribe(commitCloud: true);
+    }
     final text = _transcript.trim();
     if (text.isEmpty || _sending) return;
-    await _speech.stop();
     await _post(Comment(
       id: '',
       postId: widget.contentId,
@@ -194,11 +281,33 @@ class _ReelCommentBarState extends ConsumerState<ReelCommentBar> with SingleTick
       return;
     }
     if (!await _ensureMic()) return;
+    final got = await MicCoordinator.instance.acquire(
+      MicUser.voiceNote,
+      onPreempted: () async {
+        await _finishRecording(send: false, releaseLease: false);
+        _micLease = null;
+      },
+      onInterruption: (i) {
+        if (i == MicInterruption.heldByOtherApp && _mode == _BarMode.recording && mounted) {
+          unawaited(_finishRecording(send: false));
+        }
+      },
+    );
+    if (got is MicBusy) {
+      if (mounted) _snack(got.message);
+      return;
+    }
+    _micLease = got as MicLease;
+    if (!mounted) {
+      await _releaseMic();
+      return;
+    }
     _recorder ??= AudioRecorder();
     final path = '${Directory.systemTemp.path}/voice_${DateTime.now().millisecondsSinceEpoch}.m4a';
     try {
       await _recorder!.start(const RecordConfig(encoder: AudioEncoder.aacLc, bitRate: 64000), path: path);
     } catch (_) {
+      await _releaseMic();
       if (mounted) _snack('Could not start recording.');
       return;
     }
@@ -217,8 +326,11 @@ class _ReelCommentBarState extends ConsumerState<ReelCommentBar> with SingleTick
     });
   }
 
-  Future<void> _finishRecording({required bool send}) async {
-    if (_mode != _BarMode.recording) return;
+  Future<void> _finishRecording({required bool send, bool releaseLease = true}) async {
+    if (_mode != _BarMode.recording) {
+      if (releaseLease) await _releaseMic();
+      return;
+    }
     _recTimer?.cancel();
     final elapsed = _recStart == null ? Duration.zero : DateTime.now().difference(_recStart!);
     _recStart = null;
@@ -229,6 +341,9 @@ class _ReelCommentBarState extends ConsumerState<ReelCommentBar> with SingleTick
       }
     } catch (e) {
       debugPrint('[ReelCommentBar] recorder stop error: $e');
+    }
+    if (releaseLease) {
+      await _releaseMic();
     }
     if (mounted) setState(() => _mode = _BarMode.idle);
     if (path == null) return;

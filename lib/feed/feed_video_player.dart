@@ -3,6 +3,7 @@ import 'package:video_player/video_player.dart';
 import 'package:visibility_detector/visibility_detector.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:oneova/shared/widgets/animated_loading_indicator.dart';
+import '../shared/audio/mic_coordinator.dart';
 import 'services/reel_prefetcher.dart';
 
 class FeedVideoPlayer extends StatefulWidget {
@@ -26,11 +27,50 @@ class FeedVideoPlayer extends StatefulWidget {
 class _FeedVideoPlayerState extends State<FeedVideoPlayer> {
   VideoPlayerController? _controller;
   bool _isInitialized = false;
+  double _visibleFraction = 0.0;
+  bool _appResumed = true;
+  late final AppLifecycleListener _lifecycle;
 
   @override
   void initState() {
     super.initState();
+    _lifecycle = AppLifecycleListener(
+      onPause: () => _onLifecycle(false),
+      onInactive: () => _onLifecycle(false),
+      onHide: () => _onLifecycle(false),
+      onResume: () => _onLifecycle(true),
+      onShow: () => _onLifecycle(true),
+    );
+    MicCoordinator.instance.owner.addListener(_syncPlayback);
     _initializePlayer();
+  }
+
+  void _onLifecycle(bool resumed) {
+    _appResumed = resumed;
+    _syncPlayback();
+  }
+
+  bool get _canPlay =>
+      mounted &&
+      _isInitialized &&
+      _appResumed &&
+      _visibleFraction > 0.7 &&
+      MicCoordinator.instance.owner.value == null;
+
+  void _syncPlayback() {
+    final ctrl = _controller;
+    if (ctrl == null || !_isInitialized) return;
+    if (_canPlay) {
+      ctrl.setVolume(1.0);
+      if (!ctrl.value.isPlaying) {
+        ctrl.play();
+      }
+    } else {
+      ctrl.setVolume(0.0);
+      if (ctrl.value.isPlaying) {
+        ctrl.pause();
+      }
+    }
   }
 
   Future<void> _initializePlayer() async {
@@ -43,12 +83,14 @@ class _FeedVideoPlayerState extends State<FeedVideoPlayer> {
       } else {
         ctrl = VideoPlayerController.networkUrl(Uri.parse(widget.videoUrl))..setLooping(true);
       }
+      await ctrl.setVolume(0.0);
       await ctrl.initialize();
       if (mounted) {
         setState(() {
           _controller = ctrl;
           _isInitialized = true;
         });
+        _syncPlayback();
       } else {
         await ctrl.dispose();
       }
@@ -59,24 +101,25 @@ class _FeedVideoPlayerState extends State<FeedVideoPlayer> {
   }
 
   @override
+  void deactivate() {
+    _controller?.setVolume(0.0);
+    _controller?.pause();
+    super.deactivate();
+  }
+
+  @override
   void dispose() {
+    MicCoordinator.instance.owner.removeListener(_syncPlayback);
+    _lifecycle.dispose();
+    _controller?.setVolume(0.0);
+    _controller?.pause();
     _controller?.dispose();
     super.dispose();
   }
 
   void _handleVisibilityChanged(VisibilityInfo info) {
-    final ctrl = _controller;
-    if (ctrl == null || !_isInitialized) return;
-
-    if (info.visibleFraction > 0.7) {
-      if (!ctrl.value.isPlaying) {
-        ctrl.play();
-      }
-    } else {
-      if (ctrl.value.isPlaying) {
-        ctrl.pause();
-      }
-    }
+    _visibleFraction = info.visibleFraction;
+    _syncPlayback();
   }
 
   @override

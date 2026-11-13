@@ -3,8 +3,8 @@ import '../models/wallet_models.dart';
 
 /// Double-entry ledger wallet service powering the Oneova Coins economy.
 /// Integrates with:
-/// - Flutterwave (African Mobile Money: M-Pesa, MTN, Airtel, Telecel, Orange)
-/// - Stripe (Global cards, Apple Pay, Google Pay)
+/// - Oneova Pay (mobile money: M-Pesa, MTN, Airtel, Telecel, Orange; cards on
+///   a licensed partner's secure page)
 class WalletService {
   final Map<String, OneovaWallet> _wallets = {
     'user_studio_pro': const OneovaWallet(
@@ -21,7 +21,7 @@ class WalletService {
           coinsDelta: 500,
           fiatDelta: 9.99,
           currency: 'USD',
-          description: 'Purchased 500 Oneova Coins (Stripe Apple Pay)',
+          description: 'Purchased 500 Oneova Coins',
           referenceId: 'ref_init_1',
           status: 'completed',
           createdAt: CustomTime(daysAgo: 2),
@@ -107,7 +107,7 @@ class WalletService {
     return entry;
   }
 
-  /// Tops up coins via local or global payment provider (e.g. M-Pesa, Stripe).
+  /// Tops up coins via local or global payment provider (e.g. M-Pesa, MTN MoMo, card).
   Future<WalletLedgerEntry> topUpCoins({
     required String userId,
     required int coins,

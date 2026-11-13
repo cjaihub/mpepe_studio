@@ -459,6 +459,16 @@ class RecommendationService {
     trackEvent(currentUserId, contentId, ContentInteractionType.notInterested, {});
   }
 
+  /// Explicit "Interested": a strong positive signal for this reel's topics.
+  Future<void> markInterested(String currentUserId, String contentId) async {
+    await _firestore.collection('users').doc(currentUserId)
+      .collection('interactions').doc(contentId).set({
+        'interested': true,
+        'timestamp': FieldValue.serverTimestamp(),
+      }, SetOptions(merge: true));
+    trackEvent(currentUserId, contentId, ContentInteractionType.save, {'explicit': 'interested'});
+  }
+
   Future<void> resetRecommendations(String currentUserId) async {
     await _firestore.collection('users').doc(currentUserId).collection('preferences').doc('recommendations').delete();
   }

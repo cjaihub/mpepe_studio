@@ -350,6 +350,10 @@ class WebRTCConnectionManager extends Notifier<WebRTCMeshState> {
       remoteUserId,
       (p) => p.copyWith(hasRemoteVideo: true, videoRevision: p.videoRevision + 1),
     );
+    final callId = _callId;
+    if (callId != null) {
+      _requestKeyframe(callId, remoteUserId);
+    }
   }
 
   /// Binds the answerer's local audio/video tracks onto the exact transceivers
@@ -700,6 +704,21 @@ class WebRTCConnectionManager extends Notifier<WebRTCMeshState> {
           if (callId != null) await _sendOffer(callId, peer);
         } else if (_videoSenders.containsKey(uid)) {
           await _videoSenders[uid]!.replaceTrack(track);
+        } else if (track != null) {
+          final transceivers = await peer.connection.getTransceivers();
+          final videoTx = transceivers
+              .where((t) => t.receiver.track?.kind == 'video' || t.sender.track?.kind == 'video')
+              .firstOrNull;
+          if (videoTx != null) {
+            _videoSenders[uid] = videoTx.sender;
+            await videoTx.sender.replaceTrack(track);
+          } else if (local != null) {
+            _videoSenders[uid] = await peer.connection.addTrack(track, local);
+            if (callId != null) await _sendOffer(callId, peer);
+          }
+        }
+        if (track != null && callId != null) {
+          _requestKeyframe(callId, uid);
         }
       } catch (e) {
         debugPrint('[Mesh] replaceVideoTrack($uid) failed: $e');
