@@ -315,6 +315,11 @@ async function settle(wid: string, to: WithdrawalStatus, info: Record<string, un
     tx.update(wallet.collection('ledger').doc(`withdraw_${wid}`), { status: to === 'paid' ? 'completed' : to });
     if (to === 'paid') {
       ledgerOutbox(tx, `wpaid_${wid}`, 'withdrawal_paid', { uid: w.uid, diamonds: d, withdrawal_id: wid });
+      // Cash side with the fee as its own posting (fees engine, services/ledger/config/fee_rules.json).
+      ledgerOutbox(tx, `wcash_${wid}`, 'payout_cash', {
+        uid: w.uid, withdrawal_id: wid, currency: 'USD', gross_minor: toMinor(Number(w.amountUsd), 'USD'),
+        rail: w.rail, country: w.country ?? null, partner: w.provider ?? null,
+      });
       tx.set(wallet, { lockedCoins: FieldValue.increment(-d), withdrawnCoins: FieldValue.increment(d), updatedAt: FieldValue.serverTimestamp() }, { merge: true });
     } else if (to === 'failed' || to === 'cancelled') {
       ledgerOutbox(tx, `wret_${wid}`, 'withdrawal_returned', { uid: w.uid, diamonds: d, withdrawal_id: wid });

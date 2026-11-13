@@ -25,7 +25,8 @@ const MAX_ATTEMPTS = 12;
 
 export type LedgerTemplate =
   | 'coin_purchase' | 'coin_void' | 'gift' | 'release'
-  | 'withdrawal_lock' | 'withdrawal_paid' | 'withdrawal_returned' | 'opening_balance';
+  | 'withdrawal_lock' | 'withdrawal_paid' | 'withdrawal_returned' | 'opening_balance'
+  | 'payout_cash' | 'biz_order_paid' | 'biz_order_release';
 
 export const outboxEnabled = () => process.env.LEDGER_OUTBOX === 'on';
 

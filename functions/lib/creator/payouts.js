@@ -353,6 +353,7 @@ async function settle(wid, to, info = {}) {
     var _a;
     const ref = db().doc(`withdrawals/${wid}`);
     const done = await db().runTransaction(async (tx) => {
+        var _a, _b;
         const w = (await tx.get(ref)).data();
         if (!w || !(0, payoutLogic_1.canMove)(w.status, to))
             return null;
@@ -362,6 +363,11 @@ async function settle(wid, to, info = {}) {
         tx.update(wallet.collection('ledger').doc(`withdraw_${wid}`), { status: to === 'paid' ? 'completed' : to });
         if (to === 'paid') {
             (0, outbox_1.ledgerOutbox)(tx, `wpaid_${wid}`, 'withdrawal_paid', { uid: w.uid, diamonds: d, withdrawal_id: wid });
+            // Cash side with the fee as its own posting (fees engine, services/ledger/config/fee_rules.json).
+            (0, outbox_1.ledgerOutbox)(tx, `wcash_${wid}`, 'payout_cash', {
+                uid: w.uid, withdrawal_id: wid, currency: 'USD', gross_minor: (0, provider_1.toMinor)(Number(w.amountUsd), 'USD'),
+                rail: w.rail, country: (_a = w.country) !== null && _a !== void 0 ? _a : null, partner: (_b = w.provider) !== null && _b !== void 0 ? _b : null,
+            });
             tx.set(wallet, { lockedCoins: firestore_1.FieldValue.increment(-d), withdrawnCoins: firestore_1.FieldValue.increment(d), updatedAt: firestore_1.FieldValue.serverTimestamp() }, { merge: true });
         }
         else if (to === 'failed' || to === 'cancelled') {

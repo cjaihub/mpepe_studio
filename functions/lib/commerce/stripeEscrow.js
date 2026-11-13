@@ -63,6 +63,7 @@ const https_1 = require("firebase-functions/v2/https");
 const logger = __importStar(require("firebase-functions/logger"));
 const firestore_1 = require("firebase-admin/firestore");
 const optionalSecrets_1 = require("../optionalSecrets");
+const outbox_1 = require("../ledger/outbox");
 const db = () => (0, firestore_1.getFirestore)();
 const RETURN_URL = 'https://oneova.web.app/';
 /** Currencies Stripe charges without minor units. */
@@ -350,6 +351,7 @@ exports.stripeWebhook = (0, https_1.onRequest)(async (req, res) => {
                         tx.update(ref, { status: 'payment_mismatch', paymentIntentAmount: pi.amount, updatedAt: firestore_1.FieldValue.serverTimestamp() });
                         return;
                     }
+                    (0, outbox_1.ledgerOutbox)(tx, `bizpaid_${orderId}`, 'biz_order_paid', { order_id: orderId, currency: String(o.currency).toUpperCase(), total_minor: pi.amount });
                     tx.update(ref, {
                         status: 'paid',
                         chargeId: typeof pi.latest_charge === 'string' ? pi.latest_charge : (_b = (_a = pi.latest_charge) === null || _a === void 0 ? void 0 : _a.id) !== null && _b !== void 0 ? _b : null,
@@ -471,9 +473,17 @@ exports.confirmDelivery = (0, https_1.onCall)(async (req) => {
     }
     // Claim the release first so a double tap can't pay twice.
     await db().runTransaction(async (tx) => {
+        var _a, _b;
         const cur = (await tx.get(ref)).data();
         if (!cur || !okStatus.includes(cur.status))
             throw new https_1.HttpsError('failed-precondition', 'Already confirmed.');
+        // Ledger (shadow): items from the same minor-unit total the buyer paid, so escrow empties exactly.
+        const cur3 = String(cur.currency);
+        const deliveryMinor = cur.riderId ? minor(Number((_a = cur.deliveryFee) !== null && _a !== void 0 ? _a : 0), cur3) : 0;
+        (0, outbox_1.ledgerOutbox)(tx, `bizrel_${id}`, 'biz_order_release', {
+            order_id: id, currency: cur3.toUpperCase(), items_minor: minor(Number(cur.totalAmount), cur3) - deliveryMinor,
+            seller: cur.sellerId, delivery_minor: deliveryMinor, rider: (_b = cur.riderId) !== null && _b !== void 0 ? _b : null,
+        });
         tx.update(ref, { status: 'releasing', deliveredAt: firestore_1.FieldValue.serverTimestamp(), updatedAt: firestore_1.FieldValue.serverTimestamp() });
     });
     const s = await stripe();

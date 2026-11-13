@@ -32,6 +32,9 @@ test('functions and the Python ledger agree on every template', { skip: !process
     ['withdrawal_returned', { uid: `b${run}`, diamonds: 20, withdrawal_id: 'w1' }],
     ['withdrawal_paid', { uid: `b${run}`, diamonds: 30, withdrawal_id: 'w1' }],
     ['coin_void', { uid: `a${run}`, take_from_balance: 600, add_debt: 100, order_id: null }],
+    ['payout_cash', { uid: `b${run}`, withdrawal_id: 'w1', currency: 'USD', gross_minor: 1500, rail: 'mobile_money', country: 'KE', partner: 'flutterwave' }],
+    ['biz_order_paid', { order_id: `o${run}`, currency: 'KES', total_minor: 170000 }],
+    ['biz_order_release', { order_id: `o${run}`, currency: 'KES', items_minor: 150000, seller: `s${run}`, delivery_minor: 20000, rider: `r${run}` }],
   ];
   for (const [i, [template, args]] of steps.entries()) {
     const r = await send(template, `contract_${run}_${i}`, args);
