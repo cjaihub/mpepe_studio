@@ -55,6 +55,7 @@ These are the critical audit items. They're small and independent of the new pla
 - Exit test: property tests (random postings never break sum = 0; replaying the same idempotency key does nothing), concurrency test (100 parallel debits never overdraw), reconciliation job green against the backfill.
 
 ## Phase 2: fees engine
+**Status: built and tested in the ledger service; fee postings shadow-posted from functions. Not deployed** (see `docs/FEES.md`).
 - Versioned rules in config (Postgres table + `docs/FEES.md`): percentage, minimum, cap, flat amount, per corridor (from-country → to-country, rail), per-partner revenue share, effective-from dates.
 - The quote returns the breakdown, and the same rule version is used at posting time. Each fee is its own posting to `fees:revenue` and `partner:{id}:share` accounts.
 - Exit test: a table of worked examples in `FEES.md` runs as tests (rounding half-even in minor units).
