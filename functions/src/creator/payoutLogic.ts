@@ -22,8 +22,8 @@ export const MIN_WITHDRAW_USD = 0.01;
 export const MAX_WITHDRAW_USD = 2000;
 export const MAX_REQUESTS_PER_DAY = 3;
 
-export type Rail = 'mobile_money' | 'bank' | 'stripe';
-export type Provider = 'flutterwave' | 'paystack' | 'stripe';
+export type Rail = 'mobile_money' | 'bank';
+export type Provider = 'flutterwave' | 'paystack';
 export type WithdrawalStatus = 'pending' | 'processing' | 'paid' | 'failed' | 'cancelled';
 
 const NEXT: Record<WithdrawalStatus, WithdrawalStatus[]> = {
@@ -126,10 +126,7 @@ export const AFRICA: Record<string, AfricaCountry> = {
 
 /** Fee for a payout of [usd] on [rail], in USD (2 dp). */
 export function payoutFeeUsd(rail: Rail, usd: number): number {
-  const fee =
-    rail === 'mobile_money' ? Math.max(0.2, usd * 0.015)
-    : rail === 'bank' ? Math.max(0.5, usd * 0.01)
-    : 0.25 + usd * 0.0025;
+  const fee = rail === 'mobile_money' ? Math.max(0.2, usd * 0.015) : Math.max(0.5, usd * 0.01);
   return Math.round(fee * 100) / 100;
 }
 
@@ -150,19 +147,15 @@ export interface RailOption {
 }
 
 /** Payout rails for a country, given which providers are configured. */
-export function railsFor(country: string, configured: { flutterwave: boolean; paystack: boolean; stripe: boolean }): RailOption[] {
+export function railsFor(country: string, configured: { flutterwave: boolean; paystack: boolean }): RailOption[] {
   const a = AFRICA[country];
-  if (!a) return configured.stripe ? [{ rail: 'stripe', provider: 'stripe', label: 'Bank account or debit card (Stripe)' }] : [];
+  if (!a) return [];
   const out: RailOption[] = [];
   const africaProvider: Provider | null = configured.flutterwave ? 'flutterwave' : configured.paystack && a.paystack ? 'paystack' : null;
   if (africaProvider) {
     const nets = africaProvider === 'paystack' ? a.networks.filter((n) => n.paystack) : a.networks;
     if (nets.length) out.push({ rail: 'mobile_money', provider: africaProvider, label: 'Mobile money', networks: nets.map((n) => ({ id: n.id, label: n.label })) });
     if (a.bank) out.push({ rail: 'bank', provider: africaProvider, label: 'Bank account' });
-  }
-  // Stripe Connect also pays out in a few African countries (e.g. ZA, NG, KE, GH, EG).
-  if (configured.stripe && ['ZA', 'NG', 'KE', 'GH', 'EG'].includes(country)) {
-    out.push({ rail: 'stripe', provider: 'stripe', label: 'Bank account (Stripe)' });
   }
   return out;
 }

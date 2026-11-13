@@ -8,7 +8,8 @@
   },
   "scripts": {
     "build": "tsc",
-    "test": "node --test \"lib/looks/__tests__/**/*.test.js\" \"lib/guard/__tests__/**/*.test.js\" \"lib/__tests__/**/*.test.js\"",
+    "test": "node --test \"lib/looks/__tests__/**/*.test.js\" \"lib/guard/__tests__/**/*.test.js\" \"lib/__tests__/**/*.test.js\" \"lib/creator/__tests__/**/*.test.js\" \"lib/payments/__tests__/**/*.test.js\" \"lib/coins/__tests__/**/*.test.js\" \"lib/pay/__tests__/**/*.test.js\"",
+    "test:pay": "tsc && node --test \"lib/creator/__tests__/**/*.test.js\" \"lib/payments/__tests__/**/*.test.js\" \"lib/coins/__tests__/**/*.test.js\" \"lib/pay/__tests__/**/*.test.js\" \"lib/__tests__/storeLogic.test.js\" \"lib/__tests__/variant_logic.test.js\"",
     "test:gmail": "node --test \"lib/__tests__/gmail_token_crypto.test.js\"",
     "test:looks": "node --test \"lib/looks/__tests__/**/*.test.js\"",
     "test:livestudio": "tsc -p tsconfig.livestudio.json && node --test \".ls-build/liveStudio/**/*.test.js\""
@@ -18,17 +19,22 @@
   "license": "ISC",
   "type": "commonjs",
   "dependencies": {
+    "@gltf-transform/core": "^4.5.1",
+    "@gltf-transform/extensions": "^4.5.1",
+    "@gltf-transform/functions": "^4.5.1",
     "@google/genai": "^2.30.0",
     "axios": "^1.20.0",
+    "draco3dgltf": "^1.5.9",
     "file-type": "^16.5.4",
     "firebase-admin": "^14.3.0",
     "firebase-functions": "^7.3.2",
     "googleapis": "^178.0.0",
     "jpeg-js": "^0.4.4",
     "livekit-server-sdk": "^2.19.1",
+    "meshoptimizer": "^1.3.0",
     "nodemailer": "^7.0.13",
     "pngjs": "^7.0.0",
-    "stripe": "^17.7.0"
+    "sharp": "^0.35.5"
   },
   "devDependencies": {
     "@types/fluent-ffmpeg": "^2.1.28",

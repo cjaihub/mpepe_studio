@@ -33,9 +33,14 @@ var __importStar = (this && this.__importStar) || (function () {
     };
 })();
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.gmailCall = exports.gmailDisconnect = exports.gmailStatus = exports.gmailConnect = exports.GMAIL_SCOPES = void 0;
+exports.gmailCall = exports.gmailDisconnect = exports.gmailStatus = exports.gmailConnect = exports.gmailStatusRef = exports.gmailTokenRef = exports.GMAIL_SCOPES = void 0;
 exports.encryptWith = encryptWith;
 exports.decryptWith = decryptWith;
+exports.encrypt = encrypt;
+exports.decrypt = decrypt;
+exports.clearToken = clearToken;
+exports.oauth = oauth;
+exports.uidOf = uidOf;
 /**
  * Each Oneova user's own Gmail, connected in Connected accounts.
  *
@@ -112,8 +117,12 @@ async function decrypt(blob, uid) {
     return decryptWith(await key(), blob, uid);
 }
 // ── token storage ────────────────────────────────────────────────────────
+const gmailTokenRef = (uid) => tokenRef(uid);
+exports.gmailTokenRef = gmailTokenRef;
 const tokenRef = (uid) => db().collection('users').doc(uid).collection('secure_tokens').doc('gmail');
 const legacyTokenRef = (uid) => db().collection('gmail_tokens').doc(uid);
+const gmailStatusRef = (uid) => statusRef(uid);
+exports.gmailStatusRef = gmailStatusRef;
 const statusRef = (uid) => db().collection('users').doc(uid).collection('social_connections').doc('gmail');
 /** The user's stored token; moves one from the old top-level location if needed. */
 async function loadToken(uid) {
@@ -233,9 +242,13 @@ exports.gmailStatus = (0, https_1.onCall)(async (request) => {
     return stored ? { connected: true, email: stored.email } : { connected: false };
 });
 exports.gmailDisconnect = (0, https_1.onCall)(async (request) => {
+    var _a;
     const uid = uidOf(request);
     const stored = await loadToken(uid).catch(() => null);
-    if (stored) {
+    // A token linked through Google services (googleLink.ts) is shared with the
+    // user's other Google services: revoking it would cut those off too.
+    const shared = (_a = (await tokenRef(uid).get().catch(() => null))) === null || _a === void 0 ? void 0 : _a.get('googleSub');
+    if (stored && !shared) {
         try {
             const client = await oauth();
             await client.revokeToken(await decrypt(stored.refreshToken, uid));
@@ -245,6 +258,12 @@ exports.gmailDisconnect = (0, https_1.onCall)(async (request) => {
         }
     }
     await clearToken(uid);
+    if (shared) {
+        // Linked through Google services: show Gmail as off on that account too.
+        const acc = db().collection('users').doc(uid).collection('google_accounts').doc(String(shared));
+        if ((await acc.get()).exists)
+            await acc.set({ services: { gmail: firestore_1.FieldValue.delete() } }, { merge: true });
+    }
     return { ok: true };
 });
 // ── mail actions ─────────────────────────────────────────────────────────

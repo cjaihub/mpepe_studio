@@ -9,8 +9,9 @@ import { GoogleGenAI, GenerateContentParameters, GenerateContentResponse } from 
 const LOCATION = process.env.VERTEX_LOCATION || 'us-central1';
 
 export const GEMINI_FLASH_MODELS: readonly string[] = [
-  process.env.GEMINI_MODEL || 'gemini-2.5-flash',
-  'gemini-3.8-flash',
+  process.env.GEMINI_MODEL || 'gemini-1.5-flash',
+  'gemini-2.0-flash',
+  'gemini-2.5-flash',
 ];
 
 let client: GoogleGenAI | null = null;
@@ -42,8 +43,25 @@ export async function generateVertexContent(
       return await ai.models.generateContent({ ...params, model });
     } catch (err: any) {
       lastErr = err;
-      const msg = String(err?.message ?? err ?? '');
-      const isNotFound = err?.status === 404 || msg.includes('404') || msg.includes('NOT_FOUND') || msg.includes('no longer available');
+      const jsonStr = (() => {
+        try {
+          return JSON.stringify(err);
+        } catch {
+          return '';
+        }
+      })();
+      const msg = `${err?.message ?? ''} ${jsonStr}`.toLowerCase();
+      const isNotFound =
+        err?.status === 404 ||
+        err?.code === 404 ||
+        err?.status === 'NOT_FOUND' ||
+        err?.error?.code === 404 ||
+        err?.error?.status === 'NOT_FOUND' ||
+        msg.includes('404') ||
+        msg.includes('not_found') ||
+        msg.includes('not found') ||
+        msg.includes('no longer available') ||
+        msg.includes('does not have access');
       if (!isNotFound) throw err;
     }
   }

@@ -109,9 +109,7 @@ exports.AFRICA = {
 };
 /** Fee for a payout of [usd] on [rail], in USD (2 dp). */
 function payoutFeeUsd(rail, usd) {
-    const fee = rail === 'mobile_money' ? Math.max(0.2, usd * 0.015)
-        : rail === 'bank' ? Math.max(0.5, usd * 0.01)
-            : 0.25 + usd * 0.0025;
+    const fee = rail === 'mobile_money' ? Math.max(0.2, usd * 0.015) : Math.max(0.5, usd * 0.01);
     return Math.round(fee * 100) / 100;
 }
 const diamondsToUsd = (diamonds) => Math.floor(diamonds) * exports.DIAMOND_USD;
@@ -127,7 +125,7 @@ function roundLocal(amount, currency) {
 function railsFor(country, configured) {
     const a = exports.AFRICA[country];
     if (!a)
-        return configured.stripe ? [{ rail: 'stripe', provider: 'stripe', label: 'Bank account or debit card (Stripe)' }] : [];
+        return [];
     const out = [];
     const africaProvider = configured.flutterwave ? 'flutterwave' : configured.paystack && a.paystack ? 'paystack' : null;
     if (africaProvider) {
@@ -136,10 +134,6 @@ function railsFor(country, configured) {
             out.push({ rail: 'mobile_money', provider: africaProvider, label: 'Mobile money', networks: nets.map((n) => ({ id: n.id, label: n.label })) });
         if (a.bank)
             out.push({ rail: 'bank', provider: africaProvider, label: 'Bank account' });
-    }
-    // Stripe Connect also pays out in a few African countries (e.g. ZA, NG, KE, GH, EG).
-    if (configured.stripe && ['ZA', 'NG', 'KE', 'GH', 'EG'].includes(country)) {
-        out.push({ rail: 'stripe', provider: 'stripe', label: 'Bank account (Stripe)' });
     }
     return out;
 }

@@ -33,7 +33,7 @@ var __importStar = (this && this.__importStar) || (function () {
     };
 })();
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.arEffectFavoriteRemoved = exports.arEffectFavoriteAdded = exports.arEffectUse = exports.arEffectCreateFromUpload = exports.arEffectGenerate = void 0;
+exports.arEffectFavoriteRemoved = exports.arEffectFavoriteAdded = exports.arEffectUse = exports.arEffectCreateFromUpload = exports.arEffectGenerate = exports.arMakeupSuggest = void 0;
 exports.keywordsFor = keywordsFor;
 exports.chromaKey = chromaKey;
 /**
@@ -101,15 +101,15 @@ function keywordsFor(parts) {
     }
     return [...out].slice(0, 200);
 }
-async function underDailyCap(uid) {
+async function underDailyCap(uid, kind = 'gen', limit = DAILY_GENERATIONS) {
     const day = new Date().toISOString().slice(0, 10).replace(/-/g, '');
     // Top-level and rules-denied, so users can't reset their own counter.
-    const ref = (0, firestore_2.getFirestore)().doc(`ar_effect_quotas/${uid}_${day}`);
+    const ref = (0, firestore_2.getFirestore)().doc(`ar_effect_quotas/${uid}_${kind === 'gen' ? '' : `${kind}_`}${day}`);
     return (0, firestore_2.getFirestore)().runTransaction(async (tx) => {
         var _a;
         const snap = await tx.get(ref);
         const count = (_a = snap.get('count')) !== null && _a !== void 0 ? _a : 0;
-        if (count >= DAILY_GENERATIONS)
+        if (count >= limit)
             return false;
         tx.set(ref, { count: firestore_2.FieldValue.increment(1), updatedAt: firestore_2.FieldValue.serverTimestamp() }, { merge: true });
         return true;
@@ -355,9 +355,10 @@ async function creatorName(uid) {
         return '';
     }
 }
+/** Sanitizes a makeup spec to the fields `ArMakeup.fromMap` reads. */
 function makeupFrom(m) {
     const out = {};
-    for (const k of ['lip', 'blush', 'eye', 'liner', 'brow']) {
+    for (const k of ['lip', 'blush', 'eye', 'shadow', 'liner', 'brow', 'foundation']) {
         const color = hex(m === null || m === void 0 ? void 0 : m[`${k}Color`]);
         const opacity = num(m === null || m === void 0 ? void 0 : m[`${k}Opacity`], 0, 1, 0);
         if (color)
@@ -367,8 +368,89 @@ function makeupFrom(m) {
     out.eyeGlow = num(m === null || m === void 0 ? void 0 : m.eyeGlow, 0, 1, 0);
     if (!out.eyeColor && out.eyeGlow > 0)
         out.eyeColor = '#4FC3FF';
+    out.lipGloss = num(m === null || m === void 0 ? void 0 : m.lipGloss, 0, 1, 0);
+    out.linerWidth = num(m === null || m === void 0 ? void 0 : m.linerWidth, 0, 1, 0.35);
+    out.linerWing = num(m === null || m === void 0 ? void 0 : m.linerWing, 0, 1, 0);
+    out.browWidth = num(m === null || m === void 0 ? void 0 : m.browWidth, 0, 1, 0.5);
+    out.contourOpacity = num(m === null || m === void 0 ? void 0 : m.contourOpacity, 0, 1, 0);
+    out.highlightOpacity = num(m === null || m === void 0 ? void 0 : m.highlightOpacity, 0, 1, 0);
+    out.smoothing = num(m === null || m === void 0 ? void 0 : m.smoothing, 0, 1, 0);
     return out;
 }
+const MAKEUP_FIELDS = `{"lipColor":"#RRGGBB","lipOpacity":0-1,"lipGloss":0-1,"blushColor":"#RRGGBB","blushOpacity":0-1,
+"eyeColor":"#RRGGBB (iris tint)","eyeOpacity":0-1,"eyeGlow":0-1,"shadowColor":"#RRGGBB (eyeshadow)","shadowOpacity":0-1,
+"linerColor":"#RRGGBB","linerOpacity":0-1,"linerWidth":0-1,"linerWing":0-1,"browColor":"#RRGGBB","browOpacity":0-1,"browWidth":0-1,
+"foundationColor":"#RRGGBB","foundationOpacity":0-1,"contourOpacity":0-1,"highlightOpacity":0-1,"smoothing":0-1}`;
+const MAKEUP_SYSTEM = `You are a professional makeup artist for Oneova's live AR camera. The camera tracks the face and draws
+makeup on it. Reply ONLY with JSON: {"name":"2-4 words","tip":"one short sentence for the user","makeup":${MAKEUP_FIELDS}}.
+Opacities are strengths; 0 means not applied. Keep looks wearable: lips 0.3-0.85, blush 0.2-0.6, shadow 0.2-0.7,
+foundation at most 0.4 and only close to the person's real skin tone, smoothing 0.2-0.6, eyeOpacity 0 unless colored
+lenses are asked for, eyeGlow 0 unless a fantasy/glowing look is asked for. If a photo is given, read skin tone and
+undertone (warm/cool/neutral), eye and hair color, and pick shades that flatter them; never comment on attractiveness,
+weight, age or ethnicity. If the current makeup is given and the user asks for a change, adjust it instead of starting over.`;
+/**
+ * Makeup Studio AI: turns a description (and optionally a still of the
+ * user's face, which is analyzed and never stored) into makeup settings.
+ */
+exports.arMakeupSuggest = (0, https_1.onCall)({ timeoutSeconds: 60, memory: '512MiB' }, async (request) => {
+    var _a;
+    var _b, _c;
+    const uid = (_a = request.auth) === null || _a === void 0 ? void 0 : _a.uid;
+    if (!uid)
+        throw new https_1.HttpsError('unauthenticated', 'Sign in to use AI makeup.');
+    const data = ((_b = request.data) !== null && _b !== void 0 ? _b : {});
+    const prompt = cleanText(data.prompt, 300);
+    const image = typeof data.image === 'string' && data.image.length < 2000000 ? data.image : '';
+    if (prompt.length < 2 && !image)
+        throw new https_1.HttpsError('invalid-argument', 'Describe a look or use your face.');
+    if (!(await underDailyCap(uid, 'makeup', 80))) {
+        throw new https_1.HttpsError('resource-exhausted', 'Daily AI makeup limit reached. Try again tomorrow.');
+    }
+    const current = data.current && typeof data.current === 'object' ? JSON.stringify(makeupFrom(data.current)) : '';
+    const parts = [];
+    if (image)
+        parts.push({ inlineData: { mimeType: 'image/jpeg', data: image } });
+    parts.push({
+        text: [
+            prompt ? `Look requested: "${prompt}".` : 'Pick a flattering everyday look for this face.',
+            current ? `Current makeup: ${current}.` : '',
+            image ? 'The photo is the user\'s live camera frame.' : '',
+        ].filter(Boolean).join(' '),
+    });
+    let out;
+    try {
+        const res = await (0, vertexAi_1.vertexAi)().models.generateContent({
+            model: TEXT_MODEL,
+            contents: [{ role: 'user', parts }],
+            config: {
+                systemInstruction: MAKEUP_SYSTEM,
+                responseMimeType: 'application/json',
+                temperature: 0.6,
+                maxOutputTokens: 900,
+                thinkingConfig: { thinkingBudget: 0 },
+            },
+        });
+        const raw = (_c = res.text) !== null && _c !== void 0 ? _c : '';
+        try {
+            out = JSON.parse(raw);
+        }
+        catch (_d) {
+            const m = raw.match(/\{[\s\S]*\}/);
+            out = m ? JSON.parse(m[0]) : null;
+        }
+    }
+    catch (e) {
+        console.error('arMakeupSuggest failed', e.message);
+        throw new https_1.HttpsError('unavailable', 'AI is busy. Try again in a moment.');
+    }
+    if (!(out === null || out === void 0 ? void 0 : out.makeup))
+        throw new https_1.HttpsError('internal', 'AI could not build that look. Try rewording.');
+    return {
+        name: cleanText(out.name, 40) || 'AI look',
+        tip: cleanText(out.tip, 160),
+        makeup: makeupFrom(out.makeup),
+    };
+});
 exports.arEffectGenerate = (0, https_1.onCall)({ timeoutSeconds: 180, memory: '1GiB' }, async (request) => {
     var _a;
     var _b, _c;

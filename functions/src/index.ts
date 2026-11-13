@@ -274,6 +274,9 @@ Return ONLY a strictly valid JSON array of 3 objects with properties: "title" (s
 export * from './calls';
 export * from './notifications';
 export * from './biometric';
+export * from './desktopAgent';
+export * from './turnRelay';
+export * from './ovaAgentBridge';
 export * from './security';
 export { contentSetDestination, contentOpenDestination } from './feed/destinationLinks';
 export { guardScanPostComment, guardScanContentComment, guardOnProfileWrite, guardCheckLinks, guardReverseAction, guardSweep, accountLookup, guardBackfillContacts } from './guard/monitor';
@@ -281,6 +284,7 @@ export * from './securityMail';
 export * from './emailCodes';
 export * from './metaOAuth';
 export * from './gmailUser';
+export * from './googleLink';
 export * from './voiceTidy';
 export * from './inbox';
 export { aiGateway, generateLiveApiToken } from './aiGateway';
@@ -289,15 +293,20 @@ export { suggestProfileDetails, onFeedTuned, onAppReleasePublished } from './pro
 export { shareToAudience } from './shareAudience';
 export { connectorStatus } from './connectorStatus';
 export { verifyCoinPurchase, sendUserGift } from './coins/coinEconomy';
+export { remixOnCreate, remixOnDelete } from './remix';
 export { walletSync, payoutOptions, payoutBanks, savePayoutMethod, deletePayoutMethod, requestWithdrawal, cancelWithdrawal, reviewWithdrawal, flutterwaveWebhook, paystackWebhook } from './creator/payouts';
-export { kycStart, kycRefresh, creatorStripeWebhook } from './creator/kyc';
+export { kycStart, kycSubmit, kycRefresh, kycReview } from './creator/kyc';
+export * from './identity';
 export { verifySubscriptionPurchase, playBillingNotifications } from './creator/planSubscriptions';
 export { insightsOnView, insightsOnLike, insightsOnUnlike, insightsOnShare, insightsOnComment, insightsOnFollow, insightsOnEarning, recordWatchTime } from './creator/insights';
-export { stripeConfig, stripeConnectOnboard, stripePayoutStatus, quoteDelivery, createOrderCheckout, stripeWebhook, acceptDelivery, startJourney, confirmDelivery, cancelOrder } from './commerce/stripeEscrow';
+export { quoteDelivery, createOrderCheckout, acceptDelivery, startJourney, confirmDelivery, cancelOrder, payPayoutStatus } from './commerce/orderEscrow';
+// Oneova Pay: pay-ins (phone prompt / partner page / balance), balance payouts.
+export { payMethods, payCreate, payStatus, payCancel, payReconcileIntents, payWebhookMpesa, payWebhookMomo, payReturn } from './pay/intents';
+export { payWithdraw, payBalanceReconcile } from './pay/balancePayouts';
 export { aiProxy } from './aiProxy';
 export { studioCaptions, studioTranslate } from './studioAi';
-export { arEffectGenerate, arEffectCreateFromUpload, arEffectUse, arEffectFavoriteAdded, arEffectFavoriteRemoved } from './arEffects';
-export { tiktokExchangeCode } from './tiktokOAuth';
+export { arEffectGenerate, arEffectCreateFromUpload, arEffectUse, arEffectFavoriteAdded, arEffectFavoriteRemoved, arMakeupSuggest } from './arEffects';
+export { tiktokExchangeCode, tiktokDisconnect, tiktokProfile, tiktokVideos, tiktokCreatorInfo, tiktokPublish, tiktokWebhook } from './tiktokOAuth';
 export { globalSemanticSearch } from './search/searchQuery';
 
 // Live Studio v2 (docs/live-studio/ARCHITECTURE.md §5)
@@ -318,3 +327,20 @@ export { lsPool } from './liveStudio/pool';
 
 // Oneova Looks & Visual Intelligence (§4.5, §8, §10)
 export * from './looks';
+export { wishOnIdeaCreated, wishOnIdeaDeleted, wishOnIdeaUpdated, wishOnCommentCreated, wishOnCommentDeleted, wishOnReactionCreated, wishOnReactionDeleted, wishSummarize, wishSummarizeNow } from './wishIdeas';
+
+// Oneova Pay hardening: refunded coin packs and payouts with unclear provider replies.
+export { coinVoidSweep } from './coins/voidedPurchases';
+export { payoutReconcile } from './creator/payouts';
+
+// Business portal: fulfilment, reviews, store counters, discount codes.
+export { bizSetFulfilment, bizSubmitReview, bizTrackEvent, bizCheckCode } from './commerce/storeTools';
+// Hosted texture library for 3D products and live stages.
+export { textureLibrary, textureCreate } from './commerce/textures';
+// 3D model service: private library, mobile optimizer, photo → 3D, AI listing drafts.
+export { model3dCreate, model3dGenerate, model3dResume, model3dAttach, model3dDelete, model3dLinkProvider, model3dUnlinkProvider, model3dEngineStatus, model3dWorker, model3dSweep } from './models3d';
+export { shopListingDraft } from './models3d/listing';
+// World exchange rates (hourly) and tracked share links.
+export { fxRefresh } from './commerce/fx';
+export { shareLinkCreate, shareLinkEvent, shareLinkOpen } from './commerce/shareLinks';
+export { shopChatSend } from './commerce/shopChat';

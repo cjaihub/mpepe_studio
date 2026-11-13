@@ -3,7 +3,7 @@
  * person to person outside a live.
  *
  * Coins are a digital currency, so on Android they must be sold with Google
- * Play Billing (not Stripe or mobile money). The app buys a consumable
+ * Play Billing (not cards or mobile money). The app buys a consumable
  * product; `verifyCoinPurchase` checks the purchase token with the Google Play
  * Developer API, credits `wallets/{uid}.balanceCoins` exactly once per token,
  * writes the ledger entry and consumes the purchase.
@@ -22,7 +22,9 @@ import { google } from 'googleapis';
 import { onCall, HttpsError } from 'firebase-functions/v2/https';
 import * as logger from 'firebase-functions/logger';
 import { getFirestore, FieldValue } from 'firebase-admin/firestore';
-import { GIFT_CATALOG, HOST_SHARE, parseGift, giftPrice, GiftError } from '../liveStudio/gift_logic';
+import { GIFT_CATALOG, HOST_SHARE, parseGift, giftPrice, giftId, GiftError } from '../liveStudio/gift_logic';
+import { splitRemixCoins } from '../remix_logic';
+import { creditWithDebt } from './clawbackLogic';
 
 const db = () => getFirestore();
 const PACKAGE = 'com.oneova.app';
@@ -88,14 +90,18 @@ export const verifyCoinPurchase = onCall({ timeoutSeconds: 60 }, async (req) => 
   const balance = await db().runTransaction(async (tx) => {
     const [r, w] = await Promise.all([tx.get(receiptRef), tx.get(wallet)]);
     if (r.exists) return Number(w.get('balanceCoins') ?? 0);
-    const now = Number(w.get('balanceCoins') ?? 0) + coins;
+    // Coins spent from an earlier refunded pack are paid back first (clawback).
+    const { credit, debtPaid } = creditWithDebt(coins, Number(w.get('coinDebt') ?? 0));
+    const now = Number(w.get('balanceCoins') ?? 0) + credit;
     tx.set(receiptRef, {
       uid, productId, coins, orderId: purchase.orderId ?? null, regionCode: purchase.regionCode ?? null,
       purchaseTimeMillis: purchase.purchaseTimeMillis ?? null, createdAt: FieldValue.serverTimestamp(),
     });
-    tx.set(wallet, { balanceCoins: now, updatedAt: FieldValue.serverTimestamp() }, { merge: true });
+    tx.set(wallet, {
+      balanceCoins: now, ...(debtPaid > 0 ? { coinDebt: FieldValue.increment(-debtPaid) } : {}), updatedAt: FieldValue.serverTimestamp(),
+    }, { merge: true });
     tx.set(wallet.collection('ledger').doc(`play_${tokenId.slice(0, 24)}`), {
-      amount: coins, type: 'coin_purchase', provider: 'google_play', productId,
+      amount: coins, type: 'coin_purchase', provider: 'google_play', productId, ...(debtPaid > 0 ? { debtPaid } : {}),
       referenceId: purchase.orderId ?? tokenId, createdAt: FieldValue.serverTimestamp(),
     });
     return now;
@@ -141,35 +147,68 @@ export const sendUserGift = onCall(async (req) => {
   const me = (await db().doc(`users/${uid}`).get()).data() ?? {};
   const myAvatar = [me.avatarUrl, me.photoUrl, me.photoURL].find((v) => typeof v === 'string' && v.startsWith('http')) ?? '';
   const myName = String(me.fullName || me.displayName || me.username || 'Someone');
-  const id = `${uid}_${Date.now().toString(36)}`;
+  const id = giftId(uid, req.data?.requestId, Date.now());
   const senderWallet = db().doc(`wallets/${uid}`);
   const receiverWallet = db().doc(`wallets/${toUid}`);
 
+  // A gift on a remix shares the creator part with the original creator.
+  const remixLinkRef = contentId ? db().doc(`remix_links/${contentId}`) : null;
+  let remix: { originalAuthorId: string; originalContentId: string; originalCoins: number } | null = null;
+
   const balance = await db().runTransaction(async (tx) => {
-    const w = await tx.get(senderWallet);
+    const [w, dup] = await Promise.all([tx.get(senderWallet), tx.get(senderWallet.collection('ledger').doc(`ugift_${id}`))]);
+    const link = remixLinkRef ? await tx.get(remixLinkRef) : null;
     const have = Number(w.get('balanceCoins') ?? 0);
+    // Same requestId again (a retry): it was already sent, charge nothing.
+    if (dup.exists) return have;
     if (have < total) throw new HttpsError('failed-precondition', `Not enough coins. This gift costs ${total}.`);
+    let receiverCoins = hostCoins;
+    remix = null;
+    if (link?.exists && link.get('status') === 'active' && link.get('remixAuthorId') === toUid) {
+      const originalAuthorId = String(link.get('originalAuthorId') ?? '');
+      if (originalAuthorId && originalAuthorId !== toUid && originalAuthorId !== uid) {
+        const split = splitRemixCoins(hostCoins, Number(link.get('share') ?? undefined) || undefined);
+        if (split.originalCoins > 0) {
+          receiverCoins = split.remixerCoins;
+          remix = { originalAuthorId, originalContentId: String(link.get('originalContentId') ?? ''), originalCoins: split.originalCoins };
+        }
+      }
+    }
     tx.set(senderWallet, { balanceCoins: have - total, updatedAt: FieldValue.serverTimestamp() }, { merge: true });
     tx.set(senderWallet.collection('ledger').doc(`ugift_${id}`), {
       amount: -total, type: 'user_gift_sent', giftId: gift.giftId, qty: gift.qty, toUid, createdAt: FieldValue.serverTimestamp(),
     });
-    tx.set(receiverWallet, { pendingCoins: FieldValue.increment(hostCoins), updatedAt: FieldValue.serverTimestamp() }, { merge: true });
+    tx.set(receiverWallet, { pendingCoins: FieldValue.increment(receiverCoins), updatedAt: FieldValue.serverTimestamp() }, { merge: true });
     tx.set(receiverWallet.collection('ledger').doc(`ugift_${id}`), {
-      amount: hostCoins, type: 'user_gift_received', status: 'pending', giftId: gift.giftId, qty: gift.qty, fromUid: uid,
-      ...(contentId ? { contentId } : {}), createdAt: FieldValue.serverTimestamp(),
+      amount: receiverCoins, type: 'user_gift_received', status: 'pending', giftId: gift.giftId, qty: gift.qty, fromUid: uid,
+      ...(contentId ? { contentId } : {}),
+      ...(remix ? { remixShareCoins: remix.originalCoins, remixOriginalAuthorId: remix.originalAuthorId } : {}),
+      createdAt: FieldValue.serverTimestamp(),
     });
+    if (remix && remixLinkRef) {
+      const r = remix as { originalAuthorId: string; originalContentId: string; originalCoins: number };
+      const originalWallet = db().doc(`wallets/${r.originalAuthorId}`);
+      tx.set(originalWallet, { pendingCoins: FieldValue.increment(r.originalCoins), updatedAt: FieldValue.serverTimestamp() }, { merge: true });
+      tx.set(originalWallet.collection('ledger').doc(`remix_${id}`), {
+        amount: r.originalCoins, type: 'remix_share_received', status: 'pending', fromUid: uid, remixAuthorId: toUid,
+        contentId, originalContentId: r.originalContentId, giftId: gift.giftId, qty: gift.qty, createdAt: FieldValue.serverTimestamp(),
+      });
+      tx.set(remixLinkRef, {
+        giftCoins: FieldValue.increment(total), originalCoins: FieldValue.increment(r.originalCoins), updatedAt: FieldValue.serverTimestamp(),
+      }, { merge: true });
+    }
     tx.set(db().doc(`gifter_stats/${uid}`), { uid, lifetimeCoins: FieldValue.increment(total), giftsSent: FieldValue.increment(gift.qty), updatedAt: FieldValue.serverTimestamp() }, { merge: true });
     tx.set(db().doc(`gifter_stats/${toUid}`), { uid: toUid, receivedCoins: FieldValue.increment(total), updatedAt: FieldValue.serverTimestamp() }, { merge: true });
     // Live gift drop: the receiver's app animates it the moment it lands.
     tx.set(db().doc(`users/${toUid}/gift_inbox/${id}`), {
       fromUid: uid, fromName: myName, fromAvatar: myAvatar, giftId: gift.giftId,
-      label: GIFT_CATALOG[gift.giftId].label, qty: gift.qty, coins: total, received: hostCoins,
+      label: GIFT_CATALOG[gift.giftId].label, qty: gift.qty, coins: total, received: receiverCoins,
       message, createdAt: FieldValue.serverTimestamp(),
     });
     tx.set(db().collection('notifications').doc(`ugift_${id}`), {
       userId: toUid, recipientId: toUid, actorId: uid, category: 'reaction', priority: 'normal', type: 'gift',
       title: `${myName} sent you ${gift.qty > 1 ? `${gift.qty} × ` : 'a '}${GIFT_CATALOG[gift.giftId].label}`,
-      body: message ? `“${message}” · +${hostCoins} coins` : `+${hostCoins} coins for you. Say thanks!`, deepLink: `/profile/${uid}`, isRead: false,
+      body: message ? `“${message}” · +${receiverCoins} coins` : `+${receiverCoins} coins for you. Say thanks!`, deepLink: `/profile/${uid}`, isRead: false,
       createdAt: FieldValue.serverTimestamp(),
     });
     return have - total;
@@ -178,5 +217,9 @@ export const sendUserGift = onCall(async (req) => {
   const stats = await db().doc(`gifter_stats/${uid}`).get();
   const level = gifterLevel(Number(stats.get('lifetimeCoins') ?? 0));
   if (stats.get('level') !== level) await stats.ref.set({ level }, { merge: true });
-  return { ok: true, balanceCoins: balance, coins: total, received: hostCoins, gifterLevel: level, share: HOST_SHARE };
+  const shared = remix as { originalCoins: number } | null;
+  return {
+    ok: true, balanceCoins: balance, coins: total, received: hostCoins - (shared?.originalCoins ?? 0), gifterLevel: level, share: HOST_SHARE,
+    ...(shared ? { remixShareCoins: shared.originalCoins } : {}),
+  };
 });

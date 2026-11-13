@@ -44,14 +44,21 @@ exports.lsGift = (0, https_1.onCall)({ secrets: shared_1.LIVEKIT_SECRETS }, asyn
     const name = (m === null || m === void 0 ? void 0 : m.displayName) || (0, social_logic_1.displayNameOf)(u);
     const avatarUrl = (m === null || m === void 0 ? void 0 : m.avatarUrl) || (0, social_logic_1.avatarOf)(u);
     const now = Date.now();
-    const giftDocId = `${uid}_${now.toString(36)}`;
+    const giftDocId = (0, gift_logic_1.giftId)(uid, data.requestId, now);
     const senderWallet = (0, shared_1.db)().doc(`wallets/${uid}`);
     const hostWallet = (0, shared_1.db)().doc(`wallets/${state.hostId}`);
     const feed = (0, shared_1.db)().doc(`${contracts_1.Paths.streams}/${streamId}/studio/gifts`);
+    let duplicate = false;
     const balance = await (0, shared_1.db)().runTransaction(async (tx) => {
         var _a;
-        const [w, f] = await Promise.all([tx.get(senderWallet), tx.get(feed)]);
+        duplicate = false;
+        const [w, f, dup] = await Promise.all([tx.get(senderWallet), tx.get(feed), tx.get(senderWallet.collection('ledger').doc(`gift_${giftDocId}`))]);
         const have = Number((_a = w.get('balanceCoins')) !== null && _a !== void 0 ? _a : 0);
+        // Same requestId again (a retry): it was already sent, charge nothing.
+        if (dup.exists) {
+            duplicate = true;
+            return have;
+        }
         if (!Number.isFinite(have) || have < total) {
             throw new https_1.HttpsError('failed-precondition', `Not enough coins. This gift costs ${total}.`);
         }
@@ -84,7 +91,8 @@ exports.lsGift = (0, https_1.onCall)({ secrets: shared_1.LIVEKIT_SECRETS }, asyn
         tx.set((0, shared_1.db)().doc(`gifter_stats/${uid}`), { uid, lifetimeCoins: firestore_1.FieldValue.increment(total), giftsSent: firestore_1.FieldValue.increment(gift.qty), updatedAt: firestore_1.FieldValue.serverTimestamp() }, { merge: true });
         return have - total;
     });
-    await (0, shared_1.broadcast)(streamId, 'studio.gift', { v: 1, type: 'gift', uid, name, giftId: gift.giftId, qty: gift.qty, ts: now }, { lossy: true });
+    if (!duplicate)
+        await (0, shared_1.broadcast)(streamId, 'studio.gift', { v: 1, type: 'gift', uid, name, giftId: gift.giftId, qty: gift.qty, ts: now }, { lossy: true });
     return { ok: true, balanceCoins: balance, giftId: gift.giftId, label: gift_logic_1.GIFT_CATALOG[gift.giftId].label, coins: total };
 });
 //# sourceMappingURL=gifts.js.map

@@ -72,18 +72,20 @@ export function decryptWith(k: Buffer, blob: string, uid: string): string {
   return Buffer.concat([d.update(enc), d.final()]).toString('utf8');
 }
 
-async function encrypt(plain: string, uid: string): Promise<string> {
+export async function encrypt(plain: string, uid: string): Promise<string> {
   return encryptWith(await key(), plain, uid);
 }
 
-async function decrypt(blob: string, uid: string): Promise<string> {
+export async function decrypt(blob: string, uid: string): Promise<string> {
   return decryptWith(await key(), blob, uid);
 }
 
 // ── token storage ────────────────────────────────────────────────────────
 
+export const gmailTokenRef = (uid: string) => tokenRef(uid);
 const tokenRef = (uid: string) => db().collection('users').doc(uid).collection('secure_tokens').doc('gmail');
 const legacyTokenRef = (uid: string) => db().collection('gmail_tokens').doc(uid);
+export const gmailStatusRef = (uid: string) => statusRef(uid);
 const statusRef = (uid: string) => db().collection('users').doc(uid).collection('social_connections').doc('gmail');
 
 type StoredToken = { refreshToken: string; email: string };
@@ -112,7 +114,7 @@ async function loadToken(uid: string): Promise<StoredToken | null> {
 }
 
 /** Removes the token (both locations) and the public status doc. */
-async function clearToken(uid: string): Promise<void> {
+export async function clearToken(uid: string): Promise<void> {
   const batch = db().batch();
   batch.delete(tokenRef(uid));
   batch.delete(legacyTokenRef(uid));
@@ -122,7 +124,7 @@ async function clearToken(uid: string): Promise<void> {
 
 // ── OAuth client ─────────────────────────────────────────────────────────
 
-async function oauth() {
+export async function oauth() {
   const secret = await optionalSecret('GOOGLE_OAUTH_CLIENT_SECRET');
   if (!webClientId.value() || !secret) {
     throw new HttpsError('failed-precondition', 'Gmail connection is not set up on the server yet.');
@@ -131,7 +133,7 @@ async function oauth() {
   return new google.auth.OAuth2(webClientId.value(), secret, '');
 }
 
-function uidOf(req: { auth?: { uid: string; token: { firebase?: { sign_in_provider?: string } } } }): string {
+export function uidOf(req: { auth?: { uid: string; token: { firebase?: { sign_in_provider?: string } } } }): string {
   const a = req.auth;
   if (!a || a.token.firebase?.sign_in_provider === 'anonymous') throw new HttpsError('unauthenticated', 'Sign in first.');
   return a.uid;
@@ -211,7 +213,10 @@ export const gmailStatus = onCall(async (request) => {
 export const gmailDisconnect = onCall(async (request) => {
   const uid = uidOf(request);
   const stored = await loadToken(uid).catch(() => null);
-  if (stored) {
+  // A token linked through Google services (googleLink.ts) is shared with the
+  // user's other Google services: revoking it would cut those off too.
+  const shared = (await tokenRef(uid).get().catch(() => null))?.get('googleSub');
+  if (stored && !shared) {
     try {
       const client = await oauth();
       await client.revokeToken(await decrypt(stored.refreshToken, uid));
@@ -220,6 +225,11 @@ export const gmailDisconnect = onCall(async (request) => {
     }
   }
   await clearToken(uid);
+  if (shared) {
+    // Linked through Google services: show Gmail as off on that account too.
+    const acc = db().collection('users').doc(uid).collection('google_accounts').doc(String(shared));
+    if ((await acc.get()).exists) await acc.set({ services: { gmail: FieldValue.delete() } }, { merge: true });
+  }
   return { ok: true };
 });
 

@@ -32,143 +32,169 @@ var __importStar = (this && this.__importStar) || (function () {
         return result;
     };
 })();
-var __importDefault = (this && this.__importDefault) || function (mod) {
-    return (mod && mod.__esModule) ? mod : { "default": mod };
-};
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.creatorStripeWebhook = exports.kycRefresh = exports.kycStart = void 0;
+exports.kycReview = exports.kycRefresh = exports.kycSubmit = exports.kycStart = void 0;
 /**
- * Identity verification (KYC) before a creator's first withdrawal, with
- * Stripe Identity: government ID + live selfie, captured on Stripe's hosted
- * page. Oneova never receives or stores the images; `kyc/{uid}` keeps only the
- * status, the name and country on the ID, and the document type.
+ * Identity verification (KYC) before anyone is paid out: Oneova's own check.
  *
- *   app → kycStart            VerificationSession → hosted url
- *   app → kycRefresh          re-reads the session (after returning to the app)
- *   Stripe → creatorStripeWebhook  identity.verification_session.* and transfer.reversed
+ *   app → kycStart     opens a check; returns the private Storage folder
+ *                      `kyc/{uid}/{sessionId}/` for the photos
+ *   app                uploads id_front.jpg, id_back.jpg (optional), selfie.jpg
+ *                      (only the owner can write there; nobody can read them
+ *                      from the app — see storage.rules)
+ *   app → kycSubmit    status "review"; an AI pre-check (Vertex AI) reads the
+ *                      ID and compares the faces for the reviewer. It never
+ *                      approves anyone on its own.
+ *   admin → kycReview  verified (with the name on the ID) or rejected
+ *   app → kycRefresh   current status
  *
- * Secrets: STRIPE_SECRET_KEY, STRIPE_PAYOUTS_WEBHOOK_SECRET (a separate
- * webhook endpoint from Biz commerce, so each has its own signing secret).
+ * `kyc/{uid}` (server-written) keeps the status, the verified name, country
+ * and document type, and the pre-check summary for the reviewer.
  */
-const stripe_1 = __importDefault(require("stripe"));
+const crypto = __importStar(require("crypto"));
 const https_1 = require("firebase-functions/v2/https");
 const logger = __importStar(require("firebase-functions/logger"));
 const firestore_1 = require("firebase-admin/firestore");
-const optionalSecrets_1 = require("../optionalSecrets");
-const payouts_1 = require("./payouts");
+const storage_1 = require("firebase-admin/storage");
+const vertexAi_1 = require("../vertexAi");
+const personal_1 = require("../identity/personal");
 const db = () => (0, firestore_1.getFirestore)();
-const RETURN_URL = 'https://oneova.web.app/';
-async function stripe() {
-    const key = await (0, optionalSecrets_1.optionalSecret)('STRIPE_SECRET_KEY');
-    if (!key)
-        throw new https_1.HttpsError('failed-precondition', 'Identity checks are being set up. Please try again soon.');
-    return new stripe_1.default(key, { apiVersion: '2025-02-24.acacia' });
-}
-const STATUS = {
-    verified: 'verified', processing: 'processing', requires_input: 'requires_input', canceled: 'canceled',
-};
-async function store(uid, s) {
-    var _a, _b, _c, _d;
-    var _e, _f, _g, _h, _j;
-    const out = s.verified_outputs;
-    const name = [out === null || out === void 0 ? void 0 : out.first_name, out === null || out === void 0 ? void 0 : out.last_name].filter(Boolean).join(' ').trim();
-    const report = typeof s.last_verification_report === 'object' ? s.last_verification_report : null;
-    const idCountry = (_f = (_e = (_a = report === null || report === void 0 ? void 0 : report.document) === null || _a === void 0 ? void 0 : _a.issuing_country) !== null && _e !== void 0 ? _e : (_b = out === null || out === void 0 ? void 0 : out.address) === null || _b === void 0 ? void 0 : _b.country) !== null && _f !== void 0 ? _f : null;
-    await db().doc(`kyc/${uid}`).set(Object.assign(Object.assign({ uid, provider: 'stripe_identity', sessionId: s.id, status: (_g = STATUS[s.status]) !== null && _g !== void 0 ? _g : 'processing', lastError: (_h = (_c = s.last_error) === null || _c === void 0 ? void 0 : _c.reason) !== null && _h !== void 0 ? _h : null }, (s.status === 'verified' ? {
-        verifiedName: name || null,
-        country: idCountry,
-        documentType: (_j = (_d = report === null || report === void 0 ? void 0 : report.document) === null || _d === void 0 ? void 0 : _d.type) !== null && _j !== void 0 ? _j : null,
-        verifiedAt: firestore_1.FieldValue.serverTimestamp(),
-    } : {})), { updatedAt: firestore_1.FieldValue.serverTimestamp() }), { merge: true });
+const DOC_TYPES = ['passport', 'id_card', 'driving_license'];
+function me(req) {
+    var _a;
+    const id = (_a = req.auth) === null || _a === void 0 ? void 0 : _a.uid;
+    if (!id)
+        throw new https_1.HttpsError('unauthenticated', 'Sign in first.');
+    return id;
 }
 exports.kycStart = (0, https_1.onCall)(async (req) => {
-    var _a;
-    const uid = (_a = req.auth) === null || _a === void 0 ? void 0 : _a.uid;
-    if (!uid)
-        throw new https_1.HttpsError('unauthenticated', 'Sign in first.');
+    const uid = me(req);
     const current = (await db().doc(`kyc/${uid}`).get()).data();
     if ((current === null || current === void 0 ? void 0 : current.status) === 'verified')
         return { status: 'verified' };
-    const s = await stripe();
-    // Reuse an open session so a second tap continues the same check.
-    if ((current === null || current === void 0 ? void 0 : current.sessionId) && ['requires_input', 'processing'].includes(current.status)) {
-        const old = await s.identity.verificationSessions.retrieve(current.sessionId);
-        if (old.status === 'requires_input' && old.url)
-            return { status: old.status, url: old.url };
-        if (old.status === 'processing')
-            return { status: 'processing' };
-    }
-    const session = await s.identity.verificationSessions.create({
-        type: 'document',
-        options: { document: { require_live_capture: true, require_matching_selfie: true, allowed_types: ['passport', 'id_card', 'driving_license'] } },
-        metadata: { uid },
-        return_url: RETURN_URL,
-    });
+    if ((current === null || current === void 0 ? void 0 : current.status) === 'review')
+        return { status: 'review' };
+    // Reuse an open check so a second tap continues it.
+    const sessionId = (current === null || current === void 0 ? void 0 : current.status) === 'collecting' && current.sessionId ? String(current.sessionId) : crypto.randomUUID();
     await db().doc(`kyc/${uid}`).set({
-        uid, provider: 'stripe_identity', sessionId: session.id, status: 'requires_input',
+        uid, provider: 'oneova', sessionId, status: 'collecting',
         startedAt: firestore_1.FieldValue.serverTimestamp(), updatedAt: firestore_1.FieldValue.serverTimestamp(),
     }, { merge: true });
-    return { status: 'requires_input', url: session.url };
+    return { status: 'collecting', sessionId, path: `kyc/${uid}/${sessionId}` };
+});
+/** Reads the ID and compares the faces for the reviewer. Best effort. */
+async function aiPreCheck(path, hasBack) {
+    var _a, _b;
+    try {
+        const bucket = (0, storage_1.getStorage)().bucket();
+        const load = async (name) => (await bucket.file(`${path}/${name}`).download())[0].toString('base64');
+        const [front, selfie, back] = await Promise.all([load('id_front.jpg'), load('selfie.jpg'), hasBack ? load('id_back.jpg') : Promise.resolve(null)]);
+        const res = await (0, vertexAi_1.generateVertexContent)({
+            contents: [{
+                    role: 'user',
+                    parts: [
+                        { text: 'Image 1 is the front of an identity document. Image 2 is a selfie.' + (back ? ' Image 3 is the back of the document.' : '') },
+                        { inlineData: { mimeType: 'image/jpeg', data: front } },
+                        { inlineData: { mimeType: 'image/jpeg', data: selfie } },
+                        ...(back ? [{ inlineData: { mimeType: 'image/jpeg', data: back } }] : []),
+                    ],
+                }],
+            config: {
+                systemInstruction: 'You help a human reviewer check identity documents. Reply ONLY with JSON: ' +
+                    '{"documentType":"passport|id_card|driving_license|other|unreadable","fullName":"name as printed or empty",' +
+                    '"country":"ISO-3166 alpha-2 of the issuing country or empty","expired":true|false|null,' +
+                    '"faceMatch":"likely|unlikely|unclear","readable":true|false,"concerns":["short notes, e.g. screen photo, cropped, edited"]}. ' +
+                    'Never guess a name you cannot read.',
+                responseMimeType: 'application/json',
+                temperature: 0,
+                maxOutputTokens: 400,
+                thinkingConfig: { thinkingBudget: 0 },
+            },
+        });
+        return JSON.parse((_a = res.text) !== null && _a !== void 0 ? _a : '{}');
+    }
+    catch (e) {
+        logger.warn('kyc pre-check failed', (_b = e === null || e === void 0 ? void 0 : e.message) !== null && _b !== void 0 ? _b : e);
+        return null;
+    }
+}
+exports.kycSubmit = (0, https_1.onCall)({ timeoutSeconds: 120, memory: '512MiB' }, async (req) => {
+    var _a, _b, _c, _d;
+    var _e, _f;
+    const uid = me(req);
+    const current = (await db().doc(`kyc/${uid}`).get()).data();
+    const sessionId = String((_e = (_a = req.data) === null || _a === void 0 ? void 0 : _a.sessionId) !== null && _e !== void 0 ? _e : '');
+    if (!current || current.status !== 'collecting' || current.sessionId !== sessionId) {
+        throw new https_1.HttpsError('failed-precondition', 'Start the identity check again.');
+    }
+    const documentType = DOC_TYPES.includes(String((_b = req.data) === null || _b === void 0 ? void 0 : _b.documentType)) ? String(req.data.documentType) : null;
+    const country = typeof ((_c = req.data) === null || _c === void 0 ? void 0 : _c.country) === 'string' && /^[A-Za-z]{2}$/.test(req.data.country) ? req.data.country.toUpperCase() : null;
+    const fullName = String((_f = (_d = req.data) === null || _d === void 0 ? void 0 : _d.fullName) !== null && _f !== void 0 ? _f : '').trim().replace(/\s+/g, ' ').slice(0, 120);
+    if (!documentType || !country || fullName.length < 3)
+        throw new https_1.HttpsError('invalid-argument', 'Fill in your name, country and ID type.');
+    const path = `kyc/${uid}/${sessionId}`;
+    const bucket = (0, storage_1.getStorage)().bucket();
+    const [[front], [selfie], [back]] = await Promise.all([
+        bucket.file(`${path}/id_front.jpg`).exists(), bucket.file(`${path}/selfie.jpg`).exists(), bucket.file(`${path}/id_back.jpg`).exists(),
+    ]);
+    if (!front || !selfie)
+        throw new https_1.HttpsError('failed-precondition', 'Add a photo of your ID and a selfie.');
+    await db().doc(`kyc/${uid}`).set({
+        status: 'review', documentType, country, submittedName: fullName, hasBack: back,
+        submittedAt: firestore_1.FieldValue.serverTimestamp(), updatedAt: firestore_1.FieldValue.serverTimestamp(),
+    }, { merge: true });
+    await (0, personal_1.onPersonalSubmitted)(uid);
+    const ai = await aiPreCheck(path, back);
+    if (ai)
+        await db().doc(`kyc/${uid}`).set({ aiCheck: ai, aiCheckedAt: firestore_1.FieldValue.serverTimestamp() }, { merge: true });
+    return { status: 'review' };
 });
 exports.kycRefresh = (0, https_1.onCall)(async (req) => {
-    var _a;
-    var _b;
-    const uid = (_a = req.auth) === null || _a === void 0 ? void 0 : _a.uid;
-    if (!uid)
-        throw new https_1.HttpsError('unauthenticated', 'Sign in first.');
-    const current = (await db().doc(`kyc/${uid}`).get()).data();
-    if (!(current === null || current === void 0 ? void 0 : current.sessionId))
-        return { status: 'none' };
-    if (current.status === 'verified')
-        return { status: 'verified' };
-    const session = await (await stripe()).identity.verificationSessions.retrieve(current.sessionId, { expand: ['verified_outputs', 'last_verification_report'] });
-    await store(uid, session);
-    return { status: (_b = STATUS[session.status]) !== null && _b !== void 0 ? _b : 'processing' };
+    var _a, _b, _c;
+    const uid = me(req);
+    const k = (await db().doc(`kyc/${uid}`).get()).data();
+    return { status: (_a = k === null || k === void 0 ? void 0 : k.status) !== null && _a !== void 0 ? _a : 'none', reason: (_b = k === null || k === void 0 ? void 0 : k.rejectReason) !== null && _b !== void 0 ? _b : null, verifiedName: (_c = k === null || k === void 0 ? void 0 : k.verifiedName) !== null && _c !== void 0 ? _c : null };
 });
-exports.creatorStripeWebhook = (0, https_1.onRequest)(async (req, res) => {
-    var _a, _b;
-    var _c, _d;
-    const secret = await (0, optionalSecrets_1.optionalSecret)('STRIPE_PAYOUTS_WEBHOOK_SECRET');
-    if (!secret) {
-        res.status(503).send('not configured');
-        return;
+/** Admin decision (from the admin dashboard). */
+exports.kycReview = (0, https_1.onCall)(async (req) => {
+    var _a, _b, _c, _d, _e;
+    var _f, _g, _h, _j, _k;
+    const admin = me(req);
+    if ((await db().doc(`users/${admin}`).get()).get('role') !== 'admin')
+        throw new https_1.HttpsError('permission-denied', 'Admins only.');
+    const uid = String((_f = (_a = req.data) === null || _a === void 0 ? void 0 : _a.uid) !== null && _f !== void 0 ? _f : '');
+    if (!uid || uid.includes('/'))
+        throw new https_1.HttpsError('invalid-argument', 'Missing user.');
+    const k = (await db().doc(`kyc/${uid}`).get()).data();
+    if (!k || k.status !== 'review')
+        throw new https_1.HttpsError('failed-precondition', 'Nothing to review for this user.');
+    if (((_b = req.data) === null || _b === void 0 ? void 0 : _b.approve) === true) {
+        const name = String((_h = (_g = (_c = req.data) === null || _c === void 0 ? void 0 : _c.verifiedName) !== null && _g !== void 0 ? _g : k.submittedName) !== null && _h !== void 0 ? _h : '').trim().slice(0, 120);
+        if (name.length < 3)
+            throw new https_1.HttpsError('invalid-argument', 'Enter the name exactly as on the ID.');
+        await db().doc(`kyc/${uid}`).set({
+            status: 'verified', verifiedName: name, country: String((_j = (_d = req.data) === null || _d === void 0 ? void 0 : _d.country) !== null && _j !== void 0 ? _j : k.country), documentType: k.documentType,
+            reviewedBy: admin, verifiedAt: firestore_1.FieldValue.serverTimestamp(), updatedAt: firestore_1.FieldValue.serverTimestamp(),
+        }, { merge: true });
+        await db().collection('notifications').doc(`kyc_ok_${uid}`).set({
+            userId: uid, recipientId: uid, category: 'system', priority: 'high', type: 'payout',
+            title: 'You’re verified ✅', body: 'You can now withdraw your earnings.', deepLink: '/wallet/withdraw',
+            isRead: false, createdAt: firestore_1.FieldValue.serverTimestamp(),
+        });
+        await (0, personal_1.onPersonalVerified)(uid, admin);
     }
-    let event;
-    try {
-        event = (await stripe()).webhooks.constructEvent(req.rawBody, String((_c = req.headers['stripe-signature']) !== null && _c !== void 0 ? _c : ''), secret);
+    else {
+        const reason = String((_k = (_e = req.data) === null || _e === void 0 ? void 0 : _e.reason) !== null && _k !== void 0 ? _k : 'We couldn’t confirm your ID. Please try again with clear photos.').slice(0, 200);
+        await db().doc(`kyc/${uid}`).set({
+            status: 'rejected', rejectReason: reason, reviewedBy: admin, updatedAt: firestore_1.FieldValue.serverTimestamp(),
+        }, { merge: true });
+        await db().collection('notifications').doc(`kyc_no_${uid}_${Date.now()}`).set({
+            userId: uid, recipientId: uid, category: 'system', priority: 'high', type: 'payout',
+            title: 'Identity check needs another try', body: reason, deepLink: '/wallet/verify',
+            isRead: false, createdAt: firestore_1.FieldValue.serverTimestamp(),
+        });
+        await (0, personal_1.onPersonalRejected)(uid, reason);
     }
-    catch (e) {
-        logger.warn('creator webhook signature failed', e === null || e === void 0 ? void 0 : e.message);
-        res.status(400).send('bad signature');
-        return;
-    }
-    try {
-        if (event.type.startsWith('identity.verification_session.')) {
-            const s = event.data.object;
-            const uid = (_a = s.metadata) === null || _a === void 0 ? void 0 : _a.uid;
-            if (uid) {
-                const full = await (await stripe()).identity.verificationSessions.retrieve(s.id, { expand: ['verified_outputs', 'last_verification_report'] });
-                await store(uid, full);
-                if (full.status === 'verified') {
-                    await db().collection('notifications').doc(`kyc_ok_${uid}`).set({
-                        userId: uid, recipientId: uid, category: 'system', priority: 'high', type: 'payout',
-                        title: 'You’re verified ✅', body: 'You can now withdraw your earnings.', deepLink: '/wallet/withdraw',
-                        isRead: false, createdAt: firestore_1.FieldValue.serverTimestamp(),
-                    });
-                }
-            }
-        }
-        else if (event.type === 'transfer.reversed') {
-            const t = event.data.object;
-            const wid = (_b = t.metadata) === null || _b === void 0 ? void 0 : _b.withdrawalId;
-            if (wid)
-                await (0, payouts_1.settleWithdrawal)(wid, 'failed', { failureReason: 'The transfer was reversed.' });
-        }
-        res.status(200).send('ok');
-    }
-    catch (e) {
-        logger.error('creator webhook failed', event.type, (_d = e === null || e === void 0 ? void 0 : e.message) !== null && _d !== void 0 ? _d : e);
-        res.status(500).send('error');
-    }
+    return { ok: true };
 });
 //# sourceMappingURL=kyc.js.map

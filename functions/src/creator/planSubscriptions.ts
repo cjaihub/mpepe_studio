@@ -4,7 +4,8 @@
  *   app → verifySubscriptionPurchase  checks the token with the Play Developer
  *         API (subscriptionsv2), acknowledges it and writes `subscriptions/{uid}`
  *   Play → playBillingNotifications   Real-time developer notifications on the
- *         Pub/Sub topic `play-billing` (renewals, cancels, holds, expiry)
+ *         Pub/Sub topic `play-billing` (renewals, cancels, holds, expiry,
+ *         and voided coin packs → coins/voidedPurchases.ts)
  *
  * Setup: Play Console → Monetize → Subscriptions: create `oneova_plus`,
  * `oneova_pro`, `oneova_biz`, each with base plans `monthly` and `yearly`.
@@ -18,6 +19,7 @@ import { onCall, HttpsError } from 'firebase-functions/v2/https';
 import { onMessagePublished } from 'firebase-functions/v2/pubsub';
 import * as logger from 'firebase-functions/logger';
 import { getFirestore, FieldValue, Timestamp } from 'firebase-admin/firestore';
+import { applyVoidedCoinPurchase } from '../coins/voidedPurchases';
 
 const db = () => getFirestore();
 const PACKAGE = 'com.oneova.app';
@@ -100,8 +102,16 @@ export const verifySubscriptionPurchase = onCall({ timeoutSeconds: 60 }, async (
 
 export const playBillingNotifications = onMessagePublished('play-billing', async (event) => {
   const msg = event.data.message.json as any;
+  if (msg?.packageName !== PACKAGE) return;
+  // A refunded or charged-back coin pack: take the coins back (coins/voidedPurchases.ts).
+  const voided = msg?.voidedPurchaseNotification;
+  if (voided?.purchaseToken) {
+    await applyVoidedCoinPurchase(String(voided.purchaseToken), { orderId: voided.orderId ?? null })
+      .catch((e) => logger.error('voided coin purchase failed', e?.message ?? e));
+    return;
+  }
   const token = msg?.subscriptionNotification?.purchaseToken;
-  if (!token || msg?.packageName !== PACKAGE) return;
+  if (!token) return;
   try {
     await sync(String(token), null);
   } catch (e: any) {

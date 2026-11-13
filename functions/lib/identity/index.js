@@ -1,0 +1,22 @@
+"use strict";
+Object.defineProperty(exports, "__esModule", { value: true });
+exports.idPublic = exports.idReviewFiles = exports.idRetention = exports.kybExpiry = exports.kybRequirementsSave = exports.kybDelete = exports.kybReview = exports.kybOwnerRespond = exports.kybSubmit = exports.kybStart = exports.kybRequirements = exports.kycDelete = exports.idShareRevoke = exports.idShare = exports.idCredential = void 0;
+var personal_1 = require("./personal");
+Object.defineProperty(exports, "idCredential", { enumerable: true, get: function () { return personal_1.idCredential; } });
+Object.defineProperty(exports, "idShare", { enumerable: true, get: function () { return personal_1.idShare; } });
+Object.defineProperty(exports, "idShareRevoke", { enumerable: true, get: function () { return personal_1.idShareRevoke; } });
+Object.defineProperty(exports, "kycDelete", { enumerable: true, get: function () { return personal_1.kycDelete; } });
+var business_1 = require("./business");
+Object.defineProperty(exports, "kybRequirements", { enumerable: true, get: function () { return business_1.kybRequirements; } });
+Object.defineProperty(exports, "kybStart", { enumerable: true, get: function () { return business_1.kybStart; } });
+Object.defineProperty(exports, "kybSubmit", { enumerable: true, get: function () { return business_1.kybSubmit; } });
+Object.defineProperty(exports, "kybOwnerRespond", { enumerable: true, get: function () { return business_1.kybOwnerRespond; } });
+Object.defineProperty(exports, "kybReview", { enumerable: true, get: function () { return business_1.kybReview; } });
+Object.defineProperty(exports, "kybDelete", { enumerable: true, get: function () { return business_1.kybDelete; } });
+Object.defineProperty(exports, "kybRequirementsSave", { enumerable: true, get: function () { return business_1.kybRequirementsSave; } });
+Object.defineProperty(exports, "kybExpiry", { enumerable: true, get: function () { return business_1.kybExpiry; } });
+Object.defineProperty(exports, "idRetention", { enumerable: true, get: function () { return business_1.idRetention; } });
+Object.defineProperty(exports, "idReviewFiles", { enumerable: true, get: function () { return business_1.idReviewFiles; } });
+var publicApi_1 = require("./publicApi");
+Object.defineProperty(exports, "idPublic", { enumerable: true, get: function () { return publicApi_1.idPublic; } });
+//# sourceMappingURL=index.js.map

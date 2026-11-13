@@ -36,7 +36,7 @@ Object.defineProperty(exports, "__esModule", { value: true });
 const node_test_1 = require("node:test");
 const assert = __importStar(require("node:assert/strict"));
 const payoutLogic_1 = require("../payoutLogic");
-const all = { flutterwave: true, paystack: true, stripe: true };
+const all = { flutterwave: true, paystack: true };
 (0, node_test_1.test)('state machine only moves forward', () => {
     assert.ok((0, payoutLogic_1.canMove)('pending', 'processing'));
     assert.ok((0, payoutLogic_1.canMove)('processing', 'paid'));
@@ -45,16 +45,15 @@ const all = { flutterwave: true, paystack: true, stripe: true };
     assert.ok(!(0, payoutLogic_1.canMove)('processing', 'cancelled'));
     assert.ok(!(0, payoutLogic_1.canMove)('pending', 'paid'));
 });
-(0, node_test_1.test)('rails: Africa gets mobile money, elsewhere Stripe', () => {
+(0, node_test_1.test)('rails: Africa gets mobile money and banks, elsewhere none yet', () => {
     const ke = (0, payoutLogic_1.railsFor)('KE', all);
     assert.equal(ke[0].rail, 'mobile_money');
     assert.ok(ke[0].networks.some((n) => n.id === 'MPESA'));
-    assert.deepEqual((0, payoutLogic_1.railsFor)('FR', all).map((r) => r.rail), ['stripe']);
-    assert.deepEqual((0, payoutLogic_1.railsFor)('FR', Object.assign(Object.assign({}, all), { stripe: false })), []);
+    assert.deepEqual((0, payoutLogic_1.railsFor)('FR', all), []);
     // Paystack only offers its own networks.
-    const gh = (0, payoutLogic_1.railsFor)('GH', { flutterwave: false, paystack: true, stripe: false });
+    const gh = (0, payoutLogic_1.railsFor)('GH', { flutterwave: false, paystack: true });
     assert.equal(gh[0].provider, 'paystack');
-    assert.deepEqual((0, payoutLogic_1.railsFor)('UG', { flutterwave: false, paystack: true, stripe: false }), []);
+    assert.deepEqual((0, payoutLogic_1.railsFor)('UG', { flutterwave: false, paystack: true }), []);
 });
 (0, node_test_1.test)('phone numbers get the dial code', () => {
     assert.equal((0, payoutLogic_1.normalizeMsisdn)('0712 345 678', 'KE'), '254712345678');
@@ -64,7 +63,7 @@ const all = { flutterwave: true, paystack: true, stripe: true };
 (0, node_test_1.test)('fees, rounding, conversion', () => {
     assert.equal((0, payoutLogic_1.payoutFeeUsd)('mobile_money', 10), 0.2);
     assert.equal((0, payoutLogic_1.payoutFeeUsd)('mobile_money', 100), 1.5);
-    assert.equal((0, payoutLogic_1.payoutFeeUsd)('stripe', 100), 0.5);
+    assert.equal((0, payoutLogic_1.payoutFeeUsd)('bank', 100), 1);
     assert.equal((0, payoutLogic_1.roundLocal)(1234.9, 'KES'), 1234);
     assert.equal((0, payoutLogic_1.roundLocal)(12.349, 'GHS'), 12.34);
     assert.equal((0, payoutLogic_1.usdToDiamonds)(10), 1000);
