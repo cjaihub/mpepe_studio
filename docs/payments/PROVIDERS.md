@@ -110,3 +110,10 @@ scenarios against it.
 - **Policy:** the 7-day Diamond hold is shorter than Play's refund window. Decide whether to raise it.
 - **Partners:** sandbox keys and agreements for M-Pesa Daraja, MTN MoMo and pawaPay or Onafriq, so their adapters can be built and tested.
 - **Phase 1 stack:** TypeScript (recommended) or Python for the ledger service.
+
+## Source of truth: the Postgres ledger
+Every `pay_ledger` posting (`writeLedger`), plus coin, gift, Diamond and payout movements, is also
+written to `ledger_outbox` in the same transaction and delivered to the Postgres ledger
+(`services/ledger`). That ledger enforces double entry, append-only entries and no overdraft in the
+database itself. Fees come from `services/ledger/config/fee_rules.json`.
+See [LEDGER.md](LEDGER.md) and [../FEES.md](../FEES.md).

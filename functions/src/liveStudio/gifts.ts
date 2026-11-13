@@ -11,6 +11,7 @@ import { Paths, StageMember } from './contracts';
 import { LIVEKIT_SECRETS, broadcast, db, isBlocked, loadState, rateLimit, requireLive, requireString, requireUid } from './shared';
 import { displayNameOf, avatarOf } from './social_logic';
 import { GIFT_CATALOG, GiftError, RecentGift, giftId, giftPrice, parseGift, pushRecent } from './gift_logic';
+import { ledgerOutbox } from '../ledger/outbox';
 
 export const lsGift = onCall({ secrets: LIVEKIT_SECRETS }, async (req) => {
   const uid = requireUid(req);
@@ -59,6 +60,7 @@ export const lsGift = onCall({ secrets: LIVEKIT_SECRETS }, async (req) => {
     }
     const recent: RecentGift = { id: giftDocId, uid, name, avatarUrl, giftId: gift.giftId, qty: gift.qty, coins: total, atMs: now };
     tx.set(senderWallet, { balanceCoins: have - total, updatedAt: FieldValue.serverTimestamp() }, { merge: true });
+    ledgerOutbox(tx, `gift_${giftDocId}`, 'gift', { sender: uid, coins: total, receiver: state.hostId, receiver_diamonds: hostCoins });
     tx.set(senderWallet.collection('ledger').doc(`gift_${giftDocId}`), {
       amount: -total,
       type: 'live_gift_sent',

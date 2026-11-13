@@ -13,6 +13,7 @@
  */
 import { getFirestore, FieldValue, Transaction } from 'firebase-admin/firestore';
 import { LedgerLine, ledgerBalanced, userOf } from './payLogic';
+import { ledgerOutbox } from '../ledger/outbox';
 
 const db = () => getFirestore();
 
@@ -38,6 +39,10 @@ export function writeLedger(
     lines: lines.map((l) => ({ account: l.account, currency: l.currency, amountMinor: l.amountMinor, bucket: l.bucket ?? null })),
     ...meta,
     createdAt: FieldValue.serverTimestamp(),
+  });
+  // Mirror to the Postgres ledger (the source of truth) in the same transaction.
+  ledgerOutbox(tx, `pay_${txnId}`, 'pay_posting', {
+    kind, lines: lines.map((l) => ({ account: l.account, currency: l.currency, amountMinor: l.amountMinor, bucket: l.bucket ?? null })),
   });
   for (const l of lines) {
     const uid = userOf(l.account);

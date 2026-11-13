@@ -18,6 +18,7 @@ exports.bucketOf = bucketOf;
  */
 const firestore_1 = require("firebase-admin/firestore");
 const payLogic_1 = require("./payLogic");
+const outbox_1 = require("../ledger/outbox");
 const db = () => (0, firestore_1.getFirestore)();
 const ledgerRef = (txnId) => db().doc(`pay_ledger/${txnId}`);
 exports.ledgerRef = ledgerRef;
@@ -34,6 +35,10 @@ function writeLedger(tx, txnId, exists, kind, lines, meta = {}) {
     if (!(0, payLogic_1.ledgerBalanced)(lines))
         throw new Error(`unbalanced ledger posting ${txnId}`);
     tx.set((0, exports.ledgerRef)(txnId), Object.assign(Object.assign({ kind, lines: lines.map((l) => { var _a; return ({ account: l.account, currency: l.currency, amountMinor: l.amountMinor, bucket: (_a = l.bucket) !== null && _a !== void 0 ? _a : null }); }) }, meta), { createdAt: firestore_1.FieldValue.serverTimestamp() }));
+    // Mirror to the Postgres ledger (the source of truth) in the same transaction.
+    (0, outbox_1.ledgerOutbox)(tx, `pay_${txnId}`, 'pay_posting', {
+        kind, lines: lines.map((l) => { var _a; return ({ account: l.account, currency: l.currency, amountMinor: l.amountMinor, bucket: (_a = l.bucket) !== null && _a !== void 0 ? _a : null }); }),
+    });
     for (const l of lines) {
         const uid = (0, payLogic_1.userOf)(l.account);
         if (!uid || l.amountMinor === 0)

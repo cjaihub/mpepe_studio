@@ -344,3 +344,5 @@ export { shopListingDraft } from './models3d/listing';
 export { fxRefresh } from './commerce/fx';
 export { shareLinkCreate, shareLinkEvent, shareLinkOpen } from './commerce/shareLinks';
 export { shopChatSend } from './commerce/shopChat';
+// Postgres ledger shadow mode (services/ledger); off unless LEDGER_OUTBOX=on.
+export { ledgerOutboxDeliver, ledgerOutboxRetry } from './ledger/outbox';

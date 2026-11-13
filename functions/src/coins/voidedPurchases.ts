@@ -14,6 +14,7 @@ import { onSchedule } from 'firebase-functions/v2/scheduler';
 import * as logger from 'firebase-functions/logger';
 import { getFirestore, FieldValue, Timestamp } from 'firebase-admin/firestore';
 import { clawbackPlan, giftRecipients } from './clawbackLogic';
+import { ledgerOutbox } from '../ledger/outbox';
 
 const db = () => getFirestore();
 const PACKAGE = 'com.oneova.app';
@@ -43,6 +44,9 @@ export async function applyVoidedCoinPurchase(purchaseToken: string, info: { ord
       amount: -plan.takeFromBalance, type: 'coin_purchase_voided', debt: plan.addDebt, coins,
       referenceId: info.orderId ?? receipt.get('orderId') ?? id, createdAt: FieldValue.serverTimestamp(),
     });
+    if (plan.takeFromBalance + plan.addDebt > 0) {
+      ledgerOutbox(tx, `void_${id}`, 'coin_void', { uid, take_from_balance: plan.takeFromBalance, add_debt: plan.addDebt, order_id: info.orderId ?? null });
+    }
     tx.update(receiptRef, { voided: true, voidedAt: FieldValue.serverTimestamp() });
     tx.set(voidRef, {
       uid, coins, ...plan, orderId: info.orderId ?? null, reason: info.reason ?? null, source: info.source ?? null,

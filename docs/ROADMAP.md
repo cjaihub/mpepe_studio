@@ -19,8 +19,8 @@ been shown to be correct.
 
 | Option | Pros | Cons |
 |---|---|---|
-| **A. TypeScript on Cloud Run + Cloud SQL Postgres (recommended)** | same language as `functions/src`; shared types and validators; one CI and toolchain; Functions call it over private IAM | not Python |
-| B. Python (FastAPI) on Cloud Run + Cloud SQL Postgres | what you asked for; strong for data and risk work | second language and toolchain; types duplicated across the boundary |
+| A. TypeScript on Cloud Run + Cloud SQL Postgres | same language as `functions/src`; shared types and validators; one CI and toolchain; Functions call it over private IAM | not Python |
+| **B. Python (FastAPI) on Cloud Run + Cloud SQL Postgres (chosen 2026-11-13)** | what you asked for; strong for data and risk work | second language and toolchain; types duplicated across the boundary |
 
 Both give the same design: Postgres (`SERIALIZABLE` transactions, `bigint` minor units, append-only
 tables enforced by triggers and grants), Cloud Run with no public ingress (Functions call it with an IAM
@@ -37,6 +37,7 @@ Identity, Radar, Connect, Financial Connections and Issuing where they're availa
 ---
 
 ## Phase 0.5: stop the bleeding (small fixes to existing code, if approved)
+**Status: done on `feat/oneova-pay-hardening`, not deployed** (see `docs/payments/PROVIDERS.md`). The provider interface, mock and failover router from Phase 3 were built at the same time.
 These are the critical audit items. They're small and independent of the new platform.
 1. Handle Play voided purchases for coins (scheduled Voided Purchases API poll → claw back pending Diamonds, freeze if negative).
 2. In `dispatch()`, don't refund on an ambiguous error. Mark it `unknown` and reconcile by querying the provider by reference.
@@ -45,6 +46,7 @@ These are the critical audit items. They're small and independent of the new pla
 - Exit test: unit tests for each fix; existing `payoutLogic` tests still pass. No deploy without a yes.
 
 ## Phase 1: the ledger
+**Status: built and tested in Python (FastAPI) + PostgreSQL for Cloud Run, running in shadow mode behind `LEDGER_OUTBOX`. Not deployed** (see `docs/payments/LEDGER.md`).
 - **MVP slice:** a `ledger` service with `accounts`, `journal` (transactions), `postings` (≥ 2 lines, sum = 0 per currency), `idempotency_keys`, `audit_log`. Balances = SUM(postings), plus a cached `balances` table updated in the same transaction and checked nightly.
 - Integer minor units (`bigint`) with an ISO-4217 exponent table. Coins and Diamonds are their own "currencies" (`XCN`, `XDM`), so they can never mix with fiat.
 - APIs: `post(journal, idempotencyKey)`, `hold/release/capture`, `balance(account)`, `history(account, cursor)`.
@@ -53,6 +55,7 @@ These are the critical audit items. They're small and independent of the new pla
 - Exit test: property tests (random postings never break sum = 0; replaying the same idempotency key does nothing), concurrency test (100 parallel debits never overdraw), reconciliation job green against the backfill.
 
 ## Phase 2: fees engine
+**Status: built and tested in the ledger service; fee postings shadow-posted from functions. Not deployed** (see `docs/FEES.md`).
 - Versioned rules in config (Postgres table + `docs/FEES.md`): percentage, minimum, cap, flat amount, per corridor (from-country → to-country, rail), per-partner revenue share, effective-from dates.
 - The quote returns the breakdown, and the same rule version is used at posting time. Each fee is its own posting to `fees:revenue` and `partner:{id}:share` accounts.
 - Exit test: a table of worked examples in `FEES.md` runs as tests (rounding half-even in minor units).

@@ -1,0 +1,78 @@
+{
+  "_doc": "Oneova fee rules. Edit only through a reviewed pull request; docs/FEES.md explains every field. Amounts are integer minor units, percentages are basis points (100 bps = 1%).",
+  "rules": [
+    {
+      "id": "payout_mobile_money",
+      "version": 1,
+      "effective_from": "2026-10-31T00:00:00Z",
+      "match": {
+        "product": "creator_payout",
+        "rail": "mobile_money",
+        "currency": "USD"
+      },
+      "percent_bps": 150,
+      "flat_minor": 0,
+      "min_minor": 20,
+      "charge": "deducted",
+      "rounding": "half_up",
+      "shares": []
+    },
+    {
+      "id": "payout_bank",
+      "version": 1,
+      "effective_from": "2026-10-31T00:00:00Z",
+      "match": {
+        "product": "creator_payout",
+        "rail": "bank",
+        "currency": "USD"
+      },
+      "percent_bps": 100,
+      "flat_minor": 0,
+      "min_minor": 50,
+      "charge": "deducted",
+      "rounding": "half_up",
+      "shares": []
+    },
+    {
+      "id": "biz_commission",
+      "version": 1,
+      "effective_from": "2026-10-31T00:00:00Z",
+      "match": {
+        "product": "biz_order"
+      },
+      "percent_bps": 1000,
+      "flat_minor": 0,
+      "charge": "deducted",
+      "rounding": "down",
+      "shares": []
+    },
+    {
+      "id": "balance_payout_mobile_money",
+      "version": 1,
+      "effective_from": "2026-11-13T00:00:00Z",
+      "match": {
+        "product": "balance_payout",
+        "rail": "mobile_money"
+      },
+      "percent_bps": 150,
+      "flat_minor": 0,
+      "charge": "deducted",
+      "rounding": "up",
+      "shares": []
+    },
+    {
+      "id": "balance_payout_bank",
+      "version": 1,
+      "effective_from": "2026-11-13T00:00:00Z",
+      "match": {
+        "product": "balance_payout",
+        "rail": "bank"
+      },
+      "percent_bps": 100,
+      "flat_minor": 0,
+      "charge": "deducted",
+      "rounding": "up",
+      "shares": []
+    }
+  ]
+}

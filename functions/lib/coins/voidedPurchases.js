@@ -51,6 +51,7 @@ const scheduler_1 = require("firebase-functions/v2/scheduler");
 const logger = __importStar(require("firebase-functions/logger"));
 const firestore_1 = require("firebase-admin/firestore");
 const clawbackLogic_1 = require("./clawbackLogic");
+const outbox_1 = require("../ledger/outbox");
 const db = () => (0, firestore_1.getFirestore)();
 const PACKAGE = 'com.oneova.app';
 const tokenHash = (token) => crypto.createHash('sha256').update(token).digest('hex');
@@ -62,7 +63,7 @@ async function applyVoidedCoinPurchase(purchaseToken, info) {
     const voidRef = db().doc(`coin_voids/${id}`);
     const applied = await db().runTransaction(async (tx) => {
         var _a;
-        var _b, _c, _d, _e, _f, _g, _h, _j;
+        var _b, _c, _d, _e, _f, _g, _h, _j, _k;
         const [receipt, done] = await Promise.all([tx.get(receiptRef), tx.get(voidRef)]);
         if (done.exists || !receipt.exists)
             return null;
@@ -76,9 +77,12 @@ async function applyVoidedCoinPurchase(purchaseToken, info) {
             amount: -plan.takeFromBalance, type: 'coin_purchase_voided', debt: plan.addDebt, coins,
             referenceId: (_e = (_d = info.orderId) !== null && _d !== void 0 ? _d : receipt.get('orderId')) !== null && _e !== void 0 ? _e : id, createdAt: firestore_1.FieldValue.serverTimestamp(),
         });
+        if (plan.takeFromBalance + plan.addDebt > 0) {
+            (0, outbox_1.ledgerOutbox)(tx, `void_${id}`, 'coin_void', { uid, take_from_balance: plan.takeFromBalance, add_debt: plan.addDebt, order_id: (_f = info.orderId) !== null && _f !== void 0 ? _f : null });
+        }
         tx.update(receiptRef, { voided: true, voidedAt: firestore_1.FieldValue.serverTimestamp() });
-        tx.set(voidRef, Object.assign(Object.assign({ uid, coins }, plan), { orderId: (_f = info.orderId) !== null && _f !== void 0 ? _f : null, reason: (_g = info.reason) !== null && _g !== void 0 ? _g : null, source: (_h = info.source) !== null && _h !== void 0 ? _h : null, voidedTimeMillis: info.voidedTimeMillis != null ? Number(info.voidedTimeMillis) : null, createdAt: firestore_1.FieldValue.serverTimestamp() }));
-        return { uid, debt: plan.addDebt, purchasedAt: (_j = (_a = receipt.get('createdAt')) === null || _a === void 0 ? void 0 : _a.toMillis()) !== null && _j !== void 0 ? _j : 0 };
+        tx.set(voidRef, Object.assign(Object.assign({ uid, coins }, plan), { orderId: (_g = info.orderId) !== null && _g !== void 0 ? _g : null, reason: (_h = info.reason) !== null && _h !== void 0 ? _h : null, source: (_j = info.source) !== null && _j !== void 0 ? _j : null, voidedTimeMillis: info.voidedTimeMillis != null ? Number(info.voidedTimeMillis) : null, createdAt: firestore_1.FieldValue.serverTimestamp() }));
+        return { uid, debt: plan.addDebt, purchasedAt: (_k = (_a = receipt.get('createdAt')) === null || _a === void 0 ? void 0 : _a.toMillis()) !== null && _k !== void 0 ? _k : 0 };
     });
     if (!applied)
         return false;
