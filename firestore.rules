@@ -157,6 +157,23 @@ rules_version = '2';
 //   - amountCoins: int / number
 //   - createdAt: timestamp
 //
+// Collection: registered_computers
+// Document ID: {deviceId} (1..256 chars)
+// Fields:
+//   - owner_uid: string (required, 1..128 chars, == request.auth.uid on create, immutable on update)
+//   - agent_uid: string (optional, <= 256 chars; authorized Desktop Agent Firebase Auth UID, mutable only by owner_uid)
+//   - computer_name: string (optional, <= 256 chars)
+//   - status: string (optional, <= 100 chars)
+//   - desktop_connected, is_locked, is_sleeping, requires_passkey: bool (optional)
+//   - active_window: string (optional, <= 1000 chars)
+//   - current_app: string (optional, <= 500 chars)
+//   - os: string (optional, <= 200 chars)
+//   - software, system_info, active_session: map (optional, bounded keys)
+//   - last_seen, last_unlocked: timestamp (optional)
+// Subcollections:
+//   - commands/{commandId}: remote-control commands (owner_uid or paired agent_uid)
+//   - {sub}/{rest=**}: webrtc_signaling, telemetry, etc. (owner_uid or paired agent_uid)
+//
 // ===============================================================
 
 service cloud.firestore {
@@ -360,8 +377,22 @@ service cloud.firestore {
     function keepsGuardFieldsOnCreate() {
       return !request.resource.data.keys().hasAny(['verifiedBy', 'safety']);
     }
+    // Verified tick and Oneova ID levels: set only by the identity functions.
+    function keepsVerificationOnCreate() {
+      return request.resource.data.get('isVerified', false) == false &&
+             request.resource.data.get('verified', false) == false &&
+             request.resource.data.get('identityLevel', 0) == 0 &&
+             request.resource.data.get('businessLevel', 0) == 0;
+    }
+    function keepsVerificationOnUpdate() {
+      return request.resource.data.get('isVerified', false) == resource.data.get('isVerified', false) &&
+             request.resource.data.get('verified', false) == resource.data.get('verified', false) &&
+             request.resource.data.get('identityLevel', 0) == resource.data.get('identityLevel', 0) &&
+             request.resource.data.get('businessLevel', 0) == resource.data.get('businessLevel', 0);
+    }
     function keepsGuardFieldsOnUpdate() {
-      return request.resource.data.get('verifiedBy', null) == resource.data.get('verifiedBy', null) &&
+      return keepsVerificationOnUpdate() &&
+             request.resource.data.get('verifiedBy', null) == resource.data.get('verifiedBy', null) &&
              (!('safety' in request.resource.data) ||
               request.resource.data.get('safety', null) == resource.data.get('safety', null));
     }
@@ -373,7 +404,7 @@ service cloud.firestore {
       // once GUARD_SPLIT_PRIVATE_FIELDS is on; lookups by phone/e-mail go
       // through the accountLookup function, never through this collection.
       allow read: if isSignedIn();
-      allow create: if isOwner(uid) && keepsPasswordFieldsOut() && keepsPrivilegesOnCreate() && keepsGuardFieldsOnCreate();
+      allow create: if isOwner(uid) && keepsPasswordFieldsOut() && keepsPrivilegesOnCreate() && keepsGuardFieldsOnCreate() && keepsVerificationOnCreate();
       allow update: if isOwner(uid) && keepsPasswordFieldsOut() && keepsPrivilegesOnUpdate() && keepsGuardFieldsOnUpdate();
       allow create, update: if isAdmin() && keepsPasswordFieldsOut();
       allow delete: if isOwner(uid) || isAdmin();
@@ -403,6 +434,17 @@ service cloud.firestore {
       }
 
       // Subcollection: YouTube accounts
+      // Camera / Studio presets the user saved, and favourite presets
+      // (lib/looks/filters/oneova_presets.dart).
+      match /camera_presets/{presetId} {
+        allow read, delete: if isOwner(uid);
+        allow create, update: if isOwner(uid) && request.resource.data.keys().hasOnly(
+          ['id', 'name', 'filterId', 'intensity', 'adjust', 'beauty', 'createdAt', 'updatedAt']) &&
+          request.resource.data.name is string && request.resource.data.name.size() <= 40;
+      }
+      match /preset_favourites/{presetId} {
+        allow read, write: if isOwner(uid);
+      }
       match /youtube_accounts/{accountId} {
         allow read, write: if isOwner(uid) || isAdmin();
       }
@@ -439,12 +481,30 @@ service cloud.firestore {
         allow read, write: if false;
       }
 
+      // Google services linked in Profile → Google services. Written only by
+      // googleLink.ts (tokens stay in secure_tokens); the owner reads status.
+      match /google_accounts/{sub} {
+        allow read: if isOwner(uid) || isAdmin();
+        allow write: if false;
+      }
+
       // Linked social accounts. Meta / TikTok flows write their own docs from
       // the client; the gmail status doc (and anything beneath it) is written
       // only by gmailConnect / gmailDisconnect, so clients may only read it.
       match /social_connections/{connId}/{document=**} {
         allow read: if isOwner(uid) || isAdmin();
         allow write: if (isOwner(uid) || isAdmin()) && connId != 'gmail';
+      }
+
+      // Private 3D model library and linked 3D providers: only the owner
+      // reads them, only the model service (functions/src/models3d) writes.
+      match /models3d/{modelId} {
+        allow read: if isOwner(uid);
+        allow write: if false;
+      }
+      match /model_providers/{engine} {
+        allow read: if isOwner(uid);
+        allow write: if false;
       }
 
       // Other user subcollections (settings, looks, lookFolders, liveSettings,
@@ -454,7 +514,7 @@ service cloud.firestore {
       // here and governed only by their dedicated blocks above.
       match /{sub}/{document=**} {
         allow read, write: if (isOwner(uid) || isAdmin()) &&
-                              !(sub in ['login_history', 'entitlements', 'secure_tokens', 'social_connections']);
+                              !(sub in ['login_history', 'entitlements', 'secure_tokens', 'social_connections', 'google_accounts', 'models3d', 'model_providers']);
       }
     }
 
@@ -532,11 +592,17 @@ service cloud.firestore {
       allow read: if resource == null || resource.data.get('visibility', 'public') == 'public' || canReadAuthorContent(resource.data.authorId);
       // destination / click counters are written only by contentSetDestination
       // and contentOpenDestination (functions/src/feed/destinationLinks.ts).
+      // A remix starts as remixOf.status 'pending'; remixOnCreate (functions/src/remix.ts)
+      // activates or rejects it. Owners cannot edit remixOf / remixCount, or make a
+      // rejected remix public again.
       allow create: if isSignedIn() && !isSuspended() && request.resource.data.authorId == request.auth.uid &&
-                       !request.resource.data.keys().hasAny(['destination', 'destinationClicks', 'destinationUniqueClicks']);
+                       !request.resource.data.keys().hasAny(['destination', 'destinationClicks', 'destinationUniqueClicks', 'remixCount']) &&
+                       (!('remixOf' in request.resource.data) || request.resource.data.remixOf.get('status', '') == 'pending');
       allow update: if isSignedIn() && !isSuspended() && (
         (resource.data.authorId == request.auth.uid && request.resource.data.authorId == resource.data.authorId &&
-         !request.resource.data.diff(resource.data).affectedKeys().hasAny(['destination', 'destinationClicks', 'destinationUniqueClicks'])) ||
+         !request.resource.data.diff(resource.data).affectedKeys().hasAny(['destination', 'destinationClicks', 'destinationUniqueClicks', 'remixOf', 'remixCount']) &&
+         !(resource.data.get('remixOf', {}).get('status', '') == 'rejected' &&
+           request.resource.data.get('visibility', 'public') == 'public')) ||
         isEngagementCounterUpdate() ||
         // A collaborator accepting/leaving adds or removes only themselves.
         (onlyChanges(['coAuthorIds']) &&
@@ -789,21 +855,105 @@ service cloud.firestore {
 
     // ─── Registered Computers (Linked Devices) ───────────────────────────────
     match /registered_computers/{deviceId} {
-      allow read: if isSignedIn() && (resource == null || resource.data.owner_uid == request.auth.uid);
-      allow create: if isSignedIn() && request.resource.data.owner_uid == request.auth.uid;
-      allow update: if isSignedIn() && resource.data.owner_uid == request.auth.uid &&
-                       request.resource.data.owner_uid == request.auth.uid;
-      allow delete: if isSignedIn() && resource.data.owner_uid == request.auth.uid;
+      function isComputerOwner() {
+        return isSignedIn() && resource.data.owner_uid == request.auth.uid;
+      }
 
-      // Remote-control commands: only the computer's owner (phone and the
-      // desktop agent signed in as the same user) may send or read them.
+      function isAuthorizedDesktopAgent() {
+        return isSignedIn() &&
+               resource.data.get('agent_uid', '') is string &&
+               resource.data.get('agent_uid', '') != '' &&
+               resource.data.get('agent_uid', '') == request.auth.uid;
+      }
+
+      function isValidOptionalComputerString(data, field, maxLen) {
+        return !(field in data) ||
+               data[field] == null ||
+               (data[field] is string && data[field].size() <= maxLen);
+      }
+
+      function isValidOptionalComputerBool(data, field) {
+        return !(field in data) ||
+               data[field] == null ||
+               data[field] is bool;
+      }
+
+      function isValidOptionalComputerMap(data, field, maxKeys) {
+        return !(field in data) ||
+               data[field] == null ||
+               (data[field] is map && data[field].keys().size() <= maxKeys);
+      }
+
+      function isValidRegisteredComputer(data) {
+        return deviceId.size() >= 1 && deviceId.size() <= 256 &&
+               data.keys().size() <= 60 &&
+               ('owner_uid' in data) &&
+               data.owner_uid is string &&
+               data.owner_uid.size() >= 1 &&
+               data.owner_uid.size() <= 128 &&
+               isValidOptionalComputerString(data, 'agent_uid', 256) &&
+               isValidOptionalComputerString(data, 'computer_name', 256) &&
+               isValidOptionalComputerString(data, 'status', 100) &&
+               isValidOptionalComputerString(data, 'active_window', 1000) &&
+               isValidOptionalComputerString(data, 'current_app', 500) &&
+               isValidOptionalComputerString(data, 'os', 200) &&
+               isValidOptionalComputerBool(data, 'desktop_connected') &&
+               isValidOptionalComputerBool(data, 'is_locked') &&
+               isValidOptionalComputerBool(data, 'is_sleeping') &&
+               isValidOptionalComputerBool(data, 'requires_passkey') &&
+               isValidOptionalComputerMap(data, 'software', 30) &&
+               isValidOptionalComputerMap(data, 'system_info', 50) &&
+               isValidOptionalComputerMap(data, 'active_session', 30);
+      }
+
+      function canAccessComputerSubcollection() {
+        let comp = get(/databases/$(database)/documents/registered_computers/$(deviceId)).data;
+        return comp.owner_uid == request.auth.uid ||
+               (comp.get('agent_uid', '') is string &&
+                comp.get('agent_uid', '') != '' &&
+                comp.get('agent_uid', '') == request.auth.uid);
+      }
+
+      allow read: if isSignedIn() && (
+        resource == null ||
+        isComputerOwner() ||
+        isAuthorizedDesktopAgent()
+      );
+
+      allow create: if isSignedIn() &&
+                       request.resource.data.owner_uid == request.auth.uid &&
+                       isValidRegisteredComputer(request.resource.data);
+
+      allow update: if isSignedIn() &&
+                       isValidRegisteredComputer(request.resource.data) && (
+                         (isComputerOwner() &&
+                          request.resource.data.owner_uid == request.auth.uid) ||
+                         (isAuthorizedDesktopAgent() &&
+                          request.resource.data.owner_uid == resource.data.owner_uid &&
+                          request.resource.data.get('agent_uid', '') == resource.data.get('agent_uid', ''))
+                       );
+
+      allow delete: if isComputerOwner();
+
+      // Remote-control commands & signaling/telemetry subcollections: only the
+      // computer's owner or its paired Desktop Agent (via agent_uid) may access.
       match /commands/{commandId} {
-        allow read, write: if isSignedIn() &&
-          get(/databases/$(database)/documents/registered_computers/$(deviceId)).data.owner_uid == request.auth.uid;
+        allow read, delete: if isSignedIn() &&
+          exists(/databases/$(database)/documents/registered_computers/$(deviceId)) &&
+          canAccessComputerSubcollection();
+        allow create, update: if isSignedIn() &&
+          exists(/databases/$(database)/documents/registered_computers/$(deviceId)) &&
+          canAccessComputerSubcollection() &&
+          request.resource.data.keys().size() <= 60;
       }
       match /{sub}/{rest=**} {
-        allow read, write: if isSignedIn() && sub != 'commands' &&
-          get(/databases/$(database)/documents/registered_computers/$(deviceId)).data.owner_uid == request.auth.uid;
+        allow read, delete: if isSignedIn() && sub != 'commands' &&
+          exists(/databases/$(database)/documents/registered_computers/$(deviceId)) &&
+          canAccessComputerSubcollection();
+        allow create, update: if isSignedIn() && sub != 'commands' &&
+          exists(/databases/$(database)/documents/registered_computers/$(deviceId)) &&
+          canAccessComputerSubcollection() &&
+          request.resource.data.keys().size() <= 60;
       }
     }
 
@@ -1274,7 +1424,7 @@ service cloud.firestore {
       allow update, delete: if (isSignedIn() && ownsData(resource.data)) || isAdmin();
     }
 
-    // ─── Biz orders (Stripe escrow; written only by functions/src/commerce) ──
+    // ─── Biz orders (Oneova Pay escrow; written only by functions/src/commerce) ──
     match /orders/{orderId} {
       allow read: if isSignedIn() && request.auth.uid in resource.data.participants;
       allow write: if false;
@@ -1308,10 +1458,135 @@ service cloud.firestore {
     }
 
     // ─── Shop products (search + live shopping) ──────────────────────────────
+    // Shape checks for seller-written products (3D Shops / Biz). Prices and
+    // stock written here are only shown; checkout re-reads them on the server.
+    function validShopProduct(d) {
+      return (!('name' in d) || (d.name is string && d.name.size() <= 120)) &&
+             (!('description' in d) || (d.description is string && d.description.size() <= 4000)) &&
+             (!('price' in d) || (d.price is number && d.price >= 0 && d.price <= 10000000)) &&
+             (!('compareAtPrice' in d) || d.compareAtPrice == null || (d.compareAtPrice is number && d.compareAtPrice >= 0)) &&
+             (!('currency' in d) || (d.currency is string && d.currency.size() == 3)) &&
+             (!('stock' in d) || d.stock == null || (d.stock is int && d.stock >= 0)) &&
+             (!('imageUrls' in d) || (d.imageUrls is list && d.imageUrls.size() <= 12)) &&
+             (!('model3dUrl' in d) || d.model3dUrl == null || (d.model3dUrl is string && d.model3dUrl.size() <= 2048)) &&
+             (!('variants' in d) || (d.variants is list && d.variants.size() <= 24));
+    }
+
     match /products/{productId} {
       allow read: if true;
-      allow create: if isSignedIn() && ownsData(request.resource.data);
-      allow update, delete: if (isSignedIn() && ownsData(resource.data)) || isAdmin();
+      allow create: if isSignedIn() && ownsData(request.resource.data) && validShopProduct(request.resource.data) &&
+                       !request.resource.data.keys().hasAny(['rating', 'reviewCount']);
+      allow update: if (isSignedIn() && ownsData(resource.data) &&
+                        request.resource.data.get('ownerId', '') == resource.data.get('ownerId', '') &&
+                        validShopProduct(request.resource.data) &&
+                        !request.resource.data.diff(resource.data).affectedKeys().hasAny(['rating', 'reviewCount'])) || isAdmin();
+      allow delete: if (isSignedIn() && ownsData(resource.data)) || isAdmin();
+    }
+
+    // ─── 3D Shops: one storefront per seller (doc id = seller uid) ────────────
+    // Trust signals (verified, followers, rating) are written by the server only.
+    function validShop(d) {
+      return d.ownerId == request.auth.uid &&
+             d.name is string && d.name.size() > 0 && d.name.size() <= 60 &&
+             d.status in ['draft', 'open', 'closed'] &&
+             (!('tagline' in d) || (d.tagline is string && d.tagline.size() <= 90)) &&
+             (!('bio' in d) || (d.bio is string && d.bio.size() <= 600)) &&
+             (!('categories' in d) || (d.categories is list && d.categories.size() <= 6)) &&
+             (!('stage' in d) || d.stage is map) &&
+             (!('location' in d) || d.location == null || d.location is map) &&
+             (!('liveDeal' in d) || d.liveDeal == null ||
+               (d.liveDeal is map && d.liveDeal.percentOff is int &&
+                d.liveDeal.percentOff >= 1 && d.liveDeal.percentOff <= 80 && d.liveDeal.endsAt is timestamp)) &&
+             (!('stageTexture' in d) || d.stageTexture == null || d.stageTexture is map);
+    }
+    match /biz_shops/{shopId} {
+      // The owner may read their own path even before the doc exists.
+      allow read: if (isSignedIn() && shopId == request.auth.uid) || resource.data.status == 'open' || isAdmin();
+      allow create: if isSignedIn() && shopId == request.auth.uid && validShop(request.resource.data) &&
+                       !request.resource.data.keys().hasAny(['verified', 'verifiedLevel', 'followersCount', 'rating', 'reviewCount']);
+      allow update: if isSignedIn() && shopId == request.auth.uid && validShop(request.resource.data) &&
+                       !request.resource.data.diff(resource.data).affectedKeys().hasAny(['verified', 'verifiedLevel', 'followersCount', 'rating', 'reviewCount']);
+      allow delete: if isAdmin();
+    }
+
+    // Seller discount codes: the owner manages them; checkout counts uses.
+    match /biz_shops/{shopId}/codes/{code} {
+      allow read, delete: if isSignedIn() && shopId == request.auth.uid;
+      allow create, update: if isSignedIn() && shopId == request.auth.uid &&
+                               request.resource.data.keys().hasOnly(['code', 'active', 'percentOff', 'amountOff', 'currency', 'minSpend', 'maxUses', 'endsAt', 'uses', 'createdAt']) &&
+                               request.resource.data.get('uses', 0) == (resource == null ? 0 : resource.data.get('uses', 0));
+    }
+
+    // Daily store counters (written by bizTrackEvent only).
+    match /biz_shops/{shopId}/daily/{day} {
+      allow read: if isSignedIn() && shopId == request.auth.uid;
+      allow write: if false;
+    }
+
+    // Hosted texture library (rendered and written by textureLibrary only).
+    match /texture_library/{textureId} {
+      allow read: if isSignedIn();
+      allow write: if false;
+    }
+
+    // A seller's own textures: server-rendered colorways or uploaded photos.
+    match /biz_shops/{shopId}/textures/{textureId} {
+      allow read: if true;
+      allow create: if isSignedIn() && shopId == request.auth.uid &&
+                       request.resource.data.keys().hasOnly(['name', 'kind', 'category', 'url', 'roughness', 'metallic', 'scale', 'builtIn', 'createdAt', 'colors']) &&
+                       request.resource.data.url is string && request.resource.data.url.matches('https://firebasestorage[.]googleapis[.]com/.*') &&
+                       request.resource.data.builtIn == false;
+      allow delete: if isSignedIn() && shopId == request.auth.uid;
+      allow update: if false;
+    }
+
+    // Reviews of delivered orders (written by bizSubmitReview only).
+    match /product_reviews/{orderId} {
+      allow read: if true;
+      allow write: if false;
+    }
+
+    // Live stage show: what is on air (shelf, active product, presenter
+    // camera). Anyone can watch; the shop owner writes, and so does a person
+    // on the stage of the live it belongs to (host, co-host, guest), who may
+    // not move the show to another live.
+    match /biz_shops/{shopId}/stage/{docId} {
+      allow read: if true;
+      allow write: if isSignedIn() && request.auth.uid == shopId;
+      allow update: if isSignedIn() && resource.data.get('streamId', '') != '' &&
+                       request.resource.data.get('streamId', '') == resource.data.streamId &&
+                       get(/databases/$(database)/documents/live_streams/$(resource.data.streamId)/members/$(request.auth.uid)).data.role in ['host', 'coHost', 'guest'];
+    }
+
+    // Product questions: Ova answers (shopChatSend), the seller watches and
+    // can take over. The buyer and the shop owner read; the owner writes
+    // seller messages and the take-over switch.
+    match /biz_shops/{shopId}/chats/{buyerId} {
+      allow read: if isSignedIn() && (request.auth.uid == buyerId || request.auth.uid == shopId);
+      allow update: if isSignedIn() && request.auth.uid == shopId &&
+                       request.resource.data.diff(resource.data).affectedKeys().hasOnly(['takenOver', 'updatedAt', 'lastText', 'lastFrom', 'unreadSeller']);
+      match /messages/{messageId} {
+        allow read: if isSignedIn() && (request.auth.uid == buyerId || request.auth.uid == shopId);
+        allow create: if isSignedIn() && request.auth.uid == shopId &&
+                         request.resource.data.keys().hasOnly(['from', 'text', 'productId', 'at', 'onAir']) &&
+                         request.resource.data.from == 'seller' &&
+                         request.resource.data.text is string && request.resource.data.text.size() > 0 && request.resource.data.text.size() <= 1000;
+      }
+    }
+
+    // Tracked share links: the sharer and the seller read the numbers; the
+    // server writes them (commerce/shareLinks.ts).
+    match /share_links/{code} {
+      allow read: if isSignedIn() && (resource.data.createdBy == request.auth.uid || resource.data.sellerId == request.auth.uid);
+      allow write: if false;
+    }
+
+    // Saved products (private wishlist).
+    match /users/{uid}/saved_products/{productId} {
+      allow read, delete: if isSignedIn() && request.auth.uid == uid;
+      allow create, update: if isSignedIn() && request.auth.uid == uid &&
+                               request.resource.data.keys().hasOnly(['productId', 'shopId', 'savedAt']) &&
+                               request.resource.data.productId == productId;
     }
 
     // ─── Media pipeline ──────────────────────────────────────────────────────
@@ -1613,7 +1888,29 @@ service cloud.firestore {
     // Secrets (payout_method_secrets, payout_devices, play_sub_tokens) have no
     // rule on purpose: the app can never read them.
     match /kyc/{uid} {
-      allow read: if isOwner(uid);
+      allow read: if isOwner(uid) || isAdmin();
+      allow write: if false;
+    }
+    // Oneova ID: everything is written by Cloud Functions; owners read their own.
+    match /identity/{uid} {
+      allow read: if isOwner(uid) || isAdmin();
+      allow write: if false;
+      match /{sub=**} {
+        allow read: if isOwner(uid);
+        allow write: if false;
+      }
+    }
+    match /business_identity/{uid} {
+      allow read: if isOwner(uid) || isAdmin();
+      allow write: if false;
+      match /{sub=**} {
+        allow read: if isOwner(uid) || isAdmin();
+        allow write: if false;
+      }
+    }
+    // Per-country business requirements (admin-edited through functions).
+    match /kyb_requirements/{country} {
+      allow read: if isSignedIn();
       allow write: if false;
     }
     match /subscriptions/{uid} {
@@ -1640,6 +1937,96 @@ service cloud.firestore {
       allow read: if isSignedIn();
       allow write: if false;
     }
+
+    // ─── "What do you wish Oneova had?" ideas ────────────────────────────────
+    // Users write only their own ideas/comments/reactions; admins set status
+    // and post official replies. ai.*, counters and clusters are written by
+    // Cloud Functions (functions/src/wishIdeas.ts) only.
+    function isWishAdmin() {
+      return isSignedIn() && (
+        request.auth.token.get('admin', false) == true ||
+        get(/databases/$(database)/documents/users/$(request.auth.uid)).data.get('role', '') in ['admin', 'owner', 'founder'] ||
+        get(/databases/$(database)/documents/users/$(request.auth.uid)).data.get('isAdmin', false) == true);
+    }
+
+    function isWishText(field, minLen, maxLen) {
+      return request.resource.data[field] is string &&
+             request.resource.data[field].size() >= minLen &&
+             request.resource.data[field].size() <= maxLen;
+    }
+
+    match /wish_ideas/{ideaId} {
+      allow read: if isSignedIn();
+      allow create: if isSignedIn() && !isSuspended() &&
+                       request.resource.data.keys().hasOnly(['authorId', 'authorName', 'authorPhoto', 'title', 'body', 'status', 'reactionCount', 'commentCount', 'createdAt', 'updatedAt']) &&
+                       request.resource.data.authorId == request.auth.uid &&
+                       isWishText('title', 3, 120) && isWishText('body', 0, 1500) &&
+                       request.resource.data.status == 'open' &&
+                       request.resource.data.reactionCount == 0 &&
+                       request.resource.data.commentCount == 0 &&
+                       request.resource.data.createdAt == request.time;
+      allow update: if (isOwner(resource.data.authorId) && !isSuspended() &&
+                        onlyChanges(['title', 'body', 'updatedAt']) &&
+                        isWishText('title', 3, 120) && isWishText('body', 0, 1500)) ||
+                       (isWishAdmin() &&
+                        onlyChanges(['status', 'statusUpdatedAt', 'adminReply', 'pinned']) &&
+                        request.resource.data.get('status', 'open') in ['open', 'planned', 'building', 'shipped', 'declined']);
+      allow delete: if isOwner(resource.data.authorId) || isWishAdmin();
+
+      match /comments/{commentId} {
+        allow read: if isSignedIn();
+        allow create: if isSignedIn() && !isSuspended() &&
+                         request.resource.data.keys().hasOnly(['authorId', 'authorName', 'authorPhoto', 'text', 'isOfficial', 'createdAt']) &&
+                         request.resource.data.authorId == request.auth.uid &&
+                         isWishText('text', 1, 1000) &&
+                         request.resource.data.createdAt == request.time &&
+                         (request.resource.data.isOfficial == false ||
+                          (request.resource.data.isOfficial == true && isWishAdmin()));
+        allow update: if isOwner(resource.data.authorId) && onlyChanges(['text']) && isWishText('text', 1, 1000);
+        allow delete: if isOwner(resource.data.authorId) || isWishAdmin();
+      }
+
+      match /reactions/{uid} {
+        allow read: if isSignedIn();
+        allow create: if isOwner(uid) && !isSuspended() &&
+                         request.resource.data.keys().hasOnly(['uid', 'createdAt']) &&
+                         request.resource.data.uid == uid &&
+                         exists(/databases/$(database)/documents/wish_ideas/$(ideaId));
+        allow delete: if isOwner(uid);
+        allow update: if false;
+      }
+    }
+
+    match /wish_clusters/{clusterId} {
+      allow read: if isWishAdmin();
+      allow write: if false;
+    }
+    match /wish_insights/{docId=**} {
+      allow read: if isWishAdmin();
+      allow write: if false;
+    }
+
+    // ─── Remix earnings links (written only by functions/src/remix.ts) ──────
+    match /remix_links/{remixId} {
+      allow read: if isSignedIn() &&
+        (resource.data.remixAuthorId == request.auth.uid || resource.data.originalAuthorId == request.auth.uid || isAdmin());
+      allow write: if false;
+    }
+
+    // ─── Oneova Pay (server-written; owners read their own) ─────────────────
+    match /pay_intents/{intentId} {
+      allow read: if isSignedIn() && resource.data.uid == request.auth.uid;
+      allow write: if false;
+    }
+    match /pay_balances/{uid} {
+      allow read: if isSignedIn() && request.auth.uid == uid;
+      allow write: if false;
+    }
+    match /pay_payouts/{payoutId} {
+      allow read: if isSignedIn() && resource.data.uid == request.auth.uid;
+      allow write: if false;
+    }
+    // pay_ledger: server only (falls to "deny everything else").
 
     // ─── Deny everything else ────────────────────────────────────────────────
     match /{document=**} {

@@ -144,6 +144,82 @@ service firebase.storage {
                        request.resource.size < 8 * 1024 * 1024;
     }
 
+    // ─── 3D Shops: shops/{uid}/brand/* and shops/{uid}/products/{id}/* ──────
+    // Public read (storefronts are public); only the seller writes.
+    function is3dModel() {
+      return request.resource.contentType in ['model/gltf-binary', 'model/gltf+json', 'model/vnd.usdz+zip'] ||
+             (request.resource.contentType == 'application/octet-stream' &&
+              request.resource.name.matches('.*[.](glb|gltf|usdz)$'));
+    }
+    // Identity check photos (Oneova Pay KYC): the owner uploads JPEGs once;
+    // nobody reads them from the app (only the server / review team).
+    match /kyc/{uid}/{sessionId}/{fileName} {
+      allow read: if false;
+      allow create, update: if isOwner(uid)
+        && fileName in ['id_front.jpg', 'id_back.jpg', 'selfie.jpg']
+        && request.resource.contentType == 'image/jpeg'
+        && request.resource.size < 10 * 1024 * 1024;
+      allow delete: if false;
+    }
+
+    // Business verification documents (Oneova ID): owner uploads, nobody reads
+    // them from the app (only the server / review team).
+    match /kyb/{uid}/{sessionId}/{fileName} {
+      allow read: if false;
+      allow create, update: if isOwner(uid)
+        && fileName.matches('^[a-z0-9_]{2,40}[.](jpg|png|pdf)$')
+        && request.resource.contentType in ['image/jpeg', 'image/png', 'application/pdf']
+        && request.resource.size < 15 * 1024 * 1024;
+      allow delete: if false;
+    }
+
+    // Private 3D model library: the owner uploads a source file or product
+    // photos and reads the optimized files; nobody else can read any of it.
+    match /users/{uid}/models3d/{modelId}/source/{fileName} {
+      allow read: if isOwner(uid);
+      allow create: if isOwner(uid) && request.resource.size < 100 * 1024 * 1024 &&
+                       fileName.matches('^[A-Za-z0-9_.-]{1,80}[.](glb|gltf|obj|stl)$');
+      allow update, delete: if false;
+    }
+    match /users/{uid}/models3d/{modelId}/photos/{fileName} {
+      allow read: if isOwner(uid);
+      allow create: if isOwner(uid) && isValidImageType() && request.resource.size < 12 * 1024 * 1024 &&
+                       fileName.matches('^[0-3][.]jpg$');
+      allow update, delete: if false;
+    }
+    match /users/{uid}/models3d/{modelId}/out/{fileName} {
+      allow read: if isOwner(uid);
+      allow write: if false;
+    }
+    // Public copies of a model on a product (written by model3dAttach only).
+    match /shops/{uid}/products/{productId}/model/{fileName} {
+      allow read: if true;
+      allow write: if false;
+    }
+
+    match /shops/{uid}/brand/{fileName} {
+      allow read: if true;
+      allow write: if isOwner(uid) && isValidImageType() && request.resource.size < 10 * 1024 * 1024;
+      allow delete: if isOwner(uid);
+    }
+    // Texture library (rendered on the server) and sellers' own textures.
+    match /textures/library/{fileName} {
+      allow read: if true;
+      allow write: if false;
+    }
+    match /shops/{uid}/textures/{fileName} {
+      allow read: if true;
+      allow write: if isOwner(uid) && isValidImageType() && request.resource.size < 10 * 1024 * 1024;
+      allow delete: if isOwner(uid);
+    }
+    match /shops/{uid}/products/{productId}/{fileName} {
+      allow read: if true;
+      allow write: if isOwner(uid) && (
+        (isValidImageType() && request.resource.size < 10 * 1024 * 1024) ||
+        (is3dModel() && isUnder50MB()));
+      allow delete: if isOwner(uid);
+    }
+
     // ─── Deny everything else ─────────────────────────────────────────────────
     match /{allPaths=**} {
       allow read, write: if false;

@@ -93,7 +93,8 @@
       "public": "public",
       "ignore": [
         "firebase.json",
-        "**/.*",
+        "**/.DS_Store",
+        "**/.git*",
         "**/node_modules/**"
       ],
       "headers": [
@@ -142,6 +143,13 @@
         }
       ],
       "rewrites": [
+        {
+          "source": "/s/**",
+          "function": {
+            "functionId": "shareLinkOpen",
+            "region": "us-central1"
+          }
+        },
         {
           "source": "**",
           "destination": "/index.html"
