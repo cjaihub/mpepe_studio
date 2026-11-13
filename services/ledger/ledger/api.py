@@ -6,7 +6,7 @@
   GET  /v1/accounts/{id}/entries?before=&limit=   history (newest first)
   GET  /v1/reconcile            cached balances == sum(postings), audit chain intact
   POST /v1/fees/quote           fee for an amount under the current rules (no posting)
-  GET  /healthz
+  GET  /health   (Cloud Run reserves /healthz)
 """
 from __future__ import annotations
 
@@ -77,8 +77,8 @@ def _post(req: core.JournalRequest, who: str) -> dict[str, Any]:
     return {"journalId": r.journal_id, "replayed": r.replayed, "balances": r.balances}
 
 
-@app.get("/healthz")
-def healthz() -> dict[str, str]:
+@app.get("/health")
+def health() -> dict[str, str]:
     return {"ok": "true"}
 
 

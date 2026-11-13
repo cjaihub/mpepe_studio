@@ -83,7 +83,7 @@ function isPermanent(status) {
 }
 let client = null;
 async function send(template, key, args) {
-    var _a;
+    var _a, _b;
     const base = ((_a = process.env.LEDGER_URL) !== null && _a !== void 0 ? _a : '').replace(/\/$/, '');
     if (base.startsWith('http://localhost')) {
         // Local service with LEDGER_AUTH=off (emulator / tests): no ID token.
@@ -96,11 +96,18 @@ async function send(template, key, args) {
         throw new Error('LEDGER_URL is not set');
     if (!client)
         client = await new google_auth_library_1.GoogleAuth().getIdTokenClient(base);
-    const res = await client.request({
-        url: `${base}/v1/wallet/${template}`, method: 'POST', data: { idempotency_key: key, args },
-        validateStatus: () => true, timeout: 15000,
+    // Same token twice: Cloud Run's IAM reads X-Serverless-Authorization, the ledger checks Authorization.
+    const h = (await client.getRequestHeaders());
+    const bearer = (_b = (typeof h.get === 'function' ? h.get('authorization') : h.Authorization)) !== null && _b !== void 0 ? _b : '';
+    if (!bearer)
+        throw new Error('no ID token for the ledger');
+    const res = await fetch(`${base}/v1/wallet/${template}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: bearer, 'X-Serverless-Authorization': bearer },
+        body: JSON.stringify({ idempotency_key: key, args }),
+        signal: AbortSignal.timeout(15000),
     });
-    return { status: res.status, body: res.data };
+    return { status: res.status, body: await res.json().catch(() => null) };
 }
 async function deliver(ref) {
     var _a, _b, _c, _d, _e;

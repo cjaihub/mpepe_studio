@@ -63,11 +63,17 @@ export async function send(template: string, key: string, args: unknown): Promis
   }
   if (!base.startsWith('https://')) throw new Error('LEDGER_URL is not set');
   if (!client) client = await new GoogleAuth().getIdTokenClient(base);
-  const res = await client.request({
-    url: `${base}/v1/wallet/${template}`, method: 'POST', data: { idempotency_key: key, args },
-    validateStatus: () => true, timeout: 15_000,
+  // Same token twice: Cloud Run's IAM reads X-Serverless-Authorization, the ledger checks X-Ledger-Token.
+  const h = (await client.getRequestHeaders()) as unknown as Headers | Record<string, string>;
+  const bearer = (typeof (h as Headers).get === 'function' ? (h as Headers).get('authorization') : (h as Record<string, string>).Authorization) ?? '';
+  if (!bearer) throw new Error('no ID token for the ledger');
+  const res = await fetch(`${base}/v1/wallet/${template}`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'X-Ledger-Token': bearer, 'X-Serverless-Authorization': bearer },
+    body: JSON.stringify({ idempotency_key: key, args }),
+    signal: AbortSignal.timeout(15_000),
   });
-  return { status: res.status, body: res.data };
+  return { status: res.status, body: await res.json().catch(() => null) };
 }
 
 async function deliver(ref: FirebaseFirestore.DocumentReference): Promise<void> {

@@ -24,7 +24,7 @@ Accounts and currencies are listed in `services/ledger/ledger/policy.py`. The wa
 
 ## API (internal only)
 `POST /v1/wallet/{template}` · `POST /v1/journals` · `GET /v1/accounts/{id}` ·
-`GET /v1/accounts/{id}/entries` · `GET /v1/reconcile` · `GET /healthz`
+`GET /v1/accounts/{id}/entries` · `GET /v1/reconcile` · `GET /health`
 
 Auth works in two layers. First, Cloud Run allows no unauthenticated access (IAM invoker only).
 Second, every request needs a Google ID token for `LEDGER_AUDIENCE` from an email listed in

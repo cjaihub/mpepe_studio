@@ -1,8 +1,10 @@
 """Who may call the ledger.
 
-On Cloud Run the service has no public access (IAM invoker only). As a second
-lock, every request must carry a Google ID token for LEDGER_AUDIENCE whose
-email is in LEDGER_ALLOWED_CALLERS (the Cloud Functions service account).
+On Cloud Run the service has no public access (IAM invoker only). Callers send
+the same Google ID token twice: X-Serverless-Authorization (checked by Cloud
+Run's IAM) and X-Ledger-Token (checked here; Cloud Run doesn't forward the
+Authorization header to the container). Its audience must be LEDGER_AUDIENCE and its email must be in
+LEDGER_ALLOWED_CALLERS (the Cloud Functions service account).
 LEDGER_AUTH=off is accepted only together with LEDGER_ENV=local.
 """
 from __future__ import annotations
@@ -20,9 +22,10 @@ def auth_disabled() -> bool:
     return os.environ.get("LEDGER_AUTH") == "off" and os.environ.get("LEDGER_ENV") == "local"
 
 
-def caller(authorization: str | None = Header(default=None)) -> str:
+def caller(x_ledger_token: str | None = Header(default=None), authorization: str | None = Header(default=None)) -> str:
     if auth_disabled():
         return "local-dev"
+    authorization = x_ledger_token or authorization
     if not authorization or not authorization.startswith("Bearer "):
         raise HTTPException(401, "missing token")
     audience = os.environ.get("LEDGER_AUDIENCE")

@@ -1,5 +1,14 @@
 # Oneova release notes
 
+## 1.0.0 (31) — 2026-11-13 · Internal Testing Release
+
+**Oneova Pay safety upgrade**
+- **Secure ledger**: every coin, gift, Diamond, order and payout movement is also recorded in Oneova's double-entry ledger, which refuses unbalanced, edited or overdrawn entries.
+- **Refunded coin packs** are taken back automatically; gifts paid with them pause payouts for a check.
+- **Payouts never sent twice**: an unclear partner reply waits for the partner's status instead of being retried or refunded.
+- **Gifts never charged twice** when you tap again or the network retries.
+- **Clear fees**: one fee table for payouts and orders, with exact rounding.
+
 ## 1.0.0 (30) — 2026-11-13 · Internal Testing Release
 
 - **Verified business badge**: shops verified with Oneova ID show the same badge on the stage, store page, products and My business.

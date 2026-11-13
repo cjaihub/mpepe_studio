@@ -7,6 +7,7 @@ COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 COPY ledger ./ledger
 COPY migrations ./migrations
+COPY config ./config
 RUN useradd --system --uid 10001 ledger
 USER ledger
 CMD exec uvicorn ledger.api:app --host 0.0.0.0 --port ${PORT} --workers 2

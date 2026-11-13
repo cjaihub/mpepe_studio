@@ -33,8 +33,9 @@ def migrate(conn: psycopg.Connection) -> list[str]:
     """Applies migrations/NNN_*.sql in order, once each. Returns what it applied."""
     applied: list[str] = []
     with conn.transaction():
-        conn.execute("CREATE TABLE IF NOT EXISTS schema_migrations (version text PRIMARY KEY, applied_at timestamptz NOT NULL DEFAULT now())")
+        # Lock first: several workers start at once and must not race on CREATE TABLE.
         conn.execute("SELECT pg_advisory_xact_lock(42)")
+        conn.execute("CREATE TABLE IF NOT EXISTS schema_migrations (version text PRIMARY KEY, applied_at timestamptz NOT NULL DEFAULT now())")
         done = {r[0] for r in conn.execute("SELECT version FROM schema_migrations").fetchall()}
         for f in sorted(MIGRATIONS.glob("*.sql")):
             version = f.stem
