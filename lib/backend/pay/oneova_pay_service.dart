@@ -1,3 +1,4 @@
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:cloud_functions/cloud_functions.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -112,9 +113,19 @@ class PayoutStatus {
   final String kycStatus; // none | collecting | review | verified | rejected
   final int methods;
   final bool payoutsEnabled;
+  /// Personal balance per currency (top-ups, deliveries, refunds).
   final Map<String, ({int available, int pending, int locked})> balances;
 
-  const PayoutStatus({this.kycStatus = 'none', this.methods = 0, this.payoutsEnabled = false, this.balances = const {}});
+  /// Business balance per currency (shop sales, scan to pay).
+  final Map<String, ({int available, int pending, int locked})> businessBalances;
+
+  const PayoutStatus({
+    this.kycStatus = 'none',
+    this.methods = 0,
+    this.payoutsEnabled = false,
+    this.balances = const {},
+    this.businessBalances = const {},
+  });
 
   bool get verified => kycStatus == 'verified';
   bool get hasMethod => methods > 0;
@@ -259,36 +270,65 @@ class OneovaPayService {
 
   Future<PayoutStatus> payoutStatus() async {
     final r = await _call('payPayoutStatus');
-    final balances = <String, ({int available, int pending, int locked})>{};
-    (r['balances'] as Map? ?? const {}).forEach((k, v) {
-      final m = v as Map;
-      balances['$k'] = (
-        available: (m['available'] as num?)?.toInt() ?? 0,
-        pending: (m['pending'] as num?)?.toInt() ?? 0,
-        locked: (m['locked'] as num?)?.toInt() ?? 0,
-      );
-    });
+    Map<String, ({int available, int pending, int locked})> read(Object? raw) {
+      final out = <String, ({int available, int pending, int locked})>{};
+      (raw as Map? ?? const {}).forEach((k, v) {
+        final m = v as Map;
+        out['$k'] = (
+          available: (m['available'] as num?)?.toInt() ?? 0,
+          pending: (m['pending'] as num?)?.toInt() ?? 0,
+          locked: (m['locked'] as num?)?.toInt() ?? 0,
+        );
+      });
+      return out;
+    }
+
     return PayoutStatus(
       kycStatus: '${r['kycStatus'] ?? 'none'}',
       methods: (r['methods'] as num?)?.toInt() ?? 0,
       payoutsEnabled: r['payoutsEnabled'] == true,
-      balances: balances,
+      balances: read(r['balances']),
+      businessBalances: read(r['businessBalances']),
     );
   }
 
-  /// Sends [amountMinor] of the balance to a saved payout method.
+  /// Sends [amountMinor] of the personal or business ([balance]) balance to a saved payout method.
   Future<Map<String, dynamic>> withdraw({
     required String methodId,
     required int amountMinor,
     required String currency,
     required String idempotencyKey,
+    String balance = 'personal',
   }) =>
       _call('payWithdraw', {
         'methodId': methodId,
         'amountMinor': amountMinor,
         'currency': currency,
         'idempotencyKey': idempotencyKey,
+        'balance': balance,
       });
+
+  /// Moves money from the business balance to the personal one (instant).
+  Future<void> moveToPersonal({required int amountMinor, required String currency, required String idempotencyKey}) =>
+      _call('payMoveToPersonal', {'amountMinor': amountMinor, 'currency': currency, 'idempotencyKey': idempotencyKey});
+
+  /// Live personal ('personal') or business ('business') balances: currency → (available, pending, locked).
+  Stream<Map<String, ({int available, int pending, int locked})>> watchBalances(String kind) {
+    final uid = FirebaseAuth.instance.currentUser?.uid;
+    if (uid == null) return Stream.value(const {});
+    return _db.doc('${kind == 'business' ? 'pay_business_balances' : 'pay_balances'}/$uid').snapshots().map((d) {
+      final out = <String, ({int available, int pending, int locked})>{};
+      (d.data() ?? const {}).forEach((k, v) {
+        if (v is! Map || !RegExp(r'^[A-Z]{3}$').hasMatch(k)) return;
+        out[k] = (
+          available: (v['available'] as num?)?.toInt() ?? 0,
+          pending: (v['pending'] as num?)?.toInt() ?? 0,
+          locked: (v['locked'] as num?)?.toInt() ?? 0,
+        );
+      });
+      return out;
+    });
+  }
 }
 
 

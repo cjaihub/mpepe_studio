@@ -515,7 +515,7 @@ async function refundIntent(id, key) {
         return 'none';
     const rt = await (0, payConfig_1.payRuntime)();
     // Where the money sits now: the order's escrow, the merchant's balance, or the payer's own (top-up).
-    const escrow = i.purpose === 'order' ? `escrow:${i.refId}` : i.purpose === 'merchant' ? `user:${i.merchantUid}` : `user:${i.uid}`;
+    const escrow = i.purpose === 'order' ? `escrow:${i.refId}` : i.purpose === 'merchant' ? `biz:${i.merchantUid}` : `user:${i.uid}`;
     const toBuyerBalance = async (via) => {
         await db().runTransaction(async (tx) => {
             const posted = await tx.get((0, ledger_1.ledgerRef)(`refund_${id}`));

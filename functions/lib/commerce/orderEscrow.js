@@ -516,7 +516,8 @@ exports.confirmDelivery = (0, https_1.onCall)(async (req) => {
         const riderGets = c.riderId ? split.rider : 0;
         const lines = [
             { account: `escrow:${id}`, currency: m.currency, amountMinor: -m.total },
-            { account: `user:${c.sellerId}`, currency: m.currency, amountMinor: split.seller, bucket: 'available' },
+            // A sale lands in the seller's business balance; the rider is paid personally.
+            { account: `biz:${c.sellerId}`, currency: m.currency, amountMinor: split.seller, bucket: 'available' },
             ...(riderGets ? [{ account: `user:${c.riderId}`, currency: m.currency, amountMinor: riderGets, bucket: 'available' }] : []),
             // No rider (pickup in person): the delivery part stays with the platform.
             { account: 'platform:revenue', currency: m.currency, amountMinor: split.platform + (split.rider - riderGets) },

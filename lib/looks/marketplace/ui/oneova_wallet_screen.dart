@@ -213,10 +213,10 @@ class _EarningsHero extends StatelessWidget {
                 child: OutlinedButton.icon(
                   onPressed: () {
                     HapticFeedback.selectionClick();
-                    context.push('/wallet/receive');
+                    context.push('/pay');
                   },
-                  icon: const Icon(Icons.qr_code_2_rounded, size: 17),
-                  label: const Text('Receive', style: TextStyle(fontSize: 13, fontWeight: FontWeight.w800)),
+                  icon: const Icon(Icons.account_balance_wallet_rounded, size: 17),
+                  label: const Text('Oneova Pay', style: TextStyle(fontSize: 13, fontWeight: FontWeight.w800)),
                   style: OutlinedButton.styleFrom(
                     foregroundColor: Colors.white,
                     side: const BorderSide(color: Colors.white54),

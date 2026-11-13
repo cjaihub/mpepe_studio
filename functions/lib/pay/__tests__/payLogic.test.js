@@ -112,7 +112,7 @@ const payLogic_2 = require("../payLogic");
     assert.throws(() => (0, payLogic_2.merchantFee)(0));
     const lines = (0, payLogic_2.merchantLines)('user:payer', 'shop1', 'KES', 100000, 1000);
     assert.ok((0, payLogic_1.ledgerBalanced)(lines));
-    assert.deepEqual(lines.map((l) => [l.account, l.amountMinor]), [['user:payer', -100000], ['user:shop1', 99000], ['platform:revenue', 1000]]);
+    assert.deepEqual(lines.map((l) => [l.account, l.amountMinor]), [['user:payer', -100000], ['biz:shop1', 99000], ['platform:revenue', 1000]]);
     assert.ok((0, payLogic_1.ledgerBalanced)((0, payLogic_2.merchantLines)('clearing:mpesa', 'shop1', 'KES', 50, 0)));
 });
 (0, node_test_1.test)('scan to pay: inactive, used or expired codes cannot be paid', () => {
@@ -124,5 +124,15 @@ const payLogic_2 = require("../payLogic");
     assert.ok((0, payLogic_2.qrProblem)({ active: true, oneTime: true, paid: true }, now));
     assert.ok((0, payLogic_2.qrProblem)({ active: true, oneTime: true, paid: false, expiresAt: at(now - 1) }, now));
     assert.equal((0, payLogic_2.qrProblem)({ active: true, oneTime: false, paid: true }, now), null); // a shop code is paid many times
+});
+const payLogic_3 = require("../payLogic");
+(0, node_test_1.test)('personal and business balances are separate accounts', () => {
+    assert.equal((0, payLogic_3.ownerAccount)('personal', 'u1'), 'user:u1');
+    assert.equal((0, payLogic_3.ownerAccount)('business', 'u1'), 'biz:u1');
+    assert.equal((0, payLogic_3.balanceKind)('business'), 'business');
+    assert.equal((0, payLogic_3.balanceKind)('anything else'), 'personal');
+    assert.equal((0, payLogic_3.userOf)('biz:u1'), null);
+    assert.equal((0, payLogic_3.businessOf)('biz:u1'), 'u1');
+    assert.equal((0, payLogic_3.businessOf)('user:u1'), null);
 });
 //# sourceMappingURL=payLogic.test.js.map

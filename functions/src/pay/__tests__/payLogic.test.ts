@@ -89,7 +89,7 @@ test('scan to pay: merchant fee rounds down and the lines balance', () => {
   assert.throws(() => merchantFee(0));
   const lines = merchantLines('user:payer', 'shop1', 'KES', 100_000, 1_000);
   assert.ok(ledgerBalanced(lines));
-  assert.deepEqual(lines.map((l) => [l.account, l.amountMinor]), [['user:payer', -100_000], ['user:shop1', 99_000], ['platform:revenue', 1_000]]);
+  assert.deepEqual(lines.map((l) => [l.account, l.amountMinor]), [['user:payer', -100_000], ['biz:shop1', 99_000], ['platform:revenue', 1_000]]);
   assert.ok(ledgerBalanced(merchantLines('clearing:mpesa', 'shop1', 'KES', 50, 0)));
 });
 
@@ -102,4 +102,16 @@ test('scan to pay: inactive, used or expired codes cannot be paid', () => {
   assert.ok(qrProblem({ active: true, oneTime: true, paid: true }, now));
   assert.ok(qrProblem({ active: true, oneTime: true, paid: false, expiresAt: at(now - 1) }, now));
   assert.equal(qrProblem({ active: true, oneTime: false, paid: true }, now), null); // a shop code is paid many times
+});
+
+import { balanceKind, businessOf, ownerAccount, userOf } from '../payLogic';
+
+test('personal and business balances are separate accounts', () => {
+  assert.equal(ownerAccount('personal', 'u1'), 'user:u1');
+  assert.equal(ownerAccount('business', 'u1'), 'biz:u1');
+  assert.equal(balanceKind('business'), 'business');
+  assert.equal(balanceKind('anything else'), 'personal');
+  assert.equal(userOf('biz:u1'), null);
+  assert.equal(businessOf('biz:u1'), 'u1');
+  assert.equal(businessOf('user:u1'), null);
 });

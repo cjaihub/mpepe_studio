@@ -195,11 +195,11 @@ _PAY_SAFE = re.compile(r"^[A-Za-z0-9_-]{1,128}$")
 def pay_account(account: str, currency: str, bucket: str | None) -> str:
     """Maps an Oneova Pay (Firestore pay_ledger) account to a ledger account."""
     kind, _, ref = account.partition(":")
-    if kind == "user" and _PAY_SAFE.match(ref):
+    if kind in ("user", "biz") and _PAY_SAFE.match(ref):
         b = bucket or "available"
         if b not in ("available", "pending", "locked"):
             raise InvalidJournal(f"unknown balance bucket {b}")
-        return fiat("u", f"pay_{b}", currency, ref)
+        return fiat("u", f"{'pay' if kind == 'user' else 'biz'}_{b}", currency, ref)
     if kind == "escrow" and _PAY_SAFE.match(ref):
         return fiat("o", "escrow", currency, ref)
     if account == "platform:revenue":

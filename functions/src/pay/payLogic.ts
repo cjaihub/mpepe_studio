@@ -108,7 +108,9 @@ export type Bucket = 'available' | 'pending' | 'locked';
 
 /**
  * One line of a double-entry posting. Positive = money into the account.
- * `user:{uid}` accounts also move the user's `pay_balances` [bucket];
+ * `user:{uid}` accounts also move the user's personal `pay_balances` [bucket];
+ * `biz:{uid}` accounts move the same owner's business balance
+ * (`pay_business_balances/{uid}`): shop sales and scan-to-pay land there;
  * `escrow:{orderId}`, `platform:revenue`, `clearing:{provider}` and
  * `payout:{provider}` are system accounts recorded in the ledger only.
  */
@@ -132,6 +134,14 @@ export function ledgerBalanced(lines: LedgerLine[]): boolean {
 
 /** `user:{uid}` → uid, anything else → null. */
 export const userOf = (account: string) => (account.startsWith('user:') ? account.slice(5) : null);
+
+/** `biz:{uid}` → the business owner's uid, anything else → null. */
+export const businessOf = (account: string) => (account.startsWith('biz:') ? account.slice(4) : null);
+
+/** Which balance a payout or move uses: the personal one or the business one. */
+export type BalanceKind = 'personal' | 'business';
+export const balanceKind = (v: unknown): BalanceKind => (v === 'business' ? 'business' : 'personal');
+export const ownerAccount = (kind: BalanceKind, uid: string) => `${kind === 'business' ? 'biz' : 'user'}:${uid}`;
 
 // ───────────────────────────── Orders ─────────────────────────────
 
@@ -191,7 +201,8 @@ export function merchantFee(amountMinor: number, bps = MERCHANT_FEE_BPS): number
 export function merchantLines(from: string, merchantUid: string, currency: string, amountMinor: number, fee: number): LedgerLine[] {
   const lines: LedgerLine[] = [
     { account: from, currency, amountMinor: -amountMinor, ...(from.startsWith('user:') ? { bucket: 'available' as Bucket } : {}) },
-    { account: `user:${merchantUid}`, currency, amountMinor: amountMinor - fee, bucket: 'available' },
+    // Scan to pay is a sale: it lands in the merchant's business balance.
+    { account: `biz:${merchantUid}`, currency, amountMinor: amountMinor - fee, bucket: 'available' },
   ];
   if (fee > 0) lines.push({ account: 'platform:revenue', currency, amountMinor: fee });
   return lines;

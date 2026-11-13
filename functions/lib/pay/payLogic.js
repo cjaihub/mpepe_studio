@@ -1,6 +1,6 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.MERCHANT_FEE_BPS = exports.QR_ONE_TIME_TTL_MS = exports.QR_CODE = exports.PAY_QR_PREFIX = exports.maskMsisdn = exports.userOf = exports.TOPUP_MAX_USD = exports.TOPUP_MIN_USD = exports.currencyFor = exports.intentTtlMs = exports.isOpenIntent = void 0;
+exports.MERCHANT_FEE_BPS = exports.QR_ONE_TIME_TTL_MS = exports.QR_CODE = exports.PAY_QR_PREFIX = exports.maskMsisdn = exports.ownerAccount = exports.balanceKind = exports.businessOf = exports.userOf = exports.TOPUP_MAX_USD = exports.TOPUP_MIN_USD = exports.currencyFor = exports.intentTtlMs = exports.isOpenIntent = void 0;
 exports.canMoveIntent = canMoveIntent;
 exports.methodsFor = methodsFor;
 exports.ledgerBalanced = ledgerBalanced;
@@ -106,6 +106,13 @@ function ledgerBalanced(lines) {
 /** `user:{uid}` → uid, anything else → null. */
 const userOf = (account) => (account.startsWith('user:') ? account.slice(5) : null);
 exports.userOf = userOf;
+/** `biz:{uid}` → the business owner's uid, anything else → null. */
+const businessOf = (account) => (account.startsWith('biz:') ? account.slice(4) : null);
+exports.businessOf = businessOf;
+const balanceKind = (v) => (v === 'business' ? 'business' : 'personal');
+exports.balanceKind = balanceKind;
+const ownerAccount = (kind, uid) => `${kind === 'business' ? 'biz' : 'user'}:${uid}`;
+exports.ownerAccount = ownerAccount;
 // ───────────────────────────── Orders ─────────────────────────────
 /**
  * How a paid order's escrow is released, in integer minor units:
@@ -157,7 +164,8 @@ function merchantFee(amountMinor, bps = exports.MERCHANT_FEE_BPS) {
 function merchantLines(from, merchantUid, currency, amountMinor, fee) {
     const lines = [
         Object.assign({ account: from, currency, amountMinor: -amountMinor }, (from.startsWith('user:') ? { bucket: 'available' } : {})),
-        { account: `user:${merchantUid}`, currency, amountMinor: amountMinor - fee, bucket: 'available' },
+        // Scan to pay is a sale: it lands in the merchant's business balance.
+        { account: `biz:${merchantUid}`, currency, amountMinor: amountMinor - fee, bucket: 'available' },
     ];
     if (fee > 0)
         lines.push({ account: 'platform:revenue', currency, amountMinor: fee });

@@ -31,7 +31,7 @@ import { pickVariant, stockAfterSale, VariantError } from './variant_logic';
 import { StoreRuleError, codeDiscount, customizationExtra, normalizeCode, priceCustomization } from './storeLogic';
 import { exponent, toMinor } from '../payments/provider';
 import { LedgerLine, currencyFor, orderSplit } from '../pay/payLogic';
-import { bucketOf, balanceRef, ledgerRef, writeLedger } from '../pay/ledger';
+import { bucketOf, balanceRef, businessBalanceRef, ledgerRef, writeLedger } from '../pay/ledger';
 import { payRuntime } from '../pay/payConfig';
 import { storedUsdRate } from './fx';
 import { countShare } from './shareLinks';
@@ -137,13 +137,17 @@ export async function payoutReady(who: string): Promise<{ kycStatus: string; met
 /** Readiness + balances for the payouts screen. */
 export const payPayoutStatus = onCall(async (req) => {
   const me = uid(req);
-  const [r, bal] = await Promise.all([payoutReady(me), balanceRef(me).get()]);
-  const balances: Record<string, { available: number; pending: number; locked: number }> = {};
-  for (const [k, v] of Object.entries(bal.data() ?? {})) {
-    if (!/^[A-Z]{3}$/.test(k) || typeof v !== 'object' || v === null) continue;
-    balances[k] = { available: bucketOf(bal.data(), k, 'available'), pending: bucketOf(bal.data(), k, 'pending'), locked: bucketOf(bal.data(), k, 'locked') };
-  }
-  return { ...r, payoutsEnabled: r.ready, balances };
+  const [r, bal, biz] = await Promise.all([payoutReady(me), balanceRef(me).get(), businessBalanceRef(me).get()]);
+  const read = (doc: FirebaseFirestore.DocumentSnapshot) => {
+    const out: Record<string, { available: number; pending: number; locked: number }> = {};
+    for (const [k, v] of Object.entries(doc.data() ?? {})) {
+      if (!/^[A-Z]{3}$/.test(k) || typeof v !== 'object' || v === null) continue;
+      out[k] = { available: bucketOf(doc.data(), k, 'available'), pending: bucketOf(doc.data(), k, 'pending'), locked: bucketOf(doc.data(), k, 'locked') };
+    }
+    return out;
+  };
+  // Personal (top-ups, deliveries, refunds) and business (shop sales, scan to pay) are separate.
+  return { ...r, payoutsEnabled: r.ready, balances: read(bal), businessBalances: read(biz) };
 });
 
 async function canReceive(who: string): Promise<boolean> {
@@ -471,7 +475,8 @@ export const confirmDelivery = onCall(async (req) => {
     const riderGets = c.riderId ? split.rider : 0;
     const lines: LedgerLine[] = [
       { account: `escrow:${id}`, currency: m.currency, amountMinor: -m.total },
-      { account: `user:${c.sellerId}`, currency: m.currency, amountMinor: split.seller, bucket: 'available' },
+      // A sale lands in the seller's business balance; the rider is paid personally.
+      { account: `biz:${c.sellerId}`, currency: m.currency, amountMinor: split.seller, bucket: 'available' },
       ...(riderGets ? [{ account: `user:${c.riderId}`, currency: m.currency, amountMinor: riderGets, bucket: 'available' as const }] : []),
       // No rider (pickup in person): the delivery part stays with the platform.
       { account: 'platform:revenue', currency: m.currency, amountMinor: split.platform + (split.rider - riderGets) },

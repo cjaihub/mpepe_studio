@@ -2022,6 +2022,11 @@ service cloud.firestore {
       allow read: if isSignedIn() && request.auth.uid == uid;
       allow write: if false;
     }
+    // Business balance (shop sales, scan to pay): only the business owner reads it.
+    match /pay_business_balances/{uid} {
+      allow read: if isSignedIn() && request.auth.uid == uid;
+      allow write: if false;
+    }
     match /pay_payouts/{payoutId} {
       allow read: if isSignedIn() && resource.data.uid == request.auth.uid;
       allow write: if false;

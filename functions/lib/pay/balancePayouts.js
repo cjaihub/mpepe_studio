@@ -104,13 +104,13 @@ async function settlePayPayout(id, to, info = {}) {
             return null;
         const lines = to === 'paid'
             ? [
-                { account: `user:${p.uid}`, currency: p.currency, amountMinor: -p.amountMinor, bucket: 'locked' },
+                { account: (0, payLogic_1.ownerAccount)((0, payLogic_1.balanceKind)(p.balance), p.uid), currency: p.currency, amountMinor: -p.amountMinor, bucket: 'locked' },
                 { account: `payout:${p.provider}`, currency: p.currency, amountMinor: p.netMinor },
                 ...(p.feeMinor > 0 ? [{ account: 'platform:revenue', currency: p.currency, amountMinor: p.feeMinor }] : []),
             ]
             : [
-                { account: `user:${p.uid}`, currency: p.currency, amountMinor: -p.amountMinor, bucket: 'locked' },
-                { account: `user:${p.uid}`, currency: p.currency, amountMinor: p.amountMinor, bucket: 'available' },
+                { account: (0, payLogic_1.ownerAccount)((0, payLogic_1.balanceKind)(p.balance), p.uid), currency: p.currency, amountMinor: -p.amountMinor, bucket: 'locked' },
+                { account: (0, payLogic_1.ownerAccount)((0, payLogic_1.balanceKind)(p.balance), p.uid), currency: p.currency, amountMinor: p.amountMinor, bucket: 'available' },
             ];
         (0, ledger_1.writeLedger)(tx, `ppdone_${id}`, false, to === 'paid' ? 'balance_payout' : 'balance_payout_returned', lines, { payoutId: id });
         tx.update(ref, Object.assign(Object.assign({ status: to, needsCheck: false }, info), { updatedAt: firestore_1.FieldValue.serverTimestamp() }));
@@ -163,10 +163,10 @@ async function dispatch(id) {
     }
 }
 exports.payWithdraw = (0, https_1.onCall)({ timeoutSeconds: 60 }, async (req) => {
-    var _a, _b, _c, _d;
-    var _e, _f, _g, _h;
+    var _a, _b, _c, _d, _e;
+    var _f, _g, _h, _j;
     const uid = me(req);
-    const key = String((_e = (_a = req.data) === null || _a === void 0 ? void 0 : _a.idempotencyKey) !== null && _e !== void 0 ? _e : '');
+    const key = String((_f = (_a = req.data) === null || _a === void 0 ? void 0 : _a.idempotencyKey) !== null && _f !== void 0 ? _f : '');
     if (!/^[A-Za-z0-9_-]{8,64}$/.test(key))
         throw new https_1.HttpsError('invalid-argument', 'Missing request id.');
     const id = `pp_${crypto.createHash('sha256').update(`${uid}:${key}`).digest('hex').slice(0, 32)}`;
@@ -177,11 +177,11 @@ exports.payWithdraw = (0, https_1.onCall)({ timeoutSeconds: 60 }, async (req) =>
     const kyc = (await db().doc(`kyc/${uid}`).get()).data();
     if ((kyc === null || kyc === void 0 ? void 0 : kyc.status) !== 'verified' && !rt.cfg.sandbox)
         throw new https_1.HttpsError('failed-precondition', 'Verify your identity first. It keeps your money safe.');
-    const methodId = String((_f = (_b = req.data) === null || _b === void 0 ? void 0 : _b.methodId) !== null && _f !== void 0 ? _f : '');
+    const methodId = String((_g = (_b = req.data) === null || _b === void 0 ? void 0 : _b.methodId) !== null && _g !== void 0 ? _g : '');
     const method = methodId && !methodId.includes('/') ? (await db().doc(`payout_methods/${uid}/methods/${methodId}`).get()).data() : null;
     if (!method)
         throw new https_1.HttpsError('failed-precondition', 'Add a payout method first.');
-    const currency = String((_h = (_g = (_c = req.data) === null || _c === void 0 ? void 0 : _c.currency) !== null && _g !== void 0 ? _g : method.currency) !== null && _h !== void 0 ? _h : '').toUpperCase();
+    const currency = String((_j = (_h = (_c = req.data) === null || _c === void 0 ? void 0 : _c.currency) !== null && _h !== void 0 ? _h : method.currency) !== null && _j !== void 0 ? _j : '').toUpperCase();
     if (currency !== String(method.currency).toUpperCase()) {
         throw new https_1.HttpsError('failed-precondition', `This payout method pays in ${method.currency}. Choose a ${currency} method.`);
     }
@@ -193,19 +193,23 @@ exports.payWithdraw = (0, https_1.onCall)({ timeoutSeconds: 60 }, async (req) =>
     if (netMinor <= 0)
         throw new https_1.HttpsError('failed-precondition', 'The amount is smaller than the payout fee.');
     const hold = (await db().doc(`payout_holds/${uid}`).get()).get('reasons');
+    // Withdraw from the personal balance (default) or the business one (shop sales, scan to pay).
+    const balance = (0, payLogic_1.balanceKind)((_e = req.data) === null || _e === void 0 ? void 0 : _e.balance);
+    const acct = (0, payLogic_1.ownerAccount)(balance, uid);
     await db().runTransaction(async (tx) => {
         var _a, _b, _c;
-        const [bal, cur, posted] = await Promise.all([tx.get((0, ledger_1.balanceRef)(uid)), tx.get(payoutRef(id)), tx.get((0, ledger_1.ledgerRef)(`ppreq_${id}`))]);
+        const [bal, cur, posted] = await Promise.all([tx.get((0, ledger_1.balanceRefOf)(balance, uid)), tx.get(payoutRef(id)), tx.get((0, ledger_1.ledgerRef)(`ppreq_${id}`))]);
         if (cur.exists)
             return;
-        if ((0, ledger_1.bucketOf)(bal.data(), currency, 'available') < amountMinor)
-            throw new https_1.HttpsError('failed-precondition', 'Not enough in your Oneova balance.');
+        if ((0, ledger_1.bucketOf)(bal.data(), currency, 'available') < amountMinor) {
+            throw new https_1.HttpsError('failed-precondition', `Not enough in your ${balance === 'business' ? 'business' : 'Oneova'} balance.`);
+        }
         (0, ledger_1.writeLedger)(tx, `ppreq_${id}`, posted.exists, 'balance_payout_lock', [
-            { account: `user:${uid}`, currency, amountMinor: -amountMinor, bucket: 'available' },
-            { account: `user:${uid}`, currency, amountMinor, bucket: 'locked' },
-        ], { payoutId: id });
+            { account: acct, currency, amountMinor: -amountMinor, bucket: 'available' },
+            { account: acct, currency, amountMinor, bucket: 'locked' },
+        ], { payoutId: id, balance });
         tx.set(payoutRef(id), {
-            uid, methodId, methodLabel: (_a = method.label) !== null && _a !== void 0 ? _a : 'payout method', rail: method.rail, provider: method.provider,
+            uid, balance, methodId, methodLabel: (_a = method.label) !== null && _a !== void 0 ? _a : 'payout method', rail: method.rail, provider: method.provider,
             country: method.country, currency, holderName: (_c = (_b = method.holderName) !== null && _b !== void 0 ? _b : kyc === null || kyc === void 0 ? void 0 : kyc.verifiedName) !== null && _c !== void 0 ? _c : '',
             amountMinor, feeMinor, netMinor, status: 'pending', sandbox: rt.cfg.sandbox && (kyc === null || kyc === void 0 ? void 0 : kyc.status) !== 'verified',
             review: !!(hold === null || hold === void 0 ? void 0 : hold.length), reviewReasons: hold !== null && hold !== void 0 ? hold : [],

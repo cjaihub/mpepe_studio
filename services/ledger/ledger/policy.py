@@ -19,7 +19,8 @@ Fiat accounts carry the currency in the name (fees_usd holds USD):
   u:{uid}:biz_payable_{cur}  what Oneova owes a seller or rider for an order
   p:{partner}:share_{cur}    a partner's revenue share of fees
 Oneova Pay (functions/src/pay, mirrored through the outbox):
-  u:{uid}:pay_available_{cur} / pay_pending_{cur} / pay_locked_{cur}   a user's Oneova balance
+  u:{uid}:pay_available_{cur} / pay_pending_{cur} / pay_locked_{cur}   a user's personal Oneova balance
+  u:{uid}:biz_available_{cur} / biz_pending_{cur} / biz_locked_{cur}   the same owner's business balance
   o:{orderId}:escrow_{cur}   one order's money held until delivery (never below 0)
   p:{provider}:clearing_{cur}  collected at a partner, not yet settled to us (<= 0)
   p:{provider}:payout_{cur}    paid out through a partner
@@ -44,7 +45,7 @@ SYSTEM_ACCOUNTS: dict[str, str] = {
 }
 # Sources (the other side of everything issued) and debts are the only accounts below zero.
 NEGATIVE_OK = {"sys:coins_issued", "sys:dm_issued"}
-FIAT_USER = {"biz_payable", "pay_available", "pay_pending", "pay_locked"}
+FIAT_USER = {"biz_payable", "pay_available", "pay_pending", "pay_locked", "biz_available", "biz_pending", "biz_locked"}
 FIAT_SYSTEM = {"payout_source", "payout_clearing", "fees", "biz_inflow", "biz_escrow", "suspense"}
 FIAT_PARTNER = {"share", "clearing", "payout"}
 FIAT_ORDER = {"escrow"}

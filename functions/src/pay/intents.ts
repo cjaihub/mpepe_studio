@@ -461,7 +461,7 @@ export async function refundIntent(id: string, key: string): Promise<'refunded' 
   if (!i || i.status !== 'succeeded') return 'none';
   const rt = await payRuntime();
   // Where the money sits now: the order's escrow, the merchant's balance, or the payer's own (top-up).
-  const escrow = i.purpose === 'order' ? `escrow:${i.refId}` : i.purpose === 'merchant' ? `user:${i.merchantUid}` : `user:${i.uid}`;
+  const escrow = i.purpose === 'order' ? `escrow:${i.refId}` : i.purpose === 'merchant' ? `biz:${i.merchantUid}` : `user:${i.uid}`;
   const toBuyerBalance = async (via: string) => {
     await db().runTransaction(async (tx) => {
       const posted = await tx.get(ledgerRef(`refund_${id}`));

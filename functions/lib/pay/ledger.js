@@ -1,6 +1,6 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.balanceRef = exports.ledgerRef = void 0;
+exports.balanceRefOf = exports.businessBalanceRef = exports.balanceRef = exports.ledgerRef = void 0;
 exports.writeLedger = writeLedger;
 exports.bucketOf = bucketOf;
 /**
@@ -24,6 +24,11 @@ const ledgerRef = (txnId) => db().doc(`pay_ledger/${txnId}`);
 exports.ledgerRef = ledgerRef;
 const balanceRef = (uid) => db().doc(`pay_balances/${uid}`);
 exports.balanceRef = balanceRef;
+/** A business owner's business balance (shop sales, scan to pay). */
+const businessBalanceRef = (uid) => db().doc(`pay_business_balances/${uid}`);
+exports.businessBalanceRef = businessBalanceRef;
+const balanceRefOf = (kind, uid) => (kind === 'business' ? (0, exports.businessBalanceRef)(uid) : (0, exports.balanceRef)(uid));
+exports.balanceRefOf = balanceRefOf;
 /**
  * Writes the posting (when it isn't there yet) and moves user balances.
  * Returns false when it already existed (nothing written).
@@ -41,9 +46,10 @@ function writeLedger(tx, txnId, exists, kind, lines, meta = {}) {
     });
     for (const l of lines) {
         const uid = (0, payLogic_1.userOf)(l.account);
-        if (!uid || l.amountMinor === 0)
+        const biz = (0, payLogic_1.businessOf)(l.account);
+        if ((!uid && !biz) || l.amountMinor === 0)
             continue;
-        tx.set((0, exports.balanceRef)(uid), {
+        tx.set(uid ? (0, exports.balanceRef)(uid) : (0, exports.businessBalanceRef)(biz), {
             [l.currency]: { [(_a = l.bucket) !== null && _a !== void 0 ? _a : 'available']: firestore_1.FieldValue.increment(l.amountMinor) },
             updatedAt: firestore_1.FieldValue.serverTimestamp(),
         }, { merge: true });

@@ -473,7 +473,7 @@ class _PayoutsScreenState extends ConsumerState<PayoutsScreen> {
 
   void _toast(String t) => ScaffoldMessenger.maybeOf(context)?.showSnackBar(SnackBar(content: Text(t), behavior: SnackBarBehavior.floating));
 
-  Future<void> _withdraw(String currency, int availableMinor) async {
+  Future<void> _withdraw(String currency, int availableMinor, {String balance = 'personal'}) async {
     final methods = (ref.read(payoutMethodsProvider).value ?? const <PayoutMethod>[]).where((m) => m.currency.toUpperCase() == currency).toList();
     if (methods.isEmpty) {
       _toast('Add a $currency payout method first.');
@@ -491,7 +491,7 @@ class _PayoutsScreenState extends ConsumerState<PayoutsScreen> {
         builder: (c, set) => Padding(
           padding: EdgeInsets.fromLTRB(20, 18, 20, 20 + MediaQuery.viewInsetsOf(c).bottom),
           child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-            Text('Withdraw $currency', style: TextStyle(fontSize: 18, fontWeight: FontWeight.w800, color: c.textPrimary)),
+            Text('Withdraw $currency${balance == 'business' ? ' · Business' : ''}', style: TextStyle(fontSize: 18, fontWeight: FontWeight.w800, color: c.textPrimary)),
             const SizedBox(height: 4),
             Text('Available ${formatMinor(availableMinor, currency)}', style: TextStyle(fontSize: 13, color: c.textSecondary)),
             const SizedBox(height: 14),
@@ -508,10 +508,40 @@ class _PayoutsScreenState extends ConsumerState<PayoutsScreen> {
             TextField(
               controller: amount,
               keyboardType: const TextInputType.numberWithOptions(decimal: true),
+              onChanged: (_) => set(() {}),
               decoration: InputDecoration(labelText: 'Amount ($currency)', border: const OutlineInputBorder()),
             ),
-            const SizedBox(height: 6),
-            Text('Fee: 1.5% mobile money, 1% bank.', style: TextStyle(fontSize: 12, color: c.textMuted)),
+            const SizedBox(height: 10),
+            Builder(builder: (_) {
+              final minor = ((double.tryParse(amount.text.replaceAll(',', '')) ?? 0) * _pow(currency)).round();
+              final pct = method.rail == 'bank' ? 1 : 1.5;
+              final fee = (minor * pct / 100).ceil();
+              final over = minor > availableMinor;
+              Widget row(String l, String v, {bool strong = false}) => Padding(
+                    padding: const EdgeInsets.symmetric(vertical: 2),
+                    child: Row(children: [
+                      Expanded(child: Text(l, style: TextStyle(fontSize: 13, color: c.textSecondary))),
+                      Text(v,
+                          style: TextStyle(
+                              fontSize: strong ? 15 : 13,
+                              fontWeight: strong ? FontWeight.w800 : FontWeight.w600,
+                              color: c.textPrimary)),
+                    ]),
+                  );
+              return Container(
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(color: c.surfaceMid, borderRadius: BorderRadius.circular(AppRadius.md)),
+                child: Column(children: [
+                  row('Payout fee (${method.rail == 'bank' ? '1' : '1.5'}%)', formatMinor(fee, currency)),
+                  row('You receive', formatMinor(minor > fee ? minor - fee : 0, currency), strong: true),
+                  if (over) ...[
+                    const SizedBox(height: 6),
+                    const Text('That’s more than your available balance.',
+                        style: TextStyle(fontSize: 12, color: AppColors.brandPink)),
+                  ],
+                ]),
+              );
+            }),
             const SizedBox(height: 14),
             FilledButton(
               onPressed: () => Navigator.pop(c, true),
@@ -535,11 +565,12 @@ class _PayoutsScreenState extends ConsumerState<PayoutsScreen> {
             amountMinor: minor,
             currency: currency,
             idempotencyKey: '${DateTime.now().microsecondsSinceEpoch}${method.id}'.replaceAll(RegExp(r'[^A-Za-z0-9_-]'), ''),
+            balance: balance,
           );
-      _toast(r['review'] == true ? 'Withdrawal is being checked. We’ll send it shortly.' : 'Withdrawal sent — you’ll get a notification when it lands.');
+      _toast(r['review'] == true ? 'Withdrawal is being checked. We’ll send it shortly.' : 'Withdrawal on its way — you’ll get a notification when it lands.');
       setState(() => _status = _load());
-    } on FirebaseFunctionsException catch (e) {
-      _toast(e.message ?? 'The withdrawal didn’t go through.');
+    } catch (e) {
+      _toast(payErrorText(e, fallback: 'The withdrawal didn’t go through. Your money is still in your balance.'));
     } finally {
       if (mounted) setState(() => _busy = false);
     }
@@ -589,8 +620,11 @@ class _PayoutsScreenState extends ConsumerState<PayoutsScreen> {
                     const SizedBox(width: 10),
                     Expanded(
                       child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                        Text(!snap.hasData ? 'Checking…' : ready ? 'Payouts are on' : 'Get paid on Oneova',
-                            style: TextStyle(fontSize: 14, fontWeight: FontWeight.w700, color: context.textPrimary)),
+                        if (!snap.hasData)
+                          const _Skeleton(width: 140, height: 16)
+                        else
+                          Text(ready ? 'Payouts are on' : 'Get paid on Oneova',
+                              style: TextStyle(fontSize: 14, fontWeight: FontWeight.w700, color: context.textPrimary)),
                         const SizedBox(height: 2),
                         Text(
                           ready
@@ -603,8 +637,13 @@ class _PayoutsScreenState extends ConsumerState<PayoutsScreen> {
                   ]),
                 ),
                 const SizedBox(height: 14),
-                if (s != null && s.balances.isNotEmpty)
-                  for (final e in s.balances.entries)
+                if (!snap.hasData) const _Skeleton(height: 92, radius: AppRadius.lg),
+                // Business (shop sales, scan to pay) first, then personal.
+                if (s != null)
+                  for (final (kind, e) in [
+                    for (final e in s.businessBalances.entries) ('business', e),
+                    for (final e in s.balances.entries) ('personal', e),
+                  ])
                     Container(
                       margin: const EdgeInsets.only(bottom: 10),
                       padding: const EdgeInsets.all(16),
@@ -615,19 +654,26 @@ class _PayoutsScreenState extends ConsumerState<PayoutsScreen> {
                       child: Row(children: [
                         Expanded(
                           child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                            const Text('Available', style: TextStyle(color: Colors.white70, fontSize: 12, fontWeight: FontWeight.w600)),
-                            Text(formatMinor(e.value.available, e.key), style: const TextStyle(color: Colors.white, fontSize: 24, fontWeight: FontWeight.w800)),
+                            Text(kind == 'business' ? 'Business · available' : 'Personal · available',
+                                style: const TextStyle(color: Colors.white70, fontSize: 12, fontWeight: FontWeight.w600)),
+                            FittedBox(
+                              fit: BoxFit.scaleDown,
+                              alignment: Alignment.centerLeft,
+                              child: Text(formatMinor(e.value.available, e.key),
+                                  style: const TextStyle(color: Colors.white, fontSize: 24, fontWeight: FontWeight.w800)),
+                            ),
                             if (e.value.locked > 0)
                               Text('${formatMinor(e.value.locked, e.key)} on its way', style: const TextStyle(color: Colors.white70, fontSize: 12)),
                           ]),
                         ),
                         FilledButton(
-                          onPressed: _busy || e.value.available <= 0 || !ready ? null : () => _withdraw(e.key, e.value.available),
+                          onPressed: _busy || e.value.available <= 0 || !ready ? null : () => _withdraw(e.key, e.value.available, balance: kind),
                           style: FilledButton.styleFrom(backgroundColor: Colors.white, foregroundColor: AppColors.brandBlue),
                           child: const Text('Withdraw', style: TextStyle(fontWeight: FontWeight.w800)),
                         ),
                       ]),
                     ),
+                const _RecentWithdrawals(),
                 _TopUpTile(onDone: () => setState(() => _status = _load())),
                 ListTile(
                   contentPadding: EdgeInsets.zero,
@@ -737,4 +783,133 @@ class _TopUpTileState extends ConsumerState<_TopUpTile> {
           );
         },
       );
+}
+
+/// Soft pulsing placeholder while something loads.
+class _Skeleton extends StatefulWidget {
+  const _Skeleton({this.width, required this.height, this.radius = 8});
+  final double? width;
+  final double height;
+  final double radius;
+
+  @override
+  State<_Skeleton> createState() => _SkeletonState();
+}
+
+class _SkeletonState extends State<_Skeleton> with SingleTickerProviderStateMixin {
+  late final AnimationController _c = AnimationController(vsync: this, duration: const Duration(milliseconds: 1100))..repeat(reverse: true);
+
+  @override
+  void dispose() {
+    _c.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) => FadeTransition(
+        opacity: Tween<double>(begin: 0.45, end: 1).animate(_c),
+        child: Container(
+          width: widget.width ?? double.infinity,
+          height: widget.height,
+          margin: const EdgeInsets.only(bottom: 10),
+          decoration: BoxDecoration(color: context.surfaceMid, borderRadius: BorderRadius.circular(widget.radius)),
+        ),
+      );
+}
+
+/// The latest balance withdrawals with a clear status timeline:
+/// Requested → With the partner → Sent (or Returned to balance).
+class _RecentWithdrawals extends StatelessWidget {
+  const _RecentWithdrawals();
+
+  @override
+  Widget build(BuildContext context) {
+    final uid = FirebaseAuth.instance.currentUser?.uid ?? '-';
+    return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+      stream: FirebaseFirestore.instance
+          .collection('pay_payouts')
+          .where('uid', isEqualTo: uid)
+          .orderBy('createdAt', descending: true)
+          .limit(5)
+          .snapshots(),
+      builder: (context, snap) {
+        final docs = snap.data?.docs ?? const [];
+        if (docs.isEmpty) return const SizedBox.shrink();
+        return Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+          const SizedBox(height: 6),
+          Text('Recent withdrawals', style: TextStyle(fontSize: 13, fontWeight: FontWeight.w800, color: context.textPrimary)),
+          const SizedBox(height: 8),
+          for (final d in docs) _WithdrawalCard(data: d.data()),
+          const SizedBox(height: 4),
+        ]);
+      },
+    );
+  }
+}
+
+class _WithdrawalCard extends StatelessWidget {
+  const _WithdrawalCard({required this.data});
+  final Map<String, dynamic> data;
+
+  @override
+  Widget build(BuildContext context) {
+    final status = '${data['status'] ?? 'pending'}';
+    final failed = status == 'failed';
+    final step = switch (status) { 'paid' => 2, 'processing' => 1, _ => 0 };
+    final labels = ['Requested', 'With the partner', failed ? 'Returned' : 'Sent'];
+    final currency = '${data['currency'] ?? ''}';
+    final net = (data['netMinor'] as num?)?.toInt() ?? 0;
+    final String? note = failed
+        ? '${data['failureReason'] ?? 'It didn’t go through.'} The money is back in your balance.'
+        : data['review'] == true
+            ? 'We’re double-checking this one. It goes out right after.'
+            : status == 'processing'
+                ? 'The partner is sending it. This can take a few minutes, sometimes longer for banks.'
+                : null;
+    return Container(
+      margin: const EdgeInsets.only(bottom: 8),
+      padding: const EdgeInsets.all(12),
+      decoration: AppDecorations.card(context),
+      child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+        Row(children: [
+          Expanded(
+            child: Text('${data['methodLabel'] ?? 'Payout'}',
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(fontSize: 13, fontWeight: FontWeight.w700, color: context.textPrimary)),
+          ),
+          Text(formatMinor(net, currency), style: TextStyle(fontSize: 13, fontWeight: FontWeight.w800, color: context.textPrimary)),
+        ]),
+        const SizedBox(height: 10),
+        Row(children: [
+          for (var i = 0; i < 3; i++)
+            Expanded(
+              child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                Container(
+                  height: 4,
+                  margin: const EdgeInsets.only(right: 4),
+                  decoration: BoxDecoration(
+                    color: failed && i == 2
+                        ? AppColors.brandPink
+                        : (i <= step || (failed && i < 2))
+                            ? AppColors.brandBlue
+                            : context.border,
+                    borderRadius: BorderRadius.circular(2),
+                  ),
+                ),
+                const SizedBox(height: 4),
+                Text(labels[i],
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(fontSize: 10.5, color: i <= step || failed ? context.textPrimary : context.textMuted)),
+              ]),
+            ),
+        ]),
+        if (note != null) ...[
+          const SizedBox(height: 8),
+          Text(note, style: TextStyle(fontSize: 11.5, height: 1.35, color: context.textSecondary)),
+        ],
+      ]),
+    );
+  }
 }

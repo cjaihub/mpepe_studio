@@ -305,6 +305,8 @@ export { payMethods, payCreate, payStatus, payCancel, payReconcileIntents, payWe
 export { payWithdraw, payBalanceReconcile } from './pay/balancePayouts';
 // Scan to pay: merchant QR codes (pay with payCreate purpose 'merchant').
 export { payQrCreate, payQrResolve, payQrList, payQrDisable } from './pay/merchantQr';
+// Business balance: shop sales and scan to pay, apart from the personal balance.
+export { payMoveToPersonal } from './pay/businessBalance';
 export { aiProxy } from './aiProxy';
 export { studioCaptions, studioTranslate } from './studioAi';
 export { arEffectGenerate, arEffectCreateFromUpload, arEffectUse, arEffectFavoriteAdded, arEffectFavoriteRemoved, arMakeupSuggest } from './arEffects';

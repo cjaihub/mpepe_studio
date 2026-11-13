@@ -85,7 +85,7 @@ function viewOf(code, q, m) {
     const amountMinor = typeof q.amountMinor === 'number' ? q.amountMinor : null;
     return {
         code, merchantUid: q.merchantUid, name: m.name, avatarUrl: m.avatarUrl, verified: m.verified,
-        label: (_a = q.label) !== null && _a !== void 0 ? _a : null, currency: q.currency, amountMinor,
+        label: (_a = q.label) !== null && _a !== void 0 ? _a : null, country: q.country, currency: q.currency, amountMinor,
         amount: amountMinor == null ? null : (0, provider_1.toMajor)(amountMinor, q.currency), oneTime: q.oneTime === true,
     };
 }

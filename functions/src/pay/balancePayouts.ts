@@ -20,8 +20,8 @@ import { POLICY } from '../payments/adapters';
 import { MockProvider } from '../payments/mockProvider';
 import { reconcileAction, routePayout } from '../payments/router';
 import { adapterFor, payoutsConfigured } from '../creator/payouts';
-import { balancePayoutFee } from './payLogic';
-import { balanceRef, bucketOf, ledgerRef, writeLedger } from './ledger';
+import { balanceKind, balancePayoutFee, ownerAccount } from './payLogic';
+import { balanceRefOf, bucketOf, ledgerRef, writeLedger } from './ledger';
 import { payRuntime } from './payConfig';
 
 const db = () => getFirestore();
@@ -67,13 +67,13 @@ export async function settlePayPayout(id: string, to: 'paid' | 'failed', info: R
     if (!p || !['pending', 'processing'].includes(p.status) || posted.exists) return null;
     const lines = to === 'paid'
       ? [
-          { account: `user:${p.uid}`, currency: p.currency, amountMinor: -p.amountMinor, bucket: 'locked' as const },
+          { account: ownerAccount(balanceKind(p.balance), p.uid), currency: p.currency, amountMinor: -p.amountMinor, bucket: 'locked' as const },
           { account: `payout:${p.provider}`, currency: p.currency, amountMinor: p.netMinor },
           ...(p.feeMinor > 0 ? [{ account: 'platform:revenue', currency: p.currency, amountMinor: p.feeMinor }] : []),
         ]
       : [
-          { account: `user:${p.uid}`, currency: p.currency, amountMinor: -p.amountMinor, bucket: 'locked' as const },
-          { account: `user:${p.uid}`, currency: p.currency, amountMinor: p.amountMinor, bucket: 'available' as const },
+          { account: ownerAccount(balanceKind(p.balance), p.uid), currency: p.currency, amountMinor: -p.amountMinor, bucket: 'locked' as const },
+          { account: ownerAccount(balanceKind(p.balance), p.uid), currency: p.currency, amountMinor: p.amountMinor, bucket: 'available' as const },
         ];
     writeLedger(tx, `ppdone_${id}`, false, to === 'paid' ? 'balance_payout' : 'balance_payout_returned', lines, { payoutId: id });
     tx.update(ref, { status: to, needsCheck: false, ...info, updatedAt: FieldValue.serverTimestamp() });
@@ -144,17 +144,22 @@ export const payWithdraw = onCall({ timeoutSeconds: 60 }, async (req) => {
   const netMinor = amountMinor - feeMinor;
   if (netMinor <= 0) throw new HttpsError('failed-precondition', 'The amount is smaller than the payout fee.');
   const hold = (await db().doc(`payout_holds/${uid}`).get()).get('reasons') as string[] | undefined;
+  // Withdraw from the personal balance (default) or the business one (shop sales, scan to pay).
+  const balance = balanceKind(req.data?.balance);
+  const acct = ownerAccount(balance, uid);
 
   await db().runTransaction(async (tx) => {
-    const [bal, cur, posted] = await Promise.all([tx.get(balanceRef(uid)), tx.get(payoutRef(id)), tx.get(ledgerRef(`ppreq_${id}`))]);
+    const [bal, cur, posted] = await Promise.all([tx.get(balanceRefOf(balance, uid)), tx.get(payoutRef(id)), tx.get(ledgerRef(`ppreq_${id}`))]);
     if (cur.exists) return;
-    if (bucketOf(bal.data(), currency, 'available') < amountMinor) throw new HttpsError('failed-precondition', 'Not enough in your Oneova balance.');
+    if (bucketOf(bal.data(), currency, 'available') < amountMinor) {
+      throw new HttpsError('failed-precondition', `Not enough in your ${balance === 'business' ? 'business' : 'Oneova'} balance.`);
+    }
     writeLedger(tx, `ppreq_${id}`, posted.exists, 'balance_payout_lock', [
-      { account: `user:${uid}`, currency, amountMinor: -amountMinor, bucket: 'available' },
-      { account: `user:${uid}`, currency, amountMinor, bucket: 'locked' },
-    ], { payoutId: id });
+      { account: acct, currency, amountMinor: -amountMinor, bucket: 'available' },
+      { account: acct, currency, amountMinor, bucket: 'locked' },
+    ], { payoutId: id, balance });
     tx.set(payoutRef(id), {
-      uid, methodId, methodLabel: method.label ?? 'payout method', rail: method.rail, provider: method.provider,
+      uid, balance, methodId, methodLabel: method.label ?? 'payout method', rail: method.rail, provider: method.provider,
       country: method.country, currency, holderName: method.holderName ?? kyc?.verifiedName ?? '',
       amountMinor, feeMinor, netMinor, status: 'pending', sandbox: rt.cfg.sandbox && kyc?.status !== 'verified',
       review: !!hold?.length, reviewReasons: hold ?? [],

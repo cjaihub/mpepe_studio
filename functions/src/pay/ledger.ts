@@ -12,13 +12,16 @@
  * `ledgerRef(txnId)` first and pass `exists` to `writeLedger`.
  */
 import { getFirestore, FieldValue, Transaction } from 'firebase-admin/firestore';
-import { LedgerLine, ledgerBalanced, userOf } from './payLogic';
+import { LedgerLine, businessOf, ledgerBalanced, userOf } from './payLogic';
 import { ledgerOutbox } from '../ledger/outbox';
 
 const db = () => getFirestore();
 
 export const ledgerRef = (txnId: string) => db().doc(`pay_ledger/${txnId}`);
 export const balanceRef = (uid: string) => db().doc(`pay_balances/${uid}`);
+/** A business owner's business balance (shop sales, scan to pay). */
+export const businessBalanceRef = (uid: string) => db().doc(`pay_business_balances/${uid}`);
+export const balanceRefOf = (kind: 'personal' | 'business', uid: string) => (kind === 'business' ? businessBalanceRef(uid) : balanceRef(uid));
 
 /**
  * Writes the posting (when it isn't there yet) and moves user balances.
@@ -46,8 +49,9 @@ export function writeLedger(
   });
   for (const l of lines) {
     const uid = userOf(l.account);
-    if (!uid || l.amountMinor === 0) continue;
-    tx.set(balanceRef(uid), {
+    const biz = businessOf(l.account);
+    if ((!uid && !biz) || l.amountMinor === 0) continue;
+    tx.set(uid ? balanceRef(uid) : businessBalanceRef(biz!), {
       [l.currency]: { [l.bucket ?? 'available']: FieldValue.increment(l.amountMinor) },
       updatedAt: FieldValue.serverTimestamp(),
     }, { merge: true });

@@ -187,3 +187,19 @@ def test_oneova_pay_postings_mirror_and_escrow_cannot_overpay(conn):
         t.pay_posting("pay_bad_000001", "x_y", [{"account": "weird:1", "currency": "KES", "amountMinor": 1},
                                                  {"account": "user:a", "currency": "KES", "amountMinor": -1}])
     assert core.reconcile(conn)["ok"]
+
+
+def test_business_and_personal_balances_are_separate(conn):
+    sale = [{"account": "clearing:mpesa", "currency": "KES", "amountMinor": -100_000},
+            {"account": "biz:shop1", "currency": "KES", "amountMinor": 99_000, "bucket": "available"},
+            {"account": "platform:revenue", "currency": "KES", "amountMinor": 1_000}]
+    post(conn, t.pay_posting("pay_sale_0001", "merchant_payin", sale))
+    move = [{"account": "biz:shop1", "currency": "KES", "amountMinor": -40_000, "bucket": "available"},
+            {"account": "user:shop1", "currency": "KES", "amountMinor": 40_000, "bucket": "available"}]
+    post(conn, t.pay_posting("pay_move_0001", "business_to_personal", move))
+    assert bal(conn, "u:shop1:biz_available_kes") == 59_000
+    assert bal(conn, "u:shop1:pay_available_kes") == 40_000
+    with pytest.raises(core.InsufficientFunds):  # can't move more than the business has
+        post(conn, t.pay_posting("pay_move_0002", "business_to_personal", [
+            {"account": "biz:shop1", "currency": "KES", "amountMinor": -60_000, "bucket": "available"},
+            {"account": "user:shop1", "currency": "KES", "amountMinor": 60_000, "bucket": "available"}]))
