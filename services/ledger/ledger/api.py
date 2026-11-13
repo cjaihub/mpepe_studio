@@ -5,6 +5,7 @@
   GET  /v1/accounts/{id}        balance
   GET  /v1/accounts/{id}/entries?before=&limit=   history (newest first)
   GET  /v1/reconcile            cached balances == sum(postings), audit chain intact
+  POST /v1/fees/quote           fee for an amount under the current rules (no posting)
   GET  /healthz
 """
 from __future__ import annotations
@@ -18,6 +19,7 @@ from pydantic import BaseModel, Field
 
 from . import core, db, templates
 from .auth import caller
+from .fees import FeeError
 from .policy import AccountError
 
 _pool = None
@@ -120,6 +122,27 @@ def get_entries(account: str, before: int | None = None, limit: int = 50, _who: 
             return {"entries": core.history(conn, account, before, limit)}
     except AccountError as e:
         raise HTTPException(400, str(e)) from None
+
+
+class QuoteIn(BaseModel):
+    amount_minor: int = Field(gt=0)
+    product: str
+    currency: str = Field(pattern=r"^[A-Z]{3}$")
+    rail: str | None = None
+    from_country: str | None = Field(default=None, pattern=r"^[A-Z]{2}$")
+    to_country: str | None = Field(default=None, pattern=r"^[A-Z]{2}$")
+    partner: str | None = None
+
+
+@app.post("/v1/fees/quote")
+def post_quote(body: QuoteIn, _who: str = Depends(caller)) -> dict[str, Any]:
+    try:
+        return templates.fee_book().quote(
+            body.amount_minor, product=body.product, currency=body.currency, rail=body.rail,
+            from_country=body.from_country, to_country=body.to_country, partner=body.partner,
+        ).to_dict()
+    except FeeError as e:
+        raise HTTPException(400, {"code": "no_fee_rule", "message": str(e)}) from None
 
 
 @app.get("/v1/reconcile")

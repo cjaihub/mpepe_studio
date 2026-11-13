@@ -148,3 +148,22 @@ def test_random_journals_keep_every_invariant(conn):
     for u in users:
         assert bal(conn, f"u:{u}:coins") >= 0
         assert bal(conn, f"u:{u}:dm_pending") >= 0
+
+
+def test_fee_journals_post_and_reconcile(conn):
+    post(conn, t.payout_cash("pc-000001", "bob", "w1", "USD", 10_000, "mobile_money"))
+    post(conn, t.biz_order_paid("bp-000001", "o1", "KES", 170_000))
+    post(conn, t.biz_order_release("br-000001", "o1", "KES", 150_000, "seller1", 20_000, "rider1"))
+    assert bal(conn, "sys:fees_usd") == 150
+    assert bal(conn, "sys:payout_clearing_usd") == 9_850
+    assert bal(conn, "sys:fees_kes") == 15_000
+    assert bal(conn, "u:seller1:biz_payable_kes") == 135_000
+    assert bal(conn, "u:rider1:biz_payable_kes") == 20_000
+    assert bal(conn, "sys:biz_escrow_kes") == 0
+    assert core.reconcile(conn)["ok"]
+
+
+def test_escrow_cannot_release_more_than_was_paid(conn):
+    post(conn, t.biz_order_paid("bp-000002", "o2", "KES", 100_000))
+    with pytest.raises(core.InsufficientFunds):
+        post(conn, t.biz_order_release("br-000002", "o2", "KES", 150_000, "seller1"))

@@ -30,6 +30,9 @@ def test_template_post_replay_and_errors(client):
     assert client.get("/v1/accounts/u:alice:coins").json()["balance"] == 700
     assert len(client.get("/v1/accounts/u:alice:coins/entries").json()["entries"]) == 1
     assert client.get("/v1/reconcile").json()["ok"] is True
+    q = client.post("/v1/fees/quote", json={"amount_minor": 10_000, "product": "creator_payout", "currency": "USD", "rail": "bank"})
+    assert q.status_code == 200 and q.json()["feeMinor"] == 100 and q.json()["payeeCredit"] == 9_900
+    assert client.post("/v1/fees/quote", json={"amount_minor": 100, "product": "p2p_transfer", "currency": "USD"}).status_code == 400
 
 
 def test_auth_required_outside_local(monkeypatch):
