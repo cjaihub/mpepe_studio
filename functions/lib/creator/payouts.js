@@ -64,6 +64,7 @@ const firestore_1 = require("firebase-admin/firestore");
 const auth_1 = require("firebase-admin/auth");
 const scheduler_1 = require("firebase-functions/v2/scheduler");
 const optionalSecrets_1 = require("../optionalSecrets");
+const outbox_1 = require("../ledger/outbox");
 const provider_1 = require("../payments/provider");
 const adapters_1 = require("../payments/adapters");
 const router_1 = require("../payments/router");
@@ -125,13 +126,17 @@ async function releaseMatured(uid) {
         var _a;
         const fresh = await Promise.all(due.map((d) => tx.get(d.ref)));
         let sum = 0;
+        const ids = [];
         for (const d of fresh) {
             if (d.get('status') !== 'pending')
                 continue;
             sum += Math.max(0, Number((_a = d.get('amount')) !== null && _a !== void 0 ? _a : 0));
+            ids.push(d.id);
             tx.update(d.ref, { status: 'available', releasedAt: firestore_1.FieldValue.serverTimestamp() });
         }
         if (sum > 0) {
+            const batchId = crypto.createHash('sha256').update(ids.sort().join(',')).digest('hex').slice(0, 24);
+            (0, outbox_1.ledgerOutbox)(tx, `release_${uid}_${batchId}`, 'release', { uid, diamonds: sum });
             tx.set(wallet, {
                 pendingCoins: firestore_1.FieldValue.increment(-sum), availableCoins: firestore_1.FieldValue.increment(sum),
                 lifetimeEarnedCoins: firestore_1.FieldValue.increment(sum), updatedAt: firestore_1.FieldValue.serverTimestamp(),
@@ -356,9 +361,11 @@ async function settle(wid, to, info = {}) {
         tx.update(ref, Object.assign(Object.assign({ status: to }, info), { updatedAt: firestore_1.FieldValue.serverTimestamp(), timeline: firestore_1.FieldValue.arrayUnion({ status: to, at: now() }) }));
         tx.update(wallet.collection('ledger').doc(`withdraw_${wid}`), { status: to === 'paid' ? 'completed' : to });
         if (to === 'paid') {
+            (0, outbox_1.ledgerOutbox)(tx, `wpaid_${wid}`, 'withdrawal_paid', { uid: w.uid, diamonds: d, withdrawal_id: wid });
             tx.set(wallet, { lockedCoins: firestore_1.FieldValue.increment(-d), withdrawnCoins: firestore_1.FieldValue.increment(d), updatedAt: firestore_1.FieldValue.serverTimestamp() }, { merge: true });
         }
         else if (to === 'failed' || to === 'cancelled') {
+            (0, outbox_1.ledgerOutbox)(tx, `wret_${wid}`, 'withdrawal_returned', { uid: w.uid, diamonds: d, withdrawal_id: wid });
             tx.set(wallet, { lockedCoins: firestore_1.FieldValue.increment(-d), availableCoins: firestore_1.FieldValue.increment(d), updatedAt: firestore_1.FieldValue.serverTimestamp() }, { merge: true });
             tx.set(wallet.collection('ledger').doc(`withdraw_${wid}_back`), {
                 amount: d, type: 'withdrawal_returned', status: 'completed', referenceId: wid, createdAt: firestore_1.FieldValue.serverTimestamp(),
@@ -594,6 +601,7 @@ exports.requestWithdrawal = (0, https_1.onCall)({ timeoutSeconds: 60 }, async (r
         if (available < diamonds)
             throw new https_1.HttpsError('failed-precondition', 'You don’t have that many withdrawable Diamonds yet.');
         tx.set(wallet, { availableCoins: firestore_1.FieldValue.increment(-diamonds), lockedCoins: firestore_1.FieldValue.increment(diamonds), updatedAt: firestore_1.FieldValue.serverTimestamp() }, { merge: true });
+        (0, outbox_1.ledgerOutbox)(tx, `wlock_${wid}`, 'withdrawal_lock', { uid, diamonds, withdrawal_id: wid });
         tx.set(wallet.collection('ledger').doc(`withdraw_${wid}`), {
             amount: -diamonds, type: 'withdrawal', status: 'pending', referenceId: wid, createdAt: firestore_1.FieldValue.serverTimestamp(),
         });

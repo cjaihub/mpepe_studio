@@ -61,6 +61,7 @@ const logger = __importStar(require("firebase-functions/logger"));
 const firestore_1 = require("firebase-admin/firestore");
 const gift_logic_1 = require("../liveStudio/gift_logic");
 const clawbackLogic_1 = require("./clawbackLogic");
+const outbox_1 = require("../ledger/outbox");
 const db = () => (0, firestore_1.getFirestore)();
 const PACKAGE = 'com.oneova.app';
 /** Play product id → coins credited (bonus included). */
@@ -125,7 +126,7 @@ exports.verifyCoinPurchase = (0, https_1.onCall)({ timeoutSeconds: 60 }, async (
     }
     const wallet = db().doc(`wallets/${uid}`);
     const balance = await db().runTransaction(async (tx) => {
-        var _a, _b, _c, _d, _e, _f, _g;
+        var _a, _b, _c, _d, _e, _f, _g, _h;
         const [r, w] = await Promise.all([tx.get(receiptRef), tx.get(wallet)]);
         if (r.exists)
             return Number((_a = w.get('balanceCoins')) !== null && _a !== void 0 ? _a : 0);
@@ -137,7 +138,8 @@ exports.verifyCoinPurchase = (0, https_1.onCall)({ timeoutSeconds: 60 }, async (
             purchaseTimeMillis: (_f = purchase.purchaseTimeMillis) !== null && _f !== void 0 ? _f : null, createdAt: firestore_1.FieldValue.serverTimestamp(),
         });
         tx.set(wallet, Object.assign(Object.assign({ balanceCoins: now }, (debtPaid > 0 ? { coinDebt: firestore_1.FieldValue.increment(-debtPaid) } : {})), { updatedAt: firestore_1.FieldValue.serverTimestamp() }), { merge: true });
-        tx.set(wallet.collection('ledger').doc(`play_${tokenId.slice(0, 24)}`), Object.assign(Object.assign({ amount: coins, type: 'coin_purchase', provider: 'google_play', productId }, (debtPaid > 0 ? { debtPaid } : {})), { referenceId: (_g = purchase.orderId) !== null && _g !== void 0 ? _g : tokenId, createdAt: firestore_1.FieldValue.serverTimestamp() }));
+        (0, outbox_1.ledgerOutbox)(tx, `play_${tokenId}`, 'coin_purchase', { uid, coins, debt_paid: debtPaid, order_id: (_g = purchase.orderId) !== null && _g !== void 0 ? _g : null });
+        tx.set(wallet.collection('ledger').doc(`play_${tokenId.slice(0, 24)}`), Object.assign(Object.assign({ amount: coins, type: 'coin_purchase', provider: 'google_play', productId }, (debtPaid > 0 ? { debtPaid } : {})), { referenceId: (_h = purchase.orderId) !== null && _h !== void 0 ? _h : tokenId, createdAt: firestore_1.FieldValue.serverTimestamp() }));
         return now;
     });
     // Consumable: lets the person buy the same pack again.
@@ -198,6 +200,7 @@ exports.sendUserGift = (0, https_1.onCall)(async (req) => {
         if (have < total)
             throw new https_1.HttpsError('failed-precondition', `Not enough coins. This gift costs ${total}.`);
         tx.set(senderWallet, { balanceCoins: have - total, updatedAt: firestore_1.FieldValue.serverTimestamp() }, { merge: true });
+        (0, outbox_1.ledgerOutbox)(tx, `ugift_${id}`, 'gift', { sender: uid, coins: total, receiver: toUid, receiver_diamonds: hostCoins });
         tx.set(senderWallet.collection('ledger').doc(`ugift_${id}`), {
             amount: -total, type: 'user_gift_sent', giftId: gift.giftId, qty: gift.qty, toUid, createdAt: firestore_1.FieldValue.serverTimestamp(),
         });

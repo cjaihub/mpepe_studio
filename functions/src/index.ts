@@ -322,3 +322,6 @@ export * from './looks';
 // Oneova Pay hardening: refunded coin packs and payouts with unclear provider replies.
 export { coinVoidSweep } from './coins/voidedPurchases';
 export { payoutReconcile } from './creator/payouts';
+
+// Postgres ledger shadow mode (services/ledger); off unless LEDGER_OUTBOX=on.
+export { ledgerOutboxDeliver, ledgerOutboxRetry } from './ledger/outbox';

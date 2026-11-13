@@ -14,6 +14,7 @@ const contracts_1 = require("./contracts");
 const shared_1 = require("./shared");
 const social_logic_1 = require("./social_logic");
 const gift_logic_1 = require("./gift_logic");
+const outbox_1 = require("../ledger/outbox");
 exports.lsGift = (0, https_1.onCall)({ secrets: shared_1.LIVEKIT_SECRETS }, async (req) => {
     const uid = (0, shared_1.requireUid)(req);
     const data = (req.data && typeof req.data === 'object' ? req.data : {});
@@ -64,6 +65,7 @@ exports.lsGift = (0, https_1.onCall)({ secrets: shared_1.LIVEKIT_SECRETS }, asyn
         }
         const recent = { id: giftDocId, uid, name, avatarUrl, giftId: gift.giftId, qty: gift.qty, coins: total, atMs: now };
         tx.set(senderWallet, { balanceCoins: have - total, updatedAt: firestore_1.FieldValue.serverTimestamp() }, { merge: true });
+        (0, outbox_1.ledgerOutbox)(tx, `gift_${giftDocId}`, 'gift', { sender: uid, coins: total, receiver: state.hostId, receiver_diamonds: hostCoins });
         tx.set(senderWallet.collection('ledger').doc(`gift_${giftDocId}`), {
             amount: -total,
             type: 'live_gift_sent',

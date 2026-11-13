@@ -8,8 +8,8 @@
   },
   "scripts": {
     "build": "tsc",
-    "test": "node --test \"lib/looks/__tests__/**/*.test.js\" \"lib/guard/__tests__/**/*.test.js\" \"lib/__tests__/**/*.test.js\" \"lib/creator/__tests__/**/*.test.js\" \"lib/payments/__tests__/**/*.test.js\" \"lib/coins/__tests__/**/*.test.js\"",
-    "test:pay": "tsc && node --test \"lib/creator/__tests__/**/*.test.js\" \"lib/payments/__tests__/**/*.test.js\" \"lib/coins/__tests__/**/*.test.js\"",
+    "test": "node --test \"lib/looks/__tests__/**/*.test.js\" \"lib/guard/__tests__/**/*.test.js\" \"lib/__tests__/**/*.test.js\" \"lib/creator/__tests__/**/*.test.js\" \"lib/payments/__tests__/**/*.test.js\" \"lib/coins/__tests__/**/*.test.js\" \"lib/ledger/__tests__/**/*.test.js\"",
+    "test:pay": "tsc && node --test \"lib/creator/__tests__/**/*.test.js\" \"lib/payments/__tests__/**/*.test.js\" \"lib/coins/__tests__/**/*.test.js\" \"lib/ledger/__tests__/**/*.test.js\"",
     "test:gmail": "node --test \"lib/__tests__/gmail_token_crypto.test.js\"",
     "test:looks": "node --test \"lib/looks/__tests__/**/*.test.js\"",
     "test:livestudio": "tsc -p tsconfig.livestudio.json && node --test \".ls-build/liveStudio/**/*.test.js\""
@@ -24,6 +24,7 @@
     "file-type": "^16.5.4",
     "firebase-admin": "^14.3.0",
     "firebase-functions": "^7.3.2",
+    "google-auth-library": "^10.9.1",
     "googleapis": "^178.0.0",
     "jpeg-js": "^0.4.4",
     "livekit-server-sdk": "^2.19.1",

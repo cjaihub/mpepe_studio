@@ -24,6 +24,7 @@ import * as logger from 'firebase-functions/logger';
 import { getFirestore, FieldValue } from 'firebase-admin/firestore';
 import { GIFT_CATALOG, HOST_SHARE, parseGift, giftPrice, giftId, GiftError } from '../liveStudio/gift_logic';
 import { creditWithDebt } from './clawbackLogic';
+import { ledgerOutbox } from '../ledger/outbox';
 
 const db = () => getFirestore();
 const PACKAGE = 'com.oneova.app';
@@ -99,6 +100,7 @@ export const verifyCoinPurchase = onCall({ timeoutSeconds: 60 }, async (req) => 
     tx.set(wallet, {
       balanceCoins: now, ...(debtPaid > 0 ? { coinDebt: FieldValue.increment(-debtPaid) } : {}), updatedAt: FieldValue.serverTimestamp(),
     }, { merge: true });
+    ledgerOutbox(tx, `play_${tokenId}`, 'coin_purchase', { uid, coins, debt_paid: debtPaid, order_id: purchase.orderId ?? null });
     tx.set(wallet.collection('ledger').doc(`play_${tokenId.slice(0, 24)}`), {
       amount: coins, type: 'coin_purchase', provider: 'google_play', productId, ...(debtPaid > 0 ? { debtPaid } : {}),
       referenceId: purchase.orderId ?? tokenId, createdAt: FieldValue.serverTimestamp(),
@@ -157,6 +159,7 @@ export const sendUserGift = onCall(async (req) => {
     if (dup.exists) return have;
     if (have < total) throw new HttpsError('failed-precondition', `Not enough coins. This gift costs ${total}.`);
     tx.set(senderWallet, { balanceCoins: have - total, updatedAt: FieldValue.serverTimestamp() }, { merge: true });
+    ledgerOutbox(tx, `ugift_${id}`, 'gift', { sender: uid, coins: total, receiver: toUid, receiver_diamonds: hostCoins });
     tx.set(senderWallet.collection('ledger').doc(`ugift_${id}`), {
       amount: -total, type: 'user_gift_sent', giftId: gift.giftId, qty: gift.qty, toUid, createdAt: FieldValue.serverTimestamp(),
     });
