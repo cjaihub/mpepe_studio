@@ -1,5 +1,25 @@
 # Oneova release notes
 
+## 1.0.0 (36) — 2026-11-14 · Internal Testing Release
+
+**Full-screen Reels and live translated calls**
+- **Full-screen Reels**: the video fills the screen, the bottom bar hides while you watch (tap to pause to bring it back), side buttons stay low, comments roll in one by one, and hearts rise from the like button.
+- **Translated calls**: when you and the other person speak different languages, you each hear the other in your own language, with captions.
+- **Reels in your language**: captions are translated into the language you choose in Settings → Language.
+- **Chats**: messages in another language show "Translate from …".
+- **Keep Oneova light**: automatic cache clean-up (Settings → Storage).
+- **Your feed learns what you like from your Ova chats** (Settings → Privacy → Personalisation).
+
+## 1.0.0 (35) — 2026-11-14 · Internal Testing Release
+
+**Smarter Ova and safer AI**
+- **Ova remembers**: voice Ova carries on where you left off, even after a restart, and knows your account and recent activity.
+- **Ova waits for you**: if you step away, Ova turns the mic off and asks its question again when you're back.
+- **Progress on request**: ask "what's happening?" and Ova tells you what's running right away.
+- **Faster dictation**.
+- **ID check**: your country is filled in automatically, and the form is quicker to fill.
+- **Security**: AI keys are no longer inside the app.
+
 ## 1.0.0 (34) — 2026-11-14 · Internal Testing Release
 
 **Payment phones and a calmer app**
