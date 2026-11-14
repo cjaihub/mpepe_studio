@@ -1,5 +1,20 @@
 # Oneova release notes
 
+## 1.0.0 (41) — 2026-11-14 · Internal Testing Release
+
+Builds 39 and 40 were never published (two uploads collided), so 41 carries everything since 38.
+
+**My voice, 3D shops, safer ID and smoother Back**
+- **My voice** (Settings → My voice): record about a minute of everyday phrases. Your voice notes in another language, and later your translated calls, will sound like you. Recording works now; the voice is built once the voice server is switched on.
+- **Send a voice note in another language**: tap under your own voice note.
+- **Live face check** for ID verification, ID upload from your phone, and one ID per person with linked accounts.
+- **Back goes one step back** on every screen.
+- **3D shops**: product cut-outs fixed, the live shop stage in the reel frame, and the shop feed loads reliably.
+- **Reels**: open a reel straight to its comments from a notification; smoother Live studio and notifications.
+- **Studio**: clips, text and audio snap to each other on the timeline.
+- **Security fixes**: safer computer pairing and app-update links, private projects and calendar events.
+
+(Planned as 39, not published:)
 ## 1.0.0 (39) — 2026-11-14 · Internal Testing Release
 
 **Live face check, safer account and smoother Back**
