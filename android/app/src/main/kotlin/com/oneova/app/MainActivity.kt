@@ -148,6 +148,9 @@ class MainActivity : FlutterFragmentActivity() {
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
 
+        // Payment device key: hardware-backed, biometric-gated signing (DeviceKeyChannel.kt).
+        DeviceKeyChannel(this, flutterEngine.dartExecutor.binaryMessenger)
+
         // Live Studio "Share to table": mediaProjection foreground service.
         MethodChannel(flutterEngine.dartExecutor.binaryMessenger, "com.oneova.app/live_screen_capture").setMethodCallHandler { call, result ->
             try {

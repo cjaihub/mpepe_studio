@@ -42,8 +42,22 @@ Existing code: `lib/hub/phone_controller/`, `lib/hub/live_control/`, `lib/deskto
 
 ## Stage D: Oneova Pay, Globe ID, Merchant Hub, Sentinel
 Design: `docs/payments/platform/` (architecture, security model, schema and API, code and deployment).
-- ⏳ D1. Device binding: hardware key per phone, step-up, revoke (security first).
+- 🔨 D1. Device binding: built, not yet deployed or tried on a phone.
+  - Server `functions/src/pay/devices.ts` (+ pure checks and tests in `devicesLogic.ts`): challenge,
+    register with Google key attestation (secure chip, our app, our challenge, needs a biometric,
+    Google root, not revoked), trust after a fresh email code, 24 h cool-down for large payments on
+    extra phones, verify, list, revoke. `verifyDeviceApproval()` is ready for D2.
+  - Android `DeviceKeyChannel.kt`: P-256 key in StrongBox or TEE, every signature needs a strong
+    biometric, new fingerprints invalidate the key. iOS not done yet (Secure Enclave + App Attest).
+  - App `lib/pay/security/` (device key, service, live face card with mesh that follows the real
+    checks) and `/id/devices` (Payment phones, linked from Oneova ID).
+  - Left: deploy the six `payDevice*` functions (needs your OK), try on a real phone, iOS.
 - ⏳ D2. Payment requests with biometric approval and countdown, success screen (`003_pay_core.sql`).
+  Approval uses the face card + `verifyDeviceApproval()`. After each payment, a payment report for
+  both sides: written from the server's own records (ledger journal, approval, risk decision), with
+  plain-language wording added by AI that can't change any fact. Every step is stored as a
+  `payment_events` row and published on Pub/Sub so other systems (merchant webhooks, admin, analytics)
+  can follow it.
 - ⏳ D3. Signed receipts and verify.
 - ⏳ D4. Send by Oneova ID, personal QR.
 - ⏳ D5. Sentinel rules and admin review queue; App Check enforcement; KMS for funding methods.

@@ -92,6 +92,11 @@ class _OneovaIdScreenState extends ConsumerState<OneovaIdScreen> {
           ],
           const SizedBox(height: 18),
           MoneyCard(
+            onTap: () => context.push('/id/devices'),
+            child: _row(Icons.phonelink_lock_rounded, 'Payment phones', 'Phones that can approve payments with your fingerprint or face'),
+          ),
+          const SizedBox(height: 10),
+          MoneyCard(
             onTap: () => context.push('/id/data'),
             child: _row(Icons.shield_outlined, 'Privacy & my data', 'What’s stored, who saw it, delete anytime'),
           ),

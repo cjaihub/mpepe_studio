@@ -85,4 +85,6 @@ dependencies {
     // NormalTheme (res/values*/styles.xml) inherits Theme.MaterialComponents; this was
     // no longer pulled in by another dependency, so declare it directly.
     implementation("com.google.android.material:material:1.12.0")
+    // Payment device key (DeviceKeyChannel.kt): BiometricPrompt with a CryptoObject.
+    implementation("androidx.biometric:biometric:1.1.0")
 }

@@ -113,6 +113,7 @@ import '../social_hub/money/payout_status_screens.dart';
 import '../identity/screens/oneova_id_screen.dart';
 import '../identity/screens/business_verify_screen.dart';
 import '../identity/screens/id_data_screen.dart';
+import '../identity/devices/trusted_devices_screen.dart';
 import '../social_hub/money/plans_screen.dart';
 import '../social_hub/money/withdraw_screen.dart';
 import '../social_hub/money/scan_to_pay_screens.dart';
@@ -512,6 +513,7 @@ final routerProvider = Provider<GoRouter>((ref) {
       GoRoute(path: '/id', redirect: _requireAuth, builder: (context, state) => OneovaIdScreen(openShare: state.uri.queryParameters['share'] == '1')),
       GoRoute(path: '/id/business', redirect: _requireAuth, builder: (context, state) => const BusinessVerifyScreen()),
       GoRoute(path: '/id/data', redirect: _requireAuth, builder: (context, state) => const IdDataScreen()),
+      GoRoute(path: '/id/devices', redirect: _requireAuth, builder: (context, state) => const TrustedDevicesScreen()),
       GoRoute(path: '/wallet/withdrawals', redirect: _requireAuth, builder: (context, state) => const WithdrawalsScreen()),
       GoRoute(path: '/wallet/withdrawals/:id', redirect: _requireAuth, builder: (context, state) => WithdrawalDetailScreen(id: state.pathParameters['id']!)),
       GoRoute(path: '/creator/insights', redirect: _requireAuth, builder: (context, state) => const CreatorInsightsScreen()),

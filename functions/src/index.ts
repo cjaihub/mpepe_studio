@@ -307,6 +307,7 @@ export { payWithdraw, payBalanceReconcile } from './pay/balancePayouts';
 export { payQrCreate, payQrResolve, payQrList, payQrDisable } from './pay/merchantQr';
 // Business balance: shop sales and scan to pay, apart from the personal balance.
 export { payMoveToPersonal } from './pay/businessBalance';
+export { payDeviceChallenge, payDeviceRegister, payDeviceTrust, payDeviceVerify, payDeviceList, payDeviceRevoke } from './pay/devices';
 export { aiProxy } from './aiProxy';
 export { studioCaptions, studioTranslate } from './studioAi';
 export { arEffectGenerate, arEffectCreateFromUpload, arEffectUse, arEffectFavoriteAdded, arEffectFavoriteRemoved, arMakeupSuggest } from './arEffects';

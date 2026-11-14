@@ -61,7 +61,10 @@ export type SecurityEventType =
   | 'biometric_key_added'
   | 'account_secured'
   | 'phishing_sent'
-  | 'profile_change_spike';
+  | 'profile_change_spike'
+  | 'pay_device_added'
+  | 'pay_device_trusted'
+  | 'pay_device_revoked';
 
 interface Geo {
   country?: string | null;
@@ -164,6 +167,15 @@ export function score(type: SecurityEventType, d: Record<string, unknown> = {}):
     case 'account_secured':
       add(0, 'You secured your account: other sessions and fingerprint keys were removed');
       break;
+    case 'pay_device_added':
+      add(35, 'A phone was registered for payments');
+      break;
+    case 'pay_device_trusted':
+      add(d.otherDevices ? 45 : 20, d.otherDevices ? 'Another phone can now approve payments' : 'This phone can now approve payments');
+      break;
+    case 'pay_device_revoked':
+      add(10, 'A payment phone was removed');
+      break;
   }
   const value = Math.min(100, s);
   return { score: value, risk: value >= HIGH ? 'high' : value >= MEDIUM ? 'medium' : 'low', reasons };
@@ -182,6 +194,9 @@ const TITLES: Record<SecurityEventType, string> = {
   follow_spike: 'Unusual follow activity',
   session_reuse: 'Session used from two places',
   biometric_key_added: 'Fingerprint sign-in turned on',
+  pay_device_added: 'Payment phone registered',
+  pay_device_trusted: 'Payment phone approved',
+  pay_device_revoked: 'Payment phone removed',
   account_secured: 'Account secured',
   phishing_sent: 'Dangerous link blocked',
   profile_change_spike: 'Many profile changes',

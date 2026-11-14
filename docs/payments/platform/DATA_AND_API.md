@@ -21,6 +21,8 @@ Status keys: ✅ built · 🔨 to build (planned migration `003_pay_core.sql`).
 ### 1.2 Pay core 🔨 (`003_pay_core.sql`)
 ```sql
 -- Registered devices: the public half of a hardware key that only unlocks after a biometric.
+-- D1 keeps these in Firestore `pay_devices` (server-only) behind the same callables; they move here
+-- with D2 so approvals and devices share one transaction.
 CREATE TABLE devices (
   id uuid PRIMARY KEY,
   uid text NOT NULL,
@@ -151,9 +153,10 @@ Errors use `HttpsError` codes with a plain-language message.
 ### 3.2 New 🔨
 | Callable | Input | Output | Checks |
 |---|---|---|---|
-| `deviceRegister` | `publicKey`, `attestation`, `label` | `deviceId`, `trustedAt` (null until step-up) | attestation verdict, max 5 devices |
-| `deviceStepUp` | `deviceId`, `pin`, `emailCode` | `trustedAt` | Argon2id PIN check, attempt limits |
-| `deviceRevoke` | `deviceId` | ok | owner only; alert other devices |
+| `payDeviceRegister` ✅ | `publicKey`, `attestation`, `label` | `deviceId`, `trustedAt` (null until step-up) | attestation verdict, max 5 devices |
+| `payDeviceTrust` ✅ | `deviceId` (after `verifyEmailCode` purpose `sensitive_action`) | `coolDownUntil` | fresh step-up (10 min), single use; PIN later |
+| `payDeviceRevoke` ✅ | `deviceId` | ok | owner only; alert other devices |
+| `payDeviceChallenge` ✅, `payDeviceVerify` ✅, `payDeviceList` ✅ | purpose / challenge + signature / — | challenge / ok / devices | single-use challenge (5 min), rate limits |
 | `payRequestCreate` | `to` (`@handle` or uid), `amount`, `currency`, `memo`, `orderId?` | `requestId`, `expiresAt` | requester verified for business requests, Sentinel pre-check |
 | `paySendStart` | `to`, `amount`, `currency`, `memo` | `requestId`, `challenge` | limits, first-payee warning flag |
 | `payChallenge` | `requestId` | `challenge` = canonical payload + `nonce` + `exp` (60 s) | payer is the request's payer |
