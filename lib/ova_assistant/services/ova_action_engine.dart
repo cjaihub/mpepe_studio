@@ -98,7 +98,7 @@ class OvaActionEngine {
       targetTool = const _StudioCommandTarget(
         title: 'Auto Captions',
         description: 'AI-generated kinetic animated subtitles synchronized to speech.',
-        route: '/video/dashboard',
+        route: '/create/studio',
         iconName: 'captions',
       );
     } else if (lower.contains('avatar') || (lower.contains('ai') && lower.contains('brand')) || lower.contains('virtual presenter')) {

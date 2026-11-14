@@ -94,22 +94,20 @@ class OvaLlmClient {
         _openRouterModel,
         'meta-llama/llama-3.3-70b-instruct:free',
       ]) {
-        final buffer = <OvaLlmEvent>[];
-        final outcome = await _collectOpenRouter(
-          key: orKey,
-          model: model,
-          system: system,
-          history: cleanHistory,
-          tools: tools,
-          imageBase64: imageBase64,
-          sink: buffer.add,
+        var outcome = const _StreamAttemptOutcome(emitted: false);
+        yield* _live(
+          (sink) => _collectOpenRouter(
+            key: orKey,
+            model: model,
+            system: system,
+            history: cleanHistory,
+            tools: tools,
+            imageBase64: imageBase64,
+            sink: sink,
+          ),
+          (o) => outcome = o,
         );
-        if (outcome.emitted) {
-          for (final ev in buffer) {
-            yield ev;
-          }
-          return;
-        }
+        if (outcome.emitted) return;
         if (outcome.diagnostic != null) lastDiagnostic = outcome.diagnostic;
         if (outcome.offline || outcome.statusCode == 401) break;
       }
@@ -124,22 +122,20 @@ class OvaLlmClient {
     if (gKey.isNotEmpty) {
       final models = await vault.getGeminiModelCascade();
       for (final model in models) {
-        final buffer = <OvaLlmEvent>[];
-        final outcome = await _collectGemini(
-          key: gKey,
-          model: model,
-          system: system,
-          history: cleanHistory,
-          tools: tools,
-          imageBase64: imageBase64,
-          sink: buffer.add,
+        var outcome = const _StreamAttemptOutcome(emitted: false);
+        yield* _live(
+          (sink) => _collectGemini(
+            key: gKey,
+            model: model,
+            system: system,
+            history: cleanHistory,
+            tools: tools,
+            imageBase64: imageBase64,
+            sink: sink,
+          ),
+          (o) => outcome = o,
         );
-        if (outcome.emitted) {
-          for (final ev in buffer) {
-            yield ev;
-          }
-          return;
-        }
+        if (outcome.emitted) return;
         if (outcome.diagnostic != null) lastDiagnostic = outcome.diagnostic;
         if (outcome.offline) break;
         if (outcome.statusCode != null && outcome.statusCode != 404) break;
@@ -152,31 +148,34 @@ class OvaLlmClient {
 
     // ── Stage 3: Keyless Firebase AI Logic (Google AI -> Vertex AI) ─────
     if (Firebase.apps.isNotEmpty && _httpClient == null) {
-      final fbEvents = await _tryFirebaseAiStream(
-        system: system,
-        history: cleanHistory,
-        imageBase64: imageBase64,
-      );
-      if (fbEvents.isNotEmpty) {
-        for (final ev in fbEvents) {
-          yield ev;
-        }
-        return;
+      var any = false;
+      await for (final ev in _firebaseAiLive(system: system, history: cleanHistory, imageBase64: imageBase64)) {
+        any = true;
+        yield ev;
       }
+      if (any) return;
     }
 
     // ── Stage 4: Signed-in Oneova Cloud Proxy (`aiProxy`) ───────────────
     if (OneovaAiGateway.canCall('')) {
       final buffer = <OvaLlmEvent>[];
-      var outcome = await _collectOpenRouter(
-        key: '',
-        model: _openRouterModel,
-        system: system,
-        history: cleanHistory,
-        tools: tools,
-        imageBase64: imageBase64,
-        sink: buffer.add,
+      var outcome = const _StreamAttemptOutcome(emitted: false);
+      yield* _live(
+        (sink) => _collectOpenRouter(
+          key: '',
+          model: _openRouterModel,
+          system: system,
+          history: cleanHistory,
+          tools: tools,
+          imageBase64: imageBase64,
+          sink: sink,
+        ),
+        (o) => outcome = o,
       );
+      if (outcome.emitted) {
+        OneovaAiGateway.recordProxySuccess();
+        return;
+      }
 
       // Refresh expired Firebase ID token once on 401
       if (!outcome.emitted && outcome.statusCode == 401) {
@@ -570,22 +569,46 @@ class OvaLlmClient {
     }
   }
 
-  // ── Keyless Firebase AI Logic Stream ───────────────────────────────────
+  /// Runs one provider attempt and yields its text and tool calls the moment
+  /// they arrive. Errors and degraded notes are held back and only passed on
+  /// when the attempt produced something; otherwise the caller fails over and
+  /// the user never sees the failed try.
+  Stream<OvaLlmEvent> _live(
+    Future<_StreamAttemptOutcome> Function(void Function(OvaLlmEvent) sink) run,
+    void Function(_StreamAttemptOutcome) done,
+  ) async* {
+    final c = StreamController<OvaLlmEvent>();
+    final held = <OvaLlmEvent>[];
+    var outcome = const _StreamAttemptOutcome(emitted: false);
+    unawaited(run((ev) {
+      if (ev is OvaLlmError || ev is OvaLlmDegraded) {
+        held.add(ev);
+      } else if (!c.isClosed) {
+        c.add(ev);
+      }
+    }).then((o) => outcome = o, onError: (_) {}).whenComplete(c.close));
+    yield* c.stream;
+    if (outcome.emitted) {
+      for (final ev in held) {
+        yield ev;
+      }
+    }
+    done(outcome);
+  }
 
-  Future<List<OvaLlmEvent>> _tryFirebaseAiStream({
+  /// Keyless Firebase AI, streamed token by token (Google AI, then Vertex AI).
+  Stream<OvaLlmEvent> _firebaseAiLive({
     required String system,
     required List<Map<String, dynamic>> history,
     required String? imageBase64,
-  }) async {
+  }) async* {
     final contents = <Content>[];
     for (int i = 0; i < history.length; i++) {
       final m = history[i];
       final role = m['role'];
       if (role != 'user' && role != 'assistant') continue;
       final text = (m['content'] ?? '').toString().trim();
-      final parts = <Part>[
-        if (text.isNotEmpty) TextPart(text),
-      ];
+      final parts = <Part>[if (text.isNotEmpty) TextPart(text)];
       if (imageBase64 != null && imageBase64.isNotEmpty && i == history.length - 1 && role == 'user') {
         try {
           parts.add(InlineDataPart('image/png', base64Decode(imageBase64)));
@@ -594,32 +617,36 @@ class OvaLlmClient {
       if (parts.isEmpty) continue;
       contents.add(role == 'user' ? Content.multi(parts) : Content.model(parts));
     }
-    if (contents.isEmpty) return const [];
-
+    if (contents.isEmpty) return;
     for (final (useVertex, modelName) in const [
       (false, 'gemini-2.5-flash'),
-      (false, 'gemini-2.0-flash'),
       (true, 'gemini-2.5-flash'),
+      (false, 'gemini-2.0-flash'),
     ]) {
+      var yielded = false;
       try {
-        final ai = useVertex
-            ? FirebaseAI.agentPlatform(location: 'us-central1')
-            : FirebaseAI.googleAI();
-        final gm = ai.generativeModel(
-          model: modelName,
-          systemInstruction: Content.system(system),
-        );
-        final res = await gm.generateContent(contents).timeout(const Duration(seconds: 8));
-        final text = res.text?.trim() ?? '';
-        if (text.isNotEmpty) {
-          return <OvaLlmEvent>[OvaTextDelta(text)];
+        final ai = useVertex ? FirebaseAI.agentPlatform(location: 'us-central1') : FirebaseAI.googleAI();
+        final gm = ai.generativeModel(model: modelName, systemInstruction: Content.system(system));
+        // The first words must come quickly; after that let it finish.
+        final stream = gm.generateContentStream(contents).timeout(
+              const Duration(seconds: 6),
+              onTimeout: (sink) => yielded ? null : sink.close(),
+            );
+        await for (final chunk in stream) {
+          final t = chunk.text ?? '';
+          if (t.isEmpty) continue;
+          yielded = true;
+          yield OvaTextDelta(t);
         }
+        if (yielded) return;
       } catch (e) {
+        if (yielded) return;
         if (kDebugMode) debugPrint('[OvaLlmClient] FirebaseAI($modelName) skipped: $e');
       }
     }
-    return const [];
   }
+
+  // ── Keyless Firebase AI Logic Stream ───────────────────────────────────
 
   static Map<String, dynamic> _decodeArgs(String raw) {
     try {

@@ -95,6 +95,26 @@ class SpeechHub {
     }
   }
 
+  /// Languages the phone can dictate in (empty when unavailable).
+  Future<List<stt.LocaleName>> locales() async {
+    if (!await ensureReady()) return const [];
+    try {
+      return await _stt.locales();
+    } catch (_) {
+      return const [];
+    }
+  }
+
+  /// The phone's default dictation language, or null.
+  Future<String?> systemLocaleId() async {
+    if (!await ensureReady()) return null;
+    try {
+      return (await _stt.systemLocale())?.localeId;
+    } catch (_) {
+      return null;
+    }
+  }
+
   Future<void> stop(Object owner) async {
     if (_owner != owner) return;
     try {

@@ -1,0 +1,47 @@
+# Oneova build log
+
+The running record of the current build. Rules: `.agents/rules/oneova_build_vision.md`.
+Take the first step that isn't ✅, do it fully, then update this file in the same commit.
+
+Status: ✅ done · 🔨 in progress · ⏳ next · ⛔ blocked (says why)
+
+## Stage A: Focus the app (this version)
+- ✅ A1. Vision and rules every agent follows (`.agents/rules/oneova_build_vision.md`, linked from `AGENTS.md`).
+- ✅ A2. Removed studio management: YouTube manager screens, video and audio production, team tab, CRM,
+  communication manager, and unused hub, drawer and studio hub screens. Fixed links to pages that never
+  existed (`/creator_studio/*`, `/communication/*`) in the Reels author panel and deep links. Old routes redirect (`/yt/*` → `/social_hub`,
+  `/video/*` and `/audio/*` → `/create/studio`, `/hub/team` → `/hub/home`).
+- ✅ A3. Shared compact UI parts in `lib/shared/widgets/compact/`.
+- ⏳ A4. Settings and Me on compact rows (`lib/settings/main_settings_screen.dart`, profile sidebar).
+
+## Stage B: Compact UI everywhere (one area per release, each checked in light and dark)
+- ⏳ B1. Business portal and shop tools.
+- ⏳ B2. Chats: bubble padding 10–12, inline small previews for links, payments, gifts and reels;
+  AI suggestion chips as one thin row only when useful.
+- ⏳ B3. Ova and AI Lab: replies without boxes, tool results as one-line summaries, small orb,
+  agents in the same Ova screen (`lib/ova_assistant/main_interface/`).
+- ⏳ B4. Live: narrow faded comments, small gift pill, compact deal bar, seller tools in a sheet.
+- ⏳ B5. Reels (locked layout, see `.agents/rules/oneova_home_launch_screen.md`): only shrink controls and
+  fade extras after inactivity.
+
+## Stage C: My computer inside Ova (security first)
+Existing code: `lib/hub/phone_controller/`, `lib/hub/live_control/`, `lib/desktop_agent/`,
+`functions/src/ovaAgentBridge.ts`.
+- ⏳ C1. Security review of the control path: pairing is account plus device bound, sessions expire,
+  either side can stop at once, commands are checked on the desktop against an allow list, signalling
+  rules are owner-only, and media is end-to-end encrypted. Write findings into this file before C2.
+- ⏳ C2. Control icons in the Ova overlay: live screen, mouse pad, voice keyboard, shortcuts. One tap opens
+  each; no separate screens needed.
+- ⏳ C3. Works across networks: TURN relay fallback verified on mobile data (no same Wi-Fi needed).
+- ⏳ C4. Natural-language computer commands: Ova plans in the background, shows one animated activity
+  line, and asks before risky actions (delete, send, buy, install).
+- ⏳ C5. Media back in chat: screenshots, recordings, files and audio from the computer shown inline and small.
+
+## Stage D: Platform growth (from `docs/payments/MASTER_PLAN.md` and `docs/ROADMAP.md`)
+- ⏳ D1. Payment requests with live approval, success screen, signed receipts.
+- ⏳ D2. Send by Oneova ID, personal QR.
+- ⏳ D3. Risk score, step-up and device binding.
+- ⛔ Release to production waits for the Play organization account.
+
+## Session notes
+- 2026-11-14: build 1.0.0 (33) on Play internal. A1–A3 done this session; A4 next.

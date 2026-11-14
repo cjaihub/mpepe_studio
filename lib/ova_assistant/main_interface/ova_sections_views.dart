@@ -63,8 +63,8 @@ const List<_AgentSpec> _kOvaAgents = [
     icon: Icons.movie_creation_outlined,
     prompt: '',
     opensBreakdown: true,
-    secondaryRoute: '/video/projects',
-    secondaryLabel: 'Projects',
+    secondaryRoute: '/create/studio',
+    secondaryLabel: 'Studio',
   ),
   _AgentSpec(
     id: 'workstation_remote',
@@ -85,8 +85,8 @@ const List<_AgentSpec> _kOvaAgents = [
     badge: 'LIVE DATA',
     icon: Icons.travel_explore_rounded,
     prompt: 'Research trending short-form video topics in my niche and suggest 3 angles.',
-    secondaryRoute: '/yt/dashboard',
-    secondaryLabel: 'Channels',
+    secondaryRoute: '/social_hub',
+    secondaryLabel: 'Accounts',
   ),
   _AgentSpec(
     id: 'connected_inbox',

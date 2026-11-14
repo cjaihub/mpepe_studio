@@ -38,6 +38,7 @@ import '../backend/live/services/live_service.dart';
 import '../backend/live/models/live_models.dart';
 import '../backend/notifications/services/follower_alert_service.dart';
 import 'widgets/about_reel_card.dart';
+import '../social_hub/coins/coin_screens.dart' show UserGiftSheet;
 import 'widgets/feed_pulse_card.dart';
 import 'widgets/live_feed_card.dart';
 import 'widgets/reel_palette.dart';
@@ -723,6 +724,17 @@ class _ShortVideoFeedScreenState extends ConsumerState<ShortVideoFeedScreen>
 
     final isFocusMode = ref.watch(oneovaFocusModeProvider);
     ref.listen<bool>(oneovaFocusModeProvider, (_, next) => _onFocusChanged(next));
+    // Portrait feed: each reel sits in a rounded screen frame between the
+    // brand header and the comment row. Focus mode and landscape stay full-bleed.
+    final framed = !isFocusMode && MediaQuery.orientationOf(context) == Orientation.portrait;
+    _framedLayout = framed;
+    final pad = MediaQuery.paddingOf(context);
+    // The shell's bottom bar is usually already in the bottom padding; only
+    // add it when it isn't, so the frame doesn't float above empty space.
+    final navVisible = ref.watch(oneovaBottomNavVisibleProvider);
+    final navH = navVisible && pad.bottom < 40 ? 56.0 : 0.0;
+    final frameTop = pad.top + _framedHeaderHeight;
+    final frameBottom = navH + pad.bottom + _framedCommentHeight;
     // Keeps the follow list warm for live-slot ranking.
     ref.watch(followedCreatorAlertsProvider);
     ref.listen<AsyncValue<List<LiveStream>>>(activeLiveStreamsProvider, (_, next) {
@@ -751,10 +763,15 @@ class _ShortVideoFeedScreenState extends ConsumerState<ShortVideoFeedScreen>
         onCircle: _summonAssistant,
         child: Stack(
         children: [
+          if (framed) Positioned.fill(child: _FramedBackdrop(dark: _palette.dark)),
           if (_pages.isEmpty)
             _buildEmptyState()
           else
-            PageView.builder(
+            AnimatedPadding(
+              duration: const Duration(milliseconds: 280),
+              curve: Curves.easeOutCubic,
+              padding: framed ? EdgeInsets.fromLTRB(14, frameTop, 14, frameBottom) : EdgeInsets.zero,
+              child: PageView.builder(
               key: const ValueKey('short_video_feed_pageview'),
               controller: _pageController,
               scrollDirection: Axis.vertical,
@@ -763,38 +780,8 @@ class _ShortVideoFeedScreenState extends ConsumerState<ShortVideoFeedScreen>
               allowImplicitScrolling: true,
               onPageChanged: _onPageChanged,
               itemCount: _pages.length,
-              itemBuilder: (context, index) {
-                final isScreenActive = ref.watch(videoPlaybackManagerProvider).isScreenActive;
-                final item = _pages[index];
-                if (item is FeedPulseSlot) {
-                  return FeedPulseCard(
-                    key: ValueKey(item.id),
-                    slot: item,
-                    onDone: () => _safeAnimateToNextPage(),
-                  );
-                }
-                if (item is LiveFeedSlot) {
-                  return LiveFeedCard(
-                    key: ValueKey('live_${item.streamId}'),
-                    initial: item.initial,
-                    isActive: index == _currentPage && isScreenActive,
-                    onSkip: () => _safeAnimateToNextPage(),
-                  );
-                }
-                final content = item as Content;
-                return RepaintBoundary(
-                  child: _buildCinemaFrame(
-                    index: index,
-                    cinema: isFocusMode,
-                    child: _ShortVideoItem(
-                      key: ValueKey(content.id),
-                      content: content,
-                      isActive: index == _currentPage && isScreenActive,
-                      isFullScreen: isFocusMode,
-                    ),
-                  ),
-                );
-              },
+              itemBuilder: (context, index) => _buildPage(index, isFocusMode: isFocusMode, framed: framed),
+            ),
             ),
 
           // Legibility scrims behind the top row/stories and the caption block
@@ -805,17 +792,31 @@ class _ShortVideoFeedScreenState extends ConsumerState<ShortVideoFeedScreen>
             child: _buildScrim(
               height: MediaQuery.paddingOf(context).top + 150,
               top: true,
-              visible: !isFocusMode,
+              visible: !isFocusMode && !framed,
             ),
           ),
           Positioned(
             bottom: 0,
             left: 0,
             right: 0,
-            child: _buildScrim(height: 300, top: false, visible: !isFocusMode),
+            child: _buildScrim(height: 300, top: false, visible: !isFocusMode && !framed),
           ),
 
+          // Framed design: brand header, in-frame chips, comment row.
+          if (framed) ...[
+            Positioned(left: 0, right: 0, top: pad.top, child: _buildFramedHeader()),
+            Positioned(left: 26, right: 26, top: frameTop + 12, child: _buildFrameChips()),
+            if (_currentContent != null)
+              Positioned(
+                left: 14,
+                right: 14,
+                bottom: navH + pad.bottom + 8,
+                child: _FramedCommentRow(key: ValueKey('fcr_${_currentContent!.id}'), content: _currentContent!),
+              ),
+          ],
+
           // Top ambient navigation & stories overlay (slides & fades out in focus mode)
+          if (!framed)
           SafeArea(
             child: AnimatedSlide(
               offset: isFocusMode ? const Offset(0, -0.6) : Offset.zero,
@@ -838,16 +839,16 @@ class _ShortVideoFeedScreenState extends ConsumerState<ShortVideoFeedScreen>
           // Posting progress / one-tap retry, under the stories row.
           if (!isFocusMode)
             Positioned(
-              top: MediaQuery.paddingOf(context).top + 128,
-              left: 12,
+              top: framed ? frameTop + 48 : MediaQuery.paddingOf(context).top + 128,
+              left: framed ? 26 : 12,
               child: const PendingPostPill(),
             ),
 
           // Subtle buffering line at bottom when active reel is loading
           Positioned(
-            left: 0,
-            right: 0,
-            bottom: 0,
+            left: framed ? 34 : 0,
+            right: framed ? 34 : 0,
+            bottom: framed ? frameBottom + 6 : 0,
             child: ValueListenableBuilder<bool>(
               valueListenable: ref.read(videoPlaybackManagerProvider).activeReelBuffering,
               builder: (context, isBuffering, _) {
@@ -873,6 +874,277 @@ class _ShortVideoFeedScreenState extends ConsumerState<ShortVideoFeedScreen>
     );
   }
 
+
+  /// True while the portrait framed design is showing.
+  bool _framedLayout = false;
+  static const double _framedHeaderHeight = 138;
+  static const double _framedCommentHeight = 58;
+
+  Content? get _currentContent {
+    final item = _currentPage < _pages.length ? _pages[_currentPage] : null;
+    return item is Content ? item : null;
+  }
+
+  /// The reel's screen frame: 25px corners, hairline border, brand glow.
+  Widget _framedCard(Widget child) {
+    return RepaintBoundary(
+      child: Padding(
+        padding: const EdgeInsets.symmetric(vertical: 4),
+        child: DecoratedBox(
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(25),
+            boxShadow: [
+              BoxShadow(color: AppColors.brandBlue.withValues(alpha: _palette.dark ? 0.22 : 0.14), blurRadius: 28, spreadRadius: -6, offset: const Offset(0, 10)),
+              BoxShadow(color: AppColors.brandPink.withValues(alpha: _palette.dark ? 0.12 : 0.08), blurRadius: 18, spreadRadius: -8, offset: const Offset(0, 4)),
+            ],
+          ),
+          child: ClipRRect(
+            borderRadius: BorderRadius.circular(25),
+            child: Stack(fit: StackFit.expand, children: [
+              ColoredBox(color: _palette.dark ? const Color(0xFF0F131D) : Colors.black),
+              child,
+              IgnorePointer(
+                child: DecoratedBox(
+                  decoration: BoxDecoration(
+                    borderRadius: BorderRadius.circular(25),
+                    border: Border.all(color: _palette.dark ? Colors.white.withValues(alpha: 0.12) : Colors.black.withValues(alpha: 0.08)),
+                  ),
+                ),
+              ),
+            ]),
+          ),
+        ),
+      ),
+    );
+  }
+
+  /// Search · Trends · LIVE · Shop · bell, then stories.
+  Widget _buildFramedHeader() {
+    return SizedBox(
+      height: _framedHeaderHeight,
+      child: Column(children: [
+        Padding(
+          padding: const EdgeInsets.fromLTRB(10, 2, 10, 0),
+          child: Row(children: [
+            _buildSearchButton(),
+            Expanded(child: Center(child: _buildFramedTabs())),
+            const _RingingBell(),
+          ]),
+        ),
+        const SizedBox(height: 6),
+        Expanded(
+          child: Padding(
+            padding: const EdgeInsets.only(left: 14),
+            child: _buildStoriesList(),
+          ),
+        ),
+      ]),
+    );
+  }
+
+  Widget _buildFramedTabs() {
+    final following = _currentMode == FeedMode.following;
+    final hasLive = _pages.any((p) => p is LiveFeedSlot);
+    void setMode(FeedMode m) {
+      if (_currentMode == m) return;
+      setState(() {
+        _currentMode = m;
+        _currentIndex = 0;
+        _currentPage = 0;
+      });
+      _safeJumpToPage(0);
+      _loadFeed();
+    }
+
+    return FittedBox(
+      fit: BoxFit.scaleDown,
+      child: Row(mainAxisSize: MainAxisSize.min, children: [
+        // Trends = the main feed; long-press switches to people you follow.
+        GestureDetector(
+          onLongPress: () {
+            HapticFeedback.mediumImpact();
+            setMode(following ? FeedMode.forYou : FeedMode.following);
+            ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+              content: Text(following ? 'Showing trends' : 'Showing people you follow'),
+              duration: const Duration(milliseconds: 1200),
+              behavior: SnackBarBehavior.floating,
+            ));
+          },
+          child: _buildTopTabItem(following ? 'Following' : 'Trends', true, () => setMode(FeedMode.forYou)),
+        ),
+        const SizedBox(width: 14),
+        GestureDetector(
+          onTap: () {
+            HapticFeedback.selectionClick();
+            final next = _pages.indexWhere((p) => p is LiveFeedSlot, _currentPage + 1);
+            final any = next >= 0 ? next : _pages.indexWhere((p) => p is LiveFeedSlot);
+            if (any >= 0) {
+              _pageController.animateToPage(any, duration: const Duration(milliseconds: 420), curve: Curves.easeOutCubic);
+            } else {
+              ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+                content: const Text('No one is live right now.'),
+                behavior: SnackBarBehavior.floating,
+                action: SnackBarAction(label: 'Go live', onPressed: () => context.push('/live/setup')),
+              ));
+            }
+          },
+          child: Container(
+            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+            decoration: BoxDecoration(
+              color: _palette.dark ? AppColors.brandPink : AppColors.brandPink.withValues(alpha: 0.12),
+              borderRadius: BorderRadius.circular(AppRadius.full),
+              border: Border.all(color: AppColors.brandPink.withValues(alpha: _palette.dark ? 1 : 0.4)),
+              boxShadow: _palette.dark && hasLive ? [BoxShadow(color: AppColors.brandPink.withValues(alpha: 0.5), blurRadius: 10)] : null,
+            ),
+            child: Row(mainAxisSize: MainAxisSize.min, children: [
+              Container(
+                width: 6,
+                height: 6,
+                decoration: BoxDecoration(shape: BoxShape.circle, color: _palette.dark ? Colors.white : AppColors.brandPink),
+              ),
+              const SizedBox(width: 5),
+              Text('LIVE',
+                  style: GoogleFonts.inter(
+                    color: _palette.dark ? Colors.white : AppColors.brandPink,
+                    fontSize: 12,
+                    fontWeight: FontWeight.w800,
+                    letterSpacing: 0.6,
+                  )),
+            ]),
+          ),
+        ),
+        const SizedBox(width: 14),
+        _buildTopTabItem('Shop', false, () => context.push('/shops')),
+      ]),
+    );
+  }
+
+  Widget _frameChip({required Widget child, required VoidCallback onTap, VoidCallback? onLongPress}) {
+    return GestureDetector(
+      onTap: () {
+        HapticFeedback.selectionClick();
+        onTap();
+      },
+      onLongPress: onLongPress,
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(AppRadius.full),
+        child: BackdropFilter(
+          filter: ImageFilter.blur(sigmaX: 12, sigmaY: 12),
+          child: Container(
+            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+            decoration: BoxDecoration(
+              color: Colors.black.withValues(alpha: 0.4),
+              borderRadius: BorderRadius.circular(AppRadius.full),
+              border: Border.all(color: Colors.white.withValues(alpha: 0.15)),
+            ),
+            child: DefaultTextStyle(
+              style: GoogleFonts.inter(color: Colors.white.withValues(alpha: 0.92), fontSize: 11, fontWeight: FontWeight.w600),
+              child: child,
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  /// Auto · Loop (left) and Captions (right), inside the frame.
+  Widget _buildFrameChips() {
+    final cc = ref.watch(oneovaCaptionsEnabledProvider);
+    return Row(children: [
+      _frameChip(
+        onTap: () {
+          setState(() => _isAutoScrollEnabled = !_isAutoScrollEnabled);
+          _savePlaybackPref('autoScroll', _isAutoScrollEnabled);
+          _attachAutoScrollListener();
+        },
+        child: Row(mainAxisSize: MainAxisSize.min, children: [
+          Container(
+            width: 6,
+            height: 6,
+            decoration: BoxDecoration(
+              shape: BoxShape.circle,
+              color: _isAutoScrollEnabled ? const Color(0xFF34D399) : Colors.white38,
+            ),
+          ),
+          const SizedBox(width: 5),
+          const Text('Auto'),
+        ]),
+      ),
+      const SizedBox(width: 6),
+      _frameChip(
+        onTap: () => _updateLoopMode(!_isLoopModeEnabled),
+        child: Row(mainAxisSize: MainAxisSize.min, children: [
+          Icon(_isLoopModeEnabled ? Icons.repeat_rounded : Icons.repeat_one_rounded,
+              size: 12, color: _isLoopModeEnabled ? Colors.white : Colors.white54),
+          const SizedBox(width: 4),
+          Text('Loop', style: TextStyle(color: _isLoopModeEnabled ? Colors.white : Colors.white54)),
+        ]),
+      ),
+      const Spacer(),
+      _frameChip(
+        onTap: () => ref.read(oneovaCaptionsEnabledProvider.notifier).toggle(),
+        onLongPress: () async {
+          final item = _currentContent;
+          if (item == null) return;
+          final t = await ref.read(oneovaTranscriptionServiceProvider).getTranscript(
+                item.id,
+                mediaUrl: item.mediaUrl,
+                fallbackText: item.description,
+                duration: item.mediaMetadata.duration,
+              );
+          if (!mounted || t == null) return;
+          final player = ref.read(videoPlaybackManagerProvider).getPlayer(item.id);
+          showOneovaTranscriptSheet(
+            context,
+            transcript: t,
+            currentPositionMs: player?.state.position.inMilliseconds ?? 0,
+            onSeek: (ms) => player?.seek(Duration(milliseconds: ms)),
+          );
+        },
+        child: Row(mainAxisSize: MainAxisSize.min, children: [
+          Icon(cc ? Icons.closed_caption_rounded : Icons.closed_caption_outlined,
+              size: 13, color: cc ? AppColors.brandPink : Colors.white),
+          const SizedBox(width: 4),
+          const Text('Captions'),
+        ]),
+      ),
+    ]);
+  }
+
+  /// One feed page (reel, live slot or feedback card).
+  Widget _buildPage(int index, {required bool isFocusMode, bool framed = false}) {
+                final isScreenActive = ref.watch(videoPlaybackManagerProvider).isScreenActive;
+                final item = _pages[index];
+                if (item is FeedPulseSlot) {
+                  final card = FeedPulseCard(
+                    key: ValueKey(item.id),
+                    slot: item,
+                    onDone: () => _safeAnimateToNextPage(),
+                  );
+                  return framed ? _framedCard(card) : card;
+                }
+                if (item is LiveFeedSlot) {
+                  final live = LiveFeedCard(
+                    key: ValueKey('live_${item.streamId}'),
+                    initial: item.initial,
+                    isActive: index == _currentPage && isScreenActive,
+                    onSkip: () => _safeAnimateToNextPage(),
+                  );
+                  return framed ? _framedCard(live) : live;
+                }
+                final content = item as Content;
+                final item0 = _ShortVideoItem(
+                      key: ValueKey(content.id),
+                      content: content,
+                      isActive: index == _currentPage && isScreenActive,
+                      isFullScreen: isFocusMode,
+                      framed: framed,
+                    );
+                if (framed) return _framedCard(item0);
+                return RepaintBoundary(
+                  child: _buildCinemaFrame(index: index, cinema: isFocusMode, child: item0),
+                );
+  }
 
   /// Cinematic frame for focus mode: the full-screen reel gets curved corners,
   /// and while scrolling the outgoing/incoming reels shrink and dim slightly so
@@ -1167,9 +1439,20 @@ class _ShortVideoFeedScreenState extends ConsumerState<ShortVideoFeedScreen>
         ),
         const SizedBox(height: 4),
         // Stories
-        SizedBox(
-          height: 70,
-          child: Builder(
+        SizedBox(height: 70, child: _buildStoriesList()),
+        const SizedBox(height: 6),
+        // Executive Reel Control Dock
+        Align(
+          alignment: Alignment.centerLeft,
+          child: _buildReelControlDock(),
+        ),
+      ],
+    );
+  }
+
+  /// Your story, people who are live, and unseen stories.
+  Widget _buildStoriesList() {
+    return Builder(
             builder: (context) {
               final storiesAsync = ref.watch(feedStoriesStreamProvider);
               final storyGroups = storiesAsync.value ?? [];
@@ -1225,7 +1508,7 @@ class _ShortVideoFeedScreenState extends ConsumerState<ShortVideoFeedScreen>
                       context.push('/create/camera');
                     },
                     child: _buildStoryBubble(
-                      'Your Story',
+                      _framedLayout ? 'Your story' : 'Your Story',
                       myAvatarUrl,
                       isAdd: !hasMyStatus,
                       hasRing: hasMyStatus,
@@ -1271,16 +1554,7 @@ class _ShortVideoFeedScreenState extends ConsumerState<ShortVideoFeedScreen>
                 ],
               );
             },
-          ),
-        ),
-        const SizedBox(height: 6),
-        // Executive Reel Control Dock
-        Align(
-          alignment: Alignment.centerLeft,
-          child: _buildReelControlDock(),
-        ),
-      ],
-    );
+          );
   }
 
   /// Playback toggles stay folded into one chip until the viewer opens them.
@@ -1537,7 +1811,7 @@ class _ShortVideoFeedScreenState extends ConsumerState<ShortVideoFeedScreen>
         decoration: BoxDecoration(shape: BoxShape.circle, color: _palette.bg),
         padding: const EdgeInsets.all(1.5),
         child: CircleAvatar(
-          radius: 19,
+          radius: _framedLayout ? 24 : 19,
           backgroundColor: _palette.placeholder,
           backgroundImage: isNetwork
               ? NetworkImage(image)
@@ -1562,7 +1836,7 @@ class _ShortVideoFeedScreenState extends ConsumerState<ShortVideoFeedScreen>
     }
 
     return SizedBox(
-      width: 54,
+      width: _framedLayout ? 72 : 54,
       child: Padding(
         padding: const EdgeInsets.only(right: 8),
         child: Column(
@@ -1617,7 +1891,7 @@ class _ShortVideoFeedScreenState extends ConsumerState<ShortVideoFeedScreen>
               name,
               style: GoogleFonts.inter(
                 color: _palette.fg,
-                fontSize: 10.0,
+                fontSize: _framedLayout ? 11.0 : 10.0,
                 fontWeight: FontWeight.w600,
                 shadows: _palette.textShadow,
               ),
@@ -1636,11 +1910,16 @@ class _ShortVideoItem extends ConsumerStatefulWidget {
   final bool isActive;
   final bool isFullScreen;
 
+  /// Inside the rounded screen frame (portrait feed): positions are relative
+  /// to the frame and the comment bar sits under it, outside the reel.
+  final bool framed;
+
   const _ShortVideoItem({
     super.key,
     required this.content,
     required this.isActive,
     this.isFullScreen = false,
+    this.framed = false,
   });
 
   @override
@@ -2061,9 +2340,11 @@ class _ShortVideoItemState extends ConsumerState<_ShortVideoItem> with TickerPro
             AnimatedPositioned(
               duration: const Duration(milliseconds: 220),
               curve: Curves.easeOutCubic,
-              right: 8,
+              right: widget.framed ? 10 : 8,
               top: _landscape ? MediaQuery.paddingOf(context).top + 64 : null,
-              bottom: _landscape
+              bottom: widget.framed
+                  ? 18
+                  : _landscape
                   ? 8.0 + MediaQuery.paddingOf(context).bottom
                   : (ref.watch(oneovaBottomNavVisibleProvider) && !widget.isFullScreen
                       ? 56.0 + MediaQuery.paddingOf(context).bottom
@@ -2092,7 +2373,9 @@ class _ShortVideoItemState extends ConsumerState<_ShortVideoItem> with TickerPro
             Positioned(
               left: 16,
               right: _landscape ? null : 76,
-              bottom: _landscape
+              bottom: widget.framed
+                  ? 150
+                  : _landscape
                   ? 120.0 + MediaQuery.paddingOf(context).bottom
                   : (ref.watch(oneovaBottomNavVisibleProvider) && !widget.isFullScreen
                       ? 186.0 + MediaQuery.paddingOf(context).bottom
@@ -2105,9 +2388,11 @@ class _ShortVideoItemState extends ConsumerState<_ShortVideoItem> with TickerPro
               duration: const Duration(milliseconds: 220),
               curve: Curves.easeOutCubic,
               left: 0,
-              right: _landscape ? null : 70,
+              right: _landscape ? null : (widget.framed ? 62 : 70),
               width: _landscape ? (MediaQuery.sizeOf(context).width * 0.45).clamp(280.0, 520.0) : null,
-              bottom: _landscape
+              bottom: widget.framed
+                  ? 12
+                  : _landscape
                   ? 8.0 + MediaQuery.paddingOf(context).bottom
                   : (ref.watch(oneovaBottomNavVisibleProvider) && !widget.isFullScreen
                       ? 56.0 + MediaQuery.paddingOf(context).bottom
@@ -2332,7 +2617,7 @@ class _ShortVideoItemState extends ConsumerState<_ShortVideoItem> with TickerPro
         return Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-              Stack(
+              if (!widget.framed) Stack(
                 clipBehavior: Clip.none,
                 children: [
                   _PressScale(
@@ -2458,7 +2743,7 @@ class _ShortVideoItemState extends ConsumerState<_ShortVideoItem> with TickerPro
                     ),
                 ],
               ),
-              const SizedBox(height: 14),
+              if (!widget.framed) const SizedBox(height: 14),
               ValueListenableBuilder<bool>(
                 valueListenable: _liked,
                 builder: (context, serverLiked, _) {
@@ -2584,6 +2869,7 @@ class _ShortVideoItemState extends ConsumerState<_ShortVideoItem> with TickerPro
                   );
                 },
               ),
+              if (widget.framed) _buildGiftAction(),
               _buildRailAction(
                 Icons.share_rounded,
                 content.shareCount + _optimisticShareDelta,
@@ -2604,7 +2890,7 @@ class _ShortVideoItemState extends ConsumerState<_ShortVideoItem> with TickerPro
                   );
                 },
               ),
-              _PressScale(
+              if (!widget.framed) _PressScale(
                 onTap: () {
                   HapticFeedback.lightImpact();
                   AuthInteractionGate.requireAuth(
@@ -2646,7 +2932,7 @@ class _ShortVideoItemState extends ConsumerState<_ShortVideoItem> with TickerPro
                   ],
                 ),
               ),
-              const SizedBox(height: 12),
+              SizedBox(height: widget.framed ? 2 : 12),
               _PressScale(
                 onTap: () {
                   HapticFeedback.selectionClick();
@@ -2661,9 +2947,9 @@ class _ShortVideoItemState extends ConsumerState<_ShortVideoItem> with TickerPro
                     );
                   },
                   child: Container(
-                    width: 30,
-                    height: 30,
-                    padding: const EdgeInsets.all(5),
+                    width: widget.framed ? 36 : 30,
+                    height: widget.framed ? 36 : 30,
+                    padding: EdgeInsets.all(widget.framed ? 6 : 5),
                     decoration: BoxDecoration(
                       shape: BoxShape.circle,
                       gradient: const SweepGradient(
@@ -2733,8 +3019,9 @@ class _ShortVideoItemState extends ConsumerState<_ShortVideoItem> with TickerPro
     Color? glowColor,
     VoidCallback? onTap,
   }) {
+    final f = widget.framed;
     return Padding(
-      padding: const EdgeInsets.only(bottom: 9),
+      padding: EdgeInsets.only(bottom: f ? 12 : 9),
       child: _PressScale(
         onTap: () {
           HapticFeedback.lightImpact();
@@ -2744,8 +3031,8 @@ class _ShortVideoItemState extends ConsumerState<_ShortVideoItem> with TickerPro
           children: [
             AnimatedContainer(
               duration: const Duration(milliseconds: 200),
-              width: 38,
-              height: 38,
+              width: f ? 40 : 38,
+              height: f ? 40 : 38,
               decoration: BoxDecoration(
                 color: glowColor != null ? glowColor.withValues(alpha: 0.22) : _p.glass,
                 shape: BoxShape.circle,
@@ -2763,15 +3050,15 @@ class _ShortVideoItemState extends ConsumerState<_ShortVideoItem> with TickerPro
                   scale: CurvedAnimation(parent: anim, curve: Curves.easeOutBack),
                   child: child,
                 ),
-                child: Icon(icon, key: ValueKey(icon), color: color ?? _p.fg, size: 19),
+                child: Icon(icon, key: ValueKey(icon), color: color ?? _p.fg, size: f ? 20 : 19),
               ),
             ),
-            const SizedBox(height: 3),
+            SizedBox(height: f ? 4 : 3),
             RollingCount(
               value: math.max(0, count),
               style: GoogleFonts.inter(
                 color: _p.fg,
-                fontSize: 10,
+                fontSize: f ? 11 : 10,
                 fontWeight: FontWeight.w700,
                 letterSpacing: -0.1,
                 shadows: _p.textShadow,
@@ -2779,6 +3066,51 @@ class _ShortVideoItemState extends ConsumerState<_ShortVideoItem> with TickerPro
             ),
           ],
         ),
+      ),
+    );
+  }
+
+  /// Framed rail: the pink Gift button (sends a coin gift to the creator).
+  Widget _buildGiftAction() {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 12),
+      child: _PressScale(
+        onTap: () {
+          HapticFeedback.mediumImpact();
+          AuthInteractionGate.requireAuth(
+            context,
+            actionTitle: 'send gifts',
+            onAuthenticated: () {
+              final author = ref.read(_reelAuthorProvider(widget.content.authorId)).value;
+              UserGiftSheet.show(
+                context,
+                toUid: widget.content.authorId,
+                toName: author?.username?.isNotEmpty == true ? author!.username! : 'this creator',
+              );
+            },
+          );
+        },
+        child: Column(children: [
+          Container(
+            width: 40,
+            height: 40,
+            decoration: BoxDecoration(
+              shape: BoxShape.circle,
+              color: AppColors.brandPink,
+              border: Border.all(color: Colors.white.withValues(alpha: 0.4)),
+              boxShadow: [BoxShadow(color: AppColors.brandPink.withValues(alpha: 0.55), blurRadius: 16)],
+            ),
+            child: const Icon(Icons.card_giftcard_rounded, color: Colors.white, size: 20),
+          ),
+          const SizedBox(height: 4),
+          Text('Gift',
+              style: GoogleFonts.inter(
+                color: AppColors.brandPink,
+                fontSize: 10,
+                fontWeight: FontWeight.w800,
+                shadows: _p.textShadow,
+              )),
+        ]),
       ),
     );
   }
@@ -2809,6 +3141,9 @@ class _ShortVideoItemState extends ConsumerState<_ShortVideoItem> with TickerPro
         crossAxisAlignment: CrossAxisAlignment.start,
         mainAxisSize: MainAxisSize.min,
         children: [
+          if (widget.framed)
+            _framedAuthorRow(author, username, initial, avatarUrl, currentUid, openProfile)
+          else
           // ── Author pill ─────────────────────────────────────
           Row(
             children: [
@@ -2937,7 +3272,11 @@ class _ShortVideoItemState extends ConsumerState<_ShortVideoItem> with TickerPro
                   child: Text(
                     '#$clean',
                     style: GoogleFonts.inter(
-                      color: p.dark ? Colors.white : AppColors.brandBlue,
+                      color: widget.framed
+                          ? (widget.content.hashtags.indexOf(tag).isEven
+                              ? (p.dark ? const Color(0xFF5EA2FF) : AppColors.brandBlue)
+                              : AppColors.brandPink)
+                          : (p.dark ? Colors.white : AppColors.brandBlue),
                       fontSize: 12.5,
                       fontWeight: FontWeight.w800,
                       shadows: textShadow,
@@ -2957,7 +3296,7 @@ class _ShortVideoItemState extends ConsumerState<_ShortVideoItem> with TickerPro
           ),
 
           // ── Shop chip (real Biz products only) ──────────────
-          _ShopChip(authorId: widget.content.authorId, username: username),
+          if (!widget.framed) _ShopChip(authorId: widget.content.authorId, username: username),
 
           const SizedBox(height: 8),
           // ── Sound ───────────────────────────────────────────
@@ -2970,7 +3309,7 @@ class _ShortVideoItemState extends ConsumerState<_ShortVideoItem> with TickerPro
           const SizedBox(height: 8),
 
           // ── Add comment bar (tap mic = live transcription, hold = voice comment) ──
-          ReelCommentBar(
+          if (!widget.framed) ReelCommentBar(
             contentId: widget.content.id,
             contentAuthorId: widget.content.authorId,
             onOpenComments: () => AuthInteractionGate.requireAuth(
@@ -3002,10 +3341,73 @@ class _ShortVideoItemState extends ConsumerState<_ShortVideoItem> with TickerPro
               ],
             ),
           ),
-          const SizedBox(height: 2), // Snug flush above bottom nav
+          if (!widget.framed) const SizedBox(height: 2), // Snug flush above bottom nav
         ],
       ),
     );
+  }
+
+  /// Framed design: ringed avatar, name with verified tick, blue Follow pill.
+  Widget _framedAuthorRow(AppUser? author, String username, String initial, String avatarUrl, String currentUid, VoidCallback openProfile) {
+    final p = _p;
+    final isSelf = currentUid.isNotEmpty && currentUid == widget.content.authorId;
+    return Row(children: [
+      _PressScale(
+        onTap: openProfile,
+        child: Container(
+          width: 38,
+          height: 38,
+          padding: const EdgeInsets.all(1.5),
+          decoration: const BoxDecoration(
+            shape: BoxShape.circle,
+            gradient: LinearGradient(colors: [AppColors.brandPink, AppColors.brandBlue]),
+          ),
+          child: Container(
+            padding: const EdgeInsets.all(1.5),
+            decoration: BoxDecoration(shape: BoxShape.circle, color: p.bg),
+            child: ClipOval(
+              child: avatarUrl.isNotEmpty
+                  ? Image.network(avatarUrl, fit: BoxFit.cover, errorBuilder: (_, _, _) => _pillInitial(initial))
+                  : ColoredBox(color: AppColors.brandBlue, child: _pillInitial(initial)),
+            ),
+          ),
+        ),
+      ),
+      const SizedBox(width: 8),
+      Flexible(
+        child: GestureDetector(
+          onTap: openProfile,
+          child: Row(mainAxisSize: MainAxisSize.min, children: [
+            Flexible(
+              child: Text(
+                '@$username',
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: GoogleFonts.inter(color: p.fg, fontSize: 14, fontWeight: FontWeight.w800, letterSpacing: -0.2, shadows: p.textShadow),
+              ),
+            ),
+            if (author?.isVerified ?? false) ...[
+              const SizedBox(width: 4),
+              const Icon(Icons.verified_rounded, color: AppColors.brandBlue, size: 15),
+            ],
+          ]),
+        ),
+      ),
+      if (!isSelf && currentUid.isNotEmpty) ...[
+        const SizedBox(width: 8),
+        StreamBuilder<bool>(
+          stream: ref.read(relationshipRepositoryProvider).watchIsFollowing(currentUid, widget.content.authorId),
+          builder: (context, snap) => (snap.data ?? false)
+              ? const SizedBox.shrink()
+              : _ReelFollowButton(
+                  targetUserId: widget.content.authorId,
+                  currentUserId: currentUid,
+                  isFollowing: false,
+                  isPending: false,
+                ),
+        ),
+      ],
+    ]);
   }
 
   Widget _pillInitial(String initial) {
@@ -3212,6 +3614,13 @@ class _ShortVideoItemState extends ConsumerState<_ShortVideoItem> with TickerPro
                 },
               ),
               Divider(height: 20, color: sheetContext.border),
+              tile(Icons.auto_awesome_rounded, 'Remix this reel', () {
+                AuthInteractionGate.requireAuth(
+                  context,
+                  actionTitle: 'remix and create studio content',
+                  onAuthenticated: () => RemixLauncher.start(context, widget.content),
+                );
+              }, iconColor: AppColors.brandPink),
               tile(Icons.check_circle_outline_rounded, 'Interested', () {
                 rec.markInterested(uid, widget.content.id);
                 messenger.showSnackBar(const SnackBar(content: Text("We'll show more videos like this.")));
@@ -4096,6 +4505,100 @@ class _RingingBellState extends ConsumerState<_RingingBell> with SingleTickerPro
             ),
           ),
       ],
+    );
+  }
+}
+
+/// Background behind the framed reel: deep base with soft brand light.
+class _FramedBackdrop extends StatelessWidget {
+  const _FramedBackdrop({required this.dark});
+  final bool dark;
+
+  @override
+  Widget build(BuildContext context) {
+    return IgnorePointer(
+      child: DecoratedBox(
+        decoration: BoxDecoration(
+          color: dark ? const Color(0xFF080B11) : const Color(0xFFF6F8FC),
+          gradient: RadialGradient(
+            center: const Alignment(0, 0.35),
+            radius: 1.1,
+            colors: dark
+                ? [AppColors.brandBlue.withValues(alpha: 0.20), AppColors.brandPink.withValues(alpha: 0.06), const Color(0xFF080B11)]
+                : [AppColors.brandBlue.withValues(alpha: 0.08), AppColors.brandPink.withValues(alpha: 0.04), const Color(0xFFF6F8FC)],
+            stops: const [0, 0.45, 1],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// Under the frame: comment pill, three quick reactions and the mic.
+class _FramedCommentRow extends ConsumerWidget {
+  const _FramedCommentRow({super.key, required this.content});
+  final Content content;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final uid = FirebaseAuth.instance.currentUser?.uid ?? '';
+    final p = ReelPalette.of(context);
+    final author = ref.watch(_reelAuthorProvider(content.authorId)).value;
+    final name = author?.username?.isNotEmpty == true ? author!.username! : 'this creator';
+
+    Widget reaction(String emoji) => GestureDetector(
+          behavior: HitTestBehavior.opaque,
+          onTap: () => AuthInteractionGate.requireAuth(
+            context,
+            actionTitle: 'react to reels',
+            onAuthenticated: () async {
+              HapticFeedback.lightImpact();
+              final messenger = ScaffoldMessenger.of(context);
+              try {
+                await ref.read(commentServiceProvider).addComment(
+                      Comment(id: '', postId: content.id, authorId: uid, content: emoji, createdAt: DateTime.now()),
+                      isCreator: content.authorId == uid,
+                    );
+                messenger.showSnackBar(SnackBar(
+                  content: Text('Reacted $emoji'),
+                  duration: const Duration(milliseconds: 1000),
+                  behavior: SnackBarBehavior.floating,
+                ));
+              } catch (e) {
+                messenger.showSnackBar(SnackBar(content: Text('Could not react: $e')));
+              }
+            },
+          ),
+          child: Container(
+            width: 32,
+            height: 32,
+            margin: const EdgeInsets.only(right: 6),
+            alignment: Alignment.center,
+            decoration: BoxDecoration(
+              shape: BoxShape.circle,
+              color: p.glass,
+              border: Border.all(color: p.glassBorder),
+            ),
+            child: Text(emoji, style: const TextStyle(fontSize: 15)),
+          ),
+        );
+
+    return ReelCommentBar(
+      framed: true,
+      contentId: content.id,
+      contentAuthorId: content.authorId,
+      onOpenComments: () => AuthInteractionGate.requireAuth(
+        context,
+        actionTitle: 'comment on videos',
+        onAuthenticated: () => CommentBottomSheet.show(context, content, autoFocus: true),
+      ),
+      onOpenAssistant: () => OneOvaAssistantOverlay.show(
+        context,
+        userId: uid.isEmpty ? null : uid,
+        contentId: content.id,
+        initialPrompt: 'What do you think of this reel by @$name: "${content.description}"?',
+      ),
+      reactions: Row(mainAxisSize: MainAxisSize.min, children: [reaction('🔥'), reaction('😂'), reaction('😍')]),
     );
   }
 }

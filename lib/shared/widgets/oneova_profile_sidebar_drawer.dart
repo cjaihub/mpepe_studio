@@ -58,7 +58,6 @@ class OneovaProfileSidebarDrawer extends ConsumerStatefulWidget {
       _SideLink(Icons.sensors_rounded, 'Go Live', '/live/setup', hint: _RowHint.live),
       _SideLink(Icons.videocam_outlined, 'Camera', '/create/camera'),
       _SideLink(Icons.upload_rounded, 'Upload', '/upload/global'),
-      _SideLink(Icons.graphic_eq_rounded, 'Audio studio', '/audio/dashboard'),
     ]),
     _SideSection('SOCIAL', [
       _SideLink(Icons.explore_outlined, 'Discover', '/hub/discover'),
@@ -69,7 +68,6 @@ class OneovaProfileSidebarDrawer extends ConsumerStatefulWidget {
     ]),
     _SideSection('GROW', [
       _SideLink(Icons.insights_rounded, 'Insights', '/social_hub/analytics'),
-      _SideLink(Icons.play_circle_outline_rounded, 'Channels', '/yt/dashboard'),
       _SideLink(Icons.assistant_outlined, 'Ova assistant', '/hub/ova_assistant'),
     ]),
     _SideSection('DEVICES', [

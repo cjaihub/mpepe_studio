@@ -3,7 +3,7 @@
 This app is **Oneova**. Re-introducing old versions burns tokens and the user's patience. Follow this file first.
 
 ## 0. Pre-flight checklist (mandatory)
-1. Read `.agents/rules/oneova_home_launch_screen.md` and `.agents/rules/ui_ux_guidelines.md`.
+1. Read `.agents/rules/oneova_build_vision.md` (priorities: security first; what's in and out of this version), then `docs/plans/BUILD_LOG.md` (take the next open step and update it when you stop), then `.agents/rules/oneova_home_launch_screen.md` and `.agents/rules/ui_ux_guidelines.md`.
 2. Run `flutter test test/guards/home_lock_test.dart`. If it fails after your change, REVERT your change.
 3. Never "restore", "revert", `git checkout`, or overwrite from older copies/backups/patch scripts (`patch*.sh`, `*.py`, `*_patch`). Edit forward only.
 4. Never bulk `sed`/regex across `lib/` (it previously corrupted code). Make targeted edits.

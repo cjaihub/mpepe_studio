@@ -549,7 +549,7 @@ class OvaConnectedTools {
       items: [for (final l in lines) OvaResultItem(title: l, icon: Icons.fiber_manual_record_rounded)],
       actions: const [
         OvaResultAction(label: 'Latest comments', icon: Icons.forum_rounded, prompt: 'show my latest youtube comments'),
-        OvaResultAction(label: 'YouTube studio', icon: Icons.open_in_new_rounded, route: '/yt/dashboard'),
+        OvaResultAction(label: 'Linked accounts', icon: Icons.open_in_new_rounded, route: '/social_hub'),
       ],
     );
   }

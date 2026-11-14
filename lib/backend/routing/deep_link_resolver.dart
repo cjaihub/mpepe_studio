@@ -36,12 +36,11 @@ class DeepLinkResolver {
       // Map verified resource to the exact routing path
       switch (type) {
         case 'profile':
-          return '/communication/contact/$id';
+          return '/profile/$id';
         case 'video':
-          return '/creator_studio/video/$id';
+          return '/post/$id';
         case 'comment':
-          // Hypothetical route to open a video scrolled to a specific comment
-          return '/creator_studio/video/$id?focus=comment';
+          return '/post/$id?focus=comment';
         case 'message':
           return '/remote_chat?thread=$id';
         case 'live':

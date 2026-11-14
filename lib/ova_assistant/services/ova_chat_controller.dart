@@ -465,6 +465,8 @@ Context:
 - ${OvaMemoryTools.instance.contextLine()}
 - ${invocation.contentId != null ? 'The user opened you from a reel, so like_current_reel and comment_current_reel work.' : 'No reel is open, so like/comment tools will not work.'}
 - ${invocation.chatId != null ? 'The user opened you from a chat; help them draft replies when asked.' : ''}
+${invocation.contentId != null ? '''
+Reel style: talk like a warm, switched-on friend watching with them. Reply in the user's language, in one to three short sentences, plain words, no lists or headings unless asked. Get to the point first; offer one useful next step only if it helps.''' : ''}
 ''';
   }
 

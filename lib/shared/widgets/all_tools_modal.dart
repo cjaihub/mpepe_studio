@@ -200,16 +200,16 @@ class _AllToolsModalState extends State<AllToolsModal> {
       _AllToolItem('Gaming lives', Icons.videogame_asset_rounded, '/live/gaming', 'Watch game lives that are on air right now.'),
       _AllToolItem('Camera', Icons.camera_alt_rounded, '/create/camera', 'Blackmagic color science production camera.'),
       _AllToolItem('Retouch', Icons.auto_awesome_rounded, '/photo/studio', 'Portrait AI skin smoothing and facial sculpting.'),
-      _AllToolItem('Auto captions', Icons.subtitles_rounded, '/video/dashboard', 'Neural synchronized kinetic subtitles.'),
-      _AllToolItem('Teleprompter', Icons.speed_rounded, '/video/dashboard', 'Voice-scrolling floating teleprompter.'),
+      _AllToolItem('Auto captions', Icons.subtitles_rounded, '/create/studio', 'Neural synchronized kinetic subtitles.'),
+      _AllToolItem('Teleprompter', Icons.speed_rounded, '/create/studio', 'Voice-scrolling floating teleprompter.'),
       _AllToolItem('Control PC', Icons.desktop_windows_rounded, '/connect', 'Wireless remote keyboard, trackpad, and timeline control.'),
       _AllToolItem('Desktop agent', Icons.computer_rounded, '/desktop_agent', 'Run local automation scripts and hardware monitoring.'),
       _AllToolItem('Photo studio', Icons.image_rounded, '/photo/studio', '3-way color wheels and localized layer masking.'),
-      _AllToolItem('Frame capture', Icons.fullscreen_rounded, '/video/dashboard', 'High-res raw frame still extraction.'),
+      _AllToolItem('Frame capture', Icons.fullscreen_rounded, '/create/studio', 'High-res raw frame still extraction.'),
     ];
 
     final aiTools = [
-      _AllToolItem('AutoCut AI', Icons.movie_creation_outlined, '/video/dashboard', 'Automatic beat-matched montage generation.'),
+      _AllToolItem('AutoCut AI', Icons.movie_creation_outlined, '/create/studio', 'Automatic beat-matched montage generation.'),
       _AllToolItem('AI Avatars', Icons.face_retouching_natural_rounded, '/ai_studio?mode=avatars', 'Text-to-video realistic presenter avatars.'),
       _AllToolItem('AI Dialogue', Icons.chat_rounded, '/ai_studio?mode=dialogue', 'Multi-speaker script generation and voice actors.'),
       _AllToolItem('AI Image Gen', Icons.brush_rounded, '/ai_studio?mode=image', 'Photorealistic visual asset and background synthesis.'),

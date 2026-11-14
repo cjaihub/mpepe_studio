@@ -10,6 +10,7 @@ import 'package:oneova/backend/social/models/comment.dart';
 import 'package:oneova/backend/social/services/comment_service.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:record/record.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:speech_to_text/speech_to_text.dart' as stt;
 import '../../auth/widgets/auth_interaction_gate.dart';
 import '../../shared/audio/cloud_dictation.dart';
@@ -47,7 +48,12 @@ class ReelCommentBar extends ConsumerStatefulWidget {
     required this.onOpenComments,
     required this.onOpenAssistant,
     required this.reactions,
+    this.framed = false,
   });
+
+  /// Framed reel layout: comment pill with an emoji button, then the quick
+  /// reactions and the mic as separate round buttons.
+  final bool framed;
 
   @override
   ConsumerState<ReelCommentBar> createState() => _ReelCommentBarState();
@@ -64,6 +70,124 @@ class _ReelCommentBarState extends ConsumerState<ReelCommentBar> with SingleTick
   _BarMode _mode = _BarMode.idle;
   String _transcript = '';
   bool _sending = false;
+
+  /// Dictation language (null = the phone's default); remembered on device.
+  static const _localeKey = 'reel_dictation_locale';
+  String? _localeId;
+  String _localeLabel = '';
+
+  /// Words already final before the recognizer paused; new words append.
+  String _committed = '';
+  int _restarts = 0;
+  DateTime _lastWords = DateTime.now();
+
+  @override
+  void initState() {
+    super.initState();
+    SharedPreferences.getInstance().then((prefs) {
+      final id = prefs.getString(_localeKey);
+      if (id != null && mounted) {
+        setState(() {
+          _localeId = id;
+          _localeLabel = _short(id);
+        });
+      }
+    }).catchError((_) {});
+  }
+
+  static String _short(String id) => id.split(RegExp('[_-]')).first.toUpperCase();
+
+  /// Choose the dictation language from the ones this phone supports.
+  Future<void> _pickLanguage() async {
+    final list = await _speech.locales();
+    if (!mounted) return;
+    if (list.isEmpty) {
+      _snack('Voice typing languages aren’t available on this phone.');
+      return;
+    }
+    list.sort((a, b) => a.name.compareTo(b.name));
+    final picked = await showModalBottomSheet<String>(
+      context: context,
+      isScrollControlled: true,
+      useSafeArea: true,
+      builder: (sheet) => _LanguageSheet(locales: list, selected: _localeId),
+    );
+    if (picked == null || !mounted) return;
+    setState(() {
+      _localeId = picked;
+      _localeLabel = _short(picked);
+    });
+    try {
+      (await SharedPreferences.getInstance()).setString(_localeKey, picked);
+    } catch (_) {}
+    // Restart listening in the new language, keeping what was said.
+    if (_mode == _BarMode.transcribing && !_usingCloud) {
+      _committed = _transcript;
+      await _listenOnce();
+    }
+  }
+
+  stt.SpeechListenOptions get _listenOptions => stt.SpeechListenOptions(
+        partialResults: true,
+        cancelOnError: false,
+        listenMode: stt.ListenMode.dictation,
+        autoPunctuation: true,
+        localeId: _localeId,
+        listenFor: const Duration(minutes: 2),
+        pauseFor: const Duration(seconds: 6),
+      );
+
+  /// One recognizer run. When the phone ends it on a short pause, the next
+  /// run starts and the words append, so dictation doesn't cut off mid-thought.
+  Future<bool> _listenOnce() {
+    return _speech.listen(
+      owner: this,
+      options: _listenOptions,
+      onStatus: (s) {
+        if (_usingCloud || !mounted || _mode != _BarMode.transcribing) return;
+        if (s == 'done' || s == 'notListening') unawaited(_continueOrFinish());
+        if (s == 'preempted') unawaited(_finishTranscribe(commitCloud: false));
+      },
+      onError: (err) {
+        if (_usingCloud || !mounted || _mode != _BarMode.transcribing) return;
+        if (err.errorMsg == 'error_no_match' || err.errorMsg == 'error_speech_timeout') {
+          unawaited(_continueOrFinish());
+        } else {
+          unawaited(_startCloudTranscribe());
+        }
+      },
+      onResult: (r) {
+        if (_usingCloud || !mounted) return;
+        final words = r.recognizedWords.trim();
+        if (words.isNotEmpty) _lastWords = DateTime.now();
+        setState(() => _transcript = [_committed, words].where((x) => x.isNotEmpty).join(' '));
+        if (r.finalResult) _committed = _transcript;
+      },
+    );
+  }
+
+  bool _continuing = false;
+
+  Future<void> _continueOrFinish() async {
+    if (_continuing) return;
+    _continuing = true;
+    try {
+      _committed = _transcript;
+      final quietFor = DateTime.now().difference(_lastWords);
+      // Keep listening through short pauses; stop after a long silence.
+      if (_restarts < 20 && quietFor < const Duration(seconds: 8)) {
+        _restarts++;
+        await Future<void>.delayed(const Duration(milliseconds: 120));
+        if (mounted && _mode == _BarMode.transcribing && !_usingCloud) {
+          final ok = await _listenOnce();
+          if (ok) return;
+        }
+      }
+      await _finishTranscribe(commitCloud: false);
+    } finally {
+      _continuing = false;
+    }
+  }
 
   DateTime? _recStart;
   Timer? _recTimer;
@@ -156,28 +280,10 @@ class _ReelCommentBarState extends ConsumerState<ReelCommentBar> with SingleTick
       _transcript = '';
     });
 
-    final ready = await _speech.listen(
-      owner: this,
-      options: stt.SpeechListenOptions(partialResults: true, cancelOnError: true),
-      onStatus: (s) {
-        if (_usingCloud || !mounted || _mode != _BarMode.transcribing) return;
-        if (s == 'done' || s == 'notListening' || s == 'preempted') {
-          unawaited(_finishTranscribe(commitCloud: false));
-        }
-      },
-      onError: (err) {
-        if (_usingCloud || !mounted || _mode != _BarMode.transcribing) return;
-        if (err.errorMsg == 'error_no_match' || err.errorMsg == 'error_speech_timeout') {
-          unawaited(_finishTranscribe(commitCloud: false));
-        } else {
-          unawaited(_startCloudTranscribe());
-        }
-      },
-      onResult: (r) {
-        if (_usingCloud || !mounted) return;
-        setState(() => _transcript = r.recognizedWords);
-      },
-    );
+    _committed = '';
+    _restarts = 0;
+    _lastWords = DateTime.now();
+    final ready = await _listenOnce();
     if (!ready && mounted && _mode == _BarMode.transcribing) {
       await _startCloudTranscribe();
     }
@@ -486,11 +592,79 @@ class _ReelCommentBarState extends ConsumerState<ReelCommentBar> with SingleTick
           child: Icon(icon, color: iconColor ?? (p.dark ? Colors.white : AppColors.brandPink), size: 15),
         );
 
-    return ClipRRect(
+    // Tap = live transcription, hold = voice comment.
+    final mic = GestureDetector(
+      behavior: HitTestBehavior.opaque,
+      onTap: () => AuthInteractionGate.requireAuth(
+        context,
+        actionTitle: 'comment on videos',
+        onAuthenticated: _toggleTranscribe,
+      ),
+      onLongPressStart: (_) => _startRecording(),
+      onLongPressMoveUpdate: (d) {
+        if (!recording) return;
+        final armed = d.localOffsetFromOrigin.dx < -60;
+        if (armed != _cancelArmed) setState(() => _cancelArmed = armed);
+      },
+      onLongPressEnd: (_) => _finishRecording(send: !_cancelArmed),
+      onLongPressCancel: () => _finishRecording(send: false),
+      child: AnimatedScale(
+        scale: recording ? 1.25 : 1.0,
+        duration: const Duration(milliseconds: 150),
+        child: widget.framed
+            ? _RoundGlass(
+                size: 32,
+                palette: p,
+                active: recording || _mode == _BarMode.transcribing,
+                child: Icon(
+                  recording
+                      ? Icons.mic_rounded
+                      : _mode == _BarMode.transcribing
+                          ? Icons.stop_rounded
+                          : Icons.mic_none_rounded,
+                  size: 17,
+                  color: recording || _mode == _BarMode.transcribing ? Colors.white : (p.dark ? Colors.white70 : AppColors.brandPink),
+                ),
+              )
+            : circle(
+                recording
+                    ? Icons.mic_rounded
+                    : _mode == _BarMode.transcribing
+                        ? Icons.stop_rounded
+                        : Icons.mic_none_rounded,
+                fill: AppColors.brandPink,
+                iconColor: recording ? Colors.white : null,
+              ),
+      ),
+    );
+
+    // Language chip while dictating: tap to switch language.
+    final language = _mode == _BarMode.transcribing && !_usingCloud
+        ? GestureDetector(
+            onTap: _pickLanguage,
+            child: Container(
+              margin: const EdgeInsets.only(right: 4),
+              padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
+              decoration: BoxDecoration(
+                color: AppColors.brandBlue.withValues(alpha: 0.18),
+                borderRadius: BorderRadius.circular(AppRadius.full),
+                border: Border.all(color: AppColors.brandBlue.withValues(alpha: 0.5)),
+              ),
+              child: Row(mainAxisSize: MainAxisSize.min, children: [
+                Icon(Icons.translate_rounded, size: 11, color: p.fg),
+                const SizedBox(width: 3),
+                Text(_localeLabel.isEmpty ? 'Auto' : _localeLabel,
+                    style: GoogleFonts.inter(color: p.fg, fontSize: 10, fontWeight: FontWeight.w800)),
+              ]),
+            ),
+          )
+        : const SizedBox.shrink();
+
+    final pill = ClipRRect(
       borderRadius: BorderRadius.circular(AppRadius.full),
       child: Container(
-        height: 36,
-        padding: const EdgeInsets.only(left: 14, right: 4),
+        height: widget.framed ? 38 : 36,
+        padding: EdgeInsets.only(left: 14, right: widget.framed ? 6 : 4),
         decoration: BoxDecoration(
           color: p.glassStrong,
           borderRadius: BorderRadius.circular(AppRadius.full),
@@ -502,19 +676,30 @@ class _ReelCommentBarState extends ConsumerState<ReelCommentBar> with SingleTick
         child: Row(
           children: [
             Expanded(child: _label(p)),
+            language,
             if (_mode == _BarMode.idle && !hasTranscript) ...[
-              widget.reactions,
-              const SizedBox(width: 4),
-              GestureDetector(
-                onTap: _pickAndPostGif,
-                child: circle(Icons.gif_box_rounded, fill: AppColors.brandPink),
-              ),
-              const SizedBox(width: 4),
-              GestureDetector(
-                onTap: widget.onOpenAssistant,
-                child: circle(Icons.auto_awesome_rounded, fill: AppColors.brandBlue),
-              ),
-              const SizedBox(width: 4),
+              if (widget.framed)
+                GestureDetector(
+                  onTap: _pickAndPostGif,
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 4),
+                    child: Icon(Icons.sentiment_satisfied_alt_rounded, size: 20, color: p.fgSoft),
+                  ),
+                )
+              else ...[
+                widget.reactions,
+                const SizedBox(width: 4),
+                GestureDetector(
+                  onTap: _pickAndPostGif,
+                  child: circle(Icons.gif_box_rounded, fill: AppColors.brandPink),
+                ),
+                const SizedBox(width: 4),
+                GestureDetector(
+                  onTap: widget.onOpenAssistant,
+                  child: circle(Icons.auto_awesome_rounded, fill: AppColors.brandBlue),
+                ),
+                const SizedBox(width: 4),
+              ],
             ],
             if (hasTranscript || _mode == _BarMode.transcribing && _transcript.isNotEmpty) ...[
               GestureDetector(onTap: _clearTranscript, child: circle(Icons.close_rounded, fill: AppColors.brandBlue)),
@@ -523,41 +708,89 @@ class _ReelCommentBarState extends ConsumerState<ReelCommentBar> with SingleTick
                 onTap: _sending ? null : _sendTranscript,
                 child: circle(Icons.arrow_upward_rounded, fill: AppColors.brandPink),
               ),
-              const SizedBox(width: 4),
+              if (!widget.framed) const SizedBox(width: 4),
             ],
-            // Tap = live transcription, hold = voice comment.
-            GestureDetector(
-              behavior: HitTestBehavior.opaque,
-              onTap: () => AuthInteractionGate.requireAuth(
-                context,
-                actionTitle: 'comment on videos',
-                onAuthenticated: _toggleTranscribe,
-              ),
-              onLongPressStart: (_) => _startRecording(),
-              onLongPressMoveUpdate: (d) {
-                if (!recording) return;
-                final armed = d.localOffsetFromOrigin.dx < -60;
-                if (armed != _cancelArmed) setState(() => _cancelArmed = armed);
-              },
-              onLongPressEnd: (_) => _finishRecording(send: !_cancelArmed),
-              onLongPressCancel: () => _finishRecording(send: false),
-              child: AnimatedScale(
-                scale: recording ? 1.25 : 1.0,
-                duration: const Duration(milliseconds: 150),
-                child: circle(
-                  recording
-                      ? Icons.mic_rounded
-                      : _mode == _BarMode.transcribing
-                          ? Icons.stop_rounded
-                          : Icons.mic_none_rounded,
-                  fill: AppColors.brandPink,
-                  iconColor: recording ? Colors.white : null,
-                ),
-              ),
-            ),
+            if (!widget.framed) mic,
           ],
         ),
       ),
+    );
+
+    if (!widget.framed) return pill;
+    return Row(children: [
+      Expanded(child: pill),
+      const SizedBox(width: 8),
+      if (_mode == _BarMode.idle && !hasTranscript) ...[widget.reactions, const SizedBox(width: 6)],
+      mic,
+    ]);
+  }
+}
+
+/// Round glass button used in the framed layout.
+class _RoundGlass extends StatelessWidget {
+  const _RoundGlass({required this.size, required this.palette, required this.child, this.active = false});
+  final double size;
+  final ReelPalette palette;
+  final Widget child;
+  final bool active;
+
+  @override
+  Widget build(BuildContext context) => Container(
+        width: size,
+        height: size,
+        decoration: BoxDecoration(
+          shape: BoxShape.circle,
+          color: active ? AppColors.brandPink : palette.glass,
+          border: Border.all(color: active ? AppColors.brandPink : palette.glassBorder),
+          boxShadow: active ? [BoxShadow(color: AppColors.brandPink.withValues(alpha: 0.45), blurRadius: 12)] : null,
+        ),
+        alignment: Alignment.center,
+        child: child,
+      );
+}
+
+/// Dictation language list with search.
+class _LanguageSheet extends StatefulWidget {
+  const _LanguageSheet({required this.locales, required this.selected});
+  final List<stt.LocaleName> locales;
+  final String? selected;
+
+  @override
+  State<_LanguageSheet> createState() => _LanguageSheetState();
+}
+
+class _LanguageSheetState extends State<_LanguageSheet> {
+  String _q = '';
+
+  @override
+  Widget build(BuildContext context) {
+    final shown = widget.locales.where((l) => _q.isEmpty || l.name.toLowerCase().contains(_q) || l.localeId.toLowerCase().contains(_q)).toList();
+    return SizedBox(
+      height: MediaQuery.sizeOf(context).height * 0.7,
+      child: Column(children: [
+        Padding(
+          padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
+          child: TextField(
+            autofocus: false,
+            onChanged: (v) => setState(() => _q = v.trim().toLowerCase()),
+            decoration: const InputDecoration(prefixIcon: Icon(Icons.search_rounded), hintText: 'Voice typing language'),
+          ),
+        ),
+        Expanded(
+          child: ListView.builder(
+            itemCount: shown.length,
+            itemBuilder: (context, i) {
+              final l = shown[i];
+              return ListTile(
+                title: Text(l.name),
+                subtitle: Text(l.localeId),
+                trailing: l.localeId == widget.selected ? const Icon(Icons.check_rounded, color: AppColors.brandBlue) : null,
+                onTap: () => Navigator.pop(context, l.localeId),
+              );
+            },
+          ),
+        ),
+      ]),
     );
   }
 }

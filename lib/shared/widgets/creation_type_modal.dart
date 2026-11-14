@@ -149,7 +149,7 @@ class _CreationTypeModalState extends ConsumerState<CreationTypeModal> {
       subtitle: 'Smart Montage',
       category: 'PiP & Video',
       icon: Icons.movie_creation_outlined,
-      route: '/video/dashboard',
+      route: '/create/studio',
       description:
           'Automatically detect beats, silence, and highlights to slice raw video into rhythmic viral reels in seconds.',
       highlights: const [
@@ -243,7 +243,7 @@ class _CreationTypeModalState extends ConsumerState<CreationTypeModal> {
       subtitle: 'Voice Scrolling',
       category: 'PiP & Video',
       icon: Icons.speed_rounded,
-      route: '/video/dashboard',
+      route: '/create/studio',
       description:
           'Floating auto-scroll teleprompter that tracks your speech speed so you never forget lines while looking at the camera.',
       highlights: const [
@@ -1146,7 +1146,7 @@ class _CreationTypeModalState extends ConsumerState<CreationTypeModal> {
               onPressed: () {
                 final router = GoRouter.of(context);
                 Navigator.of(context).pop();
-                router.push('/video/dashboard');
+                router.push('/create/studio');
               },
               style: ElevatedButton.styleFrom(
                 backgroundColor: AppColors.brandBlue,

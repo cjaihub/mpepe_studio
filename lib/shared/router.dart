@@ -5,21 +5,15 @@ import 'package:firebase_auth/firebase_auth.dart';
 import '../auth/security/login_security.dart';
 import '../backend/user_service.dart';
 import '../shared/theme/app_theme.dart';
-import '../shared/widgets/shared_bottom_nav_bar.dart';
 import 'package:go_router/go_router.dart';
 import '../feed/main_feed_screen.dart';
 import '../backend/social/services/video_playback_manager.dart';
 
-import '../hub/hub_team_screen.dart';
 import '../hub/messaging/chat_detail_screen.dart';
 import '../hub/hub_ai_screen.dart';
 import '../ova_assistant/widgets/ova_assistant_sheet.dart';
 import '../ova_assistant/widgets/ova_floating_dock.dart' show OvaPopupObserver;
-import '../youtube_manager/yt_dashboard_screen.dart';
-import '../youtube_manager/yt_channels_screen.dart';
-import '../youtube_manager/yt_upload_screen.dart';
 
-import '../youtube_manager/yt_settings_screen.dart';
 import '../hub/messaging/in_app_messaging_screen.dart';
 import '../auth/main_login_screen.dart';
 import '../auth/screens/workspace_locked_screen.dart';
@@ -109,13 +103,6 @@ import 'package:uuid/uuid.dart';
 import '../social_hub/analytics_command_center.dart';
 import '../social_hub/tiktok_ai_assistant_screen.dart';
 import '../social_hub/notifications/notification_center_screen.dart';
-import '../projects/unified_projects_screen.dart';
-import '../video_production/video_dashboard_screen.dart';
-import '../video_production/video_equipment_screen.dart';
-import '../video_production/video_team_screen.dart';
-import '../audio_production/audio_dashboard_screen.dart';
-import '../audio_production/audio_library_screen.dart';
-import '../audio_production/audio_artists_screen.dart';
 import '../hub/connect_screen.dart';
 import '../hub/qr_scanner_screen.dart';
 import '../looks/marketplace/ui/oneova_wallet_screen.dart';
@@ -309,74 +296,6 @@ class _HubShellState extends ConsumerState<HubShell> with RouteAware {
 }
 
 
-class YtShell extends StatelessWidget {
-  final StatefulNavigationShell navigationShell;
-  const YtShell({super.key, required this.navigationShell});
-
-  static const _items = [
-    BottomNavigationBarItem(icon: Icon(Icons.bar_chart_rounded), label: 'Dashboard'),
-    BottomNavigationBarItem(icon: Icon(Icons.subscriptions_outlined), label: 'Channels'),
-    BottomNavigationBarItem(icon: Icon(Icons.cloud_upload_outlined), label: 'Upload'),
-    BottomNavigationBarItem(icon: Icon(Icons.settings_outlined), label: 'Settings'),
-  ];
-
-  @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      body: navigationShell,
-      bottomNavigationBar: SharedBottomNavBar(
-        navigationShell: navigationShell,
-        items: _items,
-      ),
-    );
-  }
-}
-
-class VideoShell extends StatelessWidget {
-  final StatefulNavigationShell navigationShell;
-  const VideoShell({super.key, required this.navigationShell});
-
-  static const _items = [
-    BottomNavigationBarItem(icon: Icon(Icons.videocam_outlined), label: 'Dashboard'),
-    BottomNavigationBarItem(icon: Icon(Icons.movie_creation_outlined), label: 'Projects'),
-    BottomNavigationBarItem(icon: Icon(Icons.build_outlined), label: 'Equipment'),
-    BottomNavigationBarItem(icon: Icon(Icons.group_outlined), label: 'Crew'),
-  ];
-
-  @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      body: navigationShell,
-      bottomNavigationBar: SharedBottomNavBar(
-        navigationShell: navigationShell,
-        items: _items,
-      ),
-    );
-  }
-}
-
-class AudioShell extends StatelessWidget {
-  final StatefulNavigationShell navigationShell;
-  const AudioShell({super.key, required this.navigationShell});
-
-  static const _items = [
-    BottomNavigationBarItem(icon: Icon(Icons.music_note_rounded), label: 'Dashboard'),
-    BottomNavigationBarItem(icon: Icon(Icons.equalizer_rounded), label: 'Productions'),
-    BottomNavigationBarItem(icon: Icon(Icons.library_music_outlined), label: 'Library'),
-    BottomNavigationBarItem(icon: Icon(Icons.person_outline_rounded), label: 'Artists'),
-  ];
-
-  @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      body: navigationShell,
-      bottomNavigationBar: SharedBottomNavBar(
-        navigationShell: navigationShell,
-        items: _items,
-      ),
-    );
-  }
-}
 
 class SessionRouteObserver extends NavigatorObserver {
   final Ref ref;
@@ -1158,52 +1077,15 @@ final routerProvider = Provider<GoRouter>((ref) {
             redirect: _requireAuth,
             builder: (context, state) => const HubAiScreen()
           )]),
-          StatefulShellBranch(routes: [GoRoute(
-            path: '/hub/team', 
-            redirect: _requireAuth,
-            builder: (context, state) => const HubTeamScreen()
-          )]),
         ],
       ),
 
-      // ──────────────────────────────────────────────────────────────────
-      // YOUTUBE MANAGER (GUARDED)
-      // ──────────────────────────────────────────────────────────────────
-      StatefulShellRoute.indexedStack(
-        builder: (context, state, navigationShell) => YtShell(navigationShell: navigationShell),
-        branches: [
-          StatefulShellBranch(routes: [GoRoute(path: '/yt/dashboard', redirect: _requireAuth, builder: (context, state) => const YtDashboardScreen())]),
-          StatefulShellBranch(routes: [GoRoute(path: '/yt/channels', redirect: _requireAuth, builder: (context, state) => const YtChannelsScreen())]),
-          StatefulShellBranch(routes: [GoRoute(path: '/yt/upload', redirect: _requireAuth, builder: (context, state) => const YtUploadScreen())]),
-          StatefulShellBranch(routes: [GoRoute(path: '/yt/settings', redirect: _requireAuth, builder: (context, state) => const YtSettingsScreen())]),
-        ],
-      ),
-
-      // ──────────────────────────────────────────────────────────────────
-      // VIDEO PRODUCTION (GUARDED)
-      // ──────────────────────────────────────────────────────────────────
-      StatefulShellRoute.indexedStack(
-        builder: (context, state, navigationShell) => VideoShell(navigationShell: navigationShell),
-        branches: [
-          StatefulShellBranch(routes: [GoRoute(path: '/video/dashboard', redirect: _requireAuth, builder: (context, state) => const VideoDashboardScreen())]),
-          StatefulShellBranch(routes: [GoRoute(path: '/video/projects', redirect: _requireAuth, builder: (context, state) => const UnifiedProjectsScreen())]),
-          StatefulShellBranch(routes: [GoRoute(path: '/video/equipment', redirect: _requireAuth, builder: (context, state) => const VideoEquipmentScreen())]),
-          StatefulShellBranch(routes: [GoRoute(path: '/video/team', redirect: _requireAuth, builder: (context, state) => const VideoTeamScreen())]),
-        ],
-      ),
-
-      // ──────────────────────────────────────────────────────────────────
-      // AUDIO PRODUCTION (GUARDED)
-      // ──────────────────────────────────────────────────────────────────
-      StatefulShellRoute.indexedStack(
-        builder: (context, state, navigationShell) => AudioShell(navigationShell: navigationShell),
-        branches: [
-          StatefulShellBranch(routes: [GoRoute(path: '/audio/dashboard', redirect: _requireAuth, builder: (context, state) => const AudioDashboardScreen())]),
-          StatefulShellBranch(routes: [GoRoute(path: '/audio/productions', redirect: _requireAuth, builder: (context, state) => const UnifiedProjectsScreen())]),
-          StatefulShellBranch(routes: [GoRoute(path: '/audio/library', redirect: _requireAuth, builder: (context, state) => const AudioLibraryScreen())]),
-          StatefulShellBranch(routes: [GoRoute(path: '/audio/artists', redirect: _requireAuth, builder: (context, state) => const AudioArtistsScreen())]),
-        ],
-      ),
+      // Studio management was removed in this version (see
+      // .agents/rules/oneova_build_vision.md). Old links go to the nearest kept screen.
+      GoRoute(path: '/hub/team', redirect: (context, state) => '/hub/home'),
+      GoRoute(path: '/yt/:rest', redirect: (context, state) => '/social_hub'),
+      GoRoute(path: '/video/:rest', redirect: (context, state) => '/create/studio'),
+      GoRoute(path: '/audio/:rest', redirect: (context, state) => '/create/studio'),
     ],
   );
 });

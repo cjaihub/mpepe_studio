@@ -423,16 +423,6 @@ class _MainSettingsScreenState extends ConsumerState<MainSettingsScreen> {
                     [
                       _buildSettingsTile(
                         context,
-                        icon: Icons.video_library_rounded,
-                        title: 'YouTube Settings',
-                        subtitle: 'Upload defaults, channel sync & comments',
-                        route: '/yt/settings',
-                        categoryKey: 'integrations',
-                        showDivider: true,
-                        healthReport: healthReport,
-                      ),
-                      _buildSettingsTile(
-                        context,
                         icon: Icons.hub_rounded,
                         title: 'Social Accounts',
                         subtitle: 'Meta, Instagram, TikTok omnichannel sync',
