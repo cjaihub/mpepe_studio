@@ -1,5 +1,13 @@
 # Oneova release notes
 
+## 1.0.0 (34) — 2026-11-14 · Internal Testing Release
+
+**Payment phones and a calmer app**
+- **Payment phones** (Oneova ID → Payment phones): register this phone with your fingerprint or face. Its payment key lives in the phone's security chip, and a code from your email confirms it.
+- **Check it's you**: a live face card with a mesh that turns blue when you're verified and pink if not.
+- **Compact Settings and Me menu**: thin rows instead of big cards.
+- **Removed old studio management** pages (YouTube manager, production, equipment, team); their links now open the closest screen.
+
 ## 1.0.0 (33) — 2026-11-14 · Internal Testing Release
 
 **Steadier calls and easier business setup**
