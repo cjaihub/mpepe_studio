@@ -18,8 +18,13 @@ Status: ✅ done · 🔨 in progress · ⏳ next · ⛔ blocked (says why)
 ## Stage F: Language and location awareness
 - ⏳ F1. First run and sign-in: phone language + detected country set the account's language, country,
   currency and time zone (one tap to confirm or change).
-- ⏳ F2. Ova knows your city, country, local time and language (coarse only, with location on) and
-  replies in your language by default.
+- 🔨 F2. Ova voice now gets the local time, day and phone language every turn and replies in the
+  language spoken. City and country (coarse, with location on) still to add.
+- ✅ F4. Ova Live carries on where it stopped (conversation kept 30 min after closing), answers "what's
+  happening / progress / is it done" instantly from the task centre, knows all background work each
+  turn, and says when background work finishes mid-session. Dictation: Vertex first (fastest, no key in
+  the app), OpenRouter backup. Removed the dead calling overlay, its voice service and the old live
+  overlay.
 - ⏳ F3. App text in local languages (Swahili, French, Arabic, Hausa, Yoruba, Amharic, Portuguese…) with
   `flutter gen-l10n`; the language setting actually switches the app.
 

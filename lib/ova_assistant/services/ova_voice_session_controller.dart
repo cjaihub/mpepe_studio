@@ -153,6 +153,11 @@ abstract class OvaVoiceSessionBaseNotifier extends Notifier<OvaVoiceSessionState
   bool _ttsReady = false;
   bool _disposed = false;
   String? _activeThreadId;
+  /// When the session was closed; reopening within [_resumeWindow] carries on.
+  DateTime? _closedAt;
+  static const Duration _resumeWindow = Duration(minutes: 30);
+  /// The task for the turn being answered (so it isn't reported as background work).
+  String? _currentTaskId;
   OvaWorkspaceId _workspace = OvaWorkspaceId.personal;
   OvaInvocationContext _invocation = const OvaInvocationContext();
   BuildContext? _permissionContext;
@@ -170,6 +175,13 @@ abstract class OvaVoiceSessionBaseNotifier extends Notifier<OvaVoiceSessionState
         }
       });
     }
+    // Background work finishing while we talk: say so, in one short line.
+    ref.listen<OvaTaskState>(ovaTaskCenterProvider, (prev, next) {
+      final f = next.justFinished;
+      if (f == null || prev?.justFinished?.id == f.id || f.id == _currentTaskId) return;
+      if (_disposed || !state.isActive || state.isPaused || state.phase != OvaVoicePhase.listening) return;
+      unawaited(_announce('${f.status == OvaTaskStatus.done ? 'Done' : 'Could not finish'}: ${f.title}.'));
+    });
     ref.onDispose(() {
       _disposed = true;
       _lifecycle?.dispose();
@@ -243,19 +255,33 @@ abstract class OvaVoiceSessionBaseNotifier extends Notifier<OvaVoiceSessionState
     _invocation = invocation;
     _permissionContext = permissionContext;
     OneovaAiGateway.resetCooldown();
+    // Carry on where we left off if the session was closed recently.
+    final closed = _closedAt;
+    _closedAt = null;
+    final resuming = closed != null && DateTime.now().difference(closed) < _resumeWindow && _voiceHistory.isNotEmpty;
+    if (closed != null && !resuming) {
+      _voiceHistory.clear();
+      _activeThreadId = null;
+      state = state.copyWith(assistantReply: '', userTranscript: '');
+    }
     _activeThreadId ??= ref
         .read(ovaSharedHistoryProvider.notifier)
         .newThreadId(isOverlaySurface ? 'overlay_voice' : 'main_voice');
 
     HapticFeedback.lightImpact();
 
+    final lastAsk = resuming
+        ? _voiceHistory.lastWhere((m) => m['role'] == 'user', orElse: () => const {'content': ''})['content'] as String? ?? ''
+        : '';
     state = state.copyWith(
       phase: OvaVoicePhase.listening,
       isMicMuted: false,
       clearError: true,
-      assistantReply: state.assistantReply.isEmpty
-          ? 'Hi, I\'m listening. Ask anything or give me a task.'
-          : state.assistantReply,
+      assistantReply: resuming
+          ? (lastAsk.isNotEmpty ? 'Welcome back. We were on “${lastAsk.length > 60 ? '${lastAsk.substring(0, 60)}…' : lastAsk}”. Carry on.' : 'Welcome back. Carry on.')
+          : state.assistantReply.isEmpty
+              ? 'Hi, I\'m listening. Ask anything or give me a task.'
+              : state.assistantReply,
     );
 
     await _ensureTts();
@@ -516,6 +542,7 @@ abstract class OvaVoiceSessionBaseNotifier extends Notifier<OvaVoiceSessionState
       source: isOverlaySurface ? 'ova' : 'ai_lab',
     );
     final stepIdx = tasks.addStep(taskId, 'Voice · Processing request', Icons.graphic_eq_rounded);
+    _currentTaskId = taskId;
 
     String spokenReply = '';
     String? routeToOpen;
@@ -525,8 +552,13 @@ abstract class OvaVoiceSessionBaseNotifier extends Notifier<OvaVoiceSessionState
     try {
       final registry = ref.read(ovaToolRegistryProvider);
 
+      // 0. "What's happening?": answer from the task centre at once, no AI round trip.
+      if (_asksForProgress(text)) {
+        spokenReply = ref.read(ovaTaskCenterProvider).progressReport(exceptId: taskId);
+      }
+
       // 1. Fast local & device tool intents (flashlight, timer, go live, search, etc.)
-      final local = OvaLocalIntents.parse(text);
+      final local = spokenReply.isEmpty ? OvaLocalIntents.parse(text) : null;
       if (local != null) {
         final spec = registry.spec(local.tool);
         if (spec != null) {
@@ -574,7 +606,8 @@ abstract class OvaVoiceSessionBaseNotifier extends Notifier<OvaVoiceSessionState
         final voiceSystemPrompt =
             'You are Ova, the real-time voice agent inside Oneova (${_workspace.label} workspace). '
             'Use tools whenever the user asks to take an action, check info, navigate, manage notes/reminders, or control device settings. '
-            'Reply in 1 to 3 concise, natural spoken sentences with no markdown symbols, tables, or bullet lists.';
+            'Reply in 1 to 3 concise, natural spoken sentences with no markdown symbols, tables, or bullet lists. '
+            'Reply in the language the user speaks.\n${_liveContext(taskId)}';
 
         String? lastToolSummary;
         for (var round = 0; round < 4; round++) {
@@ -827,11 +860,11 @@ abstract class OvaVoiceSessionBaseNotifier extends Notifier<OvaVoiceSessionState
     await _beginListeningInternal();
   }
 
-  /// Ends the voice session and releases mic + TTS cleanly.
+  /// Ends the voice session and releases mic + TTS. The conversation is kept
+  /// for [_resumeWindow], so reopening carries on where it stopped.
   Future<void> endSession() async {
     HapticFeedback.mediumImpact();
-    _activeThreadId = null;
-    _voiceHistory.clear();
+    _closedAt = DateTime.now();
     if (!_disposed) {
       state = state.copyWith(
         phase: OvaVoicePhase.idle,
@@ -841,6 +874,43 @@ abstract class OvaVoiceSessionBaseNotifier extends Notifier<OvaVoiceSessionState
       );
     }
     await _stopHardware();
+  }
+
+  static final RegExp _progressAsk = RegExp(
+    r"\b(progress|status|update me|what('?s| is) (happening|going on|running)|what are you (doing|working on)|how far|is it (done|finished|ready)|still (working|running)|background)\b",
+    caseSensitive: false,
+  );
+
+  static bool _asksForProgress(String text) => text.length < 120 && _progressAsk.hasMatch(text);
+
+  /// Local time, language and background work, added to every voice turn.
+  String _liveContext(String taskId) {
+    final now = DateTime.now();
+    const days = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
+    final hh = now.hour.toString().padLeft(2, '0');
+    final mm = now.minute.toString().padLeft(2, '0');
+    final locale = WidgetsBinding.instance.platformDispatcher.locale;
+    return 'Now: ${days[now.weekday - 1]} $hh:$mm local time (UTC${now.timeZoneOffset.isNegative ? '-' : '+'}${now.timeZoneOffset.inHours.abs()}). '
+        'Phone language: ${locale.toLanguageTag()}.\n'
+        'Background work (answer progress questions from this):\n${ref.read(ovaTaskCenterProvider).progressContext(exceptId: taskId)}';
+  }
+
+  /// Speaks a short update between turns, then goes back to listening.
+  Future<void> _announce(String line) async {
+    if (!state.audioEnabled) {
+      state = state.copyWith(assistantReply: line);
+      return;
+    }
+    await _speech.stop(this);
+    await _cloud?.cancel();
+    if (_disposed) return;
+    state = state.copyWith(phase: OvaVoicePhase.speaking, assistantReply: line, amplitude: 0.5);
+    await _ensureTts();
+    try {
+      await _tts.speak(line);
+    } catch (_) {
+      if (!_disposed) await _beginListeningInternal();
+    }
   }
 
   static String _toSpokenProse(String raw, {required bool isDegraded}) {

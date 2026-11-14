@@ -3,6 +3,7 @@ import 'dart:io';
 
 import 'dart:convert';
 
+import 'package:firebase_ai/firebase_ai.dart';
 import 'package:http/http.dart' as http;
 import 'package:flutter/foundation.dart';
 import 'package:path_provider/path_provider.dart';
@@ -130,12 +131,26 @@ class CloudDictation {
     }
   }
 
-  /// Transcribes through the Oneova server proxy (`aiProxy` → OpenRouter).
-  /// No model key in the app; the Gemini API is never called directly.
+  /// Fastest first: Vertex AI through Firebase AI Logic (no key in the app,
+  /// App Check protected), then the Oneova server proxy (`aiProxy` → OpenRouter).
+  /// The Gemini API is never called directly.
   static Future<String> _transcribe(Uint8List bytes) async {
     const prompt = 'Transcribe this speech exactly as spoken, in the language spoken. '
         'Return only the transcript text with natural punctuation. '
         'If there is no speech, return nothing.';
+    for (final model in const ['gemini-2.5-flash-lite', 'gemini-2.5-flash']) {
+      try {
+        final res = await FirebaseAI.agentPlatform(location: 'us-central1')
+            .generativeModel(model: model, generationConfig: GenerationConfig(temperature: 0))
+            .generateContent([
+              Content.multi([TextPart(prompt), InlineDataPart('audio/wav', bytes)]),
+            ])
+            .timeout(const Duration(seconds: 12));
+        return res.text?.trim() ?? '';
+      } catch (e) {
+        debugPrint('[CloudDictation] Vertex $model failed: $e');
+      }
+    }
     if (!OneovaAiGateway.canCall('')) throw StateError('Transcription unavailable');
     for (final model in const ['google/gemini-2.5-flash', 'openai/gpt-4o-audio-preview']) {
       try {

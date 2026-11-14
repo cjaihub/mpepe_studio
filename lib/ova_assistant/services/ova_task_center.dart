@@ -73,6 +73,48 @@ class OvaTaskState {
     }
     return null;
   }
+
+  /// Plain spoken words for "what's happening?": running tasks with the step
+  /// they're on, then what finished in the last 15 minutes. No AI call needed.
+  String progressReport({String? exceptId, int max = 3}) {
+    final now = DateTime.now();
+    final running = [for (final t in tasks) if (t.running && t.id != exceptId) t];
+    final recent = [
+      for (final t in tasks)
+        if (!t.running && t.id != exceptId && t.finishedAt != null && now.difference(t.finishedAt!).inMinutes < 15) t,
+    ];
+    if (running.isEmpty && recent.isEmpty) return 'Nothing is running in the background right now.';
+    final out = <String>[];
+    for (final t in running.take(max)) {
+      final step = t.steps.lastWhere((s) => s.status == OvaStepStatus.running, orElse: () => t.steps.isEmpty ? const OvaTaskStep('starting', Icons.circle, OvaStepStatus.running) : t.steps.last);
+      final done = t.steps.where((s) => s.status == OvaStepStatus.done).length;
+      final mins = now.difference(t.startedAt).inMinutes;
+      out.add('${_short(t.title)} is ${_clean(step.label)}${t.steps.length > 1 ? ', step ${done + 1} of ${t.steps.length}' : ''}${mins >= 1 ? ', running $mins minute${mins == 1 ? '' : 's'}' : ''}.');
+    }
+    if (running.length > max) out.add('And ${running.length - max} more running.');
+    for (final t in recent.take(2)) {
+      final ok = t.status == OvaTaskStatus.done;
+      out.add('${_short(t.title)} ${ok ? 'finished' : 'did not finish'}${(t.summary?.isNotEmpty ?? false) ? ': ${_short(t.summary!, 90)}' : '.'}');
+    }
+    return out.join(' ');
+  }
+
+  /// Compact lines for the AI's context each turn.
+  String progressContext({String? exceptId}) {
+    final lines = [
+      for (final t in tasks.take(6))
+        if (t.id != exceptId)
+          '- ${_short(t.title)} [${t.status.name}${t.running && t.steps.isNotEmpty ? ': ${_clean(t.steps.last.label)}' : ''}]',
+    ];
+    return lines.isEmpty ? 'none' : lines.join('\n');
+  }
+
+  static String _clean(String label) {
+    final l = label.replaceFirst(RegExp(r'^[A-Za-z ]+ · '), '').trim();
+    return l.isEmpty ? 'working' : l[0].toLowerCase() + l.substring(1);
+  }
+
+  static String _short(String s, [int n = 60]) => s.length > n ? '${s.substring(0, n - 1)}…' : s;
 }
 
 final ovaTaskCenterProvider = NotifierProvider<OvaTaskCenter, OvaTaskState>(OvaTaskCenter.new);
