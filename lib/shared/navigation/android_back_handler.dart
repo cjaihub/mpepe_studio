@@ -1,6 +1,8 @@
 import 'package:flutter/widgets.dart';
 import 'package:go_router/go_router.dart';
 
+import 'oneova_nav.dart';
+
 /// Makes Android Back go to the previous screen instead of closing the app.
 ///
 /// Why: on Android 14+ (and by default for apps targeting SDK 36 on Android
@@ -13,8 +15,9 @@ import 'package:go_router/go_router.dart';
 /// 1. Always report "can handle pop", so Back always reaches Flutter. The
 ///    router then pops the right navigator, and PopScope(canPop: false)
 ///    screens still get their onPopInvoked callbacks.
-/// 2. When nothing can pop: off the home feed → go to /hub/home; on the home
-///    feed → let the app close as usual.
+/// 2. When nothing can pop: go back one step along the trail of places the
+///    person visited ([OneovaNav]); with no trail, off the home feed → go to
+///    /hub/home; on the home feed → let the app close as usual.
 class AndroidBackHandler extends StatefulWidget {
   const AndroidBackHandler({super.key, required this.router, required this.child});
 
@@ -34,10 +37,12 @@ class _AndroidBackHandlerState extends State<AndroidBackHandler> with WidgetsBin
     // Added after the Router's own back dispatcher, so this runs only when
     // the router could not pop anything.
     WidgetsBinding.instance.addObserver(this);
+    OneovaNav.attach(widget.router);
   }
 
   @override
   void dispose() {
+    OneovaNav.detach();
     WidgetsBinding.instance.removeObserver(this);
     super.dispose();
   }
@@ -48,6 +53,8 @@ class _AndroidBackHandlerState extends State<AndroidBackHandler> with WidgetsBin
     if (path.isEmpty || path == AndroidBackHandler.homePath) return false; // close the app
     // Auth and splash have no "previous screen" inside the app.
     if (path.startsWith('/auth') || path == '/splash') return false;
+    // One step back along the places visited, not straight home.
+    if (OneovaNav.backFromSystem()) return true;
     widget.router.go(AndroidBackHandler.homePath);
     return true;
   }

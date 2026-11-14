@@ -1,4 +1,5 @@
 import 'package:oneova/shared/widgets/smooth_load.dart';
+import '../../shared/navigation/oneova_nav.dart';
 import 'package:oneova/shared/widgets/animated_loading_indicator.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
@@ -366,11 +367,7 @@ class _PublicProfileScreenState extends ConsumerState<PublicProfileScreen>
               icon: Icon(Icons.arrow_back, color: topBarFg),
               onPressed: () {
                 HapticFeedback.lightImpact();
-                if (Navigator.of(context).canPop()) {
-                  context.pop();
-                } else {
-                  context.go('/hub/home');
-                }
+                OneovaNav.back(context);
               }),
         ),
         body: Center(
@@ -388,11 +385,7 @@ class _PublicProfileScreenState extends ConsumerState<PublicProfileScreen>
                   icon: Icon(Icons.arrow_back, color: topBarFg),
                   onPressed: () {
                     HapticFeedback.lightImpact();
-                    if (Navigator.of(context).canPop()) {
-                      context.pop();
-                    } else {
-                      context.go('/hub/home');
-                    }
+                    OneovaNav.back(context);
                   }),
             ),
             body: Center(
@@ -425,11 +418,7 @@ class _PublicProfileScreenState extends ConsumerState<PublicProfileScreen>
                     icon: Icon(Icons.arrow_back, color: topBarFg),
                     onPressed: () {
                       HapticFeedback.lightImpact();
-                      if (Navigator.of(context).canPop()) {
-                        context.pop();
-                      } else {
-                        context.go('/hub/home');
-                      }
+                      OneovaNav.back(context);
                     },
                   ),
                   title: Text(

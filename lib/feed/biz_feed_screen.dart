@@ -1,7 +1,7 @@
 import 'package:oneova/shared/widgets/animated_loading_indicator.dart';
+import '../shared/navigation/oneova_nav.dart';
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:go_router/go_router.dart';
 import '../shared/theme/app_theme.dart';
 import '../shops3d/widgets/shops_entry_card.dart';
 
@@ -46,13 +46,7 @@ class _BizFeedScreenState extends State<BizFeedScreen> {
         ]),
         leading: IconButton(
           icon: Icon(Icons.arrow_back, color: topBarFg),
-          onPressed: () {
-            if (context.canPop()) {
-              context.pop();
-            } else {
-              context.go('/hub/home');
-            }
-          },
+          onPressed: () => OneovaNav.back(context),
         ),
       ),
       body: Column(

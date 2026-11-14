@@ -1,4 +1,5 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
+import '../../shared/navigation/oneova_nav.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -96,13 +97,7 @@ class _ShopsFeedScreenState extends ConsumerState<ShopsFeedScreen> {
     await _start();
   }
 
-  void _close() {
-    if (context.canPop()) {
-      context.pop();
-    } else {
-      context.go('/hub/home');
-    }
-  }
+  void _close() => OneovaNav.back(context);
 
   @override
   Widget build(BuildContext context) {

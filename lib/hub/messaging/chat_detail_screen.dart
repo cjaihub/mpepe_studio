@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../../shared/navigation/oneova_nav.dart';
 import '../../inbox/calling/call_launcher.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -1558,13 +1559,7 @@ class _ChatDetailScreenState extends ConsumerState<ChatDetailScreen> with Single
       leading: IconButton(
         icon: Icon(Icons.arrow_back_ios_new_rounded, color: fg, size: 19),
         tooltip: 'Back',
-        onPressed: () {
-          if (context.canPop()) {
-            context.pop();
-          } else {
-            context.go('/hub/messages');
-          }
-        },
+        onPressed: () => OneovaNav.back(context, fallback: '/hub/messages'),
       ),
       title: MediaQuery.withClampedTextScaling(
         maxScaleFactor: 1.1,

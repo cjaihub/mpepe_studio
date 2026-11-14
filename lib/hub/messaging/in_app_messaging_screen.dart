@@ -1,4 +1,5 @@
 import 'package:oneova/shared/widgets/smooth_load.dart';
+import '../../shared/navigation/oneova_nav.dart';
 import 'package:flutter/material.dart';
 import '../../shared/widgets/follow_button.dart';
 import '../../inbox/calling/call_launcher.dart';
@@ -588,13 +589,7 @@ class _InAppMessagingScreenState extends ConsumerState<InAppMessagingScreen> {
         color: AppColors.brandBlue,
         child: Row(
           children: [
-            action(Icons.arrow_back_ios_new_rounded, 'Back', () {
-              if (Navigator.of(context).canPop()) {
-                Navigator.of(context).pop();
-              } else {
-                context.go('/hub/home');
-              }
-            }),
+            action(Icons.arrow_back_ios_new_rounded, 'Back', () => OneovaNav.back(context)),
             Expanded(
               child: Row(
                 children: [

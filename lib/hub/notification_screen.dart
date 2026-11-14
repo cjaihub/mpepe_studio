@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
+import '../shared/navigation/oneova_nav.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:go_router/go_router.dart';
 import '../../backend/notification_service.dart';
 import '../../shared/theme/app_theme.dart';
 import '../../shared/widgets/studio_background.dart';
@@ -56,13 +56,7 @@ class NotificationScreen extends ConsumerWidget {
             children: [
               IconButton(
                 icon: Icon(Icons.arrow_back, color: Theme.of(context).colorScheme.onSurface),
-                onPressed: () {
-                  if (context.canPop()) {
-                    context.pop();
-                  } else {
-                    context.go('/hub/home');
-                  }
-                },
+                onPressed: () => OneovaNav.back(context),
               ),
               Text('Alerts & Notifications', style: AppTheme.h1Style.copyWith(fontSize: 20)),
             ],
