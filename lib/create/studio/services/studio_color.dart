@@ -90,6 +90,35 @@ class StudioColor {
 
   static StudioFilter filterById(String id) => filters.firstWhere((f) => f.id == id, orElse: () => filters.first);
 
+  static List<double> _hueRotate(double turns) {
+    final rad = turns * math.pi;
+    final cosA = math.cos(rad);
+    final sinA = math.sin(rad);
+    const lr = 0.2126, lg = 0.7152, lb = 0.0722;
+    return [
+      lr + cosA * (1 - lr) + sinA * (-lr),
+      lg + cosA * (-lg) + sinA * (-lg),
+      lb + cosA * (-lb) + sinA * (1 - lb),
+      0,
+      0,
+      lr + cosA * (-lr) + sinA * 0.143,
+      lg + cosA * (1 - lg) + sinA * 0.140,
+      lb + cosA * (-lb) + sinA * (-0.283),
+      0,
+      0,
+      lr + cosA * (-lr) + sinA * (-(1 - lr)),
+      lg + cosA * (-lg) + sinA * lg,
+      lb + cosA * (1 - lb) + sinA * lb,
+      0,
+      0,
+      0,
+      0,
+      0,
+      1,
+      0,
+    ];
+  }
+
   static List<double> adjustMatrix(StudioAdjust a) {
     final steps = <List<double>>[];
     if (a.exposure != 0) {
@@ -101,9 +130,44 @@ class StudioColor {
       steps.add(_scaleOffset(1, 1, 1, o, o, o));
     }
     if (a.contrast != 0) steps.add(_contrast(1 + a.contrast * 0.6));
+    if (a.clarity != 0) {
+      steps.add(_contrast(1 + a.clarity * 0.35));
+      steps.add(_saturation(1 + a.clarity * 0.08));
+    }
+    if (a.dehaze != 0) {
+      final d = a.dehaze.clamp(0.0, 1.0);
+      steps.add(_contrast(1 + d * 0.42));
+      steps.add(_scaleOffset(1, 1, 1, -d * 18, -d * 18, -d * 16));
+      steps.add(_saturation(1 + d * 0.15));
+    }
     if (a.saturation != 0) steps.add(_saturation(1 + a.saturation));
+    if (a.hue != 0) steps.add(_hueRotate(a.hue));
     if (a.warmth != 0) steps.add(_scaleOffset(1, 1, 1, a.warmth * 24, a.warmth * 4, -a.warmth * 24));
     if (a.tint != 0) steps.add(_scaleOffset(1, 1, 1, a.tint * 14, -a.tint * 18, a.tint * 14));
+    if (a.liftR != 0 || a.liftG != 0 || a.liftB != 0 || a.gammaR != 0 || a.gammaG != 0 || a.gammaB != 0 || a.gainR != 0 || a.gainG != 0 || a.gainB != 0) {
+      final rs = (1 + a.gainR * 0.35 + a.gammaR * 0.22).clamp(0.2, 2.2);
+      final gs = (1 + a.gainG * 0.35 + a.gammaG * 0.22).clamp(0.2, 2.2);
+      final bs = (1 + a.gainB * 0.35 + a.gammaB * 0.22).clamp(0.2, 2.2);
+      final ro = (a.liftR * 38 + a.gammaR * 18).clamp(-80.0, 80.0);
+      final go = (a.liftG * 38 + a.gammaG * 18).clamp(-80.0, 80.0);
+      final bo = (a.liftB * 38 + a.gammaB * 18).clamp(-80.0, 80.0);
+      steps.add(_scaleOffset(rs, gs, bs, ro, go, bo));
+    }
+    if (a.curvePreset != 0) {
+      switch (a.curvePreset.round()) {
+        case 1: // S-Curve Contrast
+          steps.add(_contrast(1.24));
+          steps.add(_scaleOffset(1, 1, 1, -4, -4, -4));
+        case 2: // Matte Film Lift
+          steps.add(_contrast(0.88));
+          steps.add(_scaleOffset(1, 1, 1, 20, 19, 22));
+        case 3: // Crisp Highlights
+          steps.add(_scaleOffset(1.12, 1.12, 1.12, -8, -8, -8));
+        case 4: // Crushed Noir
+          steps.add(_contrast(1.36));
+          steps.add(_scaleOffset(1, 1, 1, -16, -16, -16));
+      }
+    }
     if (a.fade != 0) {
       final f = a.fade.clamp(0.0, 1.0);
       steps.add(_contrast(1 - f * 0.35));

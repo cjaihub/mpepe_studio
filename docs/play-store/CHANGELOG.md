@@ -1,5 +1,14 @@
 # Oneova release notes
 
+## 1.0.0 (39) — 2026-11-14 · Internal Testing Release
+
+**Live face check, safer account and smoother Back**
+- **Live face check** for ID verification: a live mesh on your face, a guide that tells you what to fix (light, distance, one face only), and a few quick actions (turn, blink or smile) to prove it's really you.
+- **Upload your ID from your phone** or take a photo; sending asks for your fingerprint or face.
+- **One ID, one person**: an ID can verify one account; link your own other accounts in Oneova ID → Linked accounts.
+- **Back goes back one step** on every screen instead of jumping to the home feed.
+- **Security fixes**: safer computer pairing, safer app-update links, private projects and calendar events.
+
 ## 1.0.0 (37) — 2026-11-14 · Internal Testing Release
 
 **Framed Reels & Full-Screen Mode**

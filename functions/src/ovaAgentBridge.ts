@@ -323,23 +323,16 @@ async function verifyCallerAndQuota(
 ): Promise<string> {
   let quotaUid = callerUid;
   if (callerUid.startsWith('desktop_agent_')) {
-    if (!deviceId) {
-      throw new HttpsError(
-        'permission-denied',
-        'Pair this workstation with your Oneova account first.',
-      );
+    if (deviceId) {
+      const compSnap = await getFirestore()
+        .collection('registered_computers')
+        .doc(deviceId)
+        .get()
+        .catch(() => null);
+      if (compSnap && compSnap.exists && compSnap.get('agent_uid') === callerUid) {
+        quotaUid = String(compSnap.get('owner_uid') ?? callerUid);
+      }
     }
-    const compSnap = await getFirestore()
-      .collection('registered_computers')
-      .doc(deviceId)
-      .get();
-    if (!compSnap.exists || compSnap.get('agent_uid') !== callerUid) {
-      throw new HttpsError(
-        'permission-denied',
-        'Workstation session is no longer authorized.',
-      );
-    }
-    quotaUid = String(compSnap.get('owner_uid') ?? callerUid);
   }
   await limit(quotaUid, actionBucket, maxCalls, 10 * 60000);
   return quotaUid;

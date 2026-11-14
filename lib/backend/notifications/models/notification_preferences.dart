@@ -42,6 +42,12 @@ class NotificationPreferences {
   // Per-category overrides, keyed by AppNotificationCategory.name
   final Map<String, bool> categoryOverrides;
 
+  /// Block other apps' notifications from popping up inside Oneova (and auto-dismiss them).
+  final bool blockExternalAppNotifications;
+
+  /// Specific external app package names blocked by the user (e.g. 'com.whatsapp').
+  final List<String> blockedExternalPackages;
+
   NotificationPreferences({
     this.pushEnabled = true,
     this.emailEnabled = true,
@@ -58,6 +64,8 @@ class NotificationPreferences {
     this.quietHoursStart = 22,
     this.quietHoursEnd = 8,
     this.categoryOverrides = const {},
+    this.blockExternalAppNotifications = false,
+    this.blockedExternalPackages = const [],
   });
 
   factory NotificationPreferences.fromFirestore(DocumentSnapshot doc) {
@@ -68,6 +76,10 @@ class NotificationPreferences {
   /// From the `notifications` category of `user_settings/{uid}`.
   factory NotificationPreferences.fromMap(Map<String, dynamic> data) {
     final tone = data['ringtone'] as String?;
+    final rawBlocked = data['blockedExternalPackages'];
+    final blockedList = rawBlocked is Iterable
+        ? rawBlocked.map((e) => e.toString()).where((s) => s.isNotEmpty).toList()
+        : const <String>[];
     return NotificationPreferences(
       pushEnabled: data['pushEnabled'] ?? true,
       emailEnabled: data['emailEnabled'] ?? true,
@@ -84,6 +96,8 @@ class NotificationPreferences {
       quietHoursStart: data['quietHoursStart'] ?? 22,
       quietHoursEnd: data['quietHoursEnd'] ?? 8,
       categoryOverrides: Map<String, bool>.from(data['categoryOverrides'] ?? {}),
+      blockExternalAppNotifications: data['blockExternalAppNotifications'] == true,
+      blockedExternalPackages: blockedList,
     );
   }
 
@@ -104,6 +118,8 @@ class NotificationPreferences {
       'quietHoursStart': quietHoursStart,
       'quietHoursEnd': quietHoursEnd,
       'categoryOverrides': categoryOverrides,
+      'blockExternalAppNotifications': blockExternalAppNotifications,
+      'blockedExternalPackages': blockedExternalPackages,
     };
   }
 
@@ -123,6 +139,8 @@ class NotificationPreferences {
     int? quietHoursStart,
     int? quietHoursEnd,
     Map<String, bool>? categoryOverrides,
+    bool? blockExternalAppNotifications,
+    List<String>? blockedExternalPackages,
   }) {
     return NotificationPreferences(
       pushEnabled: pushEnabled ?? this.pushEnabled,
@@ -140,7 +158,17 @@ class NotificationPreferences {
       quietHoursStart: quietHoursStart ?? this.quietHoursStart,
       quietHoursEnd: quietHoursEnd ?? this.quietHoursEnd,
       categoryOverrides: categoryOverrides ?? this.categoryOverrides,
+      blockExternalAppNotifications:
+          blockExternalAppNotifications ?? this.blockExternalAppNotifications,
+      blockedExternalPackages:
+          blockedExternalPackages ?? this.blockedExternalPackages,
     );
+  }
+
+  bool isExternalPackageBlocked(String packageName) {
+    if (blockExternalAppNotifications) return true;
+    final clean = packageName.trim().toLowerCase();
+    return blockedExternalPackages.any((p) => p.trim().toLowerCase() == clean);
   }
 
   /// Whether a category is switched on (everything defaults to on).

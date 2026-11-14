@@ -385,6 +385,15 @@ class _MainSettingsScreenState extends ConsumerState<MainSettingsScreen> {
                       ),
                       _buildSettingsTile(
                         context,
+                        icon: Icons.record_voice_over_rounded,
+                        title: 'My voice',
+                        subtitle: 'Others hear you in their language, in your own voice',
+                        route: '/settings/my-voice',
+                        categoryKey: 'calls',
+                        healthReport: healthReport,
+                      ),
+                      _buildSettingsTile(
+                        context,
                         icon: Icons.sd_storage_rounded,
                         title: 'Storage & Data',
                         subtitle: 'Media auto-download & gallery saving',

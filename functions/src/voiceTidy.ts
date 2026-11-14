@@ -22,7 +22,7 @@ const SYSTEM = `You clean up dictated text. Rules:
 - Keep names, numbers, emojis, @handles, #tags and URLs exactly.
 - Output only the cleaned text, nothing else.`;
 
-export const voiceTidy = onCall({ memory: '256MiB', timeoutSeconds: 20 }, async (request) => {
+export const voiceTidy = onCall({ memory: '512MiB', timeoutSeconds: 20 }, async (request) => {
   if (!request.auth) throw new HttpsError('unauthenticated', 'Sign in first.');
   const text = String((request.data as Record<string, unknown>)?.text ?? '').trim();
   if (!text) return { text: '' };

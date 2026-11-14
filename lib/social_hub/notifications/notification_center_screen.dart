@@ -204,6 +204,7 @@ class _NotificationCenterScreenState extends ConsumerState<NotificationCenterScr
         physics: const AlwaysScrollableScrollPhysics(),
         slivers: [
           const SliverToBoxAdapter(child: _LiveNowStrip()),
+          const SliverToBoxAdapter(child: _OtherAppsShieldBar()),
           SliverToBoxAdapter(
             child: _FilterBar(
               selected: _filter,
@@ -449,6 +450,100 @@ class _FilterBar extends StatelessWidget {
   }
 }
 
+class _OtherAppsShieldBar extends ConsumerWidget {
+  const _OtherAppsShieldBar();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final prefs = ref.watch(notificationPreferencesProvider).value;
+    final blockedAll = prefs?.blockExternalAppNotifications ?? false;
+    final blockedCount = prefs?.blockedExternalPackages.length ?? 0;
+
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 10, 16, 2),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+        decoration: BoxDecoration(
+          color: blockedAll
+              ? AppColors.brandPink.withValues(alpha: 0.10)
+              : context.surface,
+          borderRadius: BorderRadius.circular(AppRadius.md),
+          border: Border.all(
+            color: blockedAll
+                ? AppColors.brandPink.withValues(alpha: 0.45)
+                : context.border,
+            width: 1.0,
+          ),
+        ),
+        child: Row(
+          children: [
+            Container(
+              width: 30,
+              height: 30,
+              decoration: BoxDecoration(
+                color: (blockedAll ? AppColors.brandPink : AppColors.brandBlue)
+                    .withValues(alpha: 0.14),
+                borderRadius: BorderRadius.circular(AppRadius.sm),
+              ),
+              child: Icon(
+                blockedAll ? Icons.notifications_off_rounded : Icons.shield_outlined,
+                size: 16,
+                color: blockedAll ? AppColors.brandPink : AppColors.brandBlue,
+              ),
+            ),
+            const SizedBox(width: 10),
+            Expanded(
+              child: GestureDetector(
+                behavior: HitTestBehavior.opaque,
+                onTap: () => context.push('/settings/notifications'),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      blockedAll
+                          ? 'Other App Notifications Blocked'
+                          : 'Block Other App Notifications',
+                      style: GoogleFonts.inter(
+                        fontSize: 12.5,
+                        fontWeight: FontWeight.w700,
+                        color: context.textPrimary,
+                      ),
+                    ),
+                    Text(
+                      blockedAll
+                          ? 'External app pop-ups are muted while you use Oneova'
+                          : (blockedCount > 0
+                              ? '$blockedCount external app${blockedCount == 1 ? '' : 's'} blocked · Tap to manage'
+                              : 'Keep other phone apps from interrupting your reels & studio'),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: GoogleFonts.inter(
+                        fontSize: 11,
+                        color: context.textSecondary,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+            Switch.adaptive(
+              value: blockedAll,
+              activeThumbColor: Colors.white,
+              activeTrackColor: AppColors.brandPink,
+              onChanged: (v) {
+                HapticFeedback.selectionClick();
+                ref.read(notificationServiceProvider).updatePreferenceFields({
+                  'blockExternalAppNotifications': v,
+                });
+              },
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
 class _SectionHeader extends StatelessWidget {
   final String title;
   final int count;
@@ -516,25 +611,47 @@ class _SectionHeader extends StatelessWidget {
   }
 }
 
-class _NotificationTile extends ConsumerWidget {
+class _NotificationTile extends ConsumerStatefulWidget {
   final AppNotification notification;
   const _NotificationTile({super.key, required this.notification});
 
-  void _open(BuildContext context, WidgetRef ref) {
+  @override
+  ConsumerState<_NotificationTile> createState() => _NotificationTileState();
+}
+
+class _NotificationTileState extends ConsumerState<_NotificationTile> {
+  bool _highlighting = false;
+
+  Future<void> _open(BuildContext context) async {
     HapticFeedback.lightImpact();
-    if (!notification.isRead) ref.read(notificationServiceProvider).markAsRead(notification.id);
-    if (notification.category == AppNotificationCategory.appUpdate) {
+    setState(() => _highlighting = true);
+    final n = widget.notification;
+    if (!n.isRead) {
+      ref.read(notificationServiceProvider).markAsRead(n.id);
+    }
+    if (n.category == AppNotificationCategory.appUpdate) {
       PlayUpdateService.instance.updateNow();
+      if (mounted) setState(() => _highlighting = false);
       return;
     }
-    final route = notification.route;
-    if (route != null) context.push(route);
+    final route = n.route;
+    await Future.delayed(const Duration(milliseconds: 140));
+    if (!context.mounted) return;
+    setState(() => _highlighting = false);
+    if (route != null && route.isNotEmpty) {
+      if (route.startsWith('/hub/home')) {
+        context.go(route);
+      } else {
+        context.push(route);
+      }
+    }
   }
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final n = notification;
+  Widget build(BuildContext context) {
+    final n = widget.notification;
     final service = ref.read(notificationServiceProvider);
+    final style = _categoryStyle(n.category);
 
     return Dismissible(
       key: ValueKey('dismiss_${n.id}'),
@@ -561,11 +678,25 @@ class _NotificationTile extends ConsumerWidget {
       },
       onDismissed: (_) => service.deleteNotification(n.id),
       child: InkWell(
-        onTap: () => _open(context, ref),
+        onTap: () => _open(context),
         child: AnimatedContainer(
           duration: const Duration(milliseconds: 220),
           padding: const EdgeInsets.fromLTRB(16, 10, 12, 10),
-          color: n.isRead ? Colors.transparent : AppColors.brandBlue.withValues(alpha: context.isDark ? 0.10 : 0.05),
+          decoration: BoxDecoration(
+            color: _highlighting
+                ? AppColors.brandPink.withValues(alpha: context.isDark ? 0.22 : 0.14)
+                : (n.isRead
+                    ? Colors.transparent
+                    : AppColors.brandBlue.withValues(alpha: context.isDark ? 0.10 : 0.05)),
+            border: Border(
+              left: BorderSide(
+                color: _highlighting
+                    ? AppColors.brandPink
+                    : (!n.isRead ? style.color : Colors.transparent),
+                width: (_highlighting || !n.isRead) ? 3.0 : 0.0,
+              ),
+            ),
+          ),
           child: Row(
             crossAxisAlignment: CrossAxisAlignment.center,
             children: [
@@ -591,18 +722,33 @@ class _NotificationTile extends ConsumerWidget {
                       ),
                     ],
                     const SizedBox(height: 3),
-                    Text(
-                      timeago.format(n.createdAt, locale: 'en_short'),
-                      style: GoogleFonts.inter(fontSize: 10.5, fontWeight: FontWeight.w600, color: context.textMuted),
+                    Row(
+                      children: [
+                        Text(
+                          timeago.format(n.createdAt, locale: 'en_short'),
+                          style: GoogleFonts.inter(fontSize: 10.5, fontWeight: FontWeight.w600, color: context.textMuted),
+                        ),
+                        if (n.route != null) ...[
+                          const SizedBox(width: 8),
+                          Icon(Icons.open_in_new_rounded, size: 10, color: style.color.withValues(alpha: 0.85)),
+                          const SizedBox(width: 3),
+                          Text(
+                            'Tap to view source',
+                            style: GoogleFonts.inter(fontSize: 10, fontWeight: FontWeight.w700, color: style.color.withValues(alpha: 0.85)),
+                          ),
+                        ],
+                      ],
                     ),
                   ],
                 ),
               ),
               const SizedBox(width: 10),
-              _Trailing(notification: n, onOpen: () => _open(context, ref)),
+              _Trailing(notification: n, onOpen: () => _open(context)),
               if (!n.isRead) ...[
                 const SizedBox(width: 8),
-                Container(width: 7, height: 7, decoration: const BoxDecoration(color: AppColors.brandPink, shape: BoxShape.circle)),
+                Container(width: 7, height: 7, decoration: const BoxDecoration(color: AppColors.brandPink, shape: BoxShape.circle))
+                    .animate(onPlay: (c) => c.repeat(reverse: true))
+                    .scaleXY(begin: 0.85, end: 1.25, duration: 900.ms),
               ],
             ],
           ),

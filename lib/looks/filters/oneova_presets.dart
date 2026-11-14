@@ -36,7 +36,9 @@ class OneovaPreset {
   StudioAdjust applyTo(StudioAdjust base) {
     var a = base;
     for (final k in StudioAdjust.keys) {
-      a = a.withValue(k, (adjust[k] ?? 0).clamp(-1.0, 1.0).toDouble());
+      final raw = adjust[k] ?? 0;
+      final clamped = k == 'curvePreset' ? raw.clamp(0.0, 4.0) : raw.clamp(-1.0, 1.0);
+      a = a.withValue(k, clamped.toDouble());
     }
     return a;
   }

@@ -120,22 +120,68 @@ class AppNotification {
 
   bool get isLive => category == AppNotificationCategory.live;
 
-  /// Where tapping the notification should take the user.
+  /// Where tapping the notification should take the user (exact source with highlight).
   String? get route {
-    if (deepLink != null && deepLink!.isNotEmpty) return deepLink;
     final p = payload ?? const {};
-    final chatId = (p['chatId'] as String?) ??
+    final commentId = (p['commentId'] ?? p['replyId']) as String?;
+    final wantsCommentSheet = category == AppNotificationCategory.comment ||
+        category == AppNotificationCategory.reply ||
+        (category == AppNotificationCategory.mention && (p['postId'] != null || p['contentId'] != null)) ||
+        (commentId != null && commentId.isNotEmpty);
+
+    String buildReelRoute(String postId) {
+      final params = <String, String>{
+        'v': postId,
+        'highlight': '1',
+        if (wantsCommentSheet) 'openComments': '1',
+        if (commentId != null && commentId.isNotEmpty) 'commentId': commentId,
+      };
+      final query = params.entries
+          .map((e) => '${Uri.encodeQueryComponent(e.key)}=${Uri.encodeQueryComponent(e.value)}')
+          .join('&');
+      return '/hub/home?$query';
+    }
+
+    if (liveStreamId != null && liveStreamId!.isNotEmpty) {
+      return '/live/viewer/$liveStreamId';
+    }
+
+    final postId = (p['postId'] ?? p['contentId'] ?? p['videoId'] ?? p['reelId']) as String? ??
+        (groupId?.startsWith('post_') == true ? groupId!.substring(5) : null) ??
+        (groupId?.startsWith('reel_') == true ? groupId!.substring(5) : null);
+    if (postId != null && postId.isNotEmpty) {
+      return buildReelRoute(postId);
+    }
+
+    final chatId = (p['chatId'] ?? p['conversationId']) as String? ??
         (groupId?.startsWith('chat_') == true ? groupId!.substring(5) : null);
     if (chatId != null && chatId.isNotEmpty) return '/hub/messages/$chatId';
+
     final callId = p['callId'] as String?;
     if (callId != null && callId.isNotEmpty) return '/call/active?callId=$callId';
-    final postId = (p['postId'] ?? p['contentId']) as String?;
-    if (postId != null && postId.isNotEmpty) return '/hub/home?v=$postId';
+
+    if (deepLink != null && deepLink!.isNotEmpty) {
+      final dl = deepLink!.trim();
+      if (dl.startsWith('/post/') || dl.startsWith('/reel/') || dl.startsWith('/video/')) {
+        final seg = dl.split('/').where((s) => s.isNotEmpty).toList();
+        if (seg.length >= 2) return buildReelRoute(seg.last);
+      }
+      if (dl.startsWith('/chat/')) {
+        final seg = dl.split('/').where((s) => s.isNotEmpty).toList();
+        if (seg.length >= 2) return '/hub/messages/${seg.last}';
+      }
+      if (dl.startsWith('/hub/home?v=')) {
+        final uri = Uri.tryParse(dl);
+        final v = uri?.queryParameters['v'];
+        if (v != null && v.isNotEmpty) return buildReelRoute(v);
+      }
+      return dl;
+    }
+
     final r = p['route'] as String?;
     if (r != null && r.isNotEmpty) return r;
-    if (actorId != null && actorId!.isNotEmpty &&
-        (category == AppNotificationCategory.newFollower ||
-            category == AppNotificationCategory.followRequest)) {
+
+    if (actorId != null && actorId!.isNotEmpty && actorId != 'oneova_ai') {
       return '/profile/$actorId';
     }
     return null;

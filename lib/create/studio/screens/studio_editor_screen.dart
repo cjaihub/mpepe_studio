@@ -256,7 +256,10 @@ class _StudioEditorScreenState extends ConsumerState<StudioEditorScreen> {
     live ? _live(_p.copyWith(clips: clips)) : _set(_p.copyWith(clips: clips));
   }
 
-  void _replaceText(StudioText t) => _set(_p.copyWith(texts: [for (final x in _p.texts) x.id == t.id ? t : x]));
+  void _replaceText(StudioText t, {bool live = false}) {
+    final list = [for (final x in _p.texts) x.id == t.id ? t : x];
+    live ? _live(_p.copyWith(texts: list)) : _set(_p.copyWith(texts: list));
+  }
 
   void _replaceEffect(StudioEffect e, {bool live = false}) {
     final list = [for (final x in _p.effects) x.id == e.id ? e : x];
@@ -268,14 +271,97 @@ class _StudioEditorScreenState extends ConsumerState<StudioEditorScreen> {
     live ? _live(_p.copyWith(audios: audios)) : _set(_p.copyWith(audios: audios));
   }
 
-  void _openClipPanel(_Panel panel) {
+  int _adjustInitialTab = 0;
+
+  void _openClipPanel(_Panel panel, {int adjustTab = 0}) {
     final c = _clip;
     if (c == null) return;
     _pb.pause();
     setState(() {
       _clipId = c.id;
+      _adjustInitialTab = adjustTab;
       _panel = panel;
     });
+  }
+
+  void _alignSelectedToPlayhead() {
+    final pos = _pb.posMs;
+    final total = math.max<int>(500, _p.durationMs);
+    if (_text != null) {
+      final t = _text!;
+      final dur = math.max<int>(200, t.endMs - t.startMs);
+      final nextStart = pos.clamp(0, math.max<int>(0, total - dur)).toInt();
+      _replaceText(t.shifted(nextStart - t.startMs));
+      _toast('Aligned text layer to playhead');
+      return;
+    }
+    if (_overlay != null) {
+      final o = _overlay!;
+      _replaceOverlay(o.copyWith(offsetMs: pos.clamp(0, math.max<int>(0, total - 300)).toInt()));
+      _toast('Aligned overlay to playhead');
+      return;
+    }
+    if (_effect != null) {
+      final e = _effect!;
+      final dur = math.max<int>(200, e.endMs - e.startMs);
+      final nextStart = pos.clamp(0, math.max<int>(0, total - dur)).toInt();
+      _replaceEffect(e.copyWith(startMs: nextStart, endMs: nextStart + dur));
+      _toast('Aligned effect to playhead');
+      return;
+    }
+    if (_audio != null) {
+      final a = _audio!;
+      _replaceAudio(a.copyWith(offsetMs: pos.clamp(0, math.max<int>(0, total - 300)).toInt()));
+      _toast('Aligned audio track to playhead');
+      return;
+    }
+    final i = _clipIndex;
+    if (i >= 0) {
+      _pb.seek(_p.clipStartMs(i));
+      _toast('Playhead aligned to clip start');
+    }
+  }
+
+  void _fitSelectedDuration() {
+    final total = math.max(500, _p.durationMs);
+    if (_text != null) {
+      final t = _text!;
+      _replaceText(t.copyWith(startMs: 0, endMs: total));
+      _toast('Stretched text across full timeline');
+      return;
+    }
+    if (_overlay != null) {
+      final o = _overlay!;
+      if (o.isImage) {
+        _replaceOverlay(o.copyWith(offsetMs: 0, imageDurationMs: total));
+      } else {
+        _replaceOverlay(o.copyWith(offsetMs: 0, startMs: 0, endMs: math.min(o.sourceDurationMs, total)));
+      }
+      _toast('Stretched overlay to fit timeline');
+      return;
+    }
+    if (_effect != null) {
+      final e = _effect!;
+      _replaceEffect(e.copyWith(startMs: 0, endMs: total));
+      _toast('Stretched effect across full timeline');
+      return;
+    }
+    if (_audio != null) {
+      final a = _audio!;
+      _replaceAudio(a.copyWith(offsetMs: 0, startMs: 0, endMs: math.min(a.sourceDurationMs, total)));
+      _toast('Aligned audio to full timeline');
+      return;
+    }
+    final c = _clip;
+    if (c != null) {
+      if (c.isImage) {
+        _replaceClip(c.copyWith(imageDurationMs: 5000));
+        _toast('Set photo clip to 5.0s');
+      } else {
+        _replaceClip(c.copyWith(startMs: 0, endMs: c.sourceDurationMs, speed: 1.0));
+        _toast('Restored full source clip length (1.0x)');
+      }
+    }
   }
 
   void _toast(String msg) {
@@ -980,7 +1066,7 @@ class _StudioEditorScreenState extends ConsumerState<StudioEditorScreen> {
               if (!_fullscreen) _controls(),
               if (!_fullscreen && !_isPhoto)
                 SizedBox(
-                  height: 208,
+                  height: 224,
                   child: StudioTimeline(
                     playback: _pb,
                     project: _p,
@@ -1035,6 +1121,27 @@ class _StudioEditorScreenState extends ConsumerState<StudioEditorScreen> {
                       _set(_p.copyWith(clips: clips));
                       _toast('Clips reordered');
                     },
+                    onUpdateText: (t, {commit = false}) {
+                      _replaceText(t, live: !commit);
+                      if (commit) _commit();
+                    },
+                    onUpdateAudio: (a, {commit = false}) {
+                      _replaceAudio(a, live: !commit);
+                      if (commit) _commit();
+                    },
+                    onUpdateOverlay: (o, {commit = false}) {
+                      _replaceOverlay(o, live: !commit);
+                      if (commit) _commit();
+                    },
+                    onUpdateEffect: (e, {commit = false}) {
+                      _replaceEffect(e, live: !commit);
+                      if (commit) _commit();
+                    },
+                    onSplitAtPlayhead: _split,
+                    onAlignToPlayhead: _alignSelectedToPlayhead,
+                    onFitDuration: _fitSelectedDuration,
+                    onOpenAiGrade: () => _openClipPanel(_Panel.adjust, adjustTab: 3),
+                    onDuplicateSelected: _duplicate,
                   ),
                 ),
               if (!_fullscreen) _bottom(),
@@ -1424,12 +1531,21 @@ class _StudioEditorScreenState extends ConsumerState<StudioEditorScreen> {
       case _Panel.adjust:
         if (clip == null) return _mainBar();
         return StudioAdjustPanel(
+          key: ValueKey('adjust_${clip.id}_$_adjustInitialTab'),
           clip: clip,
+          initialTab: _adjustInitialTab,
           onLive: (c) => _replaceClip(c, live: true),
           onCommit: _commit,
           onApplyAll: () {
-            _set(_p.copyWith(clips: [for (final c in _p.clips) c.copyWith(adjust: clip.adjust)]));
-            _toast('Adjustments applied to all clips');
+            _set(_p.copyWith(clips: [
+              for (final c in _p.clips)
+                c.copyWith(
+                  adjust: clip.adjust,
+                  lookId: clip.lookId,
+                  lookIntensity: clip.lookIntensity,
+                ),
+            ]));
+            _toast('Color grade & adjustments applied to all clips');
           },
           onDone: () => setState(() => _panel = _isPhoto ? _Panel.none : _Panel.clip),
         );
@@ -1632,7 +1748,8 @@ class _StudioEditorScreenState extends ConsumerState<StudioEditorScreen> {
         StudioToolButton(icon: Icons.face_retouching_natural_rounded, label: 'Retouch', onTap: _openRetouch),
         StudioToolButton(icon: Icons.movie_filter_outlined, label: 'Looks', onTap: () => _openClipPanel(_Panel.looks)),
         StudioToolButton(icon: Icons.auto_awesome_outlined, label: 'Filters', onTap: () => _openClipPanel(_Panel.filters)),
-        StudioToolButton(icon: Icons.tune_rounded, label: 'Adjust', onTap: () => _openClipPanel(_Panel.adjust)),
+        StudioToolButton(icon: Icons.tune_rounded, label: 'Color Grade', onTap: () => _openClipPanel(_Panel.adjust)),
+        StudioToolButton(icon: Icons.auto_awesome_rounded, label: 'AI Grade', onTap: () => _openClipPanel(_Panel.adjust, adjustTab: 3)),
         StudioToolButton(icon: Icons.auto_fix_high_rounded, label: 'Effects', onTap: () => setState(() => _panel = _Panel.effects)),
         StudioToolButton(icon: Icons.title_rounded, label: 'Text', onTap: () => _addText()),
         StudioToolButton(icon: Icons.emoji_emotions_outlined, label: 'Stickers', onTap: _addSticker),
@@ -1650,7 +1767,8 @@ class _StudioEditorScreenState extends ConsumerState<StudioEditorScreen> {
       StudioToolButton(icon: Icons.face_retouching_natural_rounded, label: 'Retouch', onTap: _openRetouch),
       StudioToolButton(icon: Icons.movie_filter_outlined, label: 'Looks', onTap: () => _openClipPanel(_Panel.looks)),
       StudioToolButton(icon: Icons.auto_awesome_outlined, label: 'Filters', onTap: () => _openClipPanel(_Panel.filters)),
-      StudioToolButton(icon: Icons.tune_rounded, label: 'Adjust', onTap: () => _openClipPanel(_Panel.adjust)),
+      StudioToolButton(icon: Icons.tune_rounded, label: 'Color Grade', onTap: () => _openClipPanel(_Panel.adjust)),
+      StudioToolButton(icon: Icons.auto_awesome_rounded, label: 'AI Grade', onTap: () => _openClipPanel(_Panel.adjust, adjustTab: 3)),
       StudioToolButton(icon: Icons.picture_in_picture_alt_rounded, label: 'Overlay', onTap: _addOverlay),
       StudioToolButton(icon: Icons.emoji_emotions_outlined, label: 'Stickers', onTap: _addSticker),
       StudioToolButton(icon: Icons.aspect_ratio_rounded, label: 'Canvas', onTap: () => setState(() => _panel = _Panel.aspect)),
@@ -1670,7 +1788,22 @@ class _StudioEditorScreenState extends ConsumerState<StudioEditorScreen> {
       StudioToolButton(icon: Icons.face_retouching_natural_rounded, label: 'Retouch', onTap: _openRetouch),
       StudioToolButton(icon: Icons.movie_filter_outlined, label: 'Looks', onTap: () => setState(() => _panel = _Panel.looks)),
       StudioToolButton(icon: Icons.auto_awesome_outlined, label: 'Filters', onTap: () => setState(() => _panel = _Panel.filters)),
-      StudioToolButton(icon: Icons.tune_rounded, label: 'Adjust', onTap: () => setState(() => _panel = _Panel.adjust)),
+      StudioToolButton(
+        icon: Icons.tune_rounded,
+        label: 'Color Grade',
+        onTap: () => setState(() {
+          _adjustInitialTab = 0;
+          _panel = _Panel.adjust;
+        }),
+      ),
+      StudioToolButton(
+        icon: Icons.auto_awesome_rounded,
+        label: 'AI Grade',
+        onTap: () => setState(() {
+          _adjustInitialTab = 3;
+          _panel = _Panel.adjust;
+        }),
+      ),
       StudioToolButton(icon: Icons.copy_all_outlined, label: 'Duplicate', onTap: _duplicate),
       StudioToolButton(icon: Icons.swap_horiz_rounded, label: 'Replace', onTap: _replace),
       if (video) StudioToolButton(icon: Icons.pause_presentation_outlined, label: 'Freeze', onTap: _freeze),

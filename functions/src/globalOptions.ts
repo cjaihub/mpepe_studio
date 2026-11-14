@@ -10,4 +10,8 @@
  */
 import { setGlobalOptions } from 'firebase-functions/v2';
 
-setGlobalOptions({ enforceAppCheck: process.env.APP_CHECK_ENFORCE === 'true' });
+setGlobalOptions({
+  enforceAppCheck: process.env.APP_CHECK_ENFORCE === 'true',
+  memory: '512MiB',
+  secrets: ['OPENROUTER_API_KEY'],
+});

@@ -11,7 +11,8 @@ void main() {
   test('/hub/home renders ShortVideoFeedScreen', () {
     final i = router.indexOf("path: '/hub/home'");
     expect(i, greaterThan(0));
-    expect(router.substring(i, i + 250), contains('ShortVideoFeedScreen'));
+    // The home builder reads a few deep-link parameters (reel, comments) first.
+    expect(router.substring(i, i + 900), contains('ShortVideoFeedScreen'));
     expect(router, isNot(contains('HubHomeScreen()')));
   });
 

@@ -38,36 +38,51 @@ final _commentAuthorProvider = StreamProvider.autoDispose
     });
 
 class CommentBottomSheet extends ConsumerStatefulWidget {
+  /// Number of open comment bottom sheets (> 0 means bottom nav should hide).
+  static final ValueNotifier<int> openCount = ValueNotifier<int>(0);
+
   final Content content;
   final bool autoFocus;
+  final String? initialCommentId;
 
   const CommentBottomSheet({
     super.key,
     required this.content,
     this.autoFocus = false,
+    this.initialCommentId,
   });
 
-  static void show(
+  static Future<void> show(
     BuildContext context,
     Content content, {
     bool autoFocus = false,
-  }) {
-    showModalBottomSheet(
-      context: context,
-      backgroundColor: Colors.transparent,
-      barrierColor: Colors.black54,
-      isScrollControlled: true,
-      useSafeArea: true,
-      builder: (context) => Padding(
-        padding: EdgeInsets.only(
-          bottom: MediaQuery.of(context).viewInsets.bottom,
+    String? initialCommentId,
+  }) async {
+    openCount.value = openCount.value + 1;
+    try {
+      await showModalBottomSheet<void>(
+        context: context,
+        backgroundColor: Colors.transparent,
+        barrierColor: Colors.black54,
+        isScrollControlled: true,
+        useSafeArea: true,
+        builder: (context) => Padding(
+          padding: EdgeInsets.only(
+            bottom: MediaQuery.of(context).viewInsets.bottom,
+          ),
+          child: FractionallySizedBox(
+            heightFactor: 0.85,
+            child: CommentBottomSheet(
+              content: content,
+              autoFocus: autoFocus,
+              initialCommentId: initialCommentId,
+            ),
+          ),
         ),
-        child: FractionallySizedBox(
-          heightFactor: 0.85,
-          child: CommentBottomSheet(content: content, autoFocus: autoFocus),
-        ),
-      ),
-    );
+      );
+    } finally {
+      openCount.value = (openCount.value - 1).clamp(0, 99);
+    }
   }
 
   @override
@@ -120,12 +135,22 @@ class _CommentBottomSheetState extends ConsumerState<CommentBottomSheet> {
 
   /// Orders top-level comments with their replies (oldest first) directly underneath.
   /// Supports Top (by reactionCount) or Newest (by createdAt), pinned always on top.
-  static List<Comment> _threaded(List<Comment> comments, {bool newest = false}) {
+  static List<Comment> _threaded(
+    List<Comment> comments, {
+    bool newest = false,
+    String? highlightCommentId,
+  }) {
     final ids = comments.map((c) => c.id).toSet();
     final replies = <String, List<Comment>>{};
     final roots = <Comment>[];
+    String? highlightedRootId;
     for (final c in comments) {
       final parent = c.replyToId;
+      if (highlightCommentId != null && c.id == highlightCommentId) {
+        highlightedRootId = (parent != null && parent.isNotEmpty && ids.contains(parent))
+            ? parent
+            : c.id;
+      }
       if (parent != null && parent.isNotEmpty && ids.contains(parent)) {
         replies.putIfAbsent(parent, () => []).add(c);
       } else {
@@ -133,6 +158,10 @@ class _CommentBottomSheetState extends ConsumerState<CommentBottomSheet> {
       }
     }
     roots.sort((a, b) {
+      if (highlightedRootId != null) {
+        if (a.id == highlightedRootId && b.id != highlightedRootId) return -1;
+        if (b.id == highlightedRootId && a.id != highlightedRootId) return 1;
+      }
       if (a.isPinned != b.isPinned) return a.isPinned ? -1 : 1;
       if (newest) {
         return b.createdAt.compareTo(a.createdAt);
@@ -473,12 +502,19 @@ class _CommentBottomSheetState extends ConsumerState<CommentBottomSheet> {
                         ),
                       );
                     }
-                    final threaded = _threaded(comments, newest: _sortByNewest);
+                    final threaded = _threaded(
+                      comments,
+                      newest: _sortByNewest,
+                      highlightCommentId: widget.initialCommentId,
+                    );
                     return ListView.builder(
                       padding: const EdgeInsets.only(top: 8, bottom: 20),
                       itemCount: threaded.length,
                       itemBuilder: (context, index) {
                         final comment = threaded[index];
+                        final isHighlighted = widget.initialCommentId != null &&
+                            widget.initialCommentId!.isNotEmpty &&
+                            comment.id == widget.initialCommentId;
                         return _CommentTile(
                           key: ValueKey(comment.id),
                           comment: comment,
@@ -486,6 +522,7 @@ class _CommentBottomSheetState extends ConsumerState<CommentBottomSheet> {
                           isReply:
                               comment.replyToId != null &&
                               comment.replyToId!.isNotEmpty,
+                          highlighted: isHighlighted,
                           onReply: (username) => _startReply(comment, username),
                         );
                       },
@@ -884,6 +921,7 @@ class _CommentTile extends ConsumerWidget {
   final Comment comment;
   final String postAuthorId;
   final bool isReply;
+  final bool highlighted;
   final void Function(String username)? onReply;
 
   const _CommentTile({
@@ -891,6 +929,7 @@ class _CommentTile extends ConsumerWidget {
     required this.comment,
     required this.postAuthorId,
     this.isReply = false,
+    this.highlighted = false,
     this.onReply,
   });
 
@@ -982,11 +1021,39 @@ class _CommentTile extends ConsumerWidget {
       }
     }
 
-    return GestureDetector(
+    final tileContent = GestureDetector(
       behavior: HitTestBehavior.opaque,
       onLongPress: canDelete ? confirmDelete : null,
-      child: Padding(
-        padding: EdgeInsets.fromLTRB(isReply ? 58 : 16, 7, 16, 7),
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 350),
+        margin: highlighted
+            ? EdgeInsets.fromLTRB(isReply ? 48 : 8, 4, 8, 4)
+            : EdgeInsets.zero,
+        padding: highlighted
+            ? const EdgeInsets.symmetric(horizontal: 10, vertical: 8)
+            : EdgeInsets.fromLTRB(isReply ? 58 : 16, 7, 16, 7),
+        decoration: highlighted
+            ? BoxDecoration(
+                gradient: LinearGradient(
+                  colors: [
+                    AppColors.brandPink.withValues(alpha: 0.16),
+                    AppColors.brandBlue.withValues(alpha: 0.14),
+                  ],
+                ),
+                borderRadius: BorderRadius.circular(AppRadius.md),
+                border: Border.all(
+                  color: AppColors.brandPink.withValues(alpha: 0.65),
+                  width: 1.2,
+                ),
+                boxShadow: [
+                  BoxShadow(
+                    color: AppColors.brandPink.withValues(alpha: 0.22),
+                    blurRadius: 14,
+                    spreadRadius: -2,
+                  ),
+                ],
+              )
+            : null,
         child: Row(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
@@ -1230,6 +1297,14 @@ class _CommentTile extends ConsumerWidget {
         ),
       ),
     );
+    if (!highlighted) return tileContent;
+    return tileContent
+        .animate()
+        .fadeIn(duration: 240.ms)
+        .shimmer(
+          duration: 1400.ms,
+          color: AppColors.brandPink.withValues(alpha: 0.28),
+        );
   }
 }
 

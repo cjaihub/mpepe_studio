@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:io';
 
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -9,6 +10,7 @@ import 'package:flutter_markdown/flutter_markdown.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:google_fonts/google_fonts.dart';
+import 'package:image_picker/image_picker.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import '../../desktop_agent/macos_mouse_ffi.dart';
@@ -64,6 +66,9 @@ class _OvaClaudeAgentWorkspaceState
   final OvaWisprFlowService _wispr = OvaWisprFlowService();
 
   final Set<String> _attachedContexts = {};
+  bool _showAttachTray = false;
+  Uint8List? _attachedMediaThumb;
+  String? _attachedMediaName;
   List<double> _waveformBars = List<double>.filled(18, 0.08);
   Timer? _recordingTicker;
   int _recordingSeconds = 0;
@@ -2912,14 +2917,170 @@ class _OvaClaudeAgentWorkspaceState
                   ),
                 ],
 
-                // Context Attachment & Quick Input Chips Row
+                // Context Attachment & Quick Input Chips Row + AI Specialist Avatar & User Avatar
                 Row(
                   children: [
+                    // Universal + Attach Tools Button
+                    Tooltip(
+                      message: 'Attach tools, media, files & Mac context',
+                      child: InkWell(
+                        onTap: () {
+                          HapticFeedback.selectionClick();
+                          setState(() => _showAttachTray = !_showAttachTray);
+                        },
+                        borderRadius: BorderRadius.circular(AppRadius.full),
+                        child: Container(
+                          height: 26,
+                          padding: const EdgeInsets.symmetric(horizontal: 8),
+                          decoration: BoxDecoration(
+                            color: _showAttachTray
+                                ? AppColors.brandBlue.withValues(alpha: 0.16)
+                                : context.surface,
+                            borderRadius: BorderRadius.circular(AppRadius.full),
+                            border: Border.all(
+                              color: _showAttachTray
+                                  ? AppColors.brandBlue
+                                  : context.border,
+                              width: 1.0,
+                            ),
+                          ),
+                          child: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Icon(
+                                _showAttachTray
+                                    ? Icons.close_rounded
+                                    : Icons.add_circle_outline_rounded,
+                                size: 13.5,
+                                color: _showAttachTray
+                                    ? AppColors.brandBlue
+                                    : context.textPrimary,
+                              ),
+                              const SizedBox(width: 4),
+                              Text(
+                                'Attach',
+                                style: GoogleFonts.inter(
+                                  fontSize: 10.5,
+                                  fontWeight: FontWeight.w700,
+                                  color: _showAttachTray
+                                      ? AppColors.brandBlue
+                                      : context.textPrimary,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 6),
                     Expanded(
                       child: SingleChildScrollView(
                         scrollDirection: Axis.horizontal,
                         child: Row(
                           children: [
+                            // Animated AI Specialist Avatar Pill with quick mode switcher
+                            PopupMenuButton<OvaAgentMode>(
+                              tooltip: 'Switch AI Specialist Avatar',
+                              color: context.surface,
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(AppRadius.md),
+                                side: BorderSide(color: context.border, width: 1.0),
+                              ),
+                              onSelected: (m) {
+                                HapticFeedback.selectionClick();
+                                notifier.setAgentMode(m);
+                              },
+                              itemBuilder: (ctx) => [
+                                for (final m in OvaAgentMode.values)
+                                  PopupMenuItem(
+                                    value: m,
+                                    height: 38,
+                                    child: Row(
+                                      children: [
+                                        Icon(
+                                          m.icon,
+                                          size: 15,
+                                          color: state.selectedMode == m
+                                              ? AppColors.brandBlue
+                                              : ctx.textSecondary,
+                                        ),
+                                        const SizedBox(width: 8),
+                                        Expanded(
+                                          child: Text(
+                                            m.label,
+                                            style: GoogleFonts.inter(
+                                              fontSize: 12,
+                                              fontWeight: state.selectedMode == m
+                                                  ? FontWeight.w700
+                                                  : FontWeight.w500,
+                                              color: ctx.textPrimary,
+                                            ),
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                              ],
+                              child: Container(
+                                height: 26,
+                                padding: const EdgeInsets.fromLTRB(3, 2, 8, 2),
+                                decoration: BoxDecoration(
+                                  color: AppColors.brandBlue.withValues(
+                                    alpha: context.isDark ? 0.18 : 0.10,
+                                  ),
+                                  borderRadius:
+                                      BorderRadius.circular(AppRadius.full),
+                                  border: Border.all(
+                                    color: busy
+                                        ? AppColors.brandPink
+                                        : AppColors.brandBlue
+                                            .withValues(alpha: 0.45),
+                                    width: 1.0,
+                                  ),
+                                ),
+                                child: Row(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    Container(
+                                      width: 20,
+                                      height: 20,
+                                      decoration: const BoxDecoration(
+                                        shape: BoxShape.circle,
+                                        gradient: LinearGradient(
+                                          colors: [
+                                            AppColors.brandBlue,
+                                            AppColors.brandPink,
+                                          ],
+                                          begin: Alignment.topLeft,
+                                          end: Alignment.bottomRight,
+                                        ),
+                                      ),
+                                      child: Icon(
+                                        state.selectedMode.icon,
+                                        size: 11,
+                                        color: AppColors.brandWhite,
+                                      ),
+                                    ),
+                                    const SizedBox(width: 5),
+                                    Text(
+                                      state.selectedMode.label,
+                                      style: GoogleFonts.inter(
+                                        fontSize: 10.5,
+                                        fontWeight: FontWeight.w700,
+                                        color: context.textPrimary,
+                                      ),
+                                    ),
+                                    const SizedBox(width: 2),
+                                    Icon(
+                                      Icons.keyboard_arrow_down_rounded,
+                                      size: 13,
+                                      color: context.textSecondary,
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ),
+                            const SizedBox(width: 5),
                             _buildWebSearchPill(context, state),
                             const SizedBox(width: 5),
                             _ContextTogglePill(
@@ -2942,22 +3103,7 @@ class _OvaClaudeAgentWorkspaceState
                               icon: Icons.content_paste_rounded,
                               label: '+ Clipboard',
                               active: false,
-                              onTap: () async {
-                                String txt = '';
-                                if (_isDesktop && Platform.isMacOS) {
-                                  txt = (await MacOSMouseController.readClipboard()).trim();
-                                } else {
-                                  final clip =
-                                      await Clipboard.getData(Clipboard.kTextPlain);
-                                  txt = clip?.text?.trim() ?? '';
-                                }
-                                if (txt.isEmpty) return;
-                                final snippet =
-                                    txt.length > 80 ? '${txt.substring(0, 80)}…' : txt;
-                                setState(() {
-                                  _attachedContexts.add('Clipboard: $snippet');
-                                });
-                              },
+                              onTap: _attachClipboardContext,
                             ),
                             for (final custom in _attachedContexts.where((c) =>
                                 c != 'Active Window' && c != 'Workstation Host')) ...[
@@ -2976,6 +3122,8 @@ class _OvaClaudeAgentWorkspaceState
                         ),
                       ),
                     ),
+                    const SizedBox(width: 6),
+                    _buildUserAvatarBadge(context),
                     const SizedBox(width: 6),
                     Tooltip(
                       message: _composerExpanded ? 'Collapse composer' : 'Expand composer',
@@ -3001,6 +3149,63 @@ class _OvaClaudeAgentWorkspaceState
                     ),
                   ],
                 ),
+                if (_showAttachTray) ...[
+                  const SizedBox(height: 6),
+                  _buildAttachToolsTray(context, state),
+                ],
+                if (_attachedMediaThumb != null) ...[
+                  const SizedBox(height: 6),
+                  Align(
+                    alignment: Alignment.centerLeft,
+                    child: Container(
+                      padding: const EdgeInsets.fromLTRB(6, 4, 4, 4),
+                      decoration: BoxDecoration(
+                        color: context.surface,
+                        borderRadius: BorderRadius.circular(AppRadius.sm),
+                        border: Border.all(color: context.border, width: 1.0),
+                      ),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          ClipRRect(
+                            borderRadius: BorderRadius.circular(AppRadius.xs),
+                            child: Image.memory(
+                              _attachedMediaThumb!,
+                              width: 28,
+                              height: 28,
+                              fit: BoxFit.cover,
+                            ),
+                          ),
+                          const SizedBox(width: 6),
+                          Text(
+                            _attachedMediaName ?? 'Attached Image',
+                            style: GoogleFonts.inter(
+                              fontSize: 11,
+                              fontWeight: FontWeight.w600,
+                              color: context.textPrimary,
+                            ),
+                          ),
+                          const SizedBox(width: 4),
+                          InkWell(
+                            onTap: () => setState(() {
+                              if (_attachedMediaName != null) {
+                                _attachedContexts
+                                    .remove('Media: $_attachedMediaName');
+                              }
+                              _attachedMediaThumb = null;
+                              _attachedMediaName = null;
+                            }),
+                            child: Icon(
+                              Icons.close_rounded,
+                              size: 14,
+                              color: context.textMuted,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ],
                 const SizedBox(height: 6),
                 SizedBox(
                   height: effectiveHeight,
@@ -3370,6 +3575,309 @@ class _OvaClaudeAgentWorkspaceState
         _attachedContexts.add(key);
       }
     });
+  }
+
+  Future<void> _attachClipboardContext() async {
+    String txt = '';
+    if (_isDesktop && Platform.isMacOS) {
+      txt = (await MacOSMouseController.readClipboard()).trim();
+    } else {
+      final clip = await Clipboard.getData(Clipboard.kTextPlain);
+      txt = clip?.text?.trim() ?? '';
+    }
+    if (txt.isEmpty) return;
+    final snippet = txt.length > 80 ? '${txt.substring(0, 80)}…' : txt;
+    setState(() {
+      _attachedContexts.add('Clipboard: $snippet');
+      _showAttachTray = false;
+    });
+  }
+
+  Future<void> _pickWorkspaceMedia(ImageSource source) async {
+    HapticFeedback.selectionClick();
+    try {
+      final picker = ImagePicker();
+      final xfile = await picker.pickImage(
+        source: source,
+        maxWidth: 1600,
+        imageQuality: 85,
+      );
+      if (xfile == null || !mounted) return;
+      final bytes = await xfile.readAsBytes();
+      if (!mounted) return;
+      final name = xfile.name.isNotEmpty
+          ? xfile.name
+          : (source == ImageSource.camera ? 'Camera Shot' : 'Photo');
+      setState(() {
+        _attachedMediaThumb = bytes;
+        _attachedMediaName = name;
+        _attachedContexts.add('Media: $name');
+        _showAttachTray = false;
+      });
+    } catch (_) {}
+  }
+
+  Future<void> _promptAttachFileContext() async {
+    HapticFeedback.selectionClick();
+    final ctrl = TextEditingController();
+    final val = await showDialog<String>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: ctx.surface,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(AppRadius.lg),
+          side: BorderSide(color: ctx.border, width: 1.0),
+        ),
+        title: Text(
+          'Attach File, Code Path or URL',
+          style: GoogleFonts.inter(
+            fontSize: 15,
+            fontWeight: FontWeight.w700,
+            color: ctx.textPrimary,
+          ),
+        ),
+        content: TextField(
+          controller: ctrl,
+          autofocus: true,
+          style: GoogleFonts.inter(fontSize: 13, color: ctx.textPrimary),
+          decoration: InputDecoration(
+            isDense: true,
+            hintText: 'e.g. ~/Desktop/notes.md or https://...',
+            hintStyle: GoogleFonts.inter(fontSize: 12.5, color: ctx.textMuted),
+            filled: true,
+            fillColor: ctx.surfaceMid,
+            contentPadding:
+                const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+            border: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(AppRadius.sm),
+              borderSide: BorderSide(color: ctx.border, width: 1),
+            ),
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(),
+            child: Text(
+              'Cancel',
+              style: GoogleFonts.inter(
+                fontSize: 12.5,
+                color: ctx.textSecondary,
+              ),
+            ),
+          ),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(
+              backgroundColor: AppColors.brandBlue,
+              foregroundColor: AppColors.brandWhite,
+            ),
+            onPressed: () => Navigator.of(ctx).pop(ctrl.text.trim()),
+            child: Text(
+              'Attach',
+              style: GoogleFonts.inter(
+                fontSize: 12.5,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+    if (val != null && val.isNotEmpty && mounted) {
+      setState(() {
+        _attachedContexts.add('File: $val');
+        _showAttachTray = false;
+      });
+    }
+  }
+
+  Widget _buildUserAvatarBadge(BuildContext context) {
+    User? user;
+    try {
+      user = FirebaseAuth.instance.currentUser;
+    } catch (_) {}
+    final photoUrl = user?.photoURL ?? '';
+    final name = (user?.displayName ?? '').trim();
+    final initial = name.isNotEmpty
+        ? name.characters.first.toUpperCase()
+        : (user?.email?.isNotEmpty == true
+            ? user!.email!.characters.first.toUpperCase()
+            : 'U');
+    return Container(
+      height: 24,
+      padding: const EdgeInsets.fromLTRB(3, 2, 7, 2),
+      decoration: BoxDecoration(
+        color: context.surface,
+        borderRadius: BorderRadius.circular(AppRadius.full),
+        border: Border.all(color: context.border, width: 1.0),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          CircleAvatar(
+            radius: 8.5,
+            backgroundColor: AppColors.brandBlue,
+            backgroundImage:
+                photoUrl.isNotEmpty ? NetworkImage(photoUrl) : null,
+            child: photoUrl.isEmpty
+                ? Text(
+                    initial,
+                    style: GoogleFonts.inter(
+                      fontSize: 8.5,
+                      fontWeight: FontWeight.w800,
+                      color: AppColors.brandWhite,
+                    ),
+                  )
+                : null,
+          ),
+          const SizedBox(width: 4),
+          Text(
+            name.isNotEmpty ? name.split(' ').first : 'You',
+            style: GoogleFonts.inter(
+              fontSize: 10,
+              fontWeight: FontWeight.w600,
+              color: context.textSecondary,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildAttachToolsTray(
+    BuildContext context,
+    OvaAgentWorkspaceState state,
+  ) {
+    final notifier = ref.read(ovaAgentSyncProvider.notifier);
+    Widget tile({
+      required IconData icon,
+      required String label,
+      required Color accent,
+      required VoidCallback onTap,
+      bool active = false,
+    }) {
+      return InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(AppRadius.sm),
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 6),
+          decoration: BoxDecoration(
+            color: active
+                ? accent.withValues(alpha: context.isDark ? 0.22 : 0.12)
+                : context.surface,
+            borderRadius: BorderRadius.circular(AppRadius.sm),
+            border: Border.all(
+              color: active ? accent : context.border,
+              width: 1.0,
+            ),
+          ),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(
+                icon,
+                size: 13.5,
+                color: active ? accent : context.textPrimary,
+              ),
+              const SizedBox(width: 5),
+              Text(
+                label,
+                style: GoogleFonts.inter(
+                  fontSize: 11,
+                  fontWeight: active ? FontWeight.w700 : FontWeight.w600,
+                  color: active ? accent : context.textPrimary,
+                ),
+              ),
+            ],
+          ),
+        ),
+      );
+    }
+
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+      decoration: BoxDecoration(
+        color: context.surface,
+        borderRadius: BorderRadius.circular(AppRadius.sm),
+        border: Border.all(color: context.border, width: 1.0),
+      ),
+      child: SingleChildScrollView(
+        scrollDirection: Axis.horizontal,
+        child: Row(
+          children: [
+            tile(
+              icon: Icons.photo_library_outlined,
+              label: 'Photo / Screen',
+              accent: AppColors.brandBlue,
+              onTap: () => _pickWorkspaceMedia(ImageSource.gallery),
+            ),
+            if (!_isDesktop) ...[
+              const SizedBox(width: 6),
+              tile(
+                icon: Icons.photo_camera_outlined,
+                label: 'Camera',
+                accent: AppColors.brandPink,
+                onTap: () => _pickWorkspaceMedia(ImageSource.camera),
+              ),
+            ],
+            const SizedBox(width: 6),
+            tile(
+              icon: Icons.folder_open_rounded,
+              label: 'File / Path',
+              accent: AppColors.brandBlue,
+              onTap: _promptAttachFileContext,
+            ),
+            const SizedBox(width: 6),
+            tile(
+              icon: Icons.content_paste_rounded,
+              label: 'Clipboard',
+              accent: AppColors.brandPink,
+              onTap: _attachClipboardContext,
+            ),
+            const SizedBox(width: 6),
+            tile(
+              icon: Icons.window_rounded,
+              label: 'Active Window',
+              accent: AppColors.brandBlue,
+              active: _attachedContexts.contains('Active Window'),
+              onTap: () => _toggleContext('Active Window'),
+            ),
+            const SizedBox(width: 6),
+            tile(
+              icon: Icons.memory_rounded,
+              label: 'Mac Telemetry',
+              accent: AppColors.brandPink,
+              active: _attachedContexts.contains('Workstation Host'),
+              onTap: () => _toggleContext('Workstation Host'),
+            ),
+            const SizedBox(width: 6),
+            tile(
+              icon: Icons.public_rounded,
+              label: 'Web Search',
+              accent: AppColors.brandBlue,
+              active: state.webSearchEnabled,
+              onTap: () {
+                HapticFeedback.selectionClick();
+                notifier.setWebSearchEnabled(!state.webSearchEnabled);
+              },
+            ),
+            const SizedBox(width: 6),
+            tile(
+              icon: Icons.terminal_rounded,
+              label: 'Slash Workflows',
+              accent: AppColors.brandPink,
+              active: _showSlashCommands,
+              onTap: () {
+                HapticFeedback.selectionClick();
+                setState(() {
+                  _showSlashCommands = !_showSlashCommands;
+                  _showAttachTray = false;
+                });
+              },
+            ),
+          ],
+        ),
+      ),
+    ).animate().fadeIn(duration: 150.ms).slideY(begin: 0.06, end: 0);
   }
 }
 

@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:media_kit/media_kit.dart';
 import 'package:story_view/story_view.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:timeago/timeago.dart' as timeago;
@@ -36,6 +37,11 @@ class _StoryViewerScreenState extends ConsumerState<StoryViewerScreen> {
   final StoryController controller = StoryController();
   final StoryService _storyService = StoryService();
   final TextEditingController _replyController = TextEditingController();
+  Player? _musicPlayer;
+  String? _playingMusicUrl;
+
+  /// Maps each flattened slide index in `StoryView` back to its parent `Story` index.
+  final List<int> _slideToStoryIndex = [];
 
   int _currentIndex = 0;
   bool _isLiked = false;
@@ -49,24 +55,53 @@ class _StoryViewerScreenState extends ConsumerState<StoryViewerScreen> {
     _recordViewForIndex(0);
   }
 
-  void _syncStoryState(int index) {
-    if (index >= 0 && index < widget.stories.length) {
-      final story = widget.stories[index];
+  void _syncStoryMusic(Story story) {
+    final url = story.musicUrl?.trim() ?? '';
+    if (url.isEmpty) {
+      _playingMusicUrl = null;
+      _musicPlayer?.setVolume(0.0);
+      _musicPlayer?.pause();
+      return;
+    }
+    if (_playingMusicUrl == url && _musicPlayer != null) {
+      if (!_musicPlayer!.state.playing) {
+        _musicPlayer!.setVolume(100.0);
+        _musicPlayer!.play();
+      }
+      return;
+    }
+    _playingMusicUrl = url;
+    _musicPlayer ??= Player();
+    _musicPlayer!.setVolume(100.0);
+    _musicPlayer!.setPlaylistMode(PlaylistMode.loop);
+    _musicPlayer!.open(Media(url), play: true);
+  }
+
+  void _syncStoryState(int slideIndex) {
+    final storyIdx = (slideIndex >= 0 && slideIndex < _slideToStoryIndex.length)
+        ? _slideToStoryIndex[slideIndex]
+        : slideIndex.clamp(0, widget.stories.length - 1);
+    if (storyIdx >= 0 && storyIdx < widget.stories.length) {
+      final story = widget.stories[storyIdx];
       final currentUid = FirebaseAuth.instance.currentUser?.uid;
+      _syncStoryMusic(story);
       setState(() {
-        _currentIndex = index;
+        _currentIndex = storyIdx;
         _isLiked = currentUid != null && story.likes.contains(currentUid);
         _likeCount = story.likes.length;
       });
     }
   }
 
-  void _recordViewForIndex(int index) async {
+  void _recordViewForIndex(int slideIndex) async {
+    final storyIdx = (slideIndex >= 0 && slideIndex < _slideToStoryIndex.length)
+        ? _slideToStoryIndex[slideIndex]
+        : slideIndex.clamp(0, widget.stories.length - 1);
     final currentUid = FirebaseAuth.instance.currentUser?.uid;
-    if (currentUid != null && index >= 0 && index < widget.stories.length) {
+    if (currentUid != null && storyIdx >= 0 && storyIdx < widget.stories.length) {
       final user = await ref.read(userProvider.notifier).getUser(currentUid);
       _storyService.recordStoryView(
-        widget.stories[index].id,
+        widget.stories[storyIdx].id,
         currentUid,
         viewerName: user?.fullName ?? user?.username ?? 'Viewer',
         viewerAvatar: user?.profilePhotoUrl ?? '',
@@ -76,6 +111,9 @@ class _StoryViewerScreenState extends ConsumerState<StoryViewerScreen> {
 
   @override
   void dispose() {
+    _musicPlayer?.setVolume(0.0);
+    _musicPlayer?.stop();
+    _musicPlayer?.dispose();
     controller.dispose();
     _replyController.dispose();
     super.dispose();
@@ -403,25 +441,77 @@ class _StoryViewerScreenState extends ConsumerState<StoryViewerScreen> {
       );
     }
 
-    final currentStory = widget.stories[_currentIndex];
+    final currentStory = widget.stories[_currentIndex.clamp(0, widget.stories.length - 1)];
 
-    final storyItems = widget.stories.map((s) {
+    _slideToStoryIndex.clear();
+    final storyItems = <StoryItem>[];
+    for (var sIdx = 0; sIdx < widget.stories.length; sIdx++) {
+      final s = widget.stories[sIdx];
       if (s.mediaType == StoryMediaType.video) {
-        return StoryItem.pageVideo(
-          s.mediaUrl,
-          controller: controller,
-          duration: const Duration(seconds: 15),
+        _slideToStoryIndex.add(sIdx);
+        storyItems.add(
+          StoryItem.pageVideo(
+            s.mediaUrl,
+            controller: controller,
+            duration: const Duration(seconds: 15),
+            caption: s.caption != null && s.caption!.trim().isNotEmpty
+                ? Text(
+                    s.caption!.trim(),
+                    textAlign: TextAlign.center,
+                    style: GoogleFonts.inter(
+                      color: Colors.white,
+                      fontSize: 14,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  )
+                : null,
+          ),
+        );
+      } else if (s.mediaType == StoryMediaType.text) {
+        _slideToStoryIndex.add(sIdx);
+        storyItems.add(
+          StoryItem.text(
+            title: s.caption?.trim().isNotEmpty == true ? s.caption!.trim() : s.mediaUrl,
+            backgroundColor: AppColors.brandBlue,
+            textStyle: GoogleFonts.inter(
+              color: Colors.white,
+              fontSize: 20,
+              fontWeight: FontWeight.w700,
+            ),
+            duration: const Duration(seconds: 6),
+          ),
         );
       } else {
-        return StoryItem.pageImage(
-          url: s.mediaUrl,
-          controller: controller,
-          duration: const Duration(seconds: 6),
-        );
+        final urls = s.mediaUrls.isNotEmpty
+            ? s.mediaUrls
+            : (s.mediaUrl.isNotEmpty ? [s.mediaUrl] : const <String>[]);
+        for (final imgUrl in urls) {
+          _slideToStoryIndex.add(sIdx);
+          storyItems.add(
+            StoryItem.pageImage(
+              url: imgUrl,
+              controller: controller,
+              duration: const Duration(seconds: 6),
+              caption: s.caption != null && s.caption!.trim().isNotEmpty
+                  ? Text(
+                      s.caption!.trim(),
+                      textAlign: TextAlign.center,
+                      style: GoogleFonts.inter(
+                        color: Colors.white,
+                        fontSize: 14,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    )
+                  : null,
+            ),
+          );
+        }
       }
-    }).toList();
+    }
 
     final avatar = widget.authorAvatarUrl ?? currentStory.authorAvatarUrl;
+    final hasMusic = (currentStory.musicTitle ?? '').trim().isNotEmpty ||
+        (currentStory.musicUrl ?? '').trim().isNotEmpty;
 
     return Scaffold(
       backgroundColor: Colors.black,
@@ -493,6 +583,39 @@ class _StoryViewerScreenState extends ConsumerState<StoryViewerScreen> {
                             fontSize: 11,
                           ),
                         ),
+                        if (hasMusic) ...[
+                          const SizedBox(height: 3),
+                          Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              const Icon(
+                                Icons.music_note_rounded,
+                                color: AppColors.brandPink,
+                                size: 12,
+                              ),
+                              const SizedBox(width: 4),
+                              Flexible(
+                                child: Text(
+                                  [
+                                    if ((currentStory.musicTitle ?? '').trim().isNotEmpty)
+                                      currentStory.musicTitle!.trim()
+                                    else
+                                      'Attached Music',
+                                    if ((currentStory.musicArtist ?? '').trim().isNotEmpty)
+                                      currentStory.musicArtist!.trim(),
+                                  ].join(' • '),
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: GoogleFonts.inter(
+                                    color: Colors.white,
+                                    fontSize: 11,
+                                    fontWeight: FontWeight.w600,
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ],
                       ],
                     ),
                   ),

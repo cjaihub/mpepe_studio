@@ -1,8 +1,10 @@
 import 'dart:async';
+import 'dart:math' as math;
 import 'dart:ui';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -15,6 +17,8 @@ import '../../backend/messaging_repository.dart';
 import '../../backend/notifications/models/app_notification.dart';
 import '../../backend/notifications/models/notification_preferences.dart';
 import '../../backend/notifications/providers/notification_service.dart';
+import '../../backend/security/oneova_ai_gateway.dart';
+import '../../ova_assistant/services/ova_device_hub.dart';
 import '../../shared/theme/app_theme.dart';
 import '../router.dart' show rootNavigatorKey;
 import '../services/oneova_sound_service.dart';
@@ -36,7 +40,10 @@ class NotificationOverlayManager extends ConsumerStatefulWidget {
   ConsumerState<NotificationOverlayManager> createState() => _NotificationOverlayManagerState();
 }
 
-class _NotificationOverlayManagerState extends ConsumerState<NotificationOverlayManager> {
+class _NotificationOverlayManagerState extends ConsumerState<NotificationOverlayManager>
+    with WidgetsBindingObserver {
+  static const MethodChannel _assistantChannel = MethodChannel('com.oneova.app/ova_assistant');
+
   final List<AppNotification> _queue = [];
   final Set<String> _seen = {};
   OverlayEntry? _entry;
@@ -44,28 +51,266 @@ class _NotificationOverlayManagerState extends ConsumerState<NotificationOverlay
 
   // Chat message pop-ups
   StreamSubscription<QuerySnapshot<Map<String, dynamic>>>? _chatSub;
+  StreamSubscription<Map<dynamic, dynamic>>? _deviceEventsSub;
   String? _chatUid;
   DateTime _chatSince = DateTime.now();
+  DateTime _lastAiPulseAt = DateTime.fromMillisecondsSinceEpoch(0);
   final Map<String, ({String name, String? avatar})> _people = {};
   StreamSubscription<User?>? _authSub;
 
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     _authSub = FirebaseAuth.instance.authStateChanges().listen((_) {
       if (mounted) _syncChatListener();
+    });
+    _listenToCrossAppNotifications();
+    Future.delayed(const Duration(milliseconds: 2200), () {
+      if (mounted) _triggerLiveStartupAiSuggestion();
     });
   }
 
   @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed && mounted) {
+      final elapsed = DateTime.now().difference(_lastAiPulseAt);
+      if (elapsed.inSeconds >= 90) {
+        Future.delayed(const Duration(milliseconds: 1200), () {
+          if (mounted) _triggerLiveStartupAiSuggestion();
+        });
+      }
+    }
+  }
+
+  @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     _authSub?.cancel();
     _chatSub?.cancel();
+    _deviceEventsSub?.cancel();
     if (_entry?.mounted ?? false) {
       _entry?.remove();
     }
     _entry = null;
     super.dispose();
+  }
+
+  // ───────────────────────── Cross-App Live Notifications & Startup AI Pulse ─────────────────────────
+
+  void _listenToCrossAppNotifications() {
+    if (!OvaDeviceHub.supported) return;
+    final hub = ref.read(ovaDeviceHubProvider);
+    _deviceEventsSub = hub.events.listen((event) {
+      if (!mounted) return;
+      if (event['type'] == 'notification') {
+        if (event['ongoing'] == true) return;
+        final n = OvaPhoneNotification.fromMap(event);
+        if (n.title.isEmpty && n.text.isEmpty) return;
+        _enqueueExternalAppNotification(n);
+      }
+    }, onError: (_) {});
+  }
+
+  void _enqueueExternalAppNotification(OvaPhoneNotification ext) {
+    final prefs = ref.read(notificationPreferencesProvider).value ?? NotificationPreferences();
+    final appLabel = ext.app.isNotEmpty ? ext.app : 'External App';
+    if (prefs.isExternalPackageBlocked(ext.package) ||
+        prefs.isExternalPackageBlocked(appLabel)) {
+      if (ext.key.isNotEmpty) {
+        ref.read(ovaDeviceHubProvider).dismissNotification(ext.key).catchError((_) => false);
+      }
+      return;
+    }
+    final sender = ext.title.isNotEmpty ? ext.title : appLabel;
+    final body = ext.text.isNotEmpty ? ext.text : 'New activity in $appLabel';
+    final quickReplies = _buildInstantSmartReplies(sender, body, appLabel);
+    final id = 'ext_${ext.key}_${ext.postTime.millisecondsSinceEpoch}';
+
+    _enqueue(
+      AppNotification(
+        id: id,
+        userId: FirebaseAuth.instance.currentUser?.uid ?? 'local',
+        category: AppNotificationCategory.newMessage,
+        priority: AppNotificationPriority.urgent,
+        title: sender == appLabel ? '📲 $appLabel' : '📲 $appLabel · $sender',
+        body: body,
+        groupId: 'ext_${ext.key}',
+        payload: {
+          'isExternalApp': true,
+          'notificationKey': ext.key,
+          'appName': appLabel,
+          'packageName': ext.package,
+          'canReply': ext.canReply,
+          'quickReplies': quickReplies,
+        },
+        createdAt: ext.postTime,
+      ),
+    );
+  }
+
+  Future<void> _blockExternalApp({
+    required String packageName,
+    required String appName,
+    required String notificationKey,
+  }) async {
+    final prefs = ref.read(notificationPreferencesProvider).value ?? NotificationPreferences();
+    final token = packageName.trim().isNotEmpty ? packageName.trim() : appName.trim();
+    if (token.isEmpty) return;
+    final nextList = <String>{...prefs.blockedExternalPackages, token}.toList();
+    await ref.read(notificationServiceProvider).updatePreferences(
+          prefs.copyWith(blockedExternalPackages: nextList),
+        );
+    if (notificationKey.isNotEmpty) {
+      await ref.read(ovaDeviceHubProvider).dismissNotification(notificationKey).catchError((_) => false);
+    }
+    final navCtx = rootNavigatorKey.currentContext;
+    if (navCtx != null && navCtx.mounted) {
+      ScaffoldMessenger.of(navCtx).showSnackBar(
+        SnackBar(
+          content: Text('Blocked notifications from $appName'),
+          behavior: SnackBarBehavior.floating,
+          duration: const Duration(seconds: 3),
+          action: SnackBarAction(
+            label: 'Undo',
+            onPressed: () {
+              final cur = ref.read(notificationPreferencesProvider).value ?? NotificationPreferences();
+              final restored = cur.blockedExternalPackages.where((p) => p != token).toList();
+              ref.read(notificationServiceProvider).updatePreferences(
+                    cur.copyWith(blockedExternalPackages: restored),
+                  );
+            },
+          ),
+        ),
+      );
+    }
+  }
+
+  List<String> _buildInstantSmartReplies(String sender, String text, String appName) {
+    final lower = text.toLowerCase();
+    if (lower.contains('?') || lower.contains('when') || lower.contains('where') || lower.contains('are you')) {
+      return const ['On my way 🚀', 'Give me 5 mins', 'Yes, definitely 👍', 'Call me quick 📞'];
+    }
+    if (lower.contains('photo') || lower.contains('video') || lower.contains('reel') || lower.contains('look')) {
+      return const ['Looks fire 🔥', 'Love this! ❤️', 'Send me the HD file', 'Checking now 👀'];
+    }
+    if (lower.contains('call') || lower.contains('missed') || lower.contains('urgent')) {
+      return const ['Calling you in 2m 📞', 'In the studio, text me', 'Everything okay?', 'On it right now ⚡'];
+    }
+    return const ['👍 Got it!', 'On my way 🚀', 'Give me 5 mins', 'Let’s do it 🔥'];
+  }
+
+  static const List<(String, String)> _fallbackAiSuggestions = [
+    (
+      '✨ Ova Live AI · Viral Reel Hook',
+      'Open your next Reel with a 1.5s motion contrast cut — creators using fast hook transitions are seeing +42% retention today.',
+    ),
+    (
+      '🎵 Ova Studio AI · Multi-Photo + Music',
+      'Post up to 10 photos in Status or Reels with an attached track — multi-photo carousels with music are getting 2.3× more replies.',
+    ),
+    (
+      '⚡ Ova Live Pulse · 1-Second Smart Replies',
+      'Messages from your other apps pop up live here with 1-tap AI replies so you can respond in a second without leaving Oneova.',
+    ),
+    (
+      '🎨 Ova Color Director · Cinema Grade',
+      'Try Golden Hour Warmth or tell Ova AI how to grade your frame in plain English before publishing your next video.',
+    ),
+    (
+      '🚀 Ova Growth AI · Peak Audience Window',
+      'Your followers are most active right now — drop a quick status with music or reply to top comments to boost reach.',
+    ),
+    (
+      '🎙️ Ova AI Agent · Voice & Attach Tools',
+      'Tap + in Ova AI to attach photos, camera shots, clipboard, or My Computer control and let the agent finish tasks in seconds.',
+    ),
+  ];
+
+  Future<void> _triggerLiveStartupAiSuggestion() async {
+    _lastAiPulseAt = DateTime.now();
+    final rng = math.Random();
+    var (String title, String body) =
+        _fallbackAiSuggestions[rng.nextInt(_fallbackAiSuggestions.length)];
+
+    // Attempt a fast live AI suggestion from OneovaAiGateway (2.5s budget so startup feels snappy)
+    try {
+      final user = FirebaseAuth.instance.currentUser;
+      final nameHint = user?.displayName?.split(' ').first ?? 'Creator';
+      final hour = DateTime.now().hour;
+      final timeOfDay = hour < 12 ? 'morning' : (hour < 18 ? 'afternoon' : 'evening');
+      final aiText = await OneovaAiGateway
+          .generate(
+            prompt:
+                'Give $nameHint ONE punchy, high-energy $timeOfDay creative suggestion (max 18 words) for filming a Reel, posting a multi-photo story with music, or growing their audience on Oneova today. Plain text only, no quotes.',
+            systemInstruction:
+                'You are Ova Live AI inside Oneova Studio. Reply with a single inspiring, actionable 1-sentence tip under 18 words.',
+            temperature: 0.85,
+            maxOutputTokens: 60,
+          )
+          .timeout(const Duration(milliseconds: 2600));
+      final cleaned = aiText.replaceAll('"', '').replaceAll('\n', ' ').trim();
+      if (cleaned.length >= 16) {
+        title = '✨ Ova Live AI · Personalized Tip';
+        body = cleaned;
+      }
+    } catch (_) {
+      // Fallback suggestion already selected
+    }
+
+    if (!mounted) return;
+
+    // 1. Update the Android system notification so the notification shade shows the live AI suggestion
+    if (!kIsWeb && defaultTargetPlatform == TargetPlatform.android) {
+      try {
+        await _assistantChannel.invokeMethod('updateAssistantNotification', {
+          'title': title,
+          'body': body,
+        });
+      } catch (_) {}
+    }
+
+    // 2. Check if Notification Access is enabled on Android and if there are recent cross-app notifications
+    bool hasNotifAccess = true;
+    List<OvaPhoneNotification> recentExternal = const [];
+    if (OvaDeviceHub.supported) {
+      try {
+        final hub = ref.read(ovaDeviceHubProvider);
+        final st = await hub.status();
+        hasNotifAccess = st.notificationAccess;
+        if (hasNotifAccess) {
+          final all = await hub.notifications(limit: 2);
+          final cutoff = DateTime.now().subtract(const Duration(minutes: 20));
+          recentExternal = all.where((x) => x.postTime.isAfter(cutoff)).toList();
+        }
+      } catch (_) {}
+    }
+
+    if (!mounted) return;
+
+    // 3. Enqueue the in-app Live AI Suggestion popup
+    _enqueue(
+      AppNotification(
+        id: 'ai_startup_${DateTime.now().millisecondsSinceEpoch}',
+        userId: FirebaseAuth.instance.currentUser?.uid ?? 'local',
+        category: AppNotificationCategory.aiSuggestion,
+        priority: AppNotificationPriority.urgent,
+        title: title,
+        body: body,
+        deepLink: '/hub/ai',
+        payload: {
+          'isStartupAiSuggestion': true,
+          'needsNotificationAccess': OvaDeviceHub.supported && !hasNotifAccess,
+          'quickReplies': const ['✨ Ask Ova AI', '🎬 Film Reel', '🎵 Story + Music'],
+        },
+        createdAt: DateTime.now(),
+      ),
+    );
+
+    // 4. If there's an active recent notification from another app, queue it right behind so user sees what's happening
+    for (final ext in recentExternal.take(1)) {
+      _enqueueExternalAppNotification(ext);
+    }
   }
 
   // ───────────────────────── Queue ─────────────────────────
@@ -114,32 +359,108 @@ class _NotificationOverlayManagerState extends ConsumerState<NotificationOverlay
     final quiet = prefs.isInQuietHours() && n.priority != AppNotificationPriority.urgent;
     if (!quiet) _ring(n, prefs);
 
+    final isExternal = n.payload?['isExternalApp'] == true;
+    final externalKey = n.payload?['notificationKey']?.toString() ?? '';
+
     _entry = OverlayEntry(
       builder: (_) => _PopupBanner(
         key: ValueKey(n.id),
         notification: n,
         pending: _queue.length,
-        duration: Duration(seconds: n.isLive ? 8 : (n.category == AppNotificationCategory.newMessage ? 6 : 5)),
+        duration: Duration(
+          seconds: n.isLive
+              ? 8
+              : (isExternal || n.category == AppNotificationCategory.aiSuggestion || n.category == AppNotificationCategory.newMessage
+                  ? 7
+                  : 5),
+        ),
         onOpen: () {
           _finish();
-          if (mounted && !n.id.startsWith('chat_')) {
+          if (isExternal && externalKey.isNotEmpty) {
+            _openExternalNotification(externalKey, n.payload?['packageName']?.toString());
+            return;
+          }
+          if (mounted && !n.id.startsWith('chat_') && !n.id.startsWith('ai_startup_') && !n.id.startsWith('ext_')) {
             ref.read(notificationServiceProvider).markAsRead(n.id);
           }
           final route = n.route ?? '/notifications';
           final navCtx = rootNavigatorKey.currentContext;
           if (navCtx != null && navCtx.mounted) {
-            GoRouter.of(navCtx).push(route);
+            if (route.startsWith('/hub/home')) {
+              GoRouter.of(navCtx).go(route);
+            } else {
+              GoRouter.of(navCtx).push(route);
+            }
           }
         },
-        onReply: (n.category == AppNotificationCategory.newMessage && n.payload?['chatId'] is String)
-            ? (text) => _reply(n.payload!['chatId'] as String, text)
-            : ((n.category == AppNotificationCategory.comment || n.category == AppNotificationCategory.reply) && n.payload?['postId'] is String)
-                ? (text) => _replyComment(n.payload!['postId'] as String, text)
-                : null,
+        onReply: isExternal && externalKey.isNotEmpty
+            ? (text) => _replyExternal(externalKey, text)
+            : (n.category == AppNotificationCategory.newMessage && n.payload?['chatId'] is String)
+                ? (text) => _reply(n.payload!['chatId'] as String, text)
+                : ((n.category == AppNotificationCategory.comment || n.category == AppNotificationCategory.reply) && n.payload?['postId'] is String)
+                    ? (text) => _replyComment(n.payload!['postId'] as String, text)
+                    : null,
+        onQuickAction: (actionId) {
+          _finish();
+          final navCtx = rootNavigatorKey.currentContext;
+          if (actionId == 'block_external_app') {
+            _blockExternalApp(
+              packageName: n.payload?['packageName']?.toString() ?? '',
+              appName: n.payload?['appName']?.toString() ?? 'External App',
+              notificationKey: externalKey,
+            );
+            return;
+          }
+          if (actionId == 'block_all_external') {
+            final cur = ref.read(notificationPreferencesProvider).value ?? NotificationPreferences();
+            ref.read(notificationServiceProvider).updatePreferences(
+                  cur.copyWith(blockExternalAppNotifications: true),
+                );
+            if (externalKey.isNotEmpty) {
+              ref.read(ovaDeviceHubProvider).dismissNotification(externalKey).catchError((_) => false);
+            }
+            return;
+          }
+          if (actionId == 'link_apps') {
+            ref.read(ovaDeviceHubProvider).openNotificationAccess();
+            return;
+          }
+          if (navCtx != null && navCtx.mounted) {
+            if (actionId == 'ask_ai') {
+              GoRouter.of(navCtx).push('/hub/ai');
+            } else if (actionId == 'film_reel') {
+              GoRouter.of(navCtx).push('/create');
+            } else if (actionId == 'story_music') {
+              GoRouter.of(navCtx).go('/hub/home');
+            }
+          }
+        },
         onDone: _finish,
       ),
     );
     overlay.insert(_entry!);
+  }
+
+  Future<void> _openExternalNotification(String key, String? packageName) async {
+    try {
+      final opened = await ref.read(ovaDeviceHubProvider).openNotification(key);
+      if (!opened && packageName != null && packageName.isNotEmpty) {
+        await _assistantChannel.invokeMethod('launchApp', {'packageName': packageName});
+      }
+    } catch (_) {}
+  }
+
+  Future<void> _replyExternal(String key, String text) async {
+    if (text.trim().isEmpty) return;
+    try {
+      final res = await ref.read(ovaDeviceHubProvider).reply(key, text.trim());
+      if (res != 'ok') {
+        await Clipboard.setData(ClipboardData(text: text.trim()));
+        await ref.read(ovaDeviceHubProvider).openNotification(key);
+      }
+    } catch (_) {
+      await Clipboard.setData(ClipboardData(text: text.trim()));
+    }
   }
 
   void _finish() {
@@ -310,6 +631,7 @@ class _PopupBanner extends StatefulWidget {
   final VoidCallback onOpen;
   final VoidCallback onDone;
   final Future<void> Function(String text)? onReply;
+  final void Function(String actionId)? onQuickAction;
 
   const _PopupBanner({
     super.key,
@@ -319,6 +641,7 @@ class _PopupBanner extends StatefulWidget {
     required this.onOpen,
     required this.onDone,
     this.onReply,
+    this.onQuickAction,
   });
 
   @override
@@ -341,6 +664,8 @@ class _PopupBannerState extends State<_PopupBanner> with TickerProviderStateMixi
   bool _replying = false;
   bool _sending = false;
   bool _closing = false;
+  bool _draftingAi = false;
+  String? _sentQuickReplyLabel;
   double _dragDy = 0;
 
   AppNotification get n => widget.notification;
@@ -376,6 +701,51 @@ class _PopupBannerState extends State<_PopupBanner> with TickerProviderStateMixi
       _expanded = true;
     });
     WidgetsBinding.instance.addPostFrameCallback((_) => _replyFocus.requestFocus());
+  }
+
+  Future<void> _sendQuickInstantReply(String text) async {
+    if (widget.onReply == null || _sending) return;
+    _hold();
+    HapticFeedback.mediumImpact();
+    setState(() {
+      _sending = true;
+      _sentQuickReplyLabel = text;
+    });
+    try {
+      await widget.onReply!(text);
+    } catch (_) {}
+    if (!mounted) return;
+    await Future.delayed(const Duration(milliseconds: 280));
+    if (mounted) _close();
+  }
+
+  Future<void> _draftAiReply() async {
+    if (_draftingAi) return;
+    _hold();
+    HapticFeedback.selectionClick();
+    setState(() => _draftingAi = true);
+    try {
+      final draft = await OneovaAiGateway
+          .generate(
+            prompt:
+                'Write a natural, friendly, 1-sentence quick reply (under 14 words) to this message from "${n.title}": "${n.body}". Plain text only, no quotes.',
+            systemInstruction: 'Reply with ONLY the short message text ready to send.',
+            temperature: 0.7,
+            maxOutputTokens: 40,
+          )
+          .timeout(const Duration(milliseconds: 1800));
+      final clean = draft.replaceAll('"', '').trim();
+      if (mounted && clean.isNotEmpty) {
+        _replyCtrl.text = clean;
+        _replyCtrl.selection = TextSelection.fromPosition(TextPosition(offset: _replyCtrl.text.length));
+      }
+    } catch (_) {
+      if (mounted) {
+        _replyCtrl.text = 'Got it, on it right now! ⚡';
+      }
+    } finally {
+      if (mounted) setState(() => _draftingAi = false);
+    }
   }
 
   Future<void> _sendReply() async {
@@ -496,6 +866,7 @@ class _PopupBannerState extends State<_PopupBanner> with TickerProviderStateMixi
                             ],
                           ),
                         ),
+                        if (!_replying) _quickAiPillsStrip(),
                         if (_replying) _replyField() else _actions(),
                         AnimatedBuilder(
                           animation: _countdown,
@@ -610,7 +981,105 @@ class _PopupBannerState extends State<_PopupBanner> with TickerProviderStateMixi
     );
   }
 
+  Widget _quickAiPillsStrip() {
+    final isStartupAi = n.payload?['isStartupAiSuggestion'] == true || n.category == AppNotificationCategory.aiSuggestion;
+    final needsNotifAccess = n.payload?['needsNotificationAccess'] == true;
+    if (isStartupAi) {
+      return Padding(
+        padding: const EdgeInsets.fromLTRB(12, 0, 12, 8),
+        child: SingleChildScrollView(
+          scrollDirection: Axis.horizontal,
+          child: Row(
+            children: [
+              _quickAiPill('✨ Ask Ova AI', () => widget.onQuickAction?.call('ask_ai'), highlight: true),
+              const SizedBox(width: 6),
+              _quickAiPill('🎬 Film Reel', () => widget.onQuickAction?.call('film_reel')),
+              const SizedBox(width: 6),
+              _quickAiPill('🎵 Story + Music', () => widget.onQuickAction?.call('story_music')),
+              if (needsNotifAccess) ...[
+                const SizedBox(width: 6),
+                _quickAiPill('⚡ Link Other Apps', () => widget.onQuickAction?.call('link_apps'), highlight: true),
+              ],
+            ],
+          ),
+        ),
+      );
+    }
+
+    if (widget.onReply == null) return const SizedBox.shrink();
+
+    final rawList = n.payload?['quickReplies'];
+    final List<String> replies = rawList is List
+        ? rawList.map((e) => e.toString()).toList()
+        : const ['👍 Got it!', 'On my way 🚀', 'Give me 5 mins', 'Let’s do it 🔥'];
+
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(12, 0, 12, 8),
+      child: SingleChildScrollView(
+        scrollDirection: Axis.horizontal,
+        child: Row(
+          children: [
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 3),
+              margin: const EdgeInsets.only(right: 6),
+              decoration: BoxDecoration(
+                color: AppColors.brandPink.withValues(alpha: 0.14),
+                borderRadius: BorderRadius.circular(AppRadius.full),
+              ),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  const Icon(Icons.bolt_rounded, size: 11, color: AppColors.brandPink),
+                  const SizedBox(width: 2),
+                  Text(
+                    '1s AI',
+                    style: GoogleFonts.inter(fontSize: 9.5, fontWeight: FontWeight.w800, color: AppColors.brandPink),
+                  ),
+                ],
+              ),
+            ),
+            for (final r in replies) ...[
+              _quickAiPill(
+                _sentQuickReplyLabel == r ? '✓ Sent!' : r,
+                () => _sendQuickInstantReply(r),
+                highlight: _sentQuickReplyLabel == r,
+              ),
+              const SizedBox(width: 6),
+            ],
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _quickAiPill(String label, VoidCallback onTap, {bool highlight = false}) {
+    return GestureDetector(
+      onTap: onTap,
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+        decoration: BoxDecoration(
+          color: highlight ? AppColors.brandBlue : context.surfaceMid,
+          borderRadius: BorderRadius.circular(AppRadius.full),
+          border: Border.all(
+            color: highlight ? AppColors.brandBlue : AppColors.brandBlue.withValues(alpha: 0.28),
+            width: 1,
+          ),
+        ),
+        child: Text(
+          label,
+          style: GoogleFonts.inter(
+            fontSize: 11,
+            fontWeight: FontWeight.w700,
+            color: highlight ? AppColors.brandWhite : context.textPrimary,
+          ),
+        ),
+      ),
+    );
+  }
+
   Widget _actions() {
+    final isExternal = n.payload?['isExternalApp'] == true;
+    final appName = n.payload?['appName']?.toString() ?? 'App';
     final isChat = n.category == AppNotificationCategory.newMessage;
     final isComment = n.category == AppNotificationCategory.comment ||
         n.category == AppNotificationCategory.reply ||
@@ -623,16 +1092,37 @@ class _PopupBannerState extends State<_PopupBanner> with TickerProviderStateMixi
       padding: const EdgeInsets.fromLTRB(12, 0, 12, 10),
       child: Row(
         children: [
-          if ((isChat || isComment) && widget.onReply != null) ...[
-            _chip(Icons.reply_rounded, 'Reply', _startReply, primary: true),
-            const SizedBox(width: 8),
-            _chip(Icons.open_in_new_rounded, 'View', widget.onOpen),
-          ] else if (isLike) ...[
-            _chip(Icons.favorite_rounded, '❤️ Like back', widget.onOpen, primary: true),
-            const SizedBox(width: 8),
-            _chip(Icons.play_circle_outline_rounded, 'View reel', widget.onOpen),
-          ] else
-            _chip(icon, label, widget.onOpen, primary: true),
+            if ((isChat || isComment) && widget.onReply != null) ...[
+              _chip(Icons.reply_rounded, 'Custom Reply', _startReply, primary: true),
+              const SizedBox(width: 8),
+              _chip(
+                Icons.open_in_new_rounded,
+                isExternal ? 'Open $appName' : 'View',
+                widget.onOpen,
+              ),
+              if (isExternal) ...[
+                const SizedBox(width: 8),
+                _chip(
+                  Icons.block_rounded,
+                  'Block $appName',
+                  () => widget.onQuickAction?.call('block_external_app'),
+                ),
+              ],
+            ] else if (isLike) ...[
+              _chip(Icons.favorite_rounded, '❤️ Like back', widget.onOpen, primary: true),
+              const SizedBox(width: 8),
+              _chip(Icons.play_circle_outline_rounded, 'View reel', widget.onOpen),
+            ] else ...[
+              _chip(icon, label, widget.onOpen, primary: true),
+              if (isExternal) ...[
+                const SizedBox(width: 8),
+                _chip(
+                  Icons.block_rounded,
+                  'Block $appName',
+                  () => widget.onQuickAction?.call('block_external_app'),
+                ),
+              ],
+            ],
           const Spacer(),
           if (!_expanded)
             Text('Hold to expand',
@@ -694,6 +1184,36 @@ class _PopupBannerState extends State<_PopupBanner> with TickerProviderStateMixi
       padding: const EdgeInsets.fromLTRB(12, 0, 8, 10),
       child: Row(
         children: [
+          GestureDetector(
+            onTap: _draftAiReply,
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 7),
+              margin: const EdgeInsets.only(right: 6),
+              decoration: BoxDecoration(
+                color: AppColors.brandPink.withValues(alpha: 0.14),
+                borderRadius: BorderRadius.circular(AppRadius.full),
+                border: Border.all(color: AppColors.brandPink.withValues(alpha: 0.35)),
+              ),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  if (_draftingAi)
+                    const SizedBox(
+                      width: 11,
+                      height: 11,
+                      child: CircularProgressIndicator(strokeWidth: 1.6, color: AppColors.brandPink),
+                    )
+                  else
+                    const Icon(Icons.auto_awesome_rounded, size: 12, color: AppColors.brandPink),
+                  const SizedBox(width: 4),
+                  Text(
+                    'AI',
+                    style: GoogleFonts.inter(fontSize: 11, fontWeight: FontWeight.w800, color: AppColors.brandPink),
+                  ),
+                ],
+              ),
+            ),
+          ),
           Expanded(
             child: TextField(
               controller: _replyCtrl,
@@ -703,7 +1223,7 @@ class _PopupBannerState extends State<_PopupBanner> with TickerProviderStateMixi
               style: GoogleFonts.inter(fontSize: 13, color: context.textPrimary),
               decoration: InputDecoration(
                 isDense: true,
-                hintText: 'Reply…',
+                hintText: 'Reply in 1 second…',
                 hintStyle: GoogleFonts.inter(fontSize: 13, color: context.textMuted),
                 filled: true,
                 fillColor: context.surfaceMid,

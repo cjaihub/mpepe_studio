@@ -35,6 +35,48 @@ class OvaAssistantMethodHandler(
                     onShowNotification()
                     result.success(true)
                 }
+                "updateAssistantNotification" -> {
+                    try {
+                        val title = call.argument<String>("title") ?: "✨ Ova Live AI Suggestion"
+                        val body = call.argument<String>("body") ?: ""
+                        if (body.isNotBlank()) {
+                            val intent = Intent(this, MainActivity::class.java).apply {
+                                flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP
+                                putExtra("wake_assistant", true)
+                                putExtra("pending_query", body)
+                                action = "com.oneova.app.WAKE_ASSISTANT"
+                            }
+                            val pFlags = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                                android.app.PendingIntent.FLAG_UPDATE_CURRENT or android.app.PendingIntent.FLAG_IMMUTABLE
+                            } else {
+                                android.app.PendingIntent.FLAG_UPDATE_CURRENT
+                            }
+                            val pendingIntent = android.app.PendingIntent.getActivity(this, 1001, intent, pFlags)
+                            val builder = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                                android.app.Notification.Builder(this, "oneova_ai_pulse_channel")
+                            } else {
+                                @Suppress("DEPRECATION")
+                                android.app.Notification.Builder(this)
+                            }
+                            val notif = builder
+                                .setContentTitle(title)
+                                .setContentText(body)
+                                .setStyle(android.app.Notification.BigTextStyle().bigText(body).setBigContentTitle(title))
+                                .setSmallIcon(R.mipmap.ic_launcher)
+                                .setContentIntent(pendingIntent)
+                                .setOngoing(false)
+                                .setAutoCancel(true)
+                                .setOnlyAlertOnce(true)
+                                .setVisibility(android.app.Notification.VISIBILITY_PUBLIC)
+                                .build()
+                            val nm = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+                            nm.notify(7771, notif)
+                        }
+                        result.success(true)
+                    } catch (e: Exception) {
+                        result.error("UPDATE_NOTIF_ERROR", e.message, null)
+                    }
+                }
                 "stopBackgroundAssistant" -> {
                     val nm = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
                     nm.cancel(7771)

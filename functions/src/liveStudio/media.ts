@@ -68,7 +68,11 @@ async function mintToken(streamId: string, uid: string, role: StudioRole, name: 
     ttl: TOKEN_TTL_SECONDS,
     attributes: { role },
   });
-  at.addGrant({ ...g, canPublishSources: g.canPublishSources.map((s) => SOURCE[s]) });
+  at.addGrant({
+    ...g,
+    ...(role === 'host' ? { roomCreate: true } : {}),
+    canPublishSources: g.canPublishSources.map((s) => SOURCE[s]),
+  });
   return at.toJwt();
 }
 
@@ -112,13 +116,17 @@ export const lsStart = onCall({ secrets: LIVEKIT_SECRETS, memory: '512MiB' }, as
   const streamId = streamRef.id;
   const now = Date.now();
 
-  // Room first: if LiveKit is unreachable nothing is written.
-  try {
-    await roomService().createRoom({ name: roomName(streamId), emptyTimeout: ROOM_EMPTY_TIMEOUT_SECONDS });
-  } catch (e) {
-    console.error('[liveStudio] createRoom failed:', (e as Error).message);
-    throw new HttpsError('unavailable', 'Could not open the live room. Try again.');
-  }
+  // Open LiveKit room with a fast 3.5s cap in parallel with Firestore writes;
+  // host JWT carries roomCreate:true so even if the SFU node is cold, the room
+  // is auto-created when the host connects and lsStart never hits deadline-exceeded.
+  const createRoomTask = Promise.race([
+    roomService().createRoom({ name: roomName(streamId), emptyTimeout: ROOM_EMPTY_TIMEOUT_SECONDS }),
+    new Promise<never>((_, reject) =>
+      setTimeout(() => reject(new Error('createRoom fast-timeout (3500ms)')), 3500),
+    ),
+  ]).catch((e) => {
+    console.warn('[liveStudio] createRoom non-fatal warning (host JWT will auto-create):', (e as Error).message);
+  });
 
   const batch = db().batch();
   batch.set(streamRef, {
@@ -135,11 +143,12 @@ export const lsStart = onCall({ secrets: LIVEKIT_SECRETS, memory: '512MiB' }, as
     updatedAt: FieldValue.serverTimestamp(),
   });
   batch.set(db().doc(`${Paths.members(streamId)}/${uid}`), buildHostMember(uid, profile, now));
-  await batch.commit();
 
-  const [token, e2ee] = await Promise.all([
+  const [, token, e2ee] = await Promise.all([
+    batch.commit(),
     mintToken(streamId, uid, 'host', profile.displayName),
     mediaKeyForToken(streamId),
+    createRoomTask,
   ]);
   return { streamId, token, url: LIVEKIT_URL.value(), role: 'host', e2ee };
 });

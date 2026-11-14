@@ -375,7 +375,7 @@ class _LiveStudioV2ScreenState extends ConsumerState<LiveStudioV2Screen> {
         fill: LiveStudioWorld.surface3,
       ),
     );
-    return cam == null ? avatar : StudioVideoView(cam, placeholder: avatar);
+    return cam == null ? avatar : StudioVideoView(cam, placeholder: avatar, streamId: _id);
   }
 
   @override
@@ -505,7 +505,7 @@ class _LiveStudioV2ScreenState extends ConsumerState<LiveStudioV2Screen> {
                 );
               }
               final h = room.cameraOf(uid);
-              return h == null ? const SizedBox.shrink() : StudioVideoView(h);
+              return h == null ? const SizedBox.shrink() : StudioVideoView(h, streamId: _id);
             },
             // Viewers' taps open a local pop-out (ARCHITECTURE Q3);
             // managers swap the tapped guest into the center (broadcast).
@@ -528,10 +528,10 @@ class _LiveStudioV2ScreenState extends ConsumerState<LiveStudioV2Screen> {
               }
               if (gaming && target.uid == state.hostId) {
                 final screen = room.tableScreen();
-                if (screen != null) return StudioVideoView(screen, fit: BoxFit.contain);
+                if (screen != null) return StudioVideoView(screen, fit: BoxFit.contain, streamId: _id);
               }
               final h = room.cameraOf(target.uid!);
-              return h == null ? const SizedBox.shrink() : StudioVideoView(h, fit: BoxFit.contain);
+              return h == null ? const SizedBox.shrink() : StudioVideoView(h, fit: BoxFit.contain, streamId: _id);
             },
           );
           final stage = !panel
@@ -554,7 +554,7 @@ class _LiveStudioV2ScreenState extends ConsumerState<LiveStudioV2Screen> {
                         isMuted: (uid) => !(members[uid]?.micOn ?? true) || room.isMicMuted(uid),
                         videoBuilder: (uid, size) {
                           final h = room.cameraOf(uid);
-                          return h == null ? const SizedBox.shrink() : StudioVideoView(h);
+                          return h == null ? const SizedBox.shrink() : StudioVideoView(h, streamId: _id);
                         },
                         onTileTap: role.isManager
                             ? (uid) {

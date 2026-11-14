@@ -8,12 +8,15 @@
 // - shows [placeholder] (e.g. the avatar fallback) when there is no video.
 
 import 'package:flutter/widgets.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:livekit_client/livekit_client.dart';
 
+import '../../../looks/live/live_look_presets.dart';
+import '../../../looks/live/live_looks_controller.dart';
 import '../contracts/studio_ports.dart';
 import 'livekit_video_handle.dart';
 
-class StudioVideoView extends StatefulWidget {
+class StudioVideoView extends ConsumerStatefulWidget {
   const StudioVideoView(
     this.handle, {
     super.key,
@@ -21,6 +24,7 @@ class StudioVideoView extends StatefulWidget {
     this.visible = true,
     this.mirrorLocal = true,
     this.placeholder,
+    this.streamId,
   });
 
   final StudioVideoHandle? handle;
@@ -37,11 +41,14 @@ class StudioVideoView extends StatefulWidget {
   /// Shown when there is no video (no track, muted, audio-only).
   final Widget? placeholder;
 
+  /// Optional streamId so remote viewers render the host's synced Look/Beauty/Lighting.
+  final String? streamId;
+
   @override
-  State<StudioVideoView> createState() => _StudioVideoViewState();
+  ConsumerState<StudioVideoView> createState() => _StudioVideoViewState();
 }
 
-class _StudioVideoViewState extends State<StudioVideoView> {
+class _StudioVideoViewState extends ConsumerState<StudioVideoView> {
   final Object _viewKey = Object();
   Size _lastPx = Size.zero;
 
@@ -115,7 +122,7 @@ class _StudioVideoViewState extends State<StudioVideoView> {
       if (lk == null || track == null || !lk.hasVideo || !widget.visible) {
         return widget.placeholder ?? const SizedBox.expand();
       }
-      return VideoTrackRenderer(
+      final renderer = VideoTrackRenderer(
         track,
         key: ValueKey(track.sid ?? track.mediaStreamTrack.id),
         fit: _fit,
@@ -123,6 +130,29 @@ class _StudioVideoViewState extends State<StudioVideoView> {
             ? VideoViewMirrorMode.mirror
             : VideoViewMirrorMode.off,
       );
+      if (lk.isTableScreen) return renderer;
+      if (lk.isLocal) {
+        final looks = ref.watch(liveLooksControllerProvider);
+        return LiveVideoEffectLayer(
+          look: looks.activeLook,
+          beauty: looks.beauty,
+          lightingId: looks.lightingPresetId,
+          child: renderer,
+        );
+      }
+      final sid = widget.streamId;
+      if (sid != null && sid.isNotEmpty) {
+        final remoteFx = ref.watch(remoteLiveEffectsProvider(sid)).value;
+        if (remoteFx != null && (remoteFx.updatedBy == null || remoteFx.updatedBy == lk.uid)) {
+          return LiveVideoEffectLayer(
+            look: remoteFx.look,
+            beauty: remoteFx.beauty,
+            lightingId: remoteFx.lightingId,
+            child: renderer,
+          );
+        }
+      }
+      return renderer;
     });
   }
 }

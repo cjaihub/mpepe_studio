@@ -333,15 +333,30 @@ class StudioLooks {
   /// adjustments; null when nothing would change.
   static OneovaLook? forClip(StudioClip c) => forLook(c.lookId, c.lookIntensity, c.adjust);
 
+  static List<CurvePoint> _presetCurve(int preset) => switch (preset) {
+        1 => const [CurvePoint(0, 0), CurvePoint(0.25, 0.18), CurvePoint(0.75, 0.83), CurvePoint(1, 1)], // S-Curve
+        2 => const [CurvePoint(0, 0.09), CurvePoint(0.3, 0.28), CurvePoint(0.75, 0.76), CurvePoint(1, 0.93)], // Matte Film Lift
+        3 => const [CurvePoint(0, 0), CurvePoint(0.35, 0.32), CurvePoint(0.75, 0.86), CurvePoint(1, 1)], // Crisp Highlights
+        4 => const [CurvePoint(0, 0), CurvePoint(0.18, 0.06), CurvePoint(0.65, 0.72), CurvePoint(1, 0.98)], // Crushed Noir
+        _ => _id,
+      };
+
   /// [forClip] without a clip (the camera's live filter uses it, so the
   /// viewfinder matches the editor and the export exactly).
   static OneovaLook? forLook(String lookId, double intensity, StudioAdjust a) {
     if (lookId == 'none' && !a.hasLookKeys) return null;
     final p = byId(lookId).look;
     final t = lookId == 'none' ? 0.0 : intensity.clamp(0.0, 1.0);
-    ColorWheel w(ColorWheel x) => ColorWheel(r: x.r * t, g: x.g * t, b: x.b * t, lum: x.lum * t);
+    ColorWheel w(ColorWheel x, {double dr = 0, double dg = 0, double db = 0}) => ColorWheel(
+          r: (x.r * t + dr * 0.22).clamp(-0.5, 0.5),
+          g: (x.g * t + dg * 0.22).clamp(-0.5, 0.5),
+          b: (x.b * t + db * 0.22).clamp(-0.5, 0.5),
+          lum: x.lum * t,
+        );
     HslBand h(HslBand x) => HslBand(hue: x.hue * t, sat: x.sat * t, lum: x.lum * t);
     List<CurvePoint> cv(List<CurvePoint> pts) => [for (final q in pts) CurvePoint(q.x, _l(q.x, q.y, t))];
+    final baseMaster = p.curves.master.length > 2 || p.curves.master.first.y != 0 ? cv(p.curves.master) : _id;
+    final masterCurve = a.curvePreset.round() != 0 ? _presetCurve(a.curvePreset.round()) : baseMaster;
     return OneovaLook(
       id: 'studio_clip_${lookId}_${t.toStringAsFixed(2)}_${a.toJson().values.join('_')}',
       primary: LookPrimary(
@@ -359,9 +374,14 @@ class StudioLooks {
         vibrance: (p.color.vibrance * t + a.vibrance).clamp(-1.0, 1.0),
         saturation: _l(1, p.color.saturation, t),
       ),
-      wheels: LookWheels(lift: w(p.wheels.lift), gamma: w(p.wheels.gamma), gain: w(p.wheels.gain), offset: w(p.wheels.offset)),
+      wheels: LookWheels(
+        lift: w(p.wheels.lift, dr: a.liftR, dg: a.liftG, db: a.liftB),
+        gamma: w(p.wheels.gamma, dr: a.gammaR, dg: a.gammaG, db: a.gammaB),
+        gain: w(p.wheels.gain, dr: a.gainR, dg: a.gainG, db: a.gainB),
+        offset: w(p.wheels.offset),
+      ),
       curves: LookCurves(
-        master: p.curves.master.length > 2 || p.curves.master.first.y != 0 ? cv(p.curves.master) : _id,
+        master: masterCurve,
         red: cv(p.curves.red),
         green: cv(p.curves.green),
         blue: cv(p.curves.blue),

@@ -57,10 +57,10 @@ class VideoPlaybackManager {
 
   final List<_PlayerSlot> _slots = [];
 
-  /// Warm players: current, next, previous, next+1. Each holds at most
-  /// [playerBufferBytes] of demuxed video, so the pool stays under ~64 MB
+  /// Warm players: current, next, previous, next+1, next+2. Each holds at most
+  /// [playerBufferBytes] of demuxed video, so the pool stays under ~80 MB
   /// of buffers on mid-range phones (media_kit's default is 32 MB each).
-  static const int maxCachedPlayers = 4;
+  static const int maxCachedPlayers = 5;
   static const int playerBufferBytes = 16 * 1024 * 1024;
 
   /// Bumped whenever a reel gains or loses its player, so feed pages that
@@ -360,7 +360,7 @@ class VideoPlaybackManager {
     final currentId = currentContent.id;
     _activeContentId = currentId;
 
-    if (currentContent.type == ContentType.photo) {
+    if (currentContent.isPhotoOrCarousel) {
       activeReelBuffering.value = false;
       _prefetcher.setActiveReelBuffering(false);
     }
@@ -379,8 +379,14 @@ class VideoPlaybackManager {
       final existing = _slotFor(id);
       if (existing == null) {
         final content = feed.firstWhere((c) => c.id == id);
-        // Photos render as an image; they never take a player slot.
-        if (content.type == ContentType.photo) continue;
+        if (content.isPhotoOrCarousel) {
+          final audioUrl = content.mediaMetadata.audioTrackUrl?.trim() ?? '';
+          if (audioUrl.isEmpty) continue;
+          final slot = _acquireSlot();
+          if (slot == null) continue;
+          _loadAudioIntoSlot(slot, content.id, audioUrl, isCurrent);
+          continue;
+        }
         final slot = _acquireSlot();
         if (slot == null) continue;
         _loadIntoSlot(slot, content, isCurrent);
@@ -478,6 +484,36 @@ class VideoPlaybackManager {
     return slot;
   }
 
+  void _loadAudioIntoSlot(_PlayerSlot slot, String contentId, String audioUrl, bool autoPlay) {
+    slot.generation++;
+    slot.contentId = contentId;
+    slot.mediaUrl = audioUrl;
+    slot.watchTime = Duration.zero;
+    final player = slot.player;
+    final shouldPlay = autoPlay && !isSilenced && _activeContentId == contentId;
+    player.setVolume(shouldPlay ? (_isMuted ? 0.0 : 100.0) : 0.0);
+    player.setPlaylistMode(PlaylistMode.loop);
+    player.open(Media(audioUrl), play: shouldPlay);
+    slotsRevision.value++;
+  }
+
+  /// Attaches and plays resolved music track audio for a photo or multi-photo
+  /// carousel reel once its `musicId` is resolved.
+  void attachAudioForPhotoReel(String contentId, String audioUrl) {
+    final clean = audioUrl.trim();
+    if (clean.isEmpty) return;
+    final existing = _slotFor(contentId);
+    if (existing != null) {
+      if (existing.mediaUrl == clean) return;
+      _loadAudioIntoSlot(existing, contentId, clean, _activeContentId == contentId);
+      return;
+    }
+    if (_activeContentId != contentId) return;
+    final slot = _acquireSlot();
+    if (slot == null) return;
+    _loadAudioIntoSlot(slot, contentId, clean, true);
+  }
+
   void _loadIntoSlot(_PlayerSlot slot, Content content, bool autoPlay) {
     final gen = ++slot.generation;
     slot.contentId = content.id;
@@ -495,21 +531,21 @@ class VideoPlaybackManager {
       player.open(Media(local), play: shouldPlay);
       slotsRevision.value++;
     } else {
-      // Open network source immediately for zero startup latency, then upgrade
-      // background preloaded slots to the local cached file WITHOUT auto-playing.
-      player.open(Media(content.mediaUrl), play: shouldPlay);
-      slotsRevision.value++;
-
+      // Check disk cache with a tiny non-blocking timeout first so we never
+      // double-open the same slot when a file is already on disk.
       _prefetcher.resolvePlayableSource(content.mediaUrl).then((resolved) {
-        if (resolved != content.mediaUrl &&
-            slot.contentId == content.id &&
-            slot.generation == gen &&
-            _activeContentId != content.id &&
-            !player.state.playing) {
-          player.setVolume(0.0);
-          player.open(Media(resolved), play: false);
-        }
-      }).catchError((_) {});
+        if (slot.contentId != content.id || slot.generation != gen) return;
+        final canStillPlay = autoPlay && !isSilenced && _activeContentId == content.id;
+        player.setVolume(canStillPlay ? (_isMuted ? 0.0 : 100.0) : 0.0);
+        player.open(Media(resolved), play: canStillPlay);
+        slotsRevision.value++;
+      }).catchError((_) {
+        if (slot.contentId != content.id || slot.generation != gen) return;
+        final canStillPlay = autoPlay && !isSilenced && _activeContentId == content.id;
+        player.setVolume(canStillPlay ? (_isMuted ? 0.0 : 100.0) : 0.0);
+        player.open(Media(content.mediaUrl), play: canStillPlay);
+        slotsRevision.value++;
+      });
     }
   }
 

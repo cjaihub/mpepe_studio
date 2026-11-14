@@ -5,6 +5,8 @@ import 'package:oneova/backend/photo_studio/photo_studio_models.dart';
 import 'package:oneova/backend/mask_engine/api/mask_engine_provider.dart';
 import 'package:oneova/backend/mask_engine/mask_layer_manager.dart';
 import 'package:oneova/backend/mask_engine/mask_coordinate_transformer.dart';
+import 'package:oneova/create/studio/services/studio_looks.dart';
+import 'package:oneova/looks/models/oneova_look.dart';
 import 'dart:math' as math;
 
 class DeterministicRenderView extends ConsumerStatefulWidget {
@@ -42,30 +44,120 @@ class _DeterministicRenderViewState extends ConsumerState<DeterministicRenderVie
       0, 0, 0, 1, 0,
     ];
 
+    OneovaLook? activeLook;
+    double vignetteAmount = 0.0;
+    double distortionAmount = 0.0;
+    double perspectiveAmount = 0.0;
+
     if (widget.project.currentGraph.layers.isNotEmpty) {
       final globalLayer = widget.project.currentGraph.layers.first;
-      
+
       double exposure = _getParam(globalLayer, AdjustmentType.EXPOSURE, 0.0);
       double contrast = _getParam(globalLayer, AdjustmentType.CONTRAST, 0.0);
+      double highlights = _getParam(globalLayer, AdjustmentType.HIGHLIGHTS, 0.0);
+      double shadows = _getParam(globalLayer, AdjustmentType.SHADOWS, 0.0);
+      double whites = _getParam(globalLayer, AdjustmentType.WHITES, 0.0);
+      double blacks = _getParam(globalLayer, AdjustmentType.BLACKS, 0.0);
       double saturation = _getParam(globalLayer, AdjustmentType.SATURATION, 0.0);
+      double vibrance = _getParam(globalLayer, AdjustmentType.VIBRANCE, 0.0);
       double temperature = _getParam(globalLayer, AdjustmentType.TEMPERATURE, 0.0);
       double tint = _getParam(globalLayer, AdjustmentType.TINT, 0.0);
+      double clarity = _getParam(globalLayer, AdjustmentType.CLARITY, 0.0);
+      double texture = _getParam(globalLayer, AdjustmentType.TEXTURE, 0.0);
+      double dehaze = _getParam(globalLayer, AdjustmentType.DEHAZE, 0.0);
+      double sharpness = _getParam(globalLayer, AdjustmentType.SHARPNESS, 0.0);
+      vignetteAmount = _getParam(globalLayer, AdjustmentType.VIGNETTE, 0.0);
+      distortionAmount = _getParam(globalLayer, AdjustmentType.DISTORTION, 0.0);
+      perspectiveAmount = _getParam(globalLayer, AdjustmentType.PERSPECTIVE, 0.0);
 
-      // 1. Exposure (Brightness) -> Multiplier
-      // Scale exposure from [-1, 1] to [0.5, 2.0]
-      double expFactor = math.pow(2.0, exposure).toDouble();
+      ColorWheel wheelFor(AdjustmentType t) {
+        final adj = globalLayer.adjustments.where((a) => a.type == t).lastOrNull;
+        if (adj == null) return const ColorWheel();
+        final h = ((adj.parameters['hue'] as num?)?.toDouble() ?? 0.0) * math.pi / 180.0;
+        final s = ((adj.parameters['saturation'] as num?)?.toDouble() ?? 0.0).clamp(0.0, 1.0);
+        final l = ((adj.parameters['luminance'] as num?)?.toDouble() ?? 0.0).clamp(-1.0, 1.0);
+        final c = HSVColor.fromAHSV(1.0, (h * 180 / math.pi) % 360, s, 1.0).toColor();
+        return ColorWheel(
+          r: (c.r - 0.5) * 0.45 * s,
+          g: (c.g - 0.5) * 0.45 * s,
+          b: (c.b - 0.5) * 0.45 * s,
+          lum: l * 0.25,
+        );
+      }
+
+      HslBand hslFor(String ch) {
+        for (final adj in globalLayer.adjustments.reversed) {
+          if (adj.type == AdjustmentType.HSL && adj.parameters['channel'] == ch) {
+            final h = ((adj.parameters['hue'] as num?)?.toDouble() ?? 0.0) * 0.3;
+            final s = ((adj.parameters['saturation'] as num?)?.toDouble() ?? 0.0) / 100.0;
+            final l = ((adj.parameters['luminance'] as num?)?.toDouble() ?? 0.0) / 100.0;
+            return HslBand(hue: h, sat: s, lum: l);
+          }
+        }
+        return const HslBand();
+      }
+
+      List<CurvePoint> masterCurve = const [CurvePoint(0, 0), CurvePoint(1, 1)];
+      final curveAdj = globalLayer.adjustments.where((a) => a.type == AdjustmentType.CURVES_RGB).lastOrNull;
+      if (curveAdj != null && curveAdj.parameters['points'] is List) {
+        final rawPts = curveAdj.parameters['points'] as List;
+        if (rawPts.length >= 2) {
+          masterCurve = [
+            for (final p in rawPts)
+              if (p is List && p.length >= 2)
+                CurvePoint((p[0] as num).toDouble().clamp(0.0, 1.0), (p[1] as num).toDouble().clamp(0.0, 1.0)),
+          ];
+        }
+      }
+
+      final liftW = wheelFor(AdjustmentType.COLOR_WHEELS_SHADOWS);
+      final gammaW = wheelFor(AdjustmentType.COLOR_WHEELS_MIDTONES);
+      final gainW = wheelFor(AdjustmentType.COLOR_WHEELS_HIGHLIGHTS);
+
+      activeLook = OneovaLook(
+        id: 'photo_studio_${globalLayer.adjustments.length}_${exposure}_${contrast}_${highlights}_${shadows}_${saturation}_${vibrance}_${temperature}_${tint}_${liftW.r}_${gammaW.r}_${gainW.r}_${masterCurve.length}',
+        primary: LookPrimary(
+          exposure: exposure,
+          contrast: (1.0 + contrast * 0.65 + clarity * 0.25 + dehaze * 0.3).clamp(0.3, 2.2),
+          highlights: highlights.clamp(-1.0, 1.0),
+          shadows: (shadows - dehaze * 0.15).clamp(-1.0, 1.0),
+          whites: whites.clamp(-1.0, 1.0),
+          blacks: (blacks - dehaze * 0.2).clamp(-1.0, 1.0),
+        ),
+        color: LookColor(
+          temperature: temperature * 45.0,
+          tint: tint * 45.0,
+          vibrance: (vibrance + dehaze * 0.12).clamp(-1.0, 1.0),
+          saturation: (1.0 + saturation).clamp(0.0, 2.0),
+        ),
+        wheels: LookWheels(lift: liftW, gamma: gammaW, gain: gainW),
+        curves: LookCurves(master: masterCurve),
+        hsl: LookHsl(
+          red: hslFor('red'),
+          orange: hslFor('orange'),
+          yellow: hslFor('yellow'),
+          green: hslFor('green'),
+          aqua: hslFor('cyan'),
+          blue: hslFor('blue'),
+          purple: hslFor('purple'),
+          magenta: hslFor('magenta'),
+        ),
+        detail: LookDetail(sharpen: (sharpness.abs() * 0.5 + texture.clamp(0.0, 1.0) * 0.35).clamp(0.0, 1.0)),
+        optics: LookOptics(vignette: vignetteAmount.abs().clamp(0.0, 1.0)),
+      );
+
+      // Matrix pipeline (combining exposure, contrast, tone recovery, saturation, vibrance, color wheels)
+      double expFactor = math.pow(2.0, exposure + (shadows * 0.18) + (highlights * 0.14)).toDouble();
       List<double> expMatrix = [
-        expFactor, 0, 0, 0, 0,
-        0, expFactor, 0, 0, 0,
-        0, 0, expFactor, 0, 0,
+        expFactor, 0, 0, 0, (shadows * 18 + blacks * 22 + liftW.lum * 25),
+        0, expFactor, 0, 0, (shadows * 18 + blacks * 22 + liftW.lum * 25),
+        0, 0, expFactor, 0, (shadows * 18 + blacks * 22 + liftW.lum * 25),
         0, 0, 0, 1, 0,
       ];
       composedMatrix = _multiplyMatrices(composedMatrix, expMatrix);
 
-      // 2. Contrast
-      // Scale contrast from [-1, 1] to [0.5, 2.0]
-      double contFactor = math.pow(2.0, contrast).toDouble();
-      double contOffset = 128 * (1 - contFactor);
+      double contFactor = math.pow(2.0, (contrast * 0.65) + (clarity * 0.28) + (dehaze * 0.32) + (whites * 0.12) - (blacks * 0.12)).toDouble();
+      double contOffset = 128 * (1 - contFactor) - (dehaze * 14);
       List<double> contMatrix = [
         contFactor, 0, 0, 0, contOffset,
         0, contFactor, 0, 0, contOffset,
@@ -73,9 +165,8 @@ class _DeterministicRenderViewState extends ConsumerState<DeterministicRenderVie
         0, 0, 0, 1, 0,
       ];
       composedMatrix = _multiplyMatrices(composedMatrix, contMatrix);
-      
-      // 3. Saturation
-      double satFactor = 1.0 + saturation; // [-1, 1] -> [0, 2]
+
+      double satFactor = (1.0 + saturation + vibrance * 0.65 + dehaze * 0.12).clamp(0.0, 2.5);
       double lumR = 0.3086;
       double lumG = 0.6094;
       double lumB = 0.0820;
@@ -89,16 +180,14 @@ class _DeterministicRenderViewState extends ConsumerState<DeterministicRenderVie
         0, 0, 0, 1, 0,
       ];
       composedMatrix = _multiplyMatrices(composedMatrix, satMatrix);
-      
-      // 4. White Balance (Temp/Tint)
-      // Very basic approximation
-      double rScale = 1.0 + (temperature * 0.2) + (tint * 0.1);
-      double gScale = 1.0 - (tint * 0.2);
-      double bScale = 1.0 - (temperature * 0.2) + (tint * 0.1);
+
+      double rScale = 1.0 + (temperature * 0.22) + (tint * 0.1) + (gainW.r + gammaW.r) * 0.8;
+      double gScale = 1.0 - (tint * 0.22) + (gainW.g + gammaW.g) * 0.8;
+      double bScale = 1.0 - (temperature * 0.22) + (tint * 0.1) + (gainW.b + gammaW.b) * 0.8;
       List<double> wbMatrix = [
-        rScale, 0, 0, 0, 0,
-        0, gScale, 0, 0, 0,
-        0, 0, bScale, 0, 0,
+        rScale, 0, 0, 0, liftW.r * 90,
+        0, gScale, 0, 0, liftW.g * 90,
+        0, 0, bScale, 0, liftW.b * 90,
         0, 0, 0, 1, 0,
       ];
       composedMatrix = _multiplyMatrices(composedMatrix, wbMatrix);
@@ -123,6 +212,76 @@ class _DeterministicRenderViewState extends ConsumerState<DeterministicRenderVie
           imageUri.isNotEmpty ? imageUri : 'https://images.unsplash.com/photo-1542291026-7eec264c27ff',
           fit: BoxFit.contain,
           errorBuilder: (context, error, stackTrace) => const Icon(Icons.broken_image, color: Colors.white24, size: 100),
+        ),
+      );
+    }
+
+    if (activeLook != null) {
+      baseImage = StudioLookFilter(look: activeLook, child: baseImage);
+    }
+    if (vignetteAmount.abs() > 0.01) {
+      baseImage = Stack(
+        alignment: Alignment.center,
+        children: [
+          baseImage,
+          Positioned.fill(
+            child: IgnorePointer(
+              child: DecoratedBox(
+                decoration: BoxDecoration(
+                  gradient: RadialGradient(
+                    radius: 0.85,
+                    colors: [
+                      Colors.transparent,
+                      (vignetteAmount > 0 ? Colors.black : Colors.white)
+                          .withValues(alpha: (vignetteAmount.abs() * 0.65).clamp(0.0, 0.85)),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ],
+      );
+    }
+
+    final crop = widget.project.currentGraph.crop;
+    if (crop.rotationDegrees.abs() > 0.01 ||
+        distortionAmount.abs() > 0.01 ||
+        perspectiveAmount.abs() > 0.01) {
+      final mat = Matrix4.identity()
+        ..setEntry(3, 2, 0.001)
+        ..rotateX(perspectiveAmount * 0.25)
+        ..rotateZ(crop.rotationDegrees * math.pi / 180.0);
+      final scale = (1.0 + distortionAmount * 0.25).clamp(0.75, 1.4);
+      mat.scaleByDouble(scale, scale, 1.0, 1.0);
+      baseImage = Transform(
+        alignment: Alignment.center,
+        transform: mat,
+        child: baseImage,
+      );
+    }
+    final double? targetAspect = switch (crop.ratio) {
+      CropAspectRatio.square1x1 => 1.0,
+      CropAspectRatio.ratio4x5 => 4.0 / 5.0,
+      CropAspectRatio.ratio9x16 => 9.0 / 16.0,
+      CropAspectRatio.ratio16x9 => 16.0 / 9.0,
+      _ => null,
+    };
+    if (targetAspect != null) {
+      baseImage = Center(
+        child: AspectRatio(
+          aspectRatio: targetAspect,
+          child: ClipRect(
+            child: FittedBox(
+              fit: BoxFit.cover,
+              clipBehavior: Clip.hardEdge,
+              child: SizedBox(
+                width: 800,
+                height: 800 / targetAspect,
+                child: baseImage,
+              ),
+            ),
+          ),
         ),
       );
     }

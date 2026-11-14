@@ -196,9 +196,17 @@ class ReelPrefetcher {
     final immEnd = (index + 1 + immediateThumbsAhead).clamp(0, end);
     for (var i = index; i < immEnd; i++) {
       final c = feed[i];
-      final thumb = c.type == ContentType.photo ? c.mediaUrl : c.mediaMetadata.thumbnailUrl;
-      if (thumb != null && thumb.startsWith('http') && !_thumbsDone.contains(thumb)) {
-        enqueue(thumb, video: false, priority: _JobPriority.immediateThumb);
+      if (c.isPhotoOrCarousel && c.mediaUrls.isNotEmpty) {
+        for (final imgUrl in c.mediaUrls) {
+          if (imgUrl.startsWith('http') && !_thumbsDone.contains(imgUrl)) {
+            enqueue(imgUrl, video: false, priority: _JobPriority.immediateThumb);
+          }
+        }
+      } else {
+        final thumb = c.isPhotoOrCarousel ? c.mediaUrl : c.mediaMetadata.thumbnailUrl;
+        if (thumb != null && thumb.startsWith('http') && !_thumbsDone.contains(thumb)) {
+          enqueue(thumb, video: false, priority: _JobPriority.immediateThumb);
+        }
       }
     }
 
@@ -206,7 +214,7 @@ class ReelPrefetcher {
     final hotEnd = (index + 1 + hotAhead).clamp(0, end);
     for (var i = index + 1; i < hotEnd; i++) {
       final c = feed[i];
-      if (c.type == ContentType.photo || !prefetchableVideo(c.mediaUrl)) continue;
+      if (c.isPhotoOrCarousel || !prefetchableVideo(c.mediaUrl)) continue;
       if (_readyVideos.containsKey(c.mediaUrl)) continue;
       enqueue(c.mediaUrl, video: true, priority: _JobPriority.hotVideo);
     }
@@ -214,9 +222,17 @@ class ReelPrefetcher {
     // Tier 2: Remaining covers across the 60-short horizon
     for (var i = immEnd; i < end; i++) {
       final c = feed[i];
-      final thumb = c.type == ContentType.photo ? c.mediaUrl : c.mediaMetadata.thumbnailUrl;
-      if (thumb != null && thumb.startsWith('http') && !_thumbsDone.contains(thumb)) {
-        enqueue(thumb, video: false, priority: _JobPriority.windowThumb);
+      if (c.isPhotoOrCarousel && c.mediaUrls.isNotEmpty) {
+        for (final imgUrl in c.mediaUrls) {
+          if (imgUrl.startsWith('http') && !_thumbsDone.contains(imgUrl)) {
+            enqueue(imgUrl, video: false, priority: _JobPriority.windowThumb);
+          }
+        }
+      } else {
+        final thumb = c.isPhotoOrCarousel ? c.mediaUrl : c.mediaMetadata.thumbnailUrl;
+        if (thumb != null && thumb.startsWith('http') && !_thumbsDone.contains(thumb)) {
+          enqueue(thumb, video: false, priority: _JobPriority.windowThumb);
+        }
       }
     }
 
@@ -224,7 +240,7 @@ class ReelPrefetcher {
     final deepEnd = (index + 1 + deepAhead).clamp(0, end);
     for (var i = hotEnd; i < deepEnd; i++) {
       final c = feed[i];
-      if (c.type == ContentType.photo || !prefetchableVideo(c.mediaUrl)) continue;
+      if (c.isPhotoOrCarousel || !prefetchableVideo(c.mediaUrl)) continue;
       if (_readyVideos.containsKey(c.mediaUrl)) continue;
       enqueue(c.mediaUrl, video: true, priority: _JobPriority.deepVideo);
     }
@@ -249,7 +265,7 @@ class ReelPrefetcher {
     for (var i = start; i < end; i++) {
       if (_disposed) return;
       final c = feed[i];
-      if (c.type == ContentType.photo || !prefetchableVideo(c.mediaUrl)) continue;
+      if (c.isPhotoOrCarousel || !prefetchableVideo(c.mediaUrl)) continue;
       final url = c.mediaUrl;
       if (_readyVideos.containsKey(url) || !_indexedCheckInFlight.add(url)) continue;
       try {

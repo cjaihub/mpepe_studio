@@ -2170,17 +2170,15 @@ class OvaAgentSyncNotifier extends Notifier<OvaAgentWorkspaceState> {
   }
 
   Future<String> _buildResilientFallback(String prompt) async {
-    if (!_isDesktop) {
-      try {
-        final brain = ref.read(aiBrainProvider);
-        final res = await brain.processRequest([
-          {'role': 'user', 'content': prompt},
-        ]);
-        if (res is AiTextResponse && res.text.trim().isNotEmpty) {
-          return res.text.trim();
-        }
-      } catch (_) {}
-    }
+    try {
+      final brain = ref.read(aiBrainProvider);
+      final res = await brain.processRequest([
+        {'role': 'user', 'content': prompt},
+      ]);
+      if (res is AiTextResponse && res.text.trim().isNotEmpty) {
+        return res.text.trim();
+      }
+    } catch (_) {}
     return 'I recorded your instruction (`$prompt`). Check your network connection or workstation pairing to continue live multi-step execution.';
   }
 

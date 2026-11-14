@@ -346,12 +346,19 @@ class _PhotoStudioScreenState extends ConsumerState<PhotoStudioScreen> {
                         ? Stack(
                             alignment: Alignment.center,
                             children: [
-                              Image.network(
-                                project.originalAsset.uri.isNotEmpty && project.originalAsset.uri.startsWith('http')
-                                    ? project.originalAsset.uri
-                                    : 'https://images.unsplash.com/photo-1542291026-7eec264c27ff',
-                                fit: BoxFit.contain,
-                              ),
+                              if (project.originalAsset.uri.isNotEmpty &&
+                                  !project.originalAsset.uri.startsWith('http'))
+                                Image.file(
+                                  File(project.originalAsset.uri),
+                                  fit: BoxFit.contain,
+                                )
+                              else
+                                Image.network(
+                                  project.originalAsset.uri.isNotEmpty
+                                      ? project.originalAsset.uri
+                                      : 'https://images.unsplash.com/photo-1542291026-7eec264c27ff',
+                                  fit: BoxFit.contain,
+                                ),
                               Positioned(
                                 top: 100,
                                 child: Container(
@@ -517,6 +524,8 @@ class _PhotoStudioScreenState extends ConsumerState<PhotoStudioScreen> {
         return _buildDetailPanel();
       case 'Masking':
         return _buildMaskSelectPanel();
+      case 'Crop':
+        return _buildCropPanel();
       default:
         return SizedBox(
           height: 100,
@@ -528,6 +537,99 @@ class _PhotoStudioScreenState extends ConsumerState<PhotoStudioScreen> {
           ),
         );
     }
+  }
+
+  Widget _buildCropPanel() {
+    final project = ref.watch(activePhotoProjectProvider);
+    final crop = project.currentGraph.crop;
+    final notifier = ref.read(activePhotoProjectProvider.notifier);
+    const ratios = <(CropAspectRatio, String)>[
+      (CropAspectRatio.free, 'Original'),
+      (CropAspectRatio.square1x1, '1:1'),
+      (CropAspectRatio.ratio4x5, '4:5'),
+      (CropAspectRatio.ratio9x16, '9:16'),
+      (CropAspectRatio.ratio16x9, '16:9'),
+    ];
+    return Column(
+      children: [
+        SizedBox(
+          height: 36,
+          child: ListView(
+            scrollDirection: Axis.horizontal,
+            padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 4),
+            children: [
+              for (final (ratio, label) in ratios)
+                Padding(
+                  padding: const EdgeInsets.only(right: 8),
+                  child: GestureDetector(
+                    onTap: () {
+                      HapticFeedback.selectionClick();
+                      notifier.updateCrop(crop.copyWith(ratio: ratio));
+                    },
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+                      decoration: BoxDecoration(
+                        color: crop.ratio == ratio
+                            ? AppColors.brandBlue
+                            : Colors.white.withValues(alpha: 0.08),
+                        borderRadius: BorderRadius.circular(AppRadius.full),
+                      ),
+                      alignment: Alignment.center,
+                      child: Text(
+                        label,
+                        style: GoogleFonts.inter(
+                          color: crop.ratio == ratio ? Colors.white : Colors.white70,
+                          fontSize: 11,
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+              GestureDetector(
+                onTap: () {
+                  HapticFeedback.lightImpact();
+                  final nextDeg = ((crop.rotationDegrees + 90) % 360);
+                  notifier.updateCrop(crop.copyWith(rotationDegrees: nextDeg));
+                },
+                child: Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+                  decoration: BoxDecoration(
+                    color: Colors.white.withValues(alpha: 0.08),
+                    borderRadius: BorderRadius.circular(AppRadius.full),
+                  ),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      const Icon(Icons.rotate_90_degrees_cw_rounded, size: 13, color: Colors.white70),
+                      const SizedBox(width: 4),
+                      Text(
+                        'Rotate 90°',
+                        style: GoogleFonts.inter(
+                          color: Colors.white70,
+                          fontSize: 11,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+        Expanded(
+          child: ListView(
+            padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 4),
+            children: [
+              _buildPremiumSlider('Zoom / Scale', AdjustmentType.DISTORTION),
+              _buildPremiumSlider('Perspective', AdjustmentType.PERSPECTIVE),
+              _buildPremiumSlider('Vignette', AdjustmentType.VIGNETTE),
+            ],
+          ),
+        ),
+      ],
+    );
   }
 
   Widget _buildLightPanel() {

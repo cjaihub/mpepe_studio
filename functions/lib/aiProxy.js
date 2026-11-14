@@ -32,7 +32,7 @@ async function underDailyCap(uid) {
         return true;
     });
 }
-exports.aiProxy = (0, https_1.onRequest)({ secrets: [openRouterSecret], timeoutSeconds: 300, memory: '256MiB', cors: true }, async (req, res) => {
+exports.aiProxy = (0, https_1.onRequest)({ secrets: [openRouterSecret], timeoutSeconds: 300, memory: '512MiB', cors: true }, async (req, res) => {
     var _a;
     var _b, _c;
     const path = req.path.replace(/^\/api\/v1/, '');

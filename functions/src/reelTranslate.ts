@@ -67,7 +67,7 @@ async function mayRead(uid: string, data: Record<string, unknown>): Promise<bool
 }
 
 export const reelTranslate = onCall(
-  { memory: '256MiB', timeoutSeconds: 90, secrets: [openRouterSecret] },
+  { memory: '512MiB', timeoutSeconds: 90, secrets: [openRouterSecret] },
   async (request): Promise<Result> => {
     if (!request.auth) throw new HttpsError('unauthenticated', 'Sign in to see translations.');
     const uid = request.auth.uid;

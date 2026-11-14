@@ -104,6 +104,28 @@ class OvaAccessibilityService : AccessibilityService() {
             if (textList.isNotEmpty()) {
                 val fullText = textList.joinToString(" ")
                 addRecentNotification(if (pkg.isNotEmpty()) pkg else "System", fullText)
+                if (!OvaNotificationListener.isConnected() &&
+                    pkg.isNotEmpty() &&
+                    pkg != packageName &&
+                    pkg != "android" &&
+                    pkg != "com.android.systemui"
+                ) {
+                    val appName = pkg.substringAfterLast('.').replaceFirstChar { it.uppercase() }
+                    OvaDeviceHub.emit(
+                        "notification",
+                        mapOf(
+                            "key" to "acc_${pkg}_${System.currentTimeMillis()}",
+                            "package" to pkg,
+                            "app" to appName,
+                            "title" to appName,
+                            "text" to fullText.take(300),
+                            "postTime" to System.currentTimeMillis(),
+                            "canReply" to false,
+                            "category" to "msg",
+                            "ongoing" to false
+                        )
+                    )
+                }
             }
         }
     }

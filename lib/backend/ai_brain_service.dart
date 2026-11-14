@@ -9,6 +9,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:http/http.dart' as http;
 
 import '../auth/auth_repository.dart';
+import '../desktop_agent/desktop_firebase_rest_client.dart';
 import '../ova_assistant/memory/ova_memory_engine.dart';
 import '../youtube_manager/models/youtube_channel_profile.dart';
 import '../youtube_manager/services/youtube_account_store.dart';
@@ -690,13 +691,15 @@ class AIBrainService {
     }
 
     // ── Stage 5: `aiGateway` Callable Fallback (when proxy wasn't 5xx/offline) ─
-    if (Firebase.apps.isNotEmpty &&
+    final isDesktop =
+        !kIsWeb && (Platform.isMacOS || Platform.isWindows || Platform.isLinux);
+    if ((Firebase.apps.isNotEmpty || isDesktop) &&
         _httpClient == null &&
         OneovaAiGateway.signedIn &&
         !OneovaAiGateway.isProxyCoolingDown &&
         lastDiagnostic?.kind != OvaAiIssueKind.offline &&
         imageBase64 == null) {
-      final callableRes = await _tryAiGatewayCallable(plainHistory);
+      final callableRes = await _tryAiGatewayCallable(plainHistory, isDesktop: isDesktop);
       if (callableRes != null) return callableRes;
     }
 
@@ -747,7 +750,10 @@ class AIBrainService {
     }
   }
 
-  Future<AiResponse?> _tryAiGatewayCallable(List<Map<String, dynamic>> plainHistory) async {
+  Future<AiResponse?> _tryAiGatewayCallable(
+    List<Map<String, dynamic>> plainHistory, {
+    bool isDesktop = false,
+  }) async {
     try {
       final lastUser = plainHistory.lastWhere(
         (m) => m['role'] == 'user',
@@ -767,9 +773,24 @@ class AIBrainService {
               })
           .toList();
 
+      if (isDesktop) {
+        final data = await DesktopFirebaseRestClient.instance.callCallable(
+          'aiGateway',
+          <String, dynamic>{
+            'operation': 'chat',
+            'prompt': prompt,
+            'history': historyPayload,
+          },
+          timeout: const Duration(seconds: 15),
+        );
+        final reply = data['reply']?.toString().trim() ?? '';
+        if (reply.isNotEmpty) return AiTextResponse(reply);
+        return null;
+      }
+
       final callable = FirebaseFunctions.instance.httpsCallable(
         'aiGateway',
-        options: HttpsCallableOptions(timeout: const Duration(seconds: 10)),
+        options: HttpsCallableOptions(timeout: const Duration(seconds: 15)),
       );
       final result = await callable.call(<String, dynamic>{
         'operation': 'chat',

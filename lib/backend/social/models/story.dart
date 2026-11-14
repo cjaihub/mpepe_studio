@@ -50,6 +50,12 @@ class Story {
   final String authorAvatarUrl;
   final StoryMediaType mediaType;
   final String mediaUrl;
+  final List<String> mediaUrls;
+  final String? caption;
+  final String? musicId;
+  final String? musicTitle;
+  final String? musicArtist;
+  final String? musicUrl;
   final DateTime createdAt;
   final DateTime expiresAt;
   final StoryPrivacy privacy;
@@ -71,6 +77,12 @@ class Story {
     required this.authorAvatarUrl,
     required this.mediaType,
     required this.mediaUrl,
+    this.mediaUrls = const [],
+    this.caption,
+    this.musicId,
+    this.musicTitle,
+    this.musicArtist,
+    this.musicUrl,
     required this.createdAt,
     required this.expiresAt,
     this.privacy = StoryPrivacy.public,
@@ -94,6 +106,12 @@ class Story {
       'authorAvatarUrl': authorAvatarUrl,
       'mediaType': mediaType.name,
       'mediaUrl': mediaUrl,
+      if (mediaUrls.isNotEmpty) 'mediaUrls': mediaUrls,
+      if (caption != null && caption!.trim().isNotEmpty) 'caption': caption!.trim(),
+      if (musicId != null && musicId!.isNotEmpty) 'musicId': musicId,
+      if (musicTitle != null && musicTitle!.isNotEmpty) 'musicTitle': musicTitle,
+      if (musicArtist != null && musicArtist!.isNotEmpty) 'musicArtist': musicArtist,
+      if (musicUrl != null && musicUrl!.isNotEmpty) 'musicUrl': musicUrl,
       'createdAt': createdAt.millisecondsSinceEpoch,
       'expiresAt': expiresAt.millisecondsSinceEpoch,
       'privacy': privacy.name,
@@ -123,13 +141,26 @@ class Story {
   }
 
   factory Story.fromMap(Map<String, dynamic> map) {
+    final primaryUrl = (map['mediaUrl'] as String?) ?? '';
+    final rawUrls = List<String>.from(map['mediaUrls'] ?? const [])
+        .where((e) => e.trim().isNotEmpty)
+        .toList();
+    if (rawUrls.isEmpty && primaryUrl.isNotEmpty) {
+      rawUrls.add(primaryUrl);
+    }
     return Story(
       id: map['id'] ?? '',
       authorId: map['authorId'] ?? '',
       authorName: map['authorName'] ?? '',
       authorAvatarUrl: map['authorAvatarUrl'] ?? '',
       mediaType: StoryMediaType.values.firstWhere((e) => e.name == map['mediaType'], orElse: () => StoryMediaType.text),
-      mediaUrl: map['mediaUrl'] ?? '',
+      mediaUrl: primaryUrl,
+      mediaUrls: rawUrls,
+      caption: map['caption'] as String?,
+      musicId: map['musicId'] as String?,
+      musicTitle: map['musicTitle'] as String?,
+      musicArtist: map['musicArtist'] as String?,
+      musicUrl: map['musicUrl'] as String?,
       createdAt: _storyTime(map['createdAt']),
       expiresAt: _storyTime(map['expiresAt']),
       privacy: StoryPrivacy.values.firstWhere((e) => e.name == map['privacy'], orElse: () => StoryPrivacy.public),

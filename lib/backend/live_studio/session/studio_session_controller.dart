@@ -97,7 +97,9 @@ final studioRoomProvider = Provider.autoDispose.family<StudioRoomPort, String>((
     metrics: TelemetryMetricsSink(ref.watch(telemetryServiceProvider)),
   );
   room.onCameraTrackPublished = (trackId) {
-    ref.read(liveLooksControllerProvider.notifier).attachCameraTrack(trackId);
+    final ctl = ref.read(liveLooksControllerProvider.notifier);
+    ctl.bindLiveStream(streamId);
+    ctl.attachCameraTrack(trackId);
   };
   room.onCameraTrackUnpublished = (trackId) {
     ref.read(liveLooksControllerProvider.notifier).detachCameraTrack();

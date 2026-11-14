@@ -3,6 +3,7 @@
 // Everything maps onto the Live Studio backend:
 // - mode / layout → lsStart `kind` + `settings` (StudioSettings);
 // - title / cover / category / audience / join requests → lsStart extras;
+// - looks / lighting / beauty → LiveLooksController + live_streams/{id}.liveEffects;
 // - comments → lsSetChatMode right after the start.
 
 import 'package:flutter/material.dart';
@@ -11,18 +12,20 @@ import '../../../backend/live_studio/contracts/studio_contracts.dart';
 import '../../../backend/live_studio/settings/settings_rules.dart';
 import '../../../looks/models/oneova_look.dart' show BoostBeautyConfig;
 
-/// How the live is staged.
+/// How the live is staged. Solo and Studio share the exact same 3D Broadcast
+/// Studio Stage and all studio functionalities; Solo starts focused on the host
+/// with guest requests ready to open anytime.
 enum LiveSetupMode {
-  /// Just the host on the center screen; join requests start paused and
-  /// can be opened during the live without leaving the screen.
-  solo('Solo', 'Just you, full focus. Open the stage to guests anytime.', Icons.person_rounded),
+  /// Host on the main studio stage with full studio lighting, table, and tools;
+  /// guest wall seats open anytime on demand.
+  solo('Solo Studio', 'Full studio stage focused on you. Open guest seats anytime.', Icons.person_rounded),
 
-  /// Multi-panel studio: guests appear as video windows on the walls and
-  /// viewers can request to join.
-  studio('Studio', 'Bring guests on stage. Viewers can request to join.', Icons.view_quilt_rounded),
+  /// Multi-panel studio: guests appear as video windows on the studio walls and
+  /// viewers can request to join right away.
+  studio('Multi-Guest', 'Bring guests & co-hosts onto the studio walls live.', Icons.view_quilt_rounded),
 
   /// Phone game in the center, host camera in a bubble.
-  game('Game', 'Stream your game with your camera in a bubble.', Icons.sports_esports_rounded);
+  game('Game Live', 'Stream your game in 1080p with your camera in a bubble.', Icons.sports_esports_rounded);
 
   const LiveSetupMode(this.label, this.blurb, this.icon);
   final String label;
@@ -38,8 +41,8 @@ enum LiveSetupMode {
 
 /// Who can watch (`audienceMode` on the stream doc, enforced by lsToken).
 enum LiveAudience {
-  public('public', 'Everyone', 'Anyone on Oneova can find and watch.', Icons.public_rounded),
-  followers('followers', 'Followers', 'Only people who follow you can watch.', Icons.group_rounded);
+  public('public', 'Everyone', 'Anyone on Oneova can watch.', Icons.public_rounded),
+  followers('followers', 'Followers', 'Only your followers can watch.', Icons.group_rounded);
 
   const LiveAudience(this.wire, this.label, this.blurb, this.icon);
   final String wire;
@@ -51,8 +54,8 @@ enum LiveAudience {
 /// Comment rules (`lsSetChatMode`).
 enum LiveChatMode {
   open('open', 'Open', 'Everyone can comment.', Icons.forum_rounded),
-  slow('slow', 'Slow mode', 'One comment per person every few seconds.', Icons.hourglass_bottom_rounded),
-  followers('followers', 'Followers only', 'Only your followers can comment.', Icons.how_to_reg_rounded);
+  slow('slow', 'Slow mode', 'Rate-limited comments.', Icons.hourglass_bottom_rounded),
+  followers('followers', 'Followers', 'Only followers comment.', Icons.how_to_reg_rounded);
 
   const LiveChatMode(this.wire, this.label, this.blurb, this.icon);
   final String wire;
@@ -86,10 +89,10 @@ class LiveBeauty {
   final double eyeLight;
   final double teeth;
 
-  static const natural = LiveBeauty(smooth: 0.4, tone: 0.25, glow: 0.3, eyeLight: 0.2);
-  static const glowUp = LiveBeauty(smooth: 0.55, tone: 0.4, glow: 0.6, eyeLight: 0.4, teeth: 0.3);
-  static const sculpt = LiveBeauty(smooth: 0.35, tone: 0.2, glow: 0.25, slim: 0.35, jaw: 0.3, nose: 0.2, eyes: 0.2);
-  static const studio = LiveBeauty(smooth: 0.5, tone: 0.5, glow: 0.45, slim: 0.15, eyeLight: 0.35, teeth: 0.2);
+  static const natural = LiveBeauty(smooth: 0.42, tone: 0.28, glow: 0.32, eyeLight: 0.24);
+  static const glowUp = LiveBeauty(smooth: 0.58, tone: 0.44, glow: 0.62, eyeLight: 0.42, teeth: 0.32);
+  static const sculpt = LiveBeauty(smooth: 0.38, tone: 0.24, glow: 0.28, slim: 0.38, jaw: 0.32, nose: 0.22, eyes: 0.24);
+  static const studio = LiveBeauty(smooth: 0.52, tone: 0.50, glow: 0.48, slim: 0.18, eyeLight: 0.38, teeth: 0.26);
 
   /// Named looks shown as one-tap presets.
   static const presets = <(String, IconData, LiveBeauty)>[
@@ -178,8 +181,10 @@ class LiveSetupConfig {
     this.coverPath,
     this.cameraOn = true,
     this.micOn = true,
-    this.beautyOn = false,
+    this.beautyOn = true,
     this.beauty = LiveBeauty.natural,
+    this.lookId = 'neutral',
+    this.lightingId = 'natural',
     this.settings = const StudioSettings(),
     this.audience = LiveAudience.public,
     this.chatMode = LiveChatMode.open,
@@ -201,8 +206,14 @@ class LiveSetupConfig {
   final bool micOn;
   final bool beautyOn;
 
-  /// Beauty levels (applied only while [beautyOn]).
+  /// Beauty levels (applied while [beautyOn]).
   final LiveBeauty beauty;
+
+  /// Active Cinema Look preset ID (`neutral`, `portrait_glow`, `golden_hour`, etc.).
+  final String lookId;
+
+  /// Active Studio Key Lighting preset ID (`natural`, `warm_ring`, `dual_neon`, etc.).
+  final String lightingId;
 
   /// Studio look + panels (theme, guest size, speaker mode, names).
   final StudioSettings settings;
@@ -210,7 +221,7 @@ class LiveSetupConfig {
   final LiveChatMode chatMode;
   final int slowSeconds;
 
-  /// Viewers may request to join (studio mode only).
+  /// Viewers may request to join on stage (available in both Solo Studio & Multi-Guest Studio).
   final bool joinRequests;
 
   /// Record the 1080p stage (no comments / likes) to the host's library.
@@ -222,7 +233,8 @@ class LiveSetupConfig {
   /// 16:9 recording / restream frame instead of 9:16.
   final bool landscape;
 
-  bool get multiPanel => mode == LiveSetupMode.studio;
+  /// Both Solo Studio and Multi-Guest Studio use the full 3D Broadcast Studio stage.
+  bool get multiPanel => mode != LiveSetupMode.game;
   bool get acceptsRequests => multiPanel && joinRequests;
 
   String get effectiveTitle {
@@ -235,6 +247,7 @@ class LiveSetupConfig {
   Map<String, Object?> get settingsPartial => {
         StudioSettingsKeys.theme: settings.theme.wire,
         StudioSettingsKeys.frameColor: settings.frameColor,
+        StudioSettingsKeys.frameWidth: settings.frameWidth,
         StudioSettingsKeys.studioDim: settings.studioDim,
         StudioSettingsKeys.guestSize: settings.guestSize.wire,
         StudioSettingsKeys.showNames: settings.showNames,
@@ -253,6 +266,8 @@ class LiveSetupConfig {
     bool? micOn,
     bool? beautyOn,
     LiveBeauty? beauty,
+    String? lookId,
+    String? lightingId,
     StudioSettings? settings,
     LiveAudience? audience,
     LiveChatMode? chatMode,
@@ -272,6 +287,8 @@ class LiveSetupConfig {
         micOn: micOn ?? this.micOn,
         beautyOn: beautyOn ?? this.beautyOn,
         beauty: beauty ?? this.beauty,
+        lookId: lookId ?? this.lookId,
+        lightingId: lightingId ?? this.lightingId,
         settings: settings ?? this.settings,
         audience: audience ?? this.audience,
         chatMode: chatMode ?? this.chatMode,

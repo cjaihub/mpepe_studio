@@ -4,42 +4,19 @@
 // deep links. Every live (solo, studio, game) runs in the one Live Studio.
 
 import 'package:flutter/material.dart';
-import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:go_router/go_router.dart';
 import 'package:google_fonts/google_fonts.dart';
 
 import '../../backend/live/models/live_models.dart';
-import '../../backend/live/services/live_service.dart';
-import '../../backend/live_studio/live_studio_flag.dart';
 import '../../shared/theme/app_theme.dart';
 import 'studio_v2/shell/live_studio_v2_screen.dart';
 
-class LiveRoomGate extends ConsumerWidget {
+class LiveRoomGate extends StatelessWidget {
   const LiveRoomGate({super.key, required this.streamId});
   final String streamId;
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final async = ref.watch(liveStreamProvider(streamId));
-    void leave() => context.canPop() ? context.pop() : context.go('/hub/home');
-    const loading = Scaffold(
-      backgroundColor: AppColors.brandBlack,
-      body: Center(child: CircularProgressIndicator(color: AppColors.brandPink)),
-    );
-    return async.when(
-      loading: () => loading,
-      error: (_, _) => LiveEndedView(stream: null, headline: 'This LIVE is unavailable', onClose: leave),
-      data: (stream) {
-        if (stream == null) {
-          return LiveEndedView(stream: null, headline: 'This LIVE is unavailable', onClose: leave);
-        }
-        final version = ref.watch(liveStudioVersionProvider(streamId));
-        if (!version.hasValue) return loading;
-        if (version.value! >= 2) return LiveStudioV2Screen(streamId: streamId);
-        // Started on an older app version (no studio room to join).
-        return LiveEndedView(stream: stream, headline: 'This LIVE needs the latest Oneova', onClose: leave);
-      },
-    );
+  Widget build(BuildContext context) {
+    return LiveStudioV2Screen(streamId: streamId);
   }
 }
 

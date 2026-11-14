@@ -23,6 +23,7 @@ class MediaMetadata {
   final List<String> filters;
   final bool hasCaptions;
   final String? captionsUrl;
+  final List<String> imageUrls;
 
   MediaMetadata({
     this.aspectRatio = 9 / 16,
@@ -37,6 +38,7 @@ class MediaMetadata {
     this.filters = const [],
     this.hasCaptions = false,
     this.captionsUrl,
+    this.imageUrls = const [],
   });
 
   factory MediaMetadata.fromMap(Map<String, dynamic>? data) {
@@ -54,6 +56,7 @@ class MediaMetadata {
       filters: List<String>.from(data['filters'] ?? []),
       hasCaptions: data['hasCaptions'] ?? false,
       captionsUrl: data['captionsUrl'] as String?,
+      imageUrls: List<String>.from(data['imageUrls'] ?? data['mediaUrls'] ?? []),
     );
   }
 
@@ -71,6 +74,7 @@ class MediaMetadata {
       'filters': filters,
       'hasCaptions': hasCaptions,
       'captionsUrl': captionsUrl,
+      if (imageUrls.isNotEmpty) 'imageUrls': imageUrls,
     };
   }
 }
@@ -118,12 +122,22 @@ class ContentDestination {
 class Content {
   final String id;
   final String authorId;
+  final String? title;
   final String description; // The caption/body text
   final ContentType type;
   
   // Adaptive media path (e.g. m3u8 playlist URL or mp4 URL)
   final String mediaUrl; 
+  final List<String> mediaUrls;
   final MediaMetadata mediaMetadata;
+
+  bool get isPhotoOrCarousel =>
+      type == ContentType.photo ||
+      type == ContentType.carousel ||
+      (mediaUrls.length > 1 &&
+          !mediaUrl.toLowerCase().contains('.mp4') &&
+          !mediaUrl.toLowerCase().contains('.m3u8') &&
+          !mediaUrl.toLowerCase().contains('.mov'));
 
   final List<String> hashtags;
   final List<String> mentions; // user IDs mentioned
@@ -159,9 +173,11 @@ class Content {
   Content({
     required this.id,
     required this.authorId,
+    this.title,
     required this.description,
     this.type = ContentType.short_video,
     required this.mediaUrl,
+    this.mediaUrls = const [],
     required this.mediaMetadata,
     this.hashtags = const [],
     this.mentions = const [],
@@ -196,13 +212,24 @@ class Content {
             (e) => e.name.toLowerCase() == rawType,
             orElse: () => ContentType.short_video,
           );
+    final meta = MediaMetadata.fromMap(data['mediaMetadata'] as Map<String, dynamic>?);
+    final primaryUrl = (data['mediaUrl'] as String?)?.trim() ?? '';
+    final rawUrls = <String>[
+      ...List<String>.from(data['mediaUrls'] ?? data['imageUrls'] ?? const []),
+      ...meta.imageUrls,
+    ].map((e) => e.trim()).where((e) => e.isNotEmpty).toSet().toList();
+    if (rawUrls.isEmpty && primaryUrl.isNotEmpty) {
+      rawUrls.add(primaryUrl);
+    }
     return Content(
       id: doc.id,
       authorId: data['authorId'] ?? '',
+      title: (data['title'] as String?)?.trim(),
       description: data['description'] ?? '',
       type: parsedType,
-      mediaUrl: data['mediaUrl'] ?? '',
-      mediaMetadata: MediaMetadata.fromMap(data['mediaMetadata'] as Map<String, dynamic>?),
+      mediaUrl: primaryUrl.isNotEmpty ? primaryUrl : (rawUrls.isNotEmpty ? rawUrls.first : ''),
+      mediaUrls: rawUrls,
+      mediaMetadata: meta,
       hashtags: List<String>.from(data['hashtags'] ?? []),
       mentions: List<String>.from(data['mentions'] ?? []),
       location: data['location'] as String?,
@@ -231,9 +258,11 @@ class Content {
   Map<String, dynamic> toMap() {
     return {
       'authorId': authorId,
+      if (title != null && title!.trim().isNotEmpty) 'title': title!.trim(),
       'description': description,
       'type': type.name,
       'mediaUrl': mediaUrl,
+      if (mediaUrls.isNotEmpty) 'mediaUrls': mediaUrls,
       'mediaMetadata': mediaMetadata.toMap(),
       'hashtags': hashtags,
       'mentions': mentions,

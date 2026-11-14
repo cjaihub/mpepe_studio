@@ -44,6 +44,19 @@ class StudioTimeline extends StatefulWidget {
   /// New clip order after a drag (long-press a clip to start).
   final ValueChanged<List<StudioClip>>? onReorderClips;
 
+  /// Live/commit updates for dragging and stretching layered tracks directly on the timeline.
+  final void Function(StudioText text, {bool commit})? onUpdateText;
+  final void Function(StudioAudio audio, {bool commit})? onUpdateAudio;
+  final void Function(StudioOverlay overlay, {bool commit})? onUpdateOverlay;
+  final void Function(StudioEffect effect, {bool commit})? onUpdateEffect;
+
+  /// Quick actions triggered from the timeline terminal bar.
+  final VoidCallback? onSplitAtPlayhead;
+  final VoidCallback? onAlignToPlayhead;
+  final VoidCallback? onFitDuration;
+  final VoidCallback? onOpenAiGrade;
+  final VoidCallback? onDuplicateSelected;
+
   const StudioTimeline({
     super.key,
     required this.playback,
@@ -68,6 +81,15 @@ class StudioTimeline extends StatefulWidget {
     required this.onCover,
     required this.onToggleMuteAll,
     this.onReorderClips,
+    this.onUpdateText,
+    this.onUpdateAudio,
+    this.onUpdateOverlay,
+    this.onUpdateEffect,
+    this.onSplitAtPlayhead,
+    this.onAlignToPlayhead,
+    this.onFitDuration,
+    this.onOpenAiGrade,
+    this.onDuplicateSelected,
   });
 
   @override
@@ -80,12 +102,15 @@ class _StudioTimelineState extends State<StudioTimeline> {
   double _ppsAtScaleStart = 64;
   bool _userScrolling = false;
   bool _programmatic = false;
+  bool _stretchMode = false;
+  bool _snapEnabled = true;
+  int? _snapLineMs;
 
   /// Clip order while the reorder strip is open (null when closed).
   List<StudioClip>? _order;
 
-  static const _clipH = 54.0;
-  static const _rowH = 26.0;
+  static const _clipH = 50.0;
+  static const _rowH = 24.0;
 
   @override
   void initState() {
@@ -129,6 +154,206 @@ class _StudioTimelineState extends State<StudioTimeline> {
     widget.playback.seek((_scroll.offset / _pps * 1000).round());
   }
 
+  /// Collects all magnetic alignment snap targets (playhead, clip edges, beats, layer boundaries).
+  List<int> _snapTargets({String? ignoreId}) {
+    final p = widget.project;
+    final pts = <int>{0, widget.playback.posMs, p.durationMs};
+    var acc = 0;
+    for (final c in p.clips) {
+      pts.add(acc);
+      acc += c.outDurationMs;
+      pts.add(acc);
+    }
+    for (final a in p.audios) {
+      if (a.id != ignoreId) {
+        pts.add(a.offsetMs);
+        pts.add(a.offsetMs + a.durationMs);
+      }
+      pts.addAll(a.timelineBeats);
+    }
+    for (final t in p.texts) {
+      if (t.id == ignoreId) continue;
+      pts.add(t.startMs);
+      pts.add(t.endMs);
+    }
+    for (final o in p.overlays) {
+      if (o.id == ignoreId) continue;
+      pts.add(o.offsetMs);
+      pts.add(o.endOnTimeline);
+    }
+    for (final e in p.effects) {
+      if (e.id == ignoreId) continue;
+      pts.add(e.startMs);
+      pts.add(e.endMs);
+    }
+    return pts.toList();
+  }
+
+  /// Snaps [candidateMs] to the nearest alignment target if within ~9px.
+  int _snapMs(int candidateMs, {String? ignoreId}) {
+    if (!_snapEnabled) {
+      if (_snapLineMs != null) setState(() => _snapLineMs = null);
+      return candidateMs;
+    }
+    final thresholdMs = (9.0 / _pps * 1000).round().clamp(30, 350);
+    int? best;
+    var bestDist = thresholdMs + 1;
+    for (final pt in _snapTargets(ignoreId: ignoreId)) {
+      final d = (candidateMs - pt).abs();
+      if (d <= thresholdMs && d < bestDist) {
+        bestDist = d;
+        best = pt;
+      }
+    }
+    if (best != null) {
+      if (_snapLineMs != best) {
+        HapticFeedback.selectionClick();
+        setState(() => _snapLineMs = best);
+      }
+      return best;
+    }
+    if (_snapLineMs != null) setState(() => _snapLineMs = null);
+    return candidateMs;
+  }
+
+  void _clearSnapLine() {
+    if (_snapLineMs != null) setState(() => _snapLineMs = null);
+  }
+
+  Widget _quickActionsBar() {
+    return Container(
+      height: 30,
+      decoration: BoxDecoration(
+        color: context.surface,
+        border: Border(
+          top: BorderSide(color: context.border, width: 0.8),
+          bottom: BorderSide(color: context.border, width: 0.8),
+        ),
+      ),
+      child: ListView(
+        scrollDirection: Axis.horizontal,
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+        children: [
+          _quickChip(
+            icon: Icons.open_in_full_rounded,
+            label: _stretchMode ? 'Stretch: ON' : 'Stretch',
+            active: _stretchMode,
+            accent: AppColors.brandPink,
+            onTap: () {
+              HapticFeedback.selectionClick();
+              setState(() => _stretchMode = !_stretchMode);
+            },
+          ),
+          _quickChip(
+            icon: Icons.vertical_align_center_rounded,
+            label: _snapEnabled ? 'Snap: ON' : 'Snap',
+            active: _snapEnabled,
+            accent: AppColors.brandBlue,
+            onTap: () {
+              HapticFeedback.selectionClick();
+              setState(() => _snapEnabled = !_snapEnabled);
+            },
+          ),
+          if (widget.onSplitAtPlayhead != null)
+            _quickChip(
+              icon: Icons.content_cut_rounded,
+              label: 'Split',
+              onTap: widget.onSplitAtPlayhead!,
+            ),
+          if (widget.onAlignToPlayhead != null)
+            _quickChip(
+              icon: Icons.align_horizontal_left_rounded,
+              label: 'Align Playhead',
+              onTap: widget.onAlignToPlayhead!,
+            ),
+          if (widget.onFitDuration != null)
+            _quickChip(
+              icon: Icons.fit_screen_rounded,
+              label: 'Fit Timeline',
+              onTap: widget.onFitDuration!,
+            ),
+          if (widget.onOpenAiGrade != null)
+            _quickChip(
+              icon: Icons.auto_awesome_rounded,
+              label: 'AI Grade',
+              active: true,
+              accent: AppColors.brandPink,
+              onTap: widget.onOpenAiGrade!,
+            ),
+          if (widget.onDuplicateSelected != null)
+            _quickChip(
+              icon: Icons.copy_all_rounded,
+              label: 'Duplicate',
+              onTap: widget.onDuplicateSelected!,
+            ),
+          _quickChip(
+            icon: Icons.zoom_out_rounded,
+            label: 'Zoom -',
+            onTap: () {
+              HapticFeedback.selectionClick();
+              setState(() => _pps = (_pps * 0.75).clamp(2.0, 320.0));
+              WidgetsBinding.instance.addPostFrameCallback((_) => _followPlayhead());
+            },
+          ),
+          _quickChip(
+            icon: Icons.zoom_in_rounded,
+            label: 'Zoom +',
+            onTap: () {
+              HapticFeedback.selectionClick();
+              setState(() => _pps = (_pps * 1.33).clamp(2.0, 320.0));
+              WidgetsBinding.instance.addPostFrameCallback((_) => _followPlayhead());
+            },
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _quickChip({
+    required IconData icon,
+    required String label,
+    required VoidCallback onTap,
+    bool active = false,
+    Color? accent,
+  }) {
+    final activeColor = accent ?? AppColors.brandBlue;
+    return Padding(
+      padding: const EdgeInsets.only(right: 6),
+      child: GestureDetector(
+        onTap: () {
+          HapticFeedback.selectionClick();
+          onTap();
+        },
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+          decoration: BoxDecoration(
+            color: active ? activeColor.withValues(alpha: 0.18) : context.surfaceMid,
+            borderRadius: BorderRadius.circular(AppRadius.full),
+            border: Border.all(
+              color: active ? activeColor : context.border,
+              width: 1,
+            ),
+          ),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(icon, size: 12, color: active ? activeColor : context.textSecondary),
+              const SizedBox(width: 4),
+              Text(
+                label,
+                style: GoogleFonts.inter(
+                  fontSize: 10,
+                  fontWeight: active ? FontWeight.w800 : FontWeight.w600,
+                  color: active ? activeColor : context.textPrimary,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final p = widget.project;
@@ -136,92 +361,123 @@ class _StudioTimelineState extends State<StudioTimeline> {
     return LayoutBuilder(builder: (context, box) {
       final half = box.maxWidth / 2;
       final contentW = _x(total);
-      return GestureDetector(
-        onScaleStart: (_) => _ppsAtScaleStart = _pps,
-        onScaleUpdate: (d) {
-          if (d.pointerCount < 2) return;
-          setState(() => _pps = (_ppsAtScaleStart * d.horizontalScale).clamp(2.0, 320.0));
-          WidgetsBinding.instance.addPostFrameCallback((_) => _followPlayhead());
-        },
-        child: Stack(
-          children: [
-            NotificationListener<ScrollNotification>(
-              onNotification: (n) {
-                if (n is ScrollStartNotification && n.dragDetails != null) {
-                  _userScrolling = true;
-                  if (widget.playback.playing) widget.playback.pause();
-                } else if (n is ScrollEndNotification) {
-                  _userScrolling = false;
-                }
-                return false;
+      return Column(
+        children: [
+          _quickActionsBar(),
+          Expanded(
+            child: GestureDetector(
+              onScaleStart: (_) => _ppsAtScaleStart = _pps,
+              onScaleUpdate: (d) {
+                if (d.pointerCount < 2) return;
+                setState(() => _pps = (_ppsAtScaleStart * d.horizontalScale).clamp(2.0, 320.0));
+                WidgetsBinding.instance.addPostFrameCallback((_) => _followPlayhead());
               },
-              child: SingleChildScrollView(
-                controller: _scroll,
-                scrollDirection: Axis.horizontal,
-                physics: const ClampingScrollPhysics(),
-                child: SizedBox(
-                  width: contentW + half * 2,
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      SizedBox(height: 22, child: _ruler(half, total)),
-                      const SizedBox(height: 6),
-                      SizedBox(height: _clipH + 8, child: _clipRow(half)),
-                      const SizedBox(height: 6),
-                      SizedBox(height: _rowH, child: _textRow(half)),
-                      const SizedBox(height: 4),
-                      SizedBox(height: _rowH, child: _audioRow(half)),
-                      if (widget.onSelectOverlay != null) ...[
-                        const SizedBox(height: 4),
-                        SizedBox(height: _rowH - 4, child: _overlayRow(half)),
-                      ],
-                      if (widget.onSelectEffect != null) ...[
-                        const SizedBox(height: 4),
-                        SizedBox(height: _rowH - 4, child: _effectRow(half)),
-                      ],
-                    ],
+              child: Stack(
+                children: [
+                  NotificationListener<ScrollNotification>(
+                    onNotification: (n) {
+                      if (n is ScrollStartNotification && n.dragDetails != null) {
+                        _userScrolling = true;
+                        if (widget.playback.playing) widget.playback.pause();
+                      } else if (n is ScrollEndNotification) {
+                        _userScrolling = false;
+                      }
+                      return false;
+                    },
+                    child: SingleChildScrollView(
+                      controller: _scroll,
+                      scrollDirection: Axis.horizontal,
+                      physics: const ClampingScrollPhysics(),
+                      child: SizedBox(
+                        width: contentW + half * 2,
+                        child: Stack(
+                          children: [
+                            Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                SizedBox(height: 20, child: _ruler(half, total)),
+                                const SizedBox(height: 4),
+                                SizedBox(height: _clipH + 6, child: _clipRow(half)),
+                                const SizedBox(height: 4),
+                                SizedBox(height: _rowH, child: _textRow(half)),
+                                const SizedBox(height: 3),
+                                SizedBox(height: _rowH, child: _audioRow(half)),
+                                if (widget.onSelectOverlay != null) ...[
+                                  const SizedBox(height: 3),
+                                  SizedBox(height: _rowH - 2, child: _overlayRow(half)),
+                                ],
+                                if (widget.onSelectEffect != null) ...[
+                                  const SizedBox(height: 3),
+                                  SizedBox(height: _rowH - 2, child: _effectRow(half)),
+                                ],
+                              ],
+                            ),
+                            if (_snapLineMs != null)
+                              Positioned(
+                                left: half + _x(_snapLineMs!),
+                                top: 0,
+                                bottom: 0,
+                                child: IgnorePointer(
+                                  child: Container(
+                                    width: 1.8,
+                                    decoration: BoxDecoration(
+                                      color: AppColors.brandPink,
+                                      boxShadow: [
+                                        BoxShadow(
+                                          color: AppColors.brandPink.withValues(alpha: 0.7),
+                                          blurRadius: 6,
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                ),
+                              ),
+                          ],
+                        ),
+                      ),
+                    ),
                   ),
-                ),
-              ),
-            ),
-            // Playhead
-            Positioned(
-              left: half - 1,
-              top: 18,
-              bottom: 0,
-              child: IgnorePointer(
-                child: Container(
-                  width: 2,
-                  decoration: BoxDecoration(
-                    color: AppColors.brandWhite,
-                    borderRadius: BorderRadius.circular(1),
-                    boxShadow: [BoxShadow(color: AppColors.brandBlack.withValues(alpha: 0.4), blurRadius: 3)],
+                  // Playhead
+                  Positioned(
+                    left: half - 1,
+                    top: 16,
+                    bottom: 0,
+                    child: IgnorePointer(
+                      child: Container(
+                        width: 2,
+                        decoration: BoxDecoration(
+                          color: AppColors.brandWhite,
+                          borderRadius: BorderRadius.circular(1),
+                          boxShadow: [BoxShadow(color: AppColors.brandBlack.withValues(alpha: 0.4), blurRadius: 3)],
+                        ),
+                      ),
+                    ),
                   ),
-                ),
+                  if (_order != null) Positioned.fill(child: _reorderStrip()),
+                  // Add clip
+                  if (_order == null)
+                    Positioned(
+                      right: 10,
+                      top: 24 + (_clipH - 38) / 2 + 2,
+                      child: Material(
+                        color: AppColors.brandWhite,
+                        borderRadius: BorderRadius.circular(AppRadius.sm),
+                        elevation: 2,
+                        child: InkWell(
+                          borderRadius: BorderRadius.circular(AppRadius.sm),
+                          onTap: () {
+                            HapticFeedback.lightImpact();
+                            widget.onAddClip();
+                          },
+                          child: const SizedBox(width: 38, height: 38, child: Icon(Icons.add_rounded, color: AppColors.brandBlack, size: 24)),
+                        ),
+                      ),
+                    ),
+                ],
               ),
             ),
-            if (_order != null) Positioned.fill(child: _reorderStrip()),
-            // Add clip
-            if (_order == null)
-            Positioned(
-              right: 10,
-              top: 28 + (_clipH - 40) / 2 + 4,
-              child: Material(
-                color: AppColors.brandWhite,
-                borderRadius: BorderRadius.circular(AppRadius.sm),
-                elevation: 2,
-                child: InkWell(
-                  borderRadius: BorderRadius.circular(AppRadius.sm),
-                  onTap: () {
-                    HapticFeedback.lightImpact();
-                    widget.onAddClip();
-                  },
-                  child: const SizedBox(width: 40, height: 40, child: Icon(Icons.add_rounded, color: AppColors.brandBlack, size: 26)),
-                ),
-              ),
-            ),
-          ],
-        ),
+          ),
+        ],
       );
     });
   }
@@ -383,6 +639,10 @@ class _StudioTimelineState extends State<StudioTimeline> {
       );
 
   Widget _handleImpl(double left, StudioClip clip, bool isLeft) {
+    final p = widget.project;
+    final clipIdx = p.clips.indexWhere((c) => c.id == clip.id);
+    final clipStartOut = clipIdx >= 0 ? p.clipStartMs(clipIdx) : 0;
+
     return Positioned(
       left: left,
       top: 4,
@@ -395,30 +655,58 @@ class _StudioTimelineState extends State<StudioTimeline> {
           final current = widget.project.clips.firstWhere((c) => c.id == clip.id, orElse: () => clip);
           final deltaOut = d.delta.dx / _pps * 1000;
           if (current.isImage) {
-            final next = (current.imageDurationMs + (isLeft ? -deltaOut : deltaOut)).round().clamp(500, 60000);
+            final rawNext = (current.imageDurationMs + (isLeft ? -deltaOut : deltaOut)).round().clamp(500, 60000);
+            final snappedEnd = _snapMs(clipStartOut + rawNext, ignoreId: current.id);
+            final next = (snappedEnd - clipStartOut).clamp(500, 60000);
             widget.onTrimPreview(current.copyWith(imageDurationMs: next));
             return;
           }
+
+          // Time-Stretch Mode OR dragging right handle beyond sourceDurationMs stretches clip via speed!
+          final srcLen = math.max(300, current.endMs - current.startMs);
+          final wantStretch = _stretchMode || (!isLeft && current.endMs >= current.sourceDurationMs && deltaOut > 0);
+          if (wantStretch) {
+            final curOut = current.outDurationMs;
+            final rawNewOut = (curOut + (isLeft ? -deltaOut : deltaOut)).round().clamp(300, srcLen * 5);
+            final snappedEnd = _snapMs(clipStartOut + rawNewOut, ignoreId: current.id);
+            final newOut = (snappedEnd - clipStartOut).clamp(300, srcLen * 5);
+            final newSpeed = (srcLen / newOut).clamp(0.2, 4.0);
+            widget.onTrimPreview(current.copyWith(speed: double.parse(newSpeed.toStringAsFixed(3))));
+            return;
+          }
+
           final deltaSrc = (deltaOut * current.speed).round();
           if (isLeft) {
             final s = (current.startMs + deltaSrc).clamp(0, current.endMs - 300);
             widget.onTrimPreview(current.copyWith(startMs: s));
           } else {
-            final e = (current.endMs + deltaSrc).clamp(current.startMs + 300, current.sourceDurationMs);
-            widget.onTrimPreview(current.copyWith(endMs: e));
+            final rawE = (current.endMs + deltaSrc).clamp(current.startMs + 300, current.sourceDurationMs);
+            final rawOutEnd = clipStartOut + ((rawE - current.startMs) / current.speed).round();
+            final snappedOutEnd = _snapMs(rawOutEnd, ignoreId: current.id);
+            final snappedE = (current.startMs + (snappedOutEnd - clipStartOut) * current.speed)
+                .round()
+                .clamp(current.startMs + 300, current.sourceDurationMs);
+            widget.onTrimPreview(current.copyWith(endMs: snappedE));
           }
         },
-        onHorizontalDragEnd: (_) => widget.onTrimCommit(),
+        onHorizontalDragEnd: (_) {
+          _clearSnapLine();
+          widget.onTrimCommit();
+        },
         child: Container(
           decoration: BoxDecoration(
-            color: AppColors.brandWhite,
+            color: _stretchMode ? AppColors.brandPink : AppColors.brandWhite,
             borderRadius: BorderRadius.horizontal(
               left: Radius.circular(isLeft ? 6 : 0),
               right: Radius.circular(isLeft ? 0 : 6),
             ),
           ),
           child: Center(
-            child: Container(width: 2, height: 16, color: AppColors.brandBlack.withValues(alpha: 0.6)),
+            child: Container(
+              width: 2,
+              height: 16,
+              color: (_stretchMode ? AppColors.brandWhite : AppColors.brandBlack).withValues(alpha: 0.75),
+            ),
           ),
         ),
       ),
@@ -433,22 +721,54 @@ class _StudioTimelineState extends State<StudioTimeline> {
         child: _addChip(Icons.title_rounded, 'Add text', widget.onAddText),
       );
     }
-    return Stack(children: [
-      for (final t in p.texts)
-        Positioned(
-          left: half + _x(t.startMs),
-          width: math.max(18, _x(t.endMs - t.startMs)),
-          top: 0,
-          bottom: 0,
-          child: _trackChip(
-            label: t.text.replaceAll('\n', ' '),
-            icon: t.isCaption ? Icons.closed_caption_rounded : (t.isSticker ? Icons.emoji_emotions_outlined : Icons.title_rounded),
-            color: t.isCaption ? AppColors.brandPink : AppColors.brandBlue,
-            selected: t.id == widget.selectedTextId,
-            onTap: () => widget.onSelectText(t.id == widget.selectedTextId ? null : t.id),
+    final maxMs = math.max(1000, p.durationMs);
+    return Stack(
+      clipBehavior: Clip.none,
+      children: [
+        for (final t in p.texts)
+          Positioned(
+            left: half + _x(t.startMs),
+            width: math.max(18, _x(t.endMs - t.startMs)),
+            top: 0,
+            bottom: 0,
+            child: _trackChip(
+              label: t.text.replaceAll('\n', ' '),
+              icon: t.isCaption ? Icons.closed_caption_rounded : (t.isSticker ? Icons.emoji_emotions_outlined : Icons.title_rounded),
+              color: t.isCaption ? AppColors.brandPink : AppColors.brandBlue,
+              selected: t.id == widget.selectedTextId,
+              onTap: () => widget.onSelectText(t.id == widget.selectedTextId ? null : t.id),
+              onMoveDeltaMs: widget.onUpdateText == null
+                  ? null
+                  : (deltaMs, commit) {
+                      final cur = widget.project.texts.firstWhere((x) => x.id == t.id, orElse: () => t);
+                      final dur = math.max(200, cur.endMs - cur.startMs);
+                      final rawStart = (cur.startMs + deltaMs).clamp(0, math.max(0, maxMs - dur)).toInt();
+                      final snappedStart = commit ? rawStart : _snapMs(rawStart, ignoreId: cur.id);
+                      if (commit) _clearSnapLine();
+                      widget.onUpdateText!(cur.shifted(snappedStart - cur.startMs), commit: commit);
+                    },
+              onStretchLeftDeltaMs: widget.onUpdateText == null
+                  ? null
+                  : (deltaMs, commit) {
+                      final cur = widget.project.texts.firstWhere((x) => x.id == t.id, orElse: () => t);
+                      final rawStart = (cur.startMs + deltaMs).clamp(0, cur.endMs - 200);
+                      final nextStart = commit ? rawStart : _snapMs(rawStart, ignoreId: cur.id).clamp(0, cur.endMs - 200);
+                      if (commit) _clearSnapLine();
+                      widget.onUpdateText!(cur.copyWith(startMs: nextStart), commit: commit);
+                    },
+              onStretchRightDeltaMs: widget.onUpdateText == null
+                  ? null
+                  : (deltaMs, commit) {
+                      final cur = widget.project.texts.firstWhere((x) => x.id == t.id, orElse: () => t);
+                      final rawEnd = (cur.endMs + deltaMs).clamp(cur.startMs + 200, maxMs);
+                      final nextEnd = commit ? rawEnd : _snapMs(rawEnd, ignoreId: cur.id).clamp(cur.startMs + 200, maxMs);
+                      if (commit) _clearSnapLine();
+                      widget.onUpdateText!(cur.copyWith(endMs: nextEnd), commit: commit);
+                    },
+            ),
           ),
-        ),
-    ]);
+      ],
+    );
   }
 
   Widget _audioRow(double half) {
@@ -459,40 +779,79 @@ class _StudioTimelineState extends State<StudioTimeline> {
         child: _addChip(Icons.music_note_rounded, 'Add audio', widget.onAddAudio),
       );
     }
-    return Stack(children: [
-      for (final a in p.audios)
-        Positioned(
-          left: half + _x(a.offsetMs),
-          width: math.max(18, _x(a.durationMs)),
-          top: 0,
-          bottom: 0,
-          child: Stack(
-            fit: StackFit.expand,
-            children: [
-              _trackChip(
-                label: a.title,
-                icon: Icons.graphic_eq_rounded,
-                color: AppColors.textMuted,
-                selected: a.id == widget.selectedAudioId,
-                onTap: () => widget.onSelectAudio(a.id == widget.selectedAudioId ? null : a.id),
-              ),
-              // Beat markers.
-              for (final b in a.timelineBeats)
-                Positioned(
-                  left: _x(b - a.offsetMs) - 1.5,
-                  bottom: 2,
-                  child: IgnorePointer(
-                    child: Container(
-                      width: 3,
-                      height: 3,
-                      decoration: const BoxDecoration(color: AppColors.brandPink, shape: BoxShape.circle),
+    final maxMs = math.max(1000, p.durationMs);
+    return Stack(
+      clipBehavior: Clip.none,
+      children: [
+        for (final a in p.audios)
+          Positioned(
+            left: half + _x(a.offsetMs),
+            width: math.max(18, _x(a.durationMs)),
+            top: 0,
+            bottom: 0,
+            child: Stack(
+              fit: StackFit.expand,
+              clipBehavior: Clip.none,
+              children: [
+                _trackChip(
+                  label: a.title,
+                  icon: Icons.graphic_eq_rounded,
+                  color: AppColors.textMuted,
+                  selected: a.id == widget.selectedAudioId,
+                  onTap: () => widget.onSelectAudio(a.id == widget.selectedAudioId ? null : a.id),
+                  onMoveDeltaMs: widget.onUpdateAudio == null
+                      ? null
+                      : (deltaMs, commit) {
+                          final cur = widget.project.audios.firstWhere((x) => x.id == a.id, orElse: () => a);
+                          final rawOffset = (cur.offsetMs + deltaMs).clamp(0, math.max(0, maxMs - 200)).toInt();
+                          final nextOffset = commit ? rawOffset : _snapMs(rawOffset, ignoreId: cur.id);
+                          if (commit) _clearSnapLine();
+                          widget.onUpdateAudio!(cur.copyWith(offsetMs: nextOffset), commit: commit);
+                        },
+                  onStretchLeftDeltaMs: widget.onUpdateAudio == null
+                      ? null
+                      : (deltaMs, commit) {
+                          final cur = widget.project.audios.firstWhere((x) => x.id == a.id, orElse: () => a);
+                          final nextStart = (cur.startMs + deltaMs).clamp(0, cur.endMs - 300);
+                          final moved = nextStart - cur.startMs;
+                          if (commit) _clearSnapLine();
+                          widget.onUpdateAudio!(
+                            cur.copyWith(startMs: nextStart, offsetMs: (cur.offsetMs + moved).clamp(0, maxMs)),
+                            commit: commit,
+                          );
+                        },
+                  onStretchRightDeltaMs: widget.onUpdateAudio == null
+                      ? null
+                      : (deltaMs, commit) {
+                          final cur = widget.project.audios.firstWhere((x) => x.id == a.id, orElse: () => a);
+                          final maxSrc = cur.sourceDurationMs > 0 ? cur.sourceDurationMs : maxMs;
+                          final rawEnd = (cur.endMs + deltaMs).clamp(cur.startMs + 300, maxSrc);
+                          final snappedTimelineEnd = commit
+                              ? (cur.offsetMs + (rawEnd - cur.startMs))
+                              : _snapMs(cur.offsetMs + (rawEnd - cur.startMs), ignoreId: cur.id);
+                          final nextEnd = (cur.startMs + (snappedTimelineEnd - cur.offsetMs)).clamp(cur.startMs + 300, maxSrc);
+                          if (commit) _clearSnapLine();
+                          widget.onUpdateAudio!(cur.copyWith(endMs: nextEnd), commit: commit);
+                        },
+                ),
+                // Beat markers.
+                for (final b in a.timelineBeats)
+                  Positioned(
+                    left: _x(b - a.offsetMs) - 1.5,
+                    bottom: 2,
+                    child: IgnorePointer(
+                      child: Container(
+                        width: 3,
+                        height: 3,
+                        decoration: const BoxDecoration(color: AppColors.brandPink, shape: BoxShape.circle),
+                      ),
                     ),
                   ),
-                ),
-            ],
+              ],
+            ),
           ),
-        ),
-    ]);
+      ],
+    );
   }
 
   Widget _overlayRow(double half) {
@@ -503,22 +862,76 @@ class _StudioTimelineState extends State<StudioTimeline> {
         child: _addChip(Icons.picture_in_picture_alt_rounded, 'Add overlay', widget.onAddOverlay ?? () {}),
       );
     }
-    return Stack(children: [
-      for (final o in p.overlays)
-        Positioned(
-          left: half + _x(o.offsetMs),
-          width: math.max(18, _x(o.durationMs)),
-          top: 0,
-          bottom: 0,
-          child: _trackChip(
-            label: o.isImage ? 'Photo overlay' : 'Video overlay',
-            icon: o.isImage ? Icons.image_outlined : Icons.picture_in_picture_alt_rounded,
-            color: AppColors.brandBlue,
-            selected: o.id == widget.selectedOverlayId,
-            onTap: () => widget.onSelectOverlay!(o.id == widget.selectedOverlayId ? null : o.id),
+    final maxMs = math.max(1000, p.durationMs);
+    return Stack(
+      clipBehavior: Clip.none,
+      children: [
+        for (final o in p.overlays)
+          Positioned(
+            left: half + _x(o.offsetMs),
+            width: math.max(18, _x(o.durationMs)),
+            top: 0,
+            bottom: 0,
+            child: _trackChip(
+              label: o.isImage ? 'Photo overlay' : 'Video overlay',
+              icon: o.isImage ? Icons.image_outlined : Icons.picture_in_picture_alt_rounded,
+              color: AppColors.brandBlue,
+              selected: o.id == widget.selectedOverlayId,
+              onTap: () => widget.onSelectOverlay!(o.id == widget.selectedOverlayId ? null : o.id),
+              onMoveDeltaMs: widget.onUpdateOverlay == null
+                  ? null
+                  : (deltaMs, commit) {
+                      final cur = widget.project.overlays.firstWhere((x) => x.id == o.id, orElse: () => o);
+                      final rawOffset = (cur.offsetMs + deltaMs).clamp(0, math.max(0, maxMs - 200)).toInt();
+                      final nextOffset = commit ? rawOffset : _snapMs(rawOffset, ignoreId: cur.id);
+                      if (commit) _clearSnapLine();
+                      widget.onUpdateOverlay!(cur.copyWith(offsetMs: nextOffset), commit: commit);
+                    },
+              onStretchLeftDeltaMs: widget.onUpdateOverlay == null
+                  ? null
+                  : (deltaMs, commit) {
+                      final cur = widget.project.overlays.firstWhere((x) => x.id == o.id, orElse: () => o);
+                      if (cur.isImage) {
+                        final rawOffset = (cur.offsetMs + deltaMs).clamp(0, cur.endOnTimeline - 300);
+                        final nextOffset = commit ? rawOffset : _snapMs(rawOffset, ignoreId: cur.id).clamp(0, cur.endOnTimeline - 300);
+                        final nextDur = (cur.endOnTimeline - nextOffset).clamp(300, 60000);
+                        if (commit) _clearSnapLine();
+                        widget.onUpdateOverlay!(cur.copyWith(offsetMs: nextOffset, imageDurationMs: nextDur), commit: commit);
+                      } else {
+                        final nextStart = (cur.startMs + deltaMs).clamp(0, cur.endMs - 300);
+                        final moved = nextStart - cur.startMs;
+                        if (commit) _clearSnapLine();
+                        widget.onUpdateOverlay!(
+                          cur.copyWith(startMs: nextStart, offsetMs: (cur.offsetMs + moved).clamp(0, maxMs)),
+                          commit: commit,
+                        );
+                      }
+                    },
+              onStretchRightDeltaMs: widget.onUpdateOverlay == null
+                  ? null
+                  : (deltaMs, commit) {
+                      final cur = widget.project.overlays.firstWhere((x) => x.id == o.id, orElse: () => o);
+                      if (cur.isImage) {
+                        final rawDur = (cur.imageDurationMs + deltaMs).clamp(300, 60000);
+                        final snappedEnd = commit ? (cur.offsetMs + rawDur) : _snapMs(cur.offsetMs + rawDur, ignoreId: cur.id);
+                        final nextDur = (snappedEnd - cur.offsetMs).clamp(300, 60000);
+                        if (commit) _clearSnapLine();
+                        widget.onUpdateOverlay!(cur.copyWith(imageDurationMs: nextDur), commit: commit);
+                      } else {
+                        final maxSrc = cur.sourceDurationMs > 0 ? cur.sourceDurationMs : maxMs;
+                        final rawEnd = (cur.endMs + deltaMs).clamp(cur.startMs + 300, maxSrc);
+                        final snappedEnd = commit
+                            ? (cur.offsetMs + (rawEnd - cur.startMs))
+                            : _snapMs(cur.offsetMs + (rawEnd - cur.startMs), ignoreId: cur.id);
+                        final nextEnd = (cur.startMs + (snappedEnd - cur.offsetMs)).clamp(cur.startMs + 300, maxSrc);
+                        if (commit) _clearSnapLine();
+                        widget.onUpdateOverlay!(cur.copyWith(endMs: nextEnd), commit: commit);
+                      }
+                    },
+            ),
           ),
-        ),
-    ]);
+      ],
+    );
   }
 
   Widget _effectRow(double half) {
@@ -529,22 +942,54 @@ class _StudioTimelineState extends State<StudioTimeline> {
         child: _addChip(Icons.auto_fix_high_rounded, 'Add effect', widget.onAddEffect ?? () {}),
       );
     }
-    return Stack(children: [
-      for (final e in p.effects)
-        Positioned(
-          left: half + _x(e.startMs),
-          width: math.max(18, _x(e.endMs - e.startMs)),
-          top: 0,
-          bottom: 0,
-          child: _trackChip(
-            label: StudioEffects.byId(e.effectId)?.name ?? 'Effect',
-            icon: StudioEffects.byId(e.effectId)?.icon ?? Icons.auto_fix_high_rounded,
-            color: AppColors.textSecondary,
-            selected: e.id == widget.selectedEffectId,
-            onTap: () => widget.onSelectEffect!(e.id == widget.selectedEffectId ? null : e.id),
+    final maxMs = math.max(1000, p.durationMs);
+    return Stack(
+      clipBehavior: Clip.none,
+      children: [
+        for (final e in p.effects)
+          Positioned(
+            left: half + _x(e.startMs),
+            width: math.max(18, _x(e.endMs - e.startMs)),
+            top: 0,
+            bottom: 0,
+            child: _trackChip(
+              label: StudioEffects.byId(e.effectId)?.name ?? 'Effect',
+              icon: StudioEffects.byId(e.effectId)?.icon ?? Icons.auto_fix_high_rounded,
+              color: AppColors.textSecondary,
+              selected: e.id == widget.selectedEffectId,
+              onTap: () => widget.onSelectEffect!(e.id == widget.selectedEffectId ? null : e.id),
+              onMoveDeltaMs: widget.onUpdateEffect == null
+                  ? null
+                  : (deltaMs, commit) {
+                      final cur = widget.project.effects.firstWhere((x) => x.id == e.id, orElse: () => e);
+                      final dur = math.max(200, cur.endMs - cur.startMs);
+                      final rawStart = (cur.startMs + deltaMs).clamp(0, math.max(0, maxMs - dur)).toInt();
+                      final nextStart = commit ? rawStart : _snapMs(rawStart, ignoreId: cur.id);
+                      if (commit) _clearSnapLine();
+                      widget.onUpdateEffect!(cur.copyWith(startMs: nextStart, endMs: nextStart + dur), commit: commit);
+                    },
+              onStretchLeftDeltaMs: widget.onUpdateEffect == null
+                  ? null
+                  : (deltaMs, commit) {
+                      final cur = widget.project.effects.firstWhere((x) => x.id == e.id, orElse: () => e);
+                      final rawStart = (cur.startMs + deltaMs).clamp(0, cur.endMs - 200);
+                      final nextStart = commit ? rawStart : _snapMs(rawStart, ignoreId: cur.id).clamp(0, cur.endMs - 200);
+                      if (commit) _clearSnapLine();
+                      widget.onUpdateEffect!(cur.copyWith(startMs: nextStart), commit: commit);
+                    },
+              onStretchRightDeltaMs: widget.onUpdateEffect == null
+                  ? null
+                  : (deltaMs, commit) {
+                      final cur = widget.project.effects.firstWhere((x) => x.id == e.id, orElse: () => e);
+                      final rawEnd = (cur.endMs + deltaMs).clamp(cur.startMs + 200, maxMs);
+                      final nextEnd = commit ? rawEnd : _snapMs(rawEnd, ignoreId: cur.id).clamp(cur.startMs + 200, maxMs);
+                      if (commit) _clearSnapLine();
+                      widget.onUpdateEffect!(cur.copyWith(endMs: nextEnd), commit: commit);
+                    },
+            ),
           ),
-        ),
-    ]);
+      ],
+    );
   }
 
   Widget _addChip(IconData icon, String label, VoidCallback onTap) => GestureDetector(
@@ -569,31 +1014,106 @@ class _StudioTimelineState extends State<StudioTimeline> {
     required Color color,
     required bool selected,
     required VoidCallback onTap,
-  }) =>
-      GestureDetector(
-        onTap: onTap,
-        child: Container(
-          margin: const EdgeInsets.only(right: 1),
-          padding: const EdgeInsets.symmetric(horizontal: 6),
-          decoration: BoxDecoration(
-            color: color.withValues(alpha: selected ? 0.95 : 0.7),
-            borderRadius: BorderRadius.circular(AppRadius.xs),
-            border: selected ? Border.all(color: AppColors.brandWhite, width: 1.2) : null,
-          ),
-          child: Row(
-            children: [
-              Icon(icon, size: 12, color: AppColors.brandWhite),
-              const SizedBox(width: 4),
-              Expanded(
-                child: Text(label,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: GoogleFonts.inter(fontSize: 10.5, color: AppColors.brandWhite, fontWeight: FontWeight.w600)),
-              ),
-            ],
-          ),
+    void Function(int deltaMs, bool commit)? onMoveDeltaMs,
+    void Function(int deltaMs, bool commit)? onStretchLeftDeltaMs,
+    void Function(int deltaMs, bool commit)? onStretchRightDeltaMs,
+  }) {
+    Widget chipBody = GestureDetector(
+      onTap: onTap,
+      onHorizontalDragUpdate: onMoveDeltaMs == null
+          ? null
+          : (d) {
+              final deltaMs = (d.delta.dx / _pps * 1000).round();
+              if (deltaMs != 0) onMoveDeltaMs(deltaMs, false);
+            },
+      onHorizontalDragEnd: onMoveDeltaMs == null ? null : (_) => onMoveDeltaMs(0, true),
+      child: Container(
+        margin: const EdgeInsets.only(right: 1),
+        padding: EdgeInsets.symmetric(horizontal: selected ? 10 : 6),
+        decoration: BoxDecoration(
+          color: color.withValues(alpha: selected ? 0.95 : 0.72),
+          borderRadius: BorderRadius.circular(AppRadius.xs),
+          border: selected ? Border.all(color: AppColors.brandWhite, width: 1.4) : null,
         ),
-      );
+        child: Row(
+          children: [
+            Icon(icon, size: 11, color: AppColors.brandWhite),
+            const SizedBox(width: 4),
+            Expanded(
+              child: Text(
+                label,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: GoogleFonts.inter(fontSize: 10, color: AppColors.brandWhite, fontWeight: FontWeight.w600),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+
+    if (!selected || (onStretchLeftDeltaMs == null && onStretchRightDeltaMs == null)) {
+      return chipBody;
+    }
+
+    return Stack(
+      clipBehavior: Clip.none,
+      fit: StackFit.expand,
+      children: [
+        chipBody,
+        if (onStretchLeftDeltaMs != null)
+          Positioned(
+            left: -5,
+            top: 0,
+            bottom: 0,
+            width: 12,
+            child: GestureDetector(
+              behavior: HitTestBehavior.opaque,
+              dragStartBehavior: DragStartBehavior.down,
+              onHorizontalDragUpdate: (d) {
+                final deltaMs = (d.delta.dx / _pps * 1000).round();
+                if (deltaMs != 0) onStretchLeftDeltaMs(deltaMs, false);
+              },
+              onHorizontalDragEnd: (_) => onStretchLeftDeltaMs(0, true),
+              child: Container(
+                decoration: const BoxDecoration(
+                  color: AppColors.brandWhite,
+                  borderRadius: BorderRadius.horizontal(left: Radius.circular(4)),
+                ),
+                child: Center(
+                  child: Container(width: 1.5, height: 10, color: AppColors.brandBlack),
+                ),
+              ),
+            ),
+          ),
+        if (onStretchRightDeltaMs != null)
+          Positioned(
+            right: -5,
+            top: 0,
+            bottom: 0,
+            width: 12,
+            child: GestureDetector(
+              behavior: HitTestBehavior.opaque,
+              dragStartBehavior: DragStartBehavior.down,
+              onHorizontalDragUpdate: (d) {
+                final deltaMs = (d.delta.dx / _pps * 1000).round();
+                if (deltaMs != 0) onStretchRightDeltaMs(deltaMs, false);
+              },
+              onHorizontalDragEnd: (_) => onStretchRightDeltaMs(0, true),
+              child: Container(
+                decoration: const BoxDecoration(
+                  color: AppColors.brandWhite,
+                  borderRadius: BorderRadius.horizontal(right: Radius.circular(4)),
+                ),
+                child: Center(
+                  child: Container(width: 1.5, height: 10, color: AppColors.brandBlack),
+                ),
+              ),
+            ),
+          ),
+      ],
+    );
+  }
 }
 
 class _ClipStrip extends StatelessWidget {

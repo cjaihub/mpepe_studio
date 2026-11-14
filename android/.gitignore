@@ -15,3 +15,4 @@ key.properties
 
 # Google Play publishing service account (tools/play)
 play-service-account.json
+.kotlin/

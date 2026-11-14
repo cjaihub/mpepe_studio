@@ -1,4 +1,6 @@
 import 'dart:async';
+import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:oneova_camera_kit/oneova_camera_kit.dart';
@@ -11,6 +13,7 @@ import '../engine/look_compiler.dart';
 import '../engine/native_look.dart';
 import '../models/look_param_ranges.dart';
 import '../models/oneova_look.dart';
+import 'live_look_presets.dart';
 import 'models/live_profile.dart';
 
 /// State of the live video stream's real-time look processing pipeline.
@@ -19,6 +22,8 @@ class LiveLooksState {
   final OneovaLook activeLook;
   final BoostBeautyConfig beauty;
   final BackgroundEffectConfig background;
+  final String lightingPresetId;
+  final String? activeStreamId;
   final String? attachedTrackId;
   final bool isAttached;
   final LookProcessorStats? latestStats;
@@ -28,9 +33,11 @@ class LiveLooksState {
   final String? lastError;
 
   const LiveLooksState({
-    this.activeLook = const OneovaLook(name: 'Neutral Live'),
+    this.activeLook = const OneovaLook(id: 'neutral', name: 'Natural'),
     this.beauty = const BoostBeautyConfig(),
     this.background = const BackgroundEffectConfig(),
+    this.lightingPresetId = 'natural',
+    this.activeStreamId,
     this.attachedTrackId,
     this.isAttached = false,
     this.latestStats,
@@ -44,6 +51,8 @@ class LiveLooksState {
     OneovaLook? activeLook,
     BoostBeautyConfig? beauty,
     BackgroundEffectConfig? background,
+    String? lightingPresetId,
+    String? activeStreamId,
     String? attachedTrackId,
     bool? isAttached,
     LookProcessorStats? latestStats,
@@ -56,6 +65,8 @@ class LiveLooksState {
       activeLook: activeLook ?? this.activeLook,
       beauty: beauty ?? this.beauty,
       background: background ?? this.background,
+      lightingPresetId: lightingPresetId ?? this.lightingPresetId,
+      activeStreamId: activeStreamId ?? this.activeStreamId,
       attachedTrackId: attachedTrackId ?? this.attachedTrackId,
       isAttached: isAttached ?? this.isAttached,
       latestStats: latestStats ?? this.latestStats,
@@ -149,6 +160,23 @@ class LiveLooksController extends Notifier<LiveLooksState> {
     );
   }
 
+  /// Binds the active live stream ID so Look/Beauty/Lighting updates sync to all viewers.
+  void bindLiveStream(String? streamId) {
+    state = state.copyWith(activeStreamId: streamId);
+    if (streamId != null && streamId.isNotEmpty) {
+      unawaited(_syncEffectsToFirestore(streamId));
+    }
+  }
+
+  /// Sets the active Studio Key Lighting preset on the camera stream.
+  Future<void> applyLightingPreset(String lightingPresetId) async {
+    state = state.copyWith(lightingPresetId: lightingPresetId);
+    final sid = state.activeStreamId;
+    if (sid != null && sid.isNotEmpty) {
+      unawaited(_syncEffectsToFirestore(sid));
+    }
+  }
+
   /// Sets the active Look on the stream with cross-fade transition.
   Future<void> applyLook(OneovaLook look, {Duration? crossFade}) async {
     final mergedLook = look.copyWith(
@@ -156,6 +184,10 @@ class LiveLooksController extends Notifier<LiveLooksState> {
       background: state.background,
     );
     state = state.copyWith(activeLook: mergedLook);
+    final sid = state.activeStreamId;
+    if (sid != null && sid.isNotEmpty) {
+      unawaited(_syncEffectsToFirestore(sid));
+    }
     await _compileAndDispatchLook(mergedLook, crossFade: crossFade);
   }
 
@@ -164,7 +196,27 @@ class LiveLooksController extends Notifier<LiveLooksState> {
     state = state.copyWith(beauty: beauty);
     final mergedLook = state.activeLook.copyWith(boostBeauty: beauty);
     state = state.copyWith(activeLook: mergedLook);
+    final sid = state.activeStreamId;
+    if (sid != null && sid.isNotEmpty) {
+      unawaited(_syncEffectsToFirestore(sid));
+    }
     await _compileAndDispatchLook(mergedLook, crossFade: Duration.zero);
+  }
+
+  Future<void> _syncEffectsToFirestore(String streamId) async {
+    try {
+      final uid = FirebaseAuth.instance.currentUser?.uid;
+      if (uid == null || uid.isEmpty) return;
+      await FirebaseFirestore.instance.collection('live_streams').doc(streamId).update({
+        'liveEffects': {
+          'lookId': state.activeLook.id.isEmpty ? 'neutral' : state.activeLook.id,
+          'lightingId': state.lightingPresetId,
+          'beauty': state.beauty.toMap(),
+          'updatedBy': uid,
+          'updatedAtMs': DateTime.now().millisecondsSinceEpoch,
+        },
+      });
+    } catch (_) {}
   }
 
   /// Adapts and applies legacy `LiveBeautyConfig` to the stream.
@@ -277,4 +329,27 @@ final liveLooksControllerProvider =
 /// Stream of latest LookProcessorStats (FPS, graded frames, GPU frame time).
 final liveLookStatsProvider = Provider<LookProcessorStats?>((ref) {
   return ref.watch(liveLooksControllerProvider).latestStats;
+});
+
+/// Real-time synced live effects for a broadcast stream (so viewers see the host's Look, Beauty & Lighting).
+final remoteLiveEffectsProvider = StreamProvider.autoDispose
+    .family<({OneovaLook look, BoostBeautyConfig beauty, String lightingId, String? updatedBy})?, String>((ref, streamId) {
+  if (streamId.isEmpty) return Stream.value(null);
+  return FirebaseFirestore.instance.collection('live_streams').doc(streamId).snapshots().map((snap) {
+    final data = snap.data();
+    final fx = data?['liveEffects'];
+    if (fx is! Map) return null;
+    final lookId = (fx['lookId'] as String?) ?? 'neutral';
+    final lightingId = (fx['lightingId'] as String?) ?? 'natural';
+    final beautyRaw = fx['beauty'];
+    final beauty = beautyRaw is Map
+        ? BoostBeautyConfig.fromMap(Map<String, dynamic>.from(beautyRaw))
+        : const BoostBeautyConfig();
+    return (
+      look: lookPresetById(lookId),
+      beauty: beauty,
+      lightingId: lightingId,
+      updatedBy: fx['updatedBy'] as String?,
+    );
+  });
 });

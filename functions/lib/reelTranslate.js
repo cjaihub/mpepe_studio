@@ -82,7 +82,7 @@ async function mayRead(uid, data) {
     const author = await (0, firestore_1.getFirestore)().collection('users').doc(authorId).get();
     return author.get('isPrivate') !== true;
 }
-exports.reelTranslate = (0, https_1.onCall)({ memory: '256MiB', timeoutSeconds: 90, secrets: [studioAi_1.openRouterSecret] }, async (request) => {
+exports.reelTranslate = (0, https_1.onCall)({ memory: '512MiB', timeoutSeconds: 90, secrets: [studioAi_1.openRouterSecret] }, async (request) => {
     var _a, _b;
     if (!request.auth)
         throw new https_1.HttpsError('unauthenticated', 'Sign in to see translations.');

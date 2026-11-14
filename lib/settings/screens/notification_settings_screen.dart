@@ -188,6 +188,23 @@ class _SettingsBody extends ConsumerWidget {
           ],
         ),
         _Section(
+          title: 'Other apps & focus shield',
+          children: [
+            _ToggleRow(
+              icon: Icons.block_rounded,
+              tint: AppColors.brandPink,
+              title: 'Block all other app notifications',
+              subtitle: 'Auto-dismiss and mute alerts from other phone apps while using Oneova',
+              value: prefs.blockExternalAppNotifications,
+              onChanged: (v) => _save(ref, {'blockExternalAppNotifications': v}),
+            ),
+            _BlockedExternalAppsRow(
+              prefs: prefs,
+              onChanged: (list) => _save(ref, {'blockedExternalPackages': list}),
+            ),
+          ],
+        ),
+        _Section(
           title: 'Quiet hours',
           children: [
             _QuietHours(
@@ -243,6 +260,117 @@ class _SettingsBody extends ConsumerWidget {
 // ─────────────────────────────────────────────────────────────────────────────
 // Building blocks
 // ─────────────────────────────────────────────────────────────────────────────
+
+class _BlockedExternalAppsRow extends StatelessWidget {
+  final NotificationPreferences prefs;
+  final ValueChanged<List<String>> onChanged;
+  const _BlockedExternalAppsRow({required this.prefs, required this.onChanged});
+
+  static const List<(String, String)> _commonExternalApps = [
+    ('WhatsApp', 'com.whatsapp'),
+    ('Instagram', 'com.instagram.android'),
+    ('TikTok', 'com.zhiliaoapp.musically'),
+    ('Telegram', 'org.telegram.messenger'),
+    ('YouTube', 'com.google.android.youtube'),
+    ('Facebook', 'com.facebook.katana'),
+    ('X / Twitter', 'com.twitter.android'),
+    ('Messages', 'com.google.android.apps.messaging'),
+  ];
+
+  @override
+  Widget build(BuildContext context) {
+    final blocked = prefs.blockedExternalPackages.toSet();
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(14, 10, 14, 12),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Text(
+                'Block specific external apps',
+                style: GoogleFonts.inter(
+                  fontSize: 12.5,
+                  fontWeight: FontWeight.w700,
+                  color: context.textPrimary,
+                ),
+              ),
+              const Spacer(),
+              if (blocked.isNotEmpty)
+                GestureDetector(
+                  onTap: () => onChanged(const []),
+                  child: Text(
+                    'Unblock all (${blocked.length})',
+                    style: GoogleFonts.inter(
+                      fontSize: 11,
+                      fontWeight: FontWeight.w700,
+                      color: AppColors.brandBlue,
+                    ),
+                  ),
+                ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          Wrap(
+            spacing: 6,
+            runSpacing: 6,
+            children: [
+              for (final (label, pkg) in _commonExternalApps)
+                Builder(builder: (context) {
+                  final isBlocked = blocked.contains(pkg) || blocked.contains(label);
+                  return GestureDetector(
+                    onTap: () {
+                      final next = Set<String>.from(blocked);
+                      if (isBlocked) {
+                        next.remove(pkg);
+                        next.remove(label);
+                      } else {
+                        next.add(pkg);
+                      }
+                      onChanged(next.toList());
+                    },
+                    child: AnimatedContainer(
+                      duration: const Duration(milliseconds: 160),
+                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+                      decoration: BoxDecoration(
+                        color: isBlocked
+                            ? AppColors.brandPink.withValues(alpha: 0.14)
+                            : context.surfaceMid,
+                        borderRadius: BorderRadius.circular(AppRadius.full),
+                        border: Border.all(
+                          color: isBlocked ? AppColors.brandPink : context.border,
+                          width: 1.0,
+                        ),
+                      ),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Icon(
+                            isBlocked ? Icons.block_rounded : Icons.notifications_active_outlined,
+                            size: 12,
+                            color: isBlocked ? AppColors.brandPink : context.textSecondary,
+                          ),
+                          const SizedBox(width: 4),
+                          Text(
+                            label,
+                            style: GoogleFonts.inter(
+                              fontSize: 11,
+                              fontWeight: isBlocked ? FontWeight.w700 : FontWeight.w500,
+                              color: isBlocked ? AppColors.brandPink : context.textPrimary,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  );
+                }),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+}
 
 class _MasterCard extends StatelessWidget {
   final NotificationPreferences prefs;

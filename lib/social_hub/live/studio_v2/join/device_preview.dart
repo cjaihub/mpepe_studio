@@ -10,6 +10,9 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:livekit_client/livekit_client.dart';
 import 'package:permission_handler/permission_handler.dart';
 
+import '../../../../looks/live/live_look_presets.dart';
+import '../../../../looks/live/live_looks_controller.dart';
+
 enum StudioDevicePermission { granted, denied, permanentlyDenied }
 
 class StudioDevicePermissions {
@@ -126,9 +129,18 @@ class LiveKitDevicePreview implements StudioDevicePreview {
   @override
   Widget? buildVideo() {
     final v = _video;
-    return v == null
-        ? null
-        : VideoTrackRenderer(v, fit: VideoViewFit.cover, mirrorMode: VideoViewMirrorMode.mirror);
+    if (v == null) return null;
+    return Consumer(
+      builder: (context, ref, _) {
+        final looks = ref.watch(liveLooksControllerProvider);
+        return LiveVideoEffectLayer(
+          look: looks.activeLook,
+          beauty: looks.beauty,
+          lightingId: looks.lightingPresetId,
+          child: VideoTrackRenderer(v, fit: VideoViewFit.cover, mirrorMode: VideoViewMirrorMode.mirror),
+        );
+      },
+    );
   }
 
   @override

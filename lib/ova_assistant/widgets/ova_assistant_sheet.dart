@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:cloud_functions/cloud_functions.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_animate/flutter_animate.dart';
@@ -11,6 +12,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:google_fonts/google_fonts.dart';
+import 'package:image_picker/image_picker.dart';
 import 'package:latlong2/latlong.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:speech_to_text/speech_to_text.dart' as stt;
@@ -168,6 +170,10 @@ class _OvaAssistantPanelState extends ConsumerState<OvaAssistantPanel> {
   String? _rawDictation;
   bool _tidying = false;
   Uint8List? _screenBytes;
+  String? _attachedMediaLabel;
+  bool _showAttachTools = false;
+  final List<String> _attachedToolChips = [];
+  String _selectedPersona = 'Ova Pro';
 
   @override
   void initState() {
@@ -227,15 +233,80 @@ class _OvaAssistantPanelState extends ConsumerState<OvaAssistantPanel> {
   // ── actions ────────────────────────────────────────────────────────────
 
   void _send([String? text]) {
-    final t = (text ?? _input.text).trim();
-    if (t.isEmpty || _chat.busy) return;
+    final rawText = (text ?? _input.text).trim();
+    if (rawText.isEmpty && _screenBytes == null) return;
+    if (_chat.busy) return;
     HapticFeedback.lightImpact();
     if (_listening) unawaited(_stopVoice(commitCloud: false));
     _chat.permissionContext = context;
     final img = _screenBytes != null ? base64Encode(_screenBytes!) : null;
+    final prefixParts = <String>[
+      if (_selectedPersona != 'Ova Pro') 'Persona: $_selectedPersona',
+      ..._attachedToolChips,
+    ];
+    final effectivePrompt = prefixParts.isNotEmpty
+        ? '[${prefixParts.join(" | ")}]\n${rawText.isEmpty ? "Analyze attached media" : rawText}'
+        : (rawText.isEmpty ? 'Analyze attached media' : rawText);
     _input.clear();
-    setState(() => _screenBytes = null);
-    _chat.send(t, imageBase64: img);
+    setState(() {
+      _screenBytes = null;
+      _attachedMediaLabel = null;
+      _showAttachTools = false;
+      _attachedToolChips.clear();
+    });
+    _chat.send(effectivePrompt, imageBase64: img);
+  }
+
+  Future<void> _pickAttachmentImage(ImageSource source) async {
+    try {
+      HapticFeedback.selectionClick();
+      final picker = ImagePicker();
+      final picked = await picker.pickImage(
+        source: source,
+        maxWidth: 1440,
+        imageQuality: 84,
+      );
+      if (picked == null || !mounted) return;
+      final bytes = await picked.readAsBytes();
+      if (!mounted) return;
+      setState(() {
+        _screenBytes = bytes;
+        _attachedMediaLabel =
+            source == ImageSource.camera ? 'Camera Snap' : picked.name;
+        _showAttachTools = false;
+      });
+    } catch (e) {
+      if (mounted) _snack('Could not attach image: $e');
+    }
+  }
+
+  Future<void> _attachClipboardSnippet() async {
+    HapticFeedback.selectionClick();
+    final data = await Clipboard.getData(Clipboard.kTextPlain);
+    final txt = data?.text?.trim() ?? '';
+    if (txt.isEmpty) {
+      if (mounted) _snack('Clipboard is empty.');
+      return;
+    }
+    final preview = txt.length > 64 ? '${txt.substring(0, 64)}…' : txt;
+    setState(() {
+      final chip = 'Clipboard: $preview';
+      if (!_attachedToolChips.contains(chip)) {
+        _attachedToolChips.add(chip);
+      }
+      _showAttachTools = false;
+    });
+  }
+
+  void _toggleAttachedToolChip(String label) {
+    HapticFeedback.selectionClick();
+    setState(() {
+      if (_attachedToolChips.contains(label)) {
+        _attachedToolChips.remove(label);
+      } else {
+        _attachedToolChips.add(label);
+      }
+    });
   }
 
   void _navigate(String route) {
@@ -1350,13 +1421,16 @@ class _OvaAssistantPanelState extends ConsumerState<OvaAssistantPanel> {
         ),
         const SizedBox(width: 8),
         Text(
-          widget.screenContextLabel ?? 'Screen attached',
+          _attachedMediaLabel ?? widget.screenContextLabel ?? 'Screen attached',
           style: GoogleFonts.inter(fontSize: 11.5, fontWeight: FontWeight.w600, color: context.textPrimary),
         ),
         IconButton(
           visualDensity: VisualDensity.compact,
           icon: Icon(Icons.close_rounded, size: 16, color: context.textMuted),
-          onPressed: () => setState(() => _screenBytes = null),
+          onPressed: () => setState(() {
+            _screenBytes = null;
+            _attachedMediaLabel = null;
+          }),
         ),
       ],
     ),
@@ -1414,17 +1488,339 @@ class _OvaAssistantPanelState extends ConsumerState<OvaAssistantPanel> {
     ).animate().fadeIn(duration: 200.ms).slideY(begin: 0.15, end: 0);
   }
 
+  Widget _avatarPersonaBar(BuildContext context) {
+    final user = FirebaseAuth.instance.currentUser;
+    final photoUrl = user?.photoURL ?? '';
+    final displayName = (user?.displayName ?? '').trim();
+    final initial = displayName.isNotEmpty
+        ? displayName.characters.first.toUpperCase()
+        : (user?.email?.isNotEmpty == true ? user!.email!.characters.first.toUpperCase() : 'U');
+    final personas = <({String id, String label, IconData icon})>[
+      (id: 'Ova Core', label: 'Ova Core', icon: Icons.auto_awesome_rounded),
+      (id: 'Director', label: 'Director', icon: Icons.movie_filter_rounded),
+      (id: 'Coder', label: 'Coder', icon: Icons.terminal_rounded),
+      (id: 'Strategist', label: 'Strategist', icon: Icons.trending_up_rounded),
+      (id: 'Mac Agent', label: 'Mac Agent', icon: Icons.laptop_mac_rounded),
+    ];
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 7),
+      child: SingleChildScrollView(
+        scrollDirection: Axis.horizontal,
+        child: Row(
+          children: [
+            // Animated AI Avatar Orb + Persona indicator
+            Container(
+              padding: const EdgeInsets.fromLTRB(4, 3, 9, 3),
+              decoration: BoxDecoration(
+                color: AppColors.brandBlue.withValues(alpha: context.isDark ? 0.18 : 0.10),
+                borderRadius: BorderRadius.circular(AppRadius.full),
+                border: Border.all(
+                  color: _chat.busy ? AppColors.brandPink : AppColors.brandBlue.withValues(alpha: 0.55),
+                  width: 1,
+                ),
+              ),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Stack(
+                    alignment: Alignment.center,
+                    children: [
+                      Container(
+                        width: 22,
+                        height: 22,
+                        decoration: const BoxDecoration(
+                          shape: BoxShape.circle,
+                          gradient: LinearGradient(
+                            colors: [AppColors.brandBlue, AppColors.brandPink],
+                            begin: Alignment.topLeft,
+                            end: Alignment.bottomRight,
+                          ),
+                        ),
+                        child: const Icon(Icons.auto_awesome_rounded, size: 12, color: AppColors.brandWhite),
+                      ),
+                      Positioned(
+                        right: 0,
+                        bottom: 0,
+                        child: Container(
+                          width: 6,
+                          height: 6,
+                          decoration: BoxDecoration(
+                            color: _chat.busy ? AppColors.brandPink : AppColors.brandBlue,
+                            shape: BoxShape.circle,
+                            border: Border.all(color: context.surface, width: 1),
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(width: 6),
+                  Text(
+                    _selectedPersona,
+                    style: GoogleFonts.inter(
+                      fontSize: 11,
+                      fontWeight: FontWeight.w700,
+                      color: context.textPrimary,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(width: 6),
+            for (final p in personas) ...[
+              if (p.id != _selectedPersona)
+                Padding(
+                  padding: const EdgeInsets.only(right: 5),
+                  child: GestureDetector(
+                    onTap: () {
+                      HapticFeedback.selectionClick();
+                      setState(() => _selectedPersona = p.id);
+                    },
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                      decoration: BoxDecoration(
+                        color: context.surfaceMid,
+                        borderRadius: BorderRadius.circular(AppRadius.full),
+                        border: Border.all(color: context.border, width: 1),
+                      ),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Icon(p.icon, size: 11.5, color: context.textSecondary),
+                          const SizedBox(width: 4),
+                          Text(
+                            p.label,
+                            style: GoogleFonts.inter(
+                              fontSize: 10.5,
+                              fontWeight: FontWeight.w600,
+                              color: context.textSecondary,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
+            ],
+            const SizedBox(width: 4),
+            // User avatar badge
+            Container(
+              padding: const EdgeInsets.fromLTRB(3, 2, 7, 2),
+              decoration: BoxDecoration(
+                color: context.surfaceMid,
+                borderRadius: BorderRadius.circular(AppRadius.full),
+                border: Border.all(color: context.border, width: 1),
+              ),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  CircleAvatar(
+                    radius: 9,
+                    backgroundColor: AppColors.brandBlue,
+                    backgroundImage: photoUrl.isNotEmpty ? NetworkImage(photoUrl) : null,
+                    child: photoUrl.isEmpty
+                        ? Text(
+                            initial,
+                            style: GoogleFonts.inter(
+                              fontSize: 9,
+                              fontWeight: FontWeight.w800,
+                              color: AppColors.brandWhite,
+                            ),
+                          )
+                        : null,
+                  ),
+                  const SizedBox(width: 5),
+                  Text(
+                    displayName.isNotEmpty ? displayName.split(' ').first : 'You',
+                    style: GoogleFonts.inter(
+                      fontSize: 10.5,
+                      fontWeight: FontWeight.w600,
+                      color: context.textSecondary,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _attachToolsBar(BuildContext context) {
+    return Container(
+      margin: const EdgeInsets.only(bottom: 8),
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 7),
+      decoration: BoxDecoration(
+        color: context.surfaceMid,
+        borderRadius: BorderRadius.circular(AppRadius.md),
+        border: Border.all(color: context.border, width: 1),
+      ),
+      child: SingleChildScrollView(
+        scrollDirection: Axis.horizontal,
+        child: Row(
+          children: [
+            _attachToolTile(
+              context,
+              icon: Icons.photo_library_outlined,
+              label: 'Photo',
+              accent: AppColors.brandBlue,
+              onTap: () => _pickAttachmentImage(ImageSource.gallery),
+            ),
+            const SizedBox(width: 6),
+            _attachToolTile(
+              context,
+              icon: Icons.photo_camera_outlined,
+              label: 'Camera',
+              accent: AppColors.brandPink,
+              onTap: () => _pickAttachmentImage(ImageSource.camera),
+            ),
+            const SizedBox(width: 6),
+            _attachToolTile(
+              context,
+              icon: Icons.content_paste_rounded,
+              label: 'Clipboard',
+              accent: AppColors.brandBlue,
+              onTap: _attachClipboardSnippet,
+            ),
+            const SizedBox(width: 6),
+            _attachToolTile(
+              context,
+              icon: Icons.travel_explore_rounded,
+              label: 'Web Search',
+              accent: AppColors.brandBlue,
+              active: _attachedToolChips.contains('Web Search'),
+              onTap: () => _toggleAttachedToolChip('Web Search'),
+            ),
+            const SizedBox(width: 6),
+            _attachToolTile(
+              context,
+              icon: Icons.laptop_mac_rounded,
+              label: 'My Computer',
+              accent: AppColors.brandPink,
+              active: _attachedToolChips.contains('My Computer'),
+              onTap: () => _toggleAttachedToolChip('My Computer'),
+            ),
+            const SizedBox(width: 6),
+            _attachToolTile(
+              context,
+              icon: Icons.auto_fix_high_rounded,
+              label: 'Studio Grade',
+              accent: AppColors.brandBlue,
+              active: _attachedToolChips.contains('Studio Grade'),
+              onTap: () => _toggleAttachedToolChip('Studio Grade'),
+            ),
+            const SizedBox(width: 6),
+            _attachToolTile(
+              context,
+              icon: Icons.record_voice_over_rounded,
+              label: 'Voice Avatar',
+              accent: AppColors.brandPink,
+              active: _voiceMode,
+              onTap: () {
+                HapticFeedback.selectionClick();
+                setState(() => _showAttachTools = false);
+                _setVoiceMode(!_voiceMode);
+              },
+            ),
+          ],
+        ),
+      ),
+    ).animate().fadeIn(duration: 160.ms).slideY(begin: 0.08, end: 0);
+  }
+
+  Widget _attachToolTile(
+    BuildContext context, {
+    required IconData icon,
+    required String label,
+    required Color accent,
+    required VoidCallback onTap,
+    bool active = false,
+  }) {
+    return GestureDetector(
+      onTap: onTap,
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 6),
+        decoration: BoxDecoration(
+          color: active ? accent.withValues(alpha: context.isDark ? 0.22 : 0.12) : context.surface,
+          borderRadius: BorderRadius.circular(AppRadius.sm),
+          border: Border.all(
+            color: active ? accent : context.border,
+            width: 1,
+          ),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(icon, size: 14, color: active ? accent : context.textPrimary),
+            const SizedBox(width: 5),
+            Text(
+              label,
+              style: GoogleFonts.inter(
+                fontSize: 11,
+                fontWeight: active ? FontWeight.w700 : FontWeight.w600,
+                color: active ? accent : context.textPrimary,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
   Widget _composer(BuildContext context) {
     final busy = _chat.busy;
+    final hasInput = _input.text.trim().isNotEmpty || _screenBytes != null;
     return Container(
       padding: const EdgeInsets.fromLTRB(12, 8, 12, 10),
       decoration: BoxDecoration(
+        color: context.surface,
         border: Border(top: BorderSide(color: context.border, width: 1)),
       ),
       child: Column(
         mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
+          _avatarPersonaBar(context),
+          if (_showAttachTools) _attachToolsBar(context),
+          if (_attachedToolChips.isNotEmpty)
+            Padding(
+              padding: const EdgeInsets.only(bottom: 6),
+              child: Wrap(
+                spacing: 5,
+                runSpacing: 5,
+                children: [
+                  for (final chip in _attachedToolChips)
+                    Container(
+                      padding: const EdgeInsets.fromLTRB(8, 3, 5, 3),
+                      decoration: BoxDecoration(
+                        color: AppColors.brandBlue.withValues(alpha: context.isDark ? 0.18 : 0.10),
+                        borderRadius: BorderRadius.circular(AppRadius.full),
+                        border: Border.all(color: AppColors.brandBlue.withValues(alpha: 0.45), width: 1),
+                      ),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          const Icon(Icons.bolt_rounded, size: 11, color: AppColors.brandBlue),
+                          const SizedBox(width: 3),
+                          Text(
+                            chip,
+                            style: GoogleFonts.inter(
+                              fontSize: 10.5,
+                              fontWeight: FontWeight.w700,
+                              color: context.textPrimary,
+                            ),
+                          ),
+                          const SizedBox(width: 4),
+                          GestureDetector(
+                            onTap: () => _toggleAttachedToolChip(chip),
+                            child: Icon(Icons.close_rounded, size: 12, color: context.textSecondary),
+                          ),
+                        ],
+                      ),
+                    ),
+                ],
+              ),
+            ),
           if (_screenBytes != null && !_chat.isEmpty) ...[_screenPreview(context), const SizedBox(height: 8)],
           if (_listening) ...[_liveListeningStrip(context), const SizedBox(height: 8)],
           if (_tidying || _rawDictation != null)
@@ -1446,6 +1842,20 @@ class _OvaAssistantPanelState extends ConsumerState<OvaAssistantPanel> {
           Row(
             crossAxisAlignment: CrossAxisAlignment.end,
             children: [
+              _roundButton(
+                icon: _showAttachTools ? Icons.close_rounded : Icons.add_rounded,
+                color: _showAttachTools
+                    ? AppColors.brandBlue.withValues(alpha: 0.16)
+                    : context.surfaceMid,
+                iconColor: _showAttachTools ? AppColors.brandBlue : context.textPrimary,
+                border: true,
+                tooltip: 'Attach & Agent Tools',
+                onTap: () {
+                  HapticFeedback.selectionClick();
+                  setState(() => _showAttachTools = !_showAttachTools);
+                },
+              ),
+              const SizedBox(width: 6),
               Expanded(
                 child: TextField(
                   controller: _input,
@@ -1459,11 +1869,21 @@ class _OvaAssistantPanelState extends ConsumerState<OvaAssistantPanel> {
                   cursorColor: AppColors.brandBlue,
                   decoration: InputDecoration(
                     isDense: true,
-                    hintText: _listening ? 'Listening… speak naturally' : (_voiceHint ? 'Tap the mic to talk' : 'Ask Ova or give a command'),
-                    hintStyle: GoogleFonts.inter(fontSize: 13, color: context.textMuted),
+                    hintText: _listening
+                        ? 'Listening… speak naturally'
+                        : (_voiceHint ? 'Tap the mic to talk' : 'Ask $_selectedPersona or attach media/tools…'),
+                    hintStyle: GoogleFonts.inter(fontSize: 12.5, color: context.textMuted),
                     filled: true,
                     fillColor: context.surfaceMid,
                     contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                    suffixIcon: _input.text.trim().length > 6 && !_tidying
+                        ? IconButton(
+                            tooltip: 'AI Polish prompt',
+                            visualDensity: VisualDensity.compact,
+                            icon: const Icon(Icons.auto_fix_high_rounded, size: 15, color: AppColors.brandBlue),
+                            onPressed: () => _tidyDictation(_input.text.trim()),
+                          )
+                        : null,
                     border: OutlineInputBorder(
                       borderRadius: BorderRadius.circular(AppRadius.md),
                       borderSide: BorderSide(color: context.border, width: 1),
@@ -1492,7 +1912,7 @@ class _OvaAssistantPanelState extends ConsumerState<OvaAssistantPanel> {
               const SizedBox(width: 6),
               _roundButton(
                 icon: busy ? Icons.stop_circle_outlined : Icons.arrow_upward_rounded,
-                color: busy || _input.text.trim().isNotEmpty ? AppColors.brandBlue : AppColors.brandBlue.withValues(alpha: 0.35),
+                color: busy || hasInput ? AppColors.brandBlue : AppColors.brandBlue.withValues(alpha: 0.35),
                 iconColor: AppColors.brandWhite,
                 tooltip: busy ? 'Stop' : 'Send',
                 onTap: busy

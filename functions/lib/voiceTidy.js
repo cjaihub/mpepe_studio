@@ -55,7 +55,7 @@ const SYSTEM = `You clean up dictated text. Rules:
 - Fix obvious speech-to-text mistakes only when the intended word is clear.
 - Keep names, numbers, emojis, @handles, #tags and URLs exactly.
 - Output only the cleaned text, nothing else.`;
-exports.voiceTidy = (0, https_1.onCall)({ memory: '256MiB', timeoutSeconds: 20 }, async (request) => {
+exports.voiceTidy = (0, https_1.onCall)({ memory: '512MiB', timeoutSeconds: 20 }, async (request) => {
     var _a;
     var _b, _c;
     if (!request.auth)

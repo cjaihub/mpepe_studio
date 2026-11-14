@@ -11,5 +11,9 @@ Object.defineProperty(exports, "__esModule", { value: true });
  * affected; they check their own signatures.
  */
 const v2_1 = require("firebase-functions/v2");
-(0, v2_1.setGlobalOptions)({ enforceAppCheck: process.env.APP_CHECK_ENFORCE === 'true' });
+(0, v2_1.setGlobalOptions)({
+    enforceAppCheck: process.env.APP_CHECK_ENFORCE === 'true',
+    memory: '512MiB',
+    secrets: ['OPENROUTER_API_KEY'],
+});
 //# sourceMappingURL=globalOptions.js.map

@@ -48,6 +48,19 @@ class StudioAdjust {
   final double sharpen;
   final double grain;
   final double vignette;
+  final double clarity;
+  final double dehaze;
+  final double hue;
+  final double liftR;
+  final double liftG;
+  final double liftB;
+  final double gammaR;
+  final double gammaG;
+  final double gammaB;
+  final double gainR;
+  final double gainG;
+  final double gainB;
+  final double curvePreset;
 
   const StudioAdjust({
     this.brightness = 0,
@@ -65,18 +78,54 @@ class StudioAdjust {
     this.sharpen = 0,
     this.grain = 0,
     this.vignette = 0,
+    this.clarity = 0,
+    this.dehaze = 0,
+    this.hue = 0,
+    this.liftR = 0,
+    this.liftG = 0,
+    this.liftB = 0,
+    this.gammaR = 0,
+    this.gammaG = 0,
+    this.gammaB = 0,
+    this.gainR = 0,
+    this.gainG = 0,
+    this.gainB = 0,
+    this.curvePreset = 0,
   });
 
-  /// Matrix keys (color), then Look-engine keys (tone and detail).
-  static const colorKeys = ['brightness', 'contrast', 'saturation', 'exposure', 'warmth', 'tint', 'fade'];
+  /// Matrix keys (color), then Look-engine keys (tone, wheels, curves and detail).
+  static const colorKeys = [
+    'brightness',
+    'contrast',
+    'saturation',
+    'exposure',
+    'warmth',
+    'tint',
+    'fade',
+    'clarity',
+    'dehaze',
+    'hue',
+  ];
   static const toneKeys = ['highlights', 'shadows', 'whites', 'blacks', 'vibrance'];
+  static const wheelKeys = [
+    'liftR',
+    'liftG',
+    'liftB',
+    'gammaR',
+    'gammaG',
+    'gammaB',
+    'gainR',
+    'gainG',
+    'gainB',
+    'curvePreset',
+  ];
   static const detailKeys = ['sharpen', 'grain', 'vignette'];
-  static const keys = [...colorKeys, ...toneKeys, ...detailKeys];
+  static const keys = [...colorKeys, ...toneKeys, ...wheelKeys, ...detailKeys];
 
   /// Keys that only go 0..1.
-  static const positiveKeys = detailKeys;
+  static const positiveKeys = [...detailKeys, 'dehaze'];
 
-  bool get hasLookKeys => [...toneKeys, ...detailKeys].any((k) => valueOf(k) != 0);
+  bool get hasLookKeys => [...toneKeys, ...wheelKeys, ...detailKeys].any((k) => valueOf(k) != 0);
 
   bool get isIdentity => toJson().values.every((v) => v == 0);
 
@@ -84,6 +133,11 @@ class StudioAdjust {
 
   StudioAdjust withValue(String key, double v) {
     final m = toJson()..[key] = v;
+    return StudioAdjust.fromJson(m);
+  }
+
+  StudioAdjust withValues(Map<String, double> updates) {
+    final m = toJson()..addAll(updates);
     return StudioAdjust.fromJson(m);
   }
 
@@ -103,6 +157,19 @@ class StudioAdjust {
         'sharpen': sharpen,
         'grain': grain,
         'vignette': vignette,
+        'clarity': clarity,
+        'dehaze': dehaze,
+        'hue': hue,
+        'liftR': liftR,
+        'liftG': liftG,
+        'liftB': liftB,
+        'gammaR': gammaR,
+        'gammaG': gammaG,
+        'gammaB': gammaB,
+        'gainR': gainR,
+        'gainG': gainG,
+        'gainB': gainB,
+        'curvePreset': curvePreset,
       };
 
   factory StudioAdjust.fromJson(Map<String, dynamic>? m) {
@@ -123,6 +190,19 @@ class StudioAdjust {
       sharpen: v('sharpen'),
       grain: v('grain'),
       vignette: v('vignette'),
+      clarity: v('clarity'),
+      dehaze: v('dehaze'),
+      hue: v('hue'),
+      liftR: v('liftR'),
+      liftG: v('liftG'),
+      liftB: v('liftB'),
+      gammaR: v('gammaR'),
+      gammaG: v('gammaG'),
+      gammaB: v('gammaB'),
+      gainR: v('gainR'),
+      gainG: v('gainG'),
+      gainB: v('gainB'),
+      curvePreset: v('curvePreset'),
     );
   }
 }

@@ -1,14 +1,13 @@
-// LIVE SETUP WIZARD — /live/setup  (the only way to go live)
+// LIVE SETUP WIZARD — /live/setup  (the unified executive Go-Live wizard)
 //
-// Every "Go live" tap in the app lands here. Six spacious steps, each with a
-// phone mock-up of what it sets: Mode → Details → Camera & mic → Layout →
-// Audience → Review. "Go live" calls lsStart (with the wizard's settings and
-// extras), hands the join token to the studio room (no extra lsToken round
-// trip), then opens the Live Studio at /live/studio2/:streamId.
+// Every "Go live" tap in the app lands here. Six compact, high-density steps,
+// each with a real-time studio mock-up or live camera preview:
+// Mode → Details → Camera & Effects → Studio Layout → Audience → Review.
 
 import 'dart:async';
 import 'dart:io';
 
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:cloud_functions/cloud_functions.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_storage/firebase_storage.dart';
@@ -25,21 +24,22 @@ import '../../../backend/live_studio/fun/studio_fun.dart';
 import '../../../backend/live_studio/media/studio_media_api.dart';
 import '../../../backend/live_studio/security/studio_security_models.dart';
 import '../../../backend/live_studio/settings/studio_settings_controller.dart';
+import '../../../looks/live/live_look_presets.dart';
 import '../../../looks/live/live_looks_controller.dart';
 import '../../../shared/theme/app_theme.dart';
 import '../go_live/go_live_sheets.dart';
 import '../studio_v2/join/device_preview.dart';
-import 'live_setup_config.dart';
 import 'live_beauty_panel.dart';
+import 'live_setup_config.dart';
 import 'live_setup_previews.dart';
 
 enum _Step {
-  mode('Mode', 'How do you want to go live?', Icons.dashboard_customize_rounded),
-  details('Details', 'Title, cover and category', Icons.edit_note_rounded),
-  devices('Camera', 'Camera, mic and beauty', Icons.videocam_rounded),
-  layout('Layout', 'Studio look and panels', Icons.view_quilt_rounded),
-  audience('Audience', 'Who watches, comments and joins', Icons.groups_rounded),
-  review('Review', 'Ready when you are', Icons.rocket_launch_rounded);
+  mode('Mode', 'Choose your studio stage', Icons.dashboard_customize_rounded),
+  details('Details', 'Title, cover & category', Icons.edit_note_rounded),
+  devices('Effects', 'Camera, mic, looks & beauty', Icons.videocam_rounded),
+  layout('Stage', 'Studio stage & panels', Icons.view_quilt_rounded),
+  audience('Audience', 'Watch, chat & broadcast', Icons.groups_rounded),
+  review('Review', 'Ready to go live', Icons.rocket_launch_rounded);
 
   const _Step(this.label, this.headline, this.icon);
   final String label;
@@ -82,6 +82,9 @@ class _LiveSetupWizardScreenState extends ConsumerState<LiveSetupWizardScreen> {
     super.initState();
     unawaited(_loadDefaults());
     unawaited(_loadDestinations());
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) unawaited(_syncBeauty());
+    });
   }
 
   Future<void> _loadDestinations() async {
@@ -125,7 +128,7 @@ class _LiveSetupWizardScreenState extends ConsumerState<LiveSetupWizardScreen> {
     HapticFeedback.selectionClick();
     final leaving = _step;
     setState(() => _index = i);
-    await _pager.animateToPage(i, duration: const Duration(milliseconds: 320), curve: Curves.easeOutCubic);
+    await _pager.animateToPage(i, duration: const Duration(milliseconds: 260), curve: Curves.easeOutCubic);
     if (leaving == _Step.devices && _step != _Step.devices) unawaited(_releasePreview());
     if (_step == _Step.devices) unawaited(_ensurePreview());
   }
@@ -182,20 +185,20 @@ class _LiveSetupWizardScreenState extends ConsumerState<LiveSetupWizardScreen> {
     await p.dispose();
   }
 
-  /// Beauty runs on the preview track now and on the live camera later (the
-  /// looks controller keeps the config and re-applies it when the room
-  /// publishes the camera).
+  /// Syncs Beauty, Cinema Look, and Studio Key Lighting onto LiveLooksController
+  /// so both the preview camera and the live broadcast render them in real time.
   Future<void> _syncBeauty() async {
     final looks = ref.read(liveLooksControllerProvider.notifier);
     final beauty = _cfg.beauty.toBoost(enabled: _cfg.beautyOn);
+    final look = lookPresetById(_cfg.lookId);
     try {
       final p = _preview;
       final id = p is LiveKitDevicePreview ? p.videoTrackId : null;
       if (id != null) await looks.attachCameraTrack(id);
       await looks.applyBeauty(beauty);
-    } catch (_) {
-      // Beauty is optional; the live still works without the processor.
-    }
+      await looks.applyLook(look, crossFade: Duration.zero);
+      await looks.applyLightingPreset(_cfg.lightingId);
+    } catch (_) {}
   }
 
   // ─── Cover ─────────────────────────────────────────────────────────────────
@@ -229,6 +232,7 @@ class _LiveSetupWizardScreenState extends ConsumerState<LiveSetupWizardScreen> {
       _error = null;
       _countdown = 3;
     });
+    await _syncBeauty();
     await _releasePreview();
     // The server start runs during the 3·2·1, so the studio opens already joined.
     final start = _start();
@@ -236,7 +240,7 @@ class _LiveSetupWizardScreenState extends ConsumerState<LiveSetupWizardScreen> {
       if (!mounted) return;
       setState(() => _countdown = n);
       HapticFeedback.lightImpact();
-      await Future<void>.delayed(const Duration(milliseconds: 750));
+      await Future<void>.delayed(const Duration(milliseconds: 650));
     }
     try {
       final res = await start;
@@ -259,14 +263,23 @@ class _LiveSetupWizardScreenState extends ConsumerState<LiveSetupWizardScreen> {
     if (uid == null) throw StateError('Sign in to go live.');
     final cfg = _cfg;
     final partial = cfg.settingsPartial;
-    final coverUrl = cfg.coverPath == null ? null : await _uploadCover(uid, cfg.coverPath!);
+
+    // Upload cover with a fast 3.5s bound; if still uploading on a slow link,
+    // finish in background and patch the stream doc so lsStart never times out.
+    Future<String?>? pendingCover;
+    String? coverUrl;
+    if (cfg.coverPath != null) {
+      pendingCover = _uploadCover(uid, cfg.coverPath!);
+      coverUrl = await pendingCover.timeout(const Duration(milliseconds: 3500), onTimeout: () => null);
+    }
+
     // Remember this layout for next time (lsSetSettings with no stream).
     unawaited(_quiet(() => ref.read(studioSettingsApiProvider).save(null, partial)));
 
-    // Solo, Studio and Game all open the same Live Studio; the mode only
-    // decides the starting panel (solo starts with join requests paused and
-    // the host can open them later without leaving the screen).
-    final started = await ref.read(studioMediaApiProvider).start(
+    // Solo Studio, Multi-Guest Studio and Game Live all open the unified Live Studio.
+    final started = await ref
+        .read(studioMediaApiProvider)
+        .start(
           cfg.effectiveTitle,
           settings: partial,
           gaming: cfg.mode == LiveSetupMode.game,
@@ -275,12 +288,30 @@ class _LiveSetupWizardScreenState extends ConsumerState<LiveSetupWizardScreen> {
           coverUrl: coverUrl,
           audienceMode: cfg.audience.wire,
           allowGuestRequests: cfg.acceptsRequests,
-        ).timeout(const Duration(seconds: 25));
+        )
+        .timeout(const Duration(seconds: 45));
     if (started.streamId.isEmpty) throw StateError('Could not start your live. Try again.');
 
     final id = started.streamId;
     ref.read(studioStartCredentialsProvider)[id] = started.credentials;
     ref.read(studioStartMediaProvider)[id] = (mic: cfg.micOn, camera: cfg.cameraOn);
+
+    // Bind live effects to this stream so all viewers see Look, Beauty & Studio Key Lighting.
+    ref.read(liveLooksControllerProvider.notifier).bindLiveStream(id);
+
+    // If cover finished after the 3.5s fast bound, attach it to the stream doc.
+    if (coverUrl == null && pendingCover != null) {
+      unawaited(pendingCover.then((url) async {
+        if (url != null && url.isNotEmpty) {
+          try {
+            await FirebaseFirestore.instance.collection('live_streams').doc(id).update({
+              'coverUrl': url,
+              'thumbnailUrl': url,
+            });
+          } catch (_) {}
+        }
+      }));
+    }
 
     final call = ref.read(studioCallPortProvider);
     unawaited(_quiet(() => call.call(StudioSecurityWire.setJoinRequests, {'streamId': id, 'open': cfg.acceptsRequests})));
@@ -366,73 +397,92 @@ class _LiveSetupWizardScreenState extends ConsumerState<LiveSetupWizardScreen> {
   }
 
   Widget _page(List<Widget> children) => ListView(
-        padding: const EdgeInsets.fromLTRB(20, 8, 20, 24),
+        padding: const EdgeInsets.fromLTRB(16, 4, 16, 16),
         children: children,
       );
 
-  // Step 1 — Mode
+  // Step 1 — Mode (Compact 3-column grid instead of giant vertical cards)
   List<Widget> _modeStep() => [
         SetupModePreview(config: _cfg),
-        const SizedBox(height: 24),
-        for (final m in LiveSetupMode.values)
-          _ChoiceCard(
-            icon: m.icon,
-            title: m.label,
-            subtitle: m.blurb,
-            selected: _cfg.mode == m,
-            onTap: () => _set(_cfg.copyWith(mode: m)),
-          ),
+        const SizedBox(height: 12),
+        _Section('Stage format'),
+        Row(
+          children: [
+            for (final (i, m) in LiveSetupMode.values.indexed) ...[
+              if (i > 0) const SizedBox(width: 8),
+              Expanded(
+                child: _CompactGridCard(
+                  icon: m.icon,
+                  title: m.label,
+                  selected: _cfg.mode == m,
+                  onTap: () => _set(_cfg.copyWith(
+                    mode: m,
+                    joinRequests: m == LiveSetupMode.studio ? true : _cfg.joinRequests,
+                  )),
+                ),
+              ),
+            ],
+          ],
+        ),
+        const SizedBox(height: 10),
+        _Notice(
+          icon: _cfg.mode.icon,
+          text: _cfg.mode.blurb,
+        ),
       ];
 
-  // Step 2 — Details
+  // Step 2 — Details (Compact title + inline cover button + compact category chips)
   List<Widget> _detailsStep() {
     final game = _cfg.mode == LiveSetupMode.game;
     return [
       SetupDetailsPreview(config: _cfg, hostName: _hostName),
-      const SizedBox(height: 8),
-      Center(child: Text('How your live appears in followers’ feeds', style: _hint(context))),
-      const SizedBox(height: 22),
-      _Section('Title'),
-      TextField(
-        controller: _title,
-        maxLength: 200,
-        textCapitalization: TextCapitalization.sentences,
-        onChanged: (v) => _set(_cfg.copyWith(title: v)),
-        decoration: _input(context, 'What’s your live about?', Icons.title_rounded),
+      const SizedBox(height: 12),
+      _Section('Title & Cover'),
+      Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Expanded(
+            child: TextField(
+              controller: _title,
+              maxLength: 120,
+              style: GoogleFonts.inter(fontSize: 13, fontWeight: FontWeight.w600, color: context.textPrimary),
+              textCapitalization: TextCapitalization.sentences,
+              onChanged: (v) => _set(_cfg.copyWith(title: v)),
+              decoration: _input(context, 'What’s your live about?', Icons.title_rounded).copyWith(counterText: ''),
+            ),
+          ),
+          const SizedBox(width: 8),
+          _ActionTile(
+            icon: _cfg.coverPath == null ? Icons.add_photo_alternate_rounded : Icons.check_circle_rounded,
+            label: _cfg.coverPath == null ? 'Cover' : 'Changed',
+            onTap: _pickCover,
+          ),
+          if (_cfg.coverPath != null) ...[
+            const SizedBox(width: 6),
+            IconButton(
+              visualDensity: VisualDensity.compact,
+              onPressed: () => _set(_cfg.copyWith(clearCover: true)),
+              icon: Icon(Icons.close_rounded, size: 18, color: context.textMuted),
+              tooltip: 'Remove cover',
+            ),
+          ],
+        ],
       ),
       if (game) ...[
-        const SizedBox(height: 8),
-        _Section('Game'),
+        const SizedBox(height: 10),
+        _Section('Game Title'),
         TextField(
           controller: _game,
           maxLength: GameTitleRules.maxLength,
+          style: GoogleFonts.inter(fontSize: 13, fontWeight: FontWeight.w600, color: context.textPrimary),
           onChanged: (v) => _set(_cfg.copyWith(gameTitle: v)),
-          decoration: _input(context, 'Which game are you playing?', Icons.sports_esports_rounded),
+          decoration: _input(context, 'Which game are you playing?', Icons.sports_esports_rounded).copyWith(counterText: ''),
         ),
       ],
-      const SizedBox(height: 8),
-      _Section('Cover'),
-      Row(children: [
-        Expanded(
-          child: _ActionTile(
-            icon: _cfg.coverPath == null ? Icons.add_photo_alternate_rounded : Icons.photo_library_rounded,
-            label: _cfg.coverPath == null ? 'Add a cover photo' : 'Change cover',
-            onTap: _pickCover,
-          ),
-        ),
-        if (_cfg.coverPath != null) ...[
-          const SizedBox(width: 10),
-          _ActionTile(
-            icon: Icons.delete_outline_rounded,
-            label: 'Remove',
-            onTap: () => _set(_cfg.copyWith(clearCover: true)),
-          ),
-        ],
-      ]),
       if (!game) ...[
-        const SizedBox(height: 22),
+        const SizedBox(height: 12),
         _Section('Category'),
-        Wrap(spacing: 8, runSpacing: 8, children: [
+        Wrap(spacing: 6, runSpacing: 6, children: [
           for (final (name, icon) in GoLiveSheets.categories)
             if (name != 'Gaming')
               _Pill(
@@ -446,305 +496,464 @@ class _LiveSetupWizardScreenState extends ConsumerState<LiveSetupWizardScreen> {
     ];
   }
 
-  // Step 3 — Camera, mic, beauty
+  // Step 3 — Camera, mic, Cinema Looks, Studio Key Lighting & Beauty
   List<Widget> _devicesStep() {
     final p = _preview;
     final perms = _perms;
     final denied = perms != null && (!perms.cameraOk || !perms.micOk);
     return [
       SetupCameraPreview(config: _cfg, video: p?.buildVideo(), micLevel: p?.micLevel),
-      const SizedBox(height: 20),
+      const SizedBox(height: 10),
       if (denied)
         _Notice(
           icon: Icons.lock_outline_rounded,
-          text: 'Oneova needs camera and microphone access to go live.',
-          action: 'Open settings',
+          text: 'Camera and microphone access required.',
+          action: 'Settings',
           onAction: () => p?.openSettings(),
         ),
-      _SwitchRow(
-        icon: _cfg.cameraOn ? Icons.videocam_rounded : Icons.videocam_off_rounded,
-        title: 'Camera',
-        subtitle: _cfg.cameraOn ? 'You start on camera' : 'Start with your avatar instead',
-        value: _cfg.cameraOn,
-        onChanged: (v) {
-          _set(_cfg.copyWith(cameraOn: v));
-          unawaited(_ensurePreview());
-        },
+      // Compact 2-column Camera & Mic toggle pills
+      Row(
+        children: [
+          Expanded(
+            child: _CompactToggleTile(
+              icon: _cfg.cameraOn ? Icons.videocam_rounded : Icons.videocam_off_rounded,
+              label: _cfg.cameraOn ? 'Camera On' : 'Camera Off',
+              value: _cfg.cameraOn,
+              onChanged: (v) {
+                _set(_cfg.copyWith(cameraOn: v));
+                unawaited(_ensurePreview());
+              },
+            ),
+          ),
+          const SizedBox(width: 8),
+          Expanded(
+            child: _CompactToggleTile(
+              icon: _cfg.micOn ? Icons.mic_rounded : Icons.mic_off_rounded,
+              label: _cfg.micOn ? 'Mic On' : 'Mic Muted',
+              value: _cfg.micOn,
+              onChanged: (v) {
+                _set(_cfg.copyWith(micOn: v));
+                unawaited(_ensurePreview());
+              },
+            ),
+          ),
+        ],
       ),
-      _SwitchRow(
-        icon: _cfg.micOn ? Icons.mic_rounded : Icons.mic_off_rounded,
-        title: 'Microphone',
-        subtitle: _cfg.micOn ? 'Speak to see the level move' : 'You start muted',
-        value: _cfg.micOn,
-        onChanged: (v) {
-          _set(_cfg.copyWith(micOn: v));
-          unawaited(_ensurePreview());
-        },
-      ),
-      const SizedBox(height: 4),
+      const SizedBox(height: 8),
       LiveBeautyPanel(
         enabled: _cfg.beautyOn,
         beauty: _cfg.beauty,
+        lookId: _cfg.lookId,
+        lightingId: _cfg.lightingId,
         onEnabled: (v) {
           _set(_cfg.copyWith(beautyOn: v));
           unawaited(_syncBeauty());
         },
         onChanged: (b) => _set(_cfg.copyWith(beauty: b)),
+        onLookChanged: (id) => _set(_cfg.copyWith(lookId: id)),
+        onLightingChanged: (id) => _set(_cfg.copyWith(lightingId: id)),
         onCommit: () => unawaited(_syncBeauty()),
       ),
     ];
   }
 
-  // Step 4 — Layout & panels
+  // Step 4 — Unified Studio Stage Layout (works identically for Solo Studio & Multi-Guest Studio)
   List<Widget> _layoutStep() {
     final s = _cfg.settings;
-    final multi = _cfg.multiPanel;
+    final isStudioStage = _cfg.multiPanel;
+    final frameColors = kFrameColorOptions[s.theme] ?? const <String>[];
     return [
       SetupPhoneFrame(
+        height: 180,
         dark: s.theme == StudioTheme.dark || _cfg.mode == LiveSetupMode.game,
         child: SetupStudioMock(config: _cfg),
       ),
-      const SizedBox(height: 22),
-      _Section('Studio theme'),
-      Row(children: [
-        for (final t in StudioTheme.values) ...[
-          Expanded(
-            child: _Pill(
-              icon: t == StudioTheme.dark ? Icons.dark_mode_rounded : Icons.light_mode_rounded,
-              label: t == StudioTheme.dark ? 'Dark' : 'Light',
-              selected: s.theme == t,
-              onTap: () {
-                final d = StudioSettings.defaultsFor(t);
-                _set(_cfg.copyWith(
-                    settings: s.copyWith(theme: t, frameColor: d.frameColor, studioDim: d.studioDim)));
-              },
-            ),
-          ),
-          if (t != StudioTheme.values.last) const SizedBox(width: 10),
-        ],
-      ]),
-      const SizedBox(height: 22),
-      if (!multi)
-        _Notice(
-          icon: Icons.info_outline_rounded,
-          text: _cfg.mode == LiveSetupMode.game
-              ? 'Game Live keeps your game in the center and your camera in a bubble.'
-              : 'Solo keeps you on the center screen. You can open the stage to guests during the live.',
-          action: _cfg.mode == LiveSetupMode.solo ? 'Switch to Studio' : null,
-          onAction: () => _set(_cfg.copyWith(mode: LiveSetupMode.studio)),
-        )
-      else ...[
-        _Section('Guest panel size'),
-        Row(children: [
-          for (final g in GuestSize.values) ...[
+      const SizedBox(height: 12),
+      _Section('Studio atmosphere & labels'),
+      Row(
+        children: [
+          for (final t in StudioTheme.values) ...[
             Expanded(
               child: _Pill(
-                icon: switch (g) {
-                  GuestSize.s => Icons.photo_size_select_small_rounded,
-                  GuestSize.m => Icons.photo_size_select_large_rounded,
-                  GuestSize.l => Icons.photo_size_select_actual_rounded,
+                icon: t == StudioTheme.dark ? Icons.dark_mode_rounded : Icons.light_mode_rounded,
+                label: t == StudioTheme.dark ? 'Dark Studio' : 'Light Studio',
+                selected: s.theme == t,
+                onTap: () {
+                  final d = StudioSettings.defaultsFor(t);
+                  _set(_cfg.copyWith(
+                      settings: s.copyWith(theme: t, frameColor: d.frameColor, studioDim: d.studioDim)));
                 },
-                label: switch (g) { GuestSize.s => 'Small', GuestSize.m => 'Medium', GuestSize.l => 'Large' },
-                selected: s.guestSize == g,
-                onTap: () => _set(_cfg.copyWith(settings: s.copyWith(guestSize: g))),
               ),
             ),
-            if (g != GuestSize.values.last) const SizedBox(width: 8),
+            const SizedBox(width: 6),
           ],
-        ]),
-        const SizedBox(height: 22),
-        _Section('Who is on the center screen'),
-        _ChoiceCard(
-          icon: Icons.push_pin_rounded,
-          title: 'You, always',
-          subtitle: 'You stay in the center; guests sit on the walls.',
-          selected: s.speakerMode == SpeakerMode.hostPinned,
-          onTap: () => _set(_cfg.copyWith(settings: s.copyWith(speakerMode: SpeakerMode.hostPinned))),
-        ),
-        _ChoiceCard(
-          icon: Icons.record_voice_over_rounded,
-          title: 'Whoever speaks',
-          subtitle: 'The active speaker moves to the center automatically.',
-          selected: s.speakerMode == SpeakerMode.autoActiveSpeaker,
-          onTap: () => _set(_cfg.copyWith(settings: s.copyWith(speakerMode: SpeakerMode.autoActiveSpeaker))),
-        ),
-        _ChoiceCard(
-          icon: Icons.touch_app_rounded,
-          title: 'I choose',
-          subtitle: 'Tap a guest during the live to put them in the center.',
-          selected: s.speakerMode == SpeakerMode.manual,
-          onTap: () => _set(_cfg.copyWith(settings: s.copyWith(speakerMode: SpeakerMode.manual))),
-        ),
-      ],
-      const SizedBox(height: 8),
-      _SwitchRow(
-        icon: Icons.badge_rounded,
-        title: 'Show names on panels',
-        subtitle: 'Name tags under each video window',
-        value: s.showNames,
-        onChanged: (v) => _set(_cfg.copyWith(settings: s.copyWith(showNames: v))),
+          Expanded(
+            child: _CompactToggleTile(
+              icon: Icons.badge_rounded,
+              label: 'Names',
+              value: s.showNames,
+              onChanged: (v) => _set(_cfg.copyWith(settings: s.copyWith(showNames: v))),
+            ),
+          ),
+        ],
       ),
+      if (isStudioStage) ...[
+        const SizedBox(height: 10),
+        _Section('Stage frame accent & studio dim'),
+        Container(
+          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+          decoration: BoxDecoration(
+            color: context.surface,
+            borderRadius: BorderRadius.circular(AppRadius.md),
+            border: Border.all(color: context.border),
+          ),
+          child: Row(
+            children: [
+              for (final hex in frameColors)
+                Padding(
+                  padding: const EdgeInsets.only(right: 6),
+                  child: GestureDetector(
+                    onTap: () {
+                      HapticFeedback.selectionClick();
+                      _set(_cfg.copyWith(settings: s.copyWith(frameColor: hex)));
+                    },
+                    child: Container(
+                      width: 22,
+                      height: 22,
+                      decoration: BoxDecoration(
+                        color: Color(int.parse('FF${hex.replaceAll('#', '')}', radix: 16)),
+                        shape: BoxShape.circle,
+                        border: Border.all(
+                          color: s.frameColor.toLowerCase() == hex.toLowerCase() ? AppColors.brandPink : context.border,
+                          width: s.frameColor.toLowerCase() == hex.toLowerCase() ? 2.2 : 1,
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+              const SizedBox(width: 4),
+              Icon(Icons.brightness_6_rounded, size: 14, color: context.textMuted),
+              Expanded(
+                child: SliderTheme(
+                  data: SliderTheme.of(context).copyWith(
+                    trackHeight: 3,
+                    thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 6.5),
+                  ),
+                  child: Slider(
+                    value: (s.studioDim / StudioLimits.studioDimMax).clamp(0.0, 1.0),
+                    activeColor: AppColors.brandBlue,
+                    onChanged: (v) => _set(
+                      _cfg.copyWith(
+                        settings: s.copyWith(
+                          studioDim: ((v * StudioLimits.studioDimMax * 20).round() / 20.0)
+                              .clamp(StudioLimits.studioDimMin, StudioLimits.studioDimMax),
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(height: 10),
+        _Section('Studio wall size & speaker focus'),
+        Row(
+          children: [
+            for (final (i, g) in GuestSize.values.indexed) ...[
+              if (i > 0) const SizedBox(width: 6),
+              Expanded(
+                child: _Pill(
+                  icon: switch (g) {
+                    GuestSize.s => Icons.photo_size_select_small_rounded,
+                    GuestSize.m => Icons.photo_size_select_large_rounded,
+                    GuestSize.l => Icons.photo_size_select_actual_rounded,
+                  },
+                  label: switch (g) { GuestSize.s => 'Small', GuestSize.m => 'Medium', GuestSize.l => 'Large' },
+                  selected: s.guestSize == g,
+                  onTap: () => _set(_cfg.copyWith(settings: s.copyWith(guestSize: g))),
+                ),
+              ),
+            ],
+          ],
+        ),
+        const SizedBox(height: 8),
+        Row(
+          children: [
+            for (final (i, (mode, label, icon)) in const [
+              (SpeakerMode.hostPinned, 'Host Pinned', Icons.push_pin_rounded),
+              (SpeakerMode.autoActiveSpeaker, 'Auto Speaker', Icons.record_voice_over_rounded),
+              (SpeakerMode.manual, 'Tap to Swap', Icons.touch_app_rounded),
+            ].indexed) ...[
+              if (i > 0) const SizedBox(width: 6),
+              Expanded(
+                child: _CompactGridCard(
+                  icon: icon,
+                  title: label,
+                  selected: s.speakerMode == mode,
+                  onTap: () => _set(_cfg.copyWith(settings: s.copyWith(speakerMode: mode))),
+                ),
+              ),
+            ],
+          ],
+        ),
+      ] else
+        Padding(
+          padding: const EdgeInsets.only(top: 10),
+          child: _Notice(
+            icon: Icons.sports_esports_rounded,
+            text: 'Game Live streams your game in 1080p with your camera in a draggable floating bubble.',
+          ),
+        ),
     ];
   }
 
-  // Step 5 — Audience, comments, join requests
-  List<Widget> _audienceStep() => [
-        SetupAudiencePreview(config: _cfg),
-        const SizedBox(height: 22),
-        _Section('Who can watch'),
-        for (final a in LiveAudience.values)
-          _ChoiceCard(
-            icon: a.icon,
-            title: a.label,
-            subtitle: a.blurb,
-            selected: _cfg.audience == a,
-            onTap: () => _set(_cfg.copyWith(audience: a)),
-          ),
-        const SizedBox(height: 14),
-        _Section('Comments'),
-        for (final c in LiveChatMode.values)
-          _ChoiceCard(
-            icon: c.icon,
-            title: c.label,
-            subtitle: c.blurb,
-            selected: _cfg.chatMode == c,
-            onTap: () => _set(_cfg.copyWith(chatMode: c)),
-          ),
-        if (_cfg.chatMode == LiveChatMode.slow)
-          _SliderRow(
-            label: '${_cfg.slowSeconds}s',
-            value: (_cfg.slowSeconds - 5) / 55,
-            onChanged: (v) => _set(_cfg.copyWith(slowSeconds: (5 + v * 55).round())),
-          ),
-        const SizedBox(height: 14),
-        _Section('Guests'),
-        _SwitchRow(
-          icon: Icons.front_hand_rounded,
-          title: 'Join requests',
-          subtitle: _cfg.multiPanel
-              ? 'Viewers can ask to come on stage. You approve each one.'
-              : 'Available in Studio mode',
-          value: _cfg.acceptsRequests,
-          accent: AppColors.brandPink,
-          onChanged: _cfg.multiPanel ? (v) => _set(_cfg.copyWith(joinRequests: v)) : null,
+  // Step 5 — Audience, comments, join requests & broadcast (Compact rows & 2x2 grid)
+  List<Widget> _audienceStep() {
+    final hasDests = (_destinations ?? const []).any((d) => d.enabled);
+    return [
+      SetupAudiencePreview(config: _cfg),
+      const SizedBox(height: 10),
+      _Section('Who can watch'),
+      Row(
+        children: [
+          for (final (i, a) in LiveAudience.values.indexed) ...[
+            if (i > 0) const SizedBox(width: 8),
+            Expanded(
+              child: _Pill(
+                icon: a.icon,
+                label: a.label,
+                selected: _cfg.audience == a,
+                onTap: () => _set(_cfg.copyWith(audience: a)),
+              ),
+            ),
+          ],
+        ],
+      ),
+      const SizedBox(height: 10),
+      _Section('Comments'),
+      Row(
+        children: [
+          for (final (i, c) in LiveChatMode.values.indexed) ...[
+            if (i > 0) const SizedBox(width: 6),
+            Expanded(
+              child: _Pill(
+                icon: c.icon,
+                label: c.label,
+                selected: _cfg.chatMode == c,
+                onTap: () => _set(_cfg.copyWith(chatMode: c)),
+              ),
+            ),
+          ],
+        ],
+      ),
+      if (_cfg.chatMode == LiveChatMode.slow)
+        _SliderRow(
+          label: 'Every ${_cfg.slowSeconds}s',
+          value: (_cfg.slowSeconds - 5) / 55,
+          onChanged: (v) => _set(_cfg.copyWith(slowSeconds: (5 + v * 55).round())),
         ),
-        const SizedBox(height: 14),
-        _Section('Record & restream'),
-        _SwitchRow(
-          icon: Icons.fiber_manual_record_rounded,
-          title: 'Record in 1080p',
-          subtitle: 'Just the stage, no comments or likes. Keep or delete it after.',
-          value: _cfg.record,
-          accent: AppColors.brandPink,
-          onChanged: (v) => _set(_cfg.copyWith(record: v)),
-        ),
-        _SwitchRow(
-          icon: Icons.cell_tower_rounded,
-          title: 'Restream live',
-          subtitle: _destinationsLine(),
-          value: _cfg.restream && (_destinations ?? const []).any((d) => d.enabled),
-          onChanged: (_destinations ?? const []).any((d) => d.enabled) ? (v) => _set(_cfg.copyWith(restream: v)) : null,
-        ),
-        if (_cfg.record || _cfg.restream)
-          _SwitchRow(
-            icon: _cfg.landscape ? Icons.stay_current_landscape_rounded : Icons.stay_current_portrait_rounded,
-            title: _cfg.landscape ? 'Landscape 16:9' : 'Portrait 9:16',
-            subtitle: 'Frame for the recording and restream',
-            value: _cfg.landscape,
-            onChanged: (v) => _set(_cfg.copyWith(landscape: v)),
+      const SizedBox(height: 10),
+      _Section('Stage & Broadcast'),
+      Row(
+        children: [
+          Expanded(
+            child: _CompactToggleTile(
+              icon: Icons.front_hand_rounded,
+              label: 'Join Requests',
+              value: _cfg.acceptsRequests,
+              accent: AppColors.brandPink,
+              onChanged: _cfg.multiPanel ? (v) => _set(_cfg.copyWith(joinRequests: v)) : null,
+            ),
           ),
-        Align(
-          alignment: Alignment.centerLeft,
-          child: TextButton.icon(
+          const SizedBox(width: 8),
+          Expanded(
+            child: _CompactToggleTile(
+              icon: Icons.fiber_manual_record_rounded,
+              label: 'Record 1080p',
+              value: _cfg.record,
+              accent: AppColors.brandPink,
+              onChanged: (v) => _set(_cfg.copyWith(record: v)),
+            ),
+          ),
+        ],
+      ),
+      const SizedBox(height: 8),
+      Row(
+        children: [
+          Expanded(
+            child: _CompactToggleTile(
+              icon: Icons.cell_tower_rounded,
+              label: hasDests ? 'Restream On' : 'Restream',
+              value: _cfg.restream && hasDests,
+              onChanged: hasDests ? (v) => _set(_cfg.copyWith(restream: v)) : null,
+            ),
+          ),
+          const SizedBox(width: 8),
+          Expanded(
+            child: _CompactToggleTile(
+              icon: _cfg.landscape ? Icons.stay_current_landscape_rounded : Icons.stay_current_portrait_rounded,
+              label: _cfg.landscape ? '16:9 Landscape' : '9:16 Portrait',
+              value: _cfg.landscape,
+              onChanged: (v) => _set(_cfg.copyWith(landscape: v)),
+            ),
+          ),
+        ],
+      ),
+      const SizedBox(height: 6),
+      Row(
+        children: [
+          Icon(Icons.link_rounded, size: 14, color: context.textMuted),
+          const SizedBox(width: 6),
+          Expanded(
+            child: Text(
+              _destinationsLine(),
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: GoogleFonts.inter(fontSize: 11.5, color: context.textSecondary),
+            ),
+          ),
+          TextButton(
+            style: TextButton.styleFrom(
+              visualDensity: VisualDensity.compact,
+              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+            ),
             onPressed: () async {
               await context.push('/settings/live_destinations');
               unawaited(_loadDestinations());
             },
-            icon: const Icon(Icons.add_link_rounded, color: AppColors.brandBlue),
-            label: Text('Manage live destinations',
-                style: GoogleFonts.inter(fontWeight: FontWeight.w700, color: AppColors.brandBlue)),
+            child: Text(
+              'Destinations',
+              style: GoogleFonts.inter(fontSize: 12, fontWeight: FontWeight.w700, color: AppColors.brandBlue),
+            ),
           ),
-        ),
-      ];
+        ],
+      ),
+    ];
+  }
 
   String _destinationsLine() {
     final on = (_destinations ?? const <LiveDestination>[]).where((d) => d.enabled).map((d) => d.label).toList();
-    if (_destinations == null) return 'Loading your destinations…';
-    return on.isEmpty ? 'Add Facebook, YouTube or TikTok first' : 'To ${on.join(', ')}';
+    if (_destinations == null) return 'Loading destinations…';
+    return on.isEmpty ? 'Add YouTube, Facebook or TikTok RTMP' : 'Restreaming to ${on.join(', ')}';
   }
 
-  // Step 6 — Review
+  // Step 6 — Review (Compact 2-column executive summary grid)
   List<Widget> _reviewStep() {
     final s = _cfg.settings;
-    final rows = <(_Step, IconData, String, String)>[
-      (_Step.mode, _cfg.mode.icon, 'Mode', _cfg.mode.label),
+    final look = lookPresetById(_cfg.lookId);
+    final light = lightingPresetById(_cfg.lightingId);
+    final cards = <(_Step, IconData, String, String)>[
+      (_Step.mode, _cfg.mode.icon, 'Stage Mode', _cfg.mode.label),
       (_Step.details, Icons.title_rounded, 'Title', _cfg.effectiveTitle),
-      (_Step.details, Icons.local_offer_rounded, 'Category', _cfg.mode == LiveSetupMode.game ? 'Gaming' : _cfg.category),
-      (_Step.details, Icons.image_rounded, 'Cover', _cfg.coverPath == null ? 'None' : 'Added'),
+      (
+        _Step.details,
+        Icons.local_offer_rounded,
+        'Category & Cover',
+        '${_cfg.mode == LiveSetupMode.game ? 'Gaming' : _cfg.category}${_cfg.coverPath != null ? ' · Cover set' : ''}'
+      ),
+      (
+        _Step.devices,
+        Icons.auto_awesome_rounded,
+        'Effects & Look',
+        '${look.name} · ${light.name}${_cfg.beautyOn ? ' · Beauty' : ''}'
+      ),
       (
         _Step.devices,
         Icons.videocam_rounded,
-        'Camera & mic',
-        '${_cfg.cameraOn ? 'Camera on' : 'Camera off'} · ${_cfg.micOn ? 'Mic on' : 'Muted'}${_cfg.beautyOn ? ' · Beauty' : ''}'
+        'Camera & Mic',
+        '${_cfg.cameraOn ? 'Cam On' : 'Cam Off'} · ${_cfg.micOn ? 'Mic On' : 'Muted'}'
       ),
       (
         _Step.layout,
         Icons.view_quilt_rounded,
-        'Layout',
-        '${s.theme == StudioTheme.dark ? 'Dark' : 'Light'} studio${_cfg.multiPanel ? ' · ${switch (s.guestSize) { GuestSize.s => 'small', GuestSize.m => 'medium', GuestSize.l => 'large' }} panels' : ''}'
+        'Studio Stage',
+        '${s.theme == StudioTheme.dark ? 'Dark' : 'Light'} · ${s.guestSize.name.toUpperCase()} walls'
       ),
-      (_Step.audience, _cfg.audience.icon, 'Audience', _cfg.audience.label),
       (
         _Step.audience,
-        _cfg.chatMode.icon,
-        'Comments',
-        _cfg.chatMode == LiveChatMode.slow ? 'Slow mode · ${_cfg.slowSeconds}s' : _cfg.chatMode.label
+        _cfg.audience.icon,
+        'Audience & Chat',
+        '${_cfg.audience.label} · ${_cfg.chatMode.label}'
       ),
-      (_Step.audience, Icons.front_hand_rounded, 'Join requests', _cfg.acceptsRequests ? 'On' : 'Off'),
       (
         _Step.audience,
-        Icons.fiber_manual_record_rounded,
-        'Record & restream',
+        Icons.cell_tower_rounded,
+        'Guests & Output',
         [
-          if (_cfg.record) 'Recording 1080p',
-          if (_cfg.restream && (_destinations ?? const []).any((d) => d.enabled)) 'Restream on',
-        ].join(' · ').ifEmpty('Off'),
+          if (_cfg.acceptsRequests) 'Join On',
+          if (_cfg.record) '1080p Rec',
+          if (_cfg.restream && (_destinations ?? const []).any((d) => d.enabled)) 'Restream',
+        ].join(' · ').ifEmpty('Standard Live'),
       ),
     ];
+
     return [
       SetupPhoneFrame(
-        height: 320,
+        height: 175,
         dark: s.theme == StudioTheme.dark || _cfg.mode == LiveSetupMode.game,
         child: SetupStudioMock(config: _cfg),
       ),
-      const SizedBox(height: 22),
-      Container(
-        decoration: BoxDecoration(
-          color: context.surface,
-          borderRadius: BorderRadius.circular(AppRadius.lg),
-          border: Border.all(color: context.border),
+      const SizedBox(height: 12),
+      _Section('Tap any item to adjust'),
+      GridView.builder(
+        shrinkWrap: true,
+        physics: const NeverScrollableScrollPhysics(),
+        itemCount: cards.length,
+        gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+          crossAxisCount: 2,
+          mainAxisSpacing: 8,
+          crossAxisSpacing: 8,
+          mainAxisExtent: 54,
         ),
-        child: Column(children: [
-          for (final (i, r) in rows.indexed) ...[
-            ListTile(
-              leading: Icon(r.$2, color: AppColors.brandBlue),
-              title: Text(r.$3, style: GoogleFonts.inter(fontSize: 13, color: context.textSecondary)),
-              subtitle: Text(r.$4,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: GoogleFonts.inter(fontSize: 15, fontWeight: FontWeight.w700, color: context.textPrimary)),
-              trailing: Icon(Icons.edit_rounded, size: 18, color: context.textMuted),
-              onTap: () => _goTo(r.$1.index),
+        itemBuilder: (context, i) {
+          final r = cards[i];
+          return InkWell(
+            borderRadius: BorderRadius.circular(AppRadius.md),
+            onTap: () => _goTo(r.$1.index),
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
+              decoration: BoxDecoration(
+                color: context.surface,
+                borderRadius: BorderRadius.circular(AppRadius.md),
+                border: Border.all(color: context.border),
+              ),
+              child: Row(
+                children: [
+                  Icon(r.$2, size: 16, color: AppColors.brandBlue),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Column(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          r.$3,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: GoogleFonts.inter(fontSize: 10, fontWeight: FontWeight.w600, color: context.textMuted),
+                        ),
+                        const SizedBox(height: 1),
+                        Text(
+                          r.$4,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: GoogleFonts.inter(fontSize: 12, fontWeight: FontWeight.w700, color: context.textPrimary),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
             ),
-            if (i != rows.length - 1) Divider(height: 1, color: context.border),
-          ],
-        ]),
+          );
+        },
       ),
     ];
   }
 }
 
-// ─── Pieces ──────────────────────────────────────────────────────────────────
+// ─── Compact Executive Pieces ────────────────────────────────────────────────
 
 /// Game title length shared with the server (GAME_TITLE_MAX_LENGTH).
 class GameTitleRules {
@@ -752,18 +961,20 @@ class GameTitleRules {
   static const int maxLength = 60;
 }
 
-TextStyle _hint(BuildContext context) => GoogleFonts.inter(fontSize: 12, color: context.textMuted);
-
 InputDecoration _input(BuildContext context, String hint, IconData icon) => InputDecoration(
+      isDense: true,
       hintText: hint,
-      prefixIcon: Icon(icon, color: AppColors.brandBlue),
+      hintStyle: GoogleFonts.inter(fontSize: 12.5, color: context.textMuted),
+      prefixIcon: Icon(icon, size: 18, color: AppColors.brandBlue),
+      prefixIconConstraints: const BoxConstraints(minWidth: 36, minHeight: 36),
+      contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
       filled: true,
       fillColor: context.surface,
-      border: OutlineInputBorder(borderRadius: BorderRadius.circular(AppRadius.md), borderSide: BorderSide(color: context.border)),
+      border: OutlineInputBorder(borderRadius: BorderRadius.circular(AppRadius.sm), borderSide: BorderSide(color: context.border)),
       enabledBorder:
-          OutlineInputBorder(borderRadius: BorderRadius.circular(AppRadius.md), borderSide: BorderSide(color: context.border)),
+          OutlineInputBorder(borderRadius: BorderRadius.circular(AppRadius.sm), borderSide: BorderSide(color: context.border)),
       focusedBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(AppRadius.md), borderSide: const BorderSide(color: AppColors.brandBlue, width: 2)),
+          borderRadius: BorderRadius.circular(AppRadius.sm), borderSide: const BorderSide(color: AppColors.brandBlue, width: 1.5)),
     );
 
 class _Header extends StatelessWidget {
@@ -777,30 +988,56 @@ class _Header extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Padding(
-      padding: const EdgeInsets.fromLTRB(8, 4, 8, 6),
+      padding: const EdgeInsets.fromLTRB(6, 2, 6, 4),
       child: Column(children: [
-        Row(children: [
-          IconButton(
-            onPressed: onBack,
-            icon: Icon(index == 0 ? Icons.close_rounded : Icons.arrow_back_rounded, color: context.textPrimary),
-            tooltip: index == 0 ? 'Close' : 'Back',
-          ),
-          Expanded(
-            child: Column(children: [
-              Text('Step ${index + 1} of ${_Step.values.length}',
-                  style: GoogleFonts.inter(fontSize: 11, fontWeight: FontWeight.w700, color: AppColors.brandBlue)),
-              const SizedBox(height: 2),
-              Text(step.headline,
-                  textAlign: TextAlign.center,
-                  style: GoogleFonts.inter(fontSize: 17, fontWeight: FontWeight.w800, color: context.textPrimary)),
-            ]),
-          ),
-          if (index > 0)
-            IconButton(onPressed: onClose, icon: Icon(Icons.close_rounded, color: context.textMuted), tooltip: 'Close')
-          else
-            const SizedBox(width: 48),
-        ]),
-        const SizedBox(height: 10),
+        SizedBox(
+          height: 38,
+          child: Row(children: [
+            IconButton(
+              visualDensity: VisualDensity.compact,
+              onPressed: onBack,
+              icon: Icon(index == 0 ? Icons.close_rounded : Icons.arrow_back_rounded, size: 20, color: context.textPrimary),
+              tooltip: index == 0 ? 'Close' : 'Back',
+            ),
+            Expanded(
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                    decoration: BoxDecoration(
+                      color: AppColors.brandBlue.withValues(alpha: 0.14),
+                      borderRadius: BorderRadius.circular(999),
+                    ),
+                    child: Text(
+                      '${index + 1}/${_Step.values.length}',
+                      style: GoogleFonts.inter(fontSize: 10, fontWeight: FontWeight.w800, color: AppColors.brandBlue),
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  Flexible(
+                    child: Text(
+                      step.headline,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: GoogleFonts.inter(fontSize: 15, fontWeight: FontWeight.w800, color: context.textPrimary),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            if (index > 0)
+              IconButton(
+                visualDensity: VisualDensity.compact,
+                onPressed: onClose,
+                icon: Icon(Icons.close_rounded, size: 20, color: context.textMuted),
+                tooltip: 'Close',
+              )
+            else
+              const SizedBox(width: 40),
+          ]),
+        ),
+        const SizedBox(height: 4),
         Padding(
           padding: const EdgeInsets.symmetric(horizontal: 12),
           child: Row(children: [
@@ -809,9 +1046,9 @@ class _Header extends StatelessWidget {
               if (s != _Step.values.last)
                 Expanded(
                   child: AnimatedContainer(
-                    duration: const Duration(milliseconds: 300),
-                    height: 3,
-                    margin: const EdgeInsets.symmetric(horizontal: 4),
+                    duration: const Duration(milliseconds: 240),
+                    height: 2,
+                    margin: const EdgeInsets.symmetric(horizontal: 3),
                     decoration: BoxDecoration(
                       color: s.index < index ? AppColors.brandBlue : context.border,
                       borderRadius: BorderRadius.circular(2),
@@ -829,8 +1066,6 @@ class _Header extends StatelessWidget {
 class _StepDot extends StatelessWidget {
   const _StepDot({required this.step, required this.state, required this.onTap});
   final _Step step;
-
-  /// 1 done · 0 current · -1 upcoming.
   final int state;
   final VoidCallback onTap;
 
@@ -843,16 +1078,36 @@ class _StepDot extends StatelessWidget {
       child: GestureDetector(
         onTap: onTap,
         child: AnimatedContainer(
-          duration: const Duration(milliseconds: 250),
-          width: current ? 36 : 28,
-          height: current ? 36 : 28,
+          duration: const Duration(milliseconds: 200),
+          padding: EdgeInsets.symmetric(horizontal: current ? 8 : 0),
+          height: 24,
+          constraints: BoxConstraints(minWidth: current ? 58 : 24),
           decoration: BoxDecoration(
-            shape: BoxShape.circle,
+            borderRadius: BorderRadius.circular(999),
             color: done || current ? AppColors.brandBlue : context.surface,
-            border: Border.all(color: current ? AppColors.brandPink : (done ? AppColors.brandBlue : context.border), width: 2),
+            border: Border.all(
+              color: current ? AppColors.brandPink : (done ? AppColors.brandBlue : context.border),
+              width: current ? 1.5 : 1,
+            ),
           ),
-          child: Icon(done ? Icons.check_rounded : step.icon,
-              size: current ? 18 : 14, color: done || current ? AppColors.brandWhite : context.textMuted),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Icon(
+                done ? Icons.check_rounded : step.icon,
+                size: 12,
+                color: done || current ? AppColors.brandWhite : context.textMuted,
+              ),
+              if (current) ...[
+                const SizedBox(width: 4),
+                Text(
+                  step.label,
+                  style: GoogleFonts.inter(fontSize: 10.5, fontWeight: FontWeight.w800, color: AppColors.brandWhite),
+                ),
+              ],
+            ],
+          ),
         ),
       ),
     );
@@ -869,34 +1124,34 @@ class _BottomBar extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Container(
-      padding: const EdgeInsets.fromLTRB(20, 10, 20, 14),
+      padding: const EdgeInsets.fromLTRB(16, 8, 16, 10),
       decoration: BoxDecoration(color: context.bg, border: Border(top: BorderSide(color: context.border))),
       child: Column(mainAxisSize: MainAxisSize.min, children: [
         if (error != null)
           Padding(
-            padding: const EdgeInsets.only(bottom: 10),
+            padding: const EdgeInsets.only(bottom: 8),
             child: Row(children: [
-              const Icon(Icons.error_outline_rounded, size: 18, color: AppColors.brandPink),
-              const SizedBox(width: 8),
-              Expanded(child: Text(error!, style: GoogleFonts.inter(fontSize: 13, color: context.textPrimary))),
+              const Icon(Icons.error_outline_rounded, size: 16, color: AppColors.brandPink),
+              const SizedBox(width: 6),
+              Expanded(child: Text(error!, style: GoogleFonts.inter(fontSize: 12, color: context.textPrimary))),
             ]),
           ),
         SizedBox(
           width: double.infinity,
-          height: 54,
+          height: 42,
           child: FilledButton.icon(
             onPressed: busy ? null : onNext,
             style: FilledButton.styleFrom(
               backgroundColor: last ? AppColors.brandPink : AppColors.brandBlue,
               foregroundColor: AppColors.brandWhite,
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(AppRadius.full)),
-              textStyle: GoogleFonts.inter(fontSize: 16, fontWeight: FontWeight.w800),
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(AppRadius.md)),
+              textStyle: GoogleFonts.inter(fontSize: 14, fontWeight: FontWeight.w800),
             ),
             icon: busy
                 ? const SizedBox(
-                    width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2, color: AppColors.brandWhite))
-                : Icon(last ? Icons.sensors_rounded : Icons.arrow_forward_rounded),
-            label: Text(last ? (busy ? 'Going live…' : 'Go live') : 'Next'),
+                    width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2, color: AppColors.brandWhite))
+                : Icon(last ? Icons.sensors_rounded : Icons.arrow_forward_rounded, size: 18),
+            label: Text(last ? (busy ? 'Opening Studio…' : 'Go Live Now') : 'Continue'),
           ),
         ),
       ]),
@@ -912,20 +1167,21 @@ class _Countdown extends StatelessWidget {
   Widget build(BuildContext context) {
     return Positioned.fill(
       child: ColoredBox(
-        color: AppColors.brandBlack.withValues(alpha: 0.78),
+        color: AppColors.brandBlack.withValues(alpha: 0.80),
         child: Center(
           child: Column(mainAxisSize: MainAxisSize.min, children: [
             AnimatedSwitcher(
-              duration: const Duration(milliseconds: 280),
-              transitionBuilder: (c, a) => ScaleTransition(scale: Tween(begin: 1.6, end: 1.0).animate(a), child: FadeTransition(opacity: a, child: c)),
+              duration: const Duration(milliseconds: 240),
+              transitionBuilder: (c, a) =>
+                  ScaleTransition(scale: Tween(begin: 1.5, end: 1.0).animate(a), child: FadeTransition(opacity: a, child: c)),
               child: Text('$value',
                   key: ValueKey(value),
-                  style: GoogleFonts.inter(fontSize: 120, fontWeight: FontWeight.w900, color: AppColors.brandWhite)),
+                  style: GoogleFonts.inter(fontSize: 96, fontWeight: FontWeight.w900, color: AppColors.brandWhite)),
             ),
             const SizedBox(height: 8),
             const SetupLiveBadge(),
-            const SizedBox(height: 10),
-            Text('Opening your studio…', style: GoogleFonts.inter(fontSize: 14, color: AppColors.textSecondary)),
+            const SizedBox(height: 8),
+            Text('Entering your Live Studio…', style: GoogleFonts.inter(fontSize: 13, color: AppColors.textSecondary)),
           ]),
         ),
       ),
@@ -939,62 +1195,138 @@ class _Section extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => Padding(
-        padding: const EdgeInsets.only(bottom: 10),
+        padding: const EdgeInsets.only(bottom: 6),
         child: Text(text.toUpperCase(),
-            style: GoogleFonts.inter(fontSize: 11, fontWeight: FontWeight.w800, letterSpacing: 0.8, color: context.textMuted)),
+            style: GoogleFonts.inter(fontSize: 10, fontWeight: FontWeight.w800, letterSpacing: 0.7, color: context.textMuted)),
       );
 }
 
-class _ChoiceCard extends StatelessWidget {
-  const _ChoiceCard({required this.icon, required this.title, required this.subtitle, required this.selected, required this.onTap});
+/// Compact 3-column grid card for Mode and Speaker Focus selection.
+class _CompactGridCard extends StatelessWidget {
+  const _CompactGridCard({
+    required this.icon,
+    required this.title,
+    required this.selected,
+    required this.onTap,
+  });
   final IconData icon;
   final String title;
-  final String subtitle;
   final bool selected;
   final VoidCallback onTap;
 
   @override
   Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 10),
-      child: Material(
-        color: selected ? AppColors.brandBlue.withValues(alpha: 0.1) : context.surface,
-        borderRadius: BorderRadius.circular(AppRadius.lg),
-        child: InkWell(
-          borderRadius: BorderRadius.circular(AppRadius.lg),
-          onTap: () {
-            HapticFeedback.selectionClick();
-            onTap();
-          },
-          child: AnimatedContainer(
-            duration: const Duration(milliseconds: 200),
-            padding: const EdgeInsets.all(14),
-            decoration: BoxDecoration(
-              borderRadius: BorderRadius.circular(AppRadius.lg),
-              border: Border.all(color: selected ? AppColors.brandBlue : context.border, width: selected ? 2 : 1),
-            ),
-            child: Row(children: [
-              Container(
-                width: 44,
-                height: 44,
-                decoration: BoxDecoration(
-                  color: selected ? AppColors.brandBlue : context.surfaceMid,
-                  borderRadius: BorderRadius.circular(AppRadius.md),
-                ),
-                child: Icon(icon, color: selected ? AppColors.brandWhite : context.textSecondary),
-              ),
-              const SizedBox(width: 14),
-              Expanded(
-                child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                  Text(title, style: GoogleFonts.inter(fontSize: 15, fontWeight: FontWeight.w800, color: context.textPrimary)),
-                  const SizedBox(height: 2),
-                  Text(subtitle, style: GoogleFonts.inter(fontSize: 12.5, height: 1.3, color: context.textSecondary)),
-                ]),
-              ),
-              Icon(selected ? Icons.check_circle_rounded : Icons.radio_button_unchecked_rounded,
-                  color: selected ? AppColors.brandBlue : context.textMuted),
-            ]),
+    return InkWell(
+      borderRadius: BorderRadius.circular(AppRadius.md),
+      onTap: () {
+        HapticFeedback.selectionClick();
+        onTap();
+      },
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 180),
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 10),
+        decoration: BoxDecoration(
+          color: selected ? AppColors.brandBlue.withValues(alpha: 0.12) : context.surface,
+          borderRadius: BorderRadius.circular(AppRadius.md),
+          border: Border.all(
+            color: selected ? AppColors.brandBlue : context.border,
+            width: selected ? 1.5 : 1,
           ),
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Container(
+              width: 32,
+              height: 32,
+              decoration: BoxDecoration(
+                color: selected ? AppColors.brandBlue : context.surfaceMid,
+                borderRadius: BorderRadius.circular(AppRadius.sm),
+              ),
+              child: Icon(icon, size: 17, color: selected ? AppColors.brandWhite : context.textSecondary),
+            ),
+            const SizedBox(height: 6),
+            Text(
+              title,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              textAlign: TextAlign.center,
+              style: GoogleFonts.inter(
+                fontSize: 11.5,
+                fontWeight: selected ? FontWeight.w800 : FontWeight.w600,
+                color: selected ? context.textPrimary : context.textSecondary,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// Compact toggle tile (height ~42px) for 2-column grids.
+class _CompactToggleTile extends StatelessWidget {
+  const _CompactToggleTile({
+    required this.icon,
+    required this.label,
+    required this.value,
+    required this.onChanged,
+    this.accent = AppColors.brandBlue,
+  });
+  final IconData icon;
+  final String label;
+  final bool value;
+  final ValueChanged<bool>? onChanged;
+  final Color accent;
+
+  @override
+  Widget build(BuildContext context) {
+    final enabled = onChanged != null;
+    return InkWell(
+      borderRadius: BorderRadius.circular(AppRadius.sm),
+      onTap: enabled
+          ? () {
+              HapticFeedback.selectionClick();
+              onChanged!(!value);
+            }
+          : null,
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 160),
+        height: 40,
+        padding: const EdgeInsets.symmetric(horizontal: 10),
+        decoration: BoxDecoration(
+          color: value ? accent.withValues(alpha: 0.12) : context.surface,
+          borderRadius: BorderRadius.circular(AppRadius.sm),
+          border: Border.all(
+            color: value ? accent : context.border,
+            width: value ? 1.4 : 1,
+          ),
+        ),
+        child: Row(
+          children: [
+            Icon(icon, size: 16, color: value ? accent : context.textMuted),
+            const SizedBox(width: 6),
+            Expanded(
+              child: Text(
+                label,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: GoogleFonts.inter(
+                  fontSize: 12,
+                  fontWeight: FontWeight.w700,
+                  color: enabled ? context.textPrimary : context.textMuted,
+                ),
+              ),
+            ),
+            Container(
+              width: 8,
+              height: 8,
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                color: value ? accent : context.border,
+              ),
+            ),
+          ],
         ),
       ),
     );
@@ -1011,29 +1343,29 @@ class _Pill extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return InkWell(
-      borderRadius: BorderRadius.circular(AppRadius.full),
+      borderRadius: BorderRadius.circular(AppRadius.sm),
       onTap: () {
         HapticFeedback.selectionClick();
         onTap();
       },
       child: AnimatedContainer(
-        duration: const Duration(milliseconds: 180),
-        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 11),
+        duration: const Duration(milliseconds: 160),
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
         decoration: BoxDecoration(
           color: selected ? AppColors.brandBlue : context.surface,
-          borderRadius: BorderRadius.circular(AppRadius.full),
+          borderRadius: BorderRadius.circular(AppRadius.sm),
           border: Border.all(color: selected ? AppColors.brandBlue : context.border),
         ),
         child: Row(mainAxisSize: MainAxisSize.min, mainAxisAlignment: MainAxisAlignment.center, children: [
-          Icon(icon, size: 17, color: selected ? AppColors.brandWhite : context.textSecondary),
-          const SizedBox(width: 6),
+          Icon(icon, size: 14, color: selected ? AppColors.brandWhite : context.textSecondary),
+          const SizedBox(width: 5),
           Flexible(
             child: Text(label,
                 maxLines: 1,
                 softWrap: false,
                 overflow: TextOverflow.ellipsis,
                 style: GoogleFonts.inter(
-                    fontSize: 13, fontWeight: FontWeight.w700, color: selected ? AppColors.brandWhite : context.textPrimary)),
+                    fontSize: 12, fontWeight: FontWeight.w700, color: selected ? AppColors.brandWhite : context.textPrimary)),
           ),
         ]),
       ),
@@ -1050,69 +1382,25 @@ class _ActionTile extends StatelessWidget {
   @override
   Widget build(BuildContext context) => Material(
         color: context.surface,
-        borderRadius: BorderRadius.circular(AppRadius.md),
+        borderRadius: BorderRadius.circular(AppRadius.sm),
         child: InkWell(
-          borderRadius: BorderRadius.circular(AppRadius.md),
+          borderRadius: BorderRadius.circular(AppRadius.sm),
           onTap: onTap,
           child: Container(
-            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
+            height: 40,
+            padding: const EdgeInsets.symmetric(horizontal: 12),
             decoration: BoxDecoration(
-              borderRadius: BorderRadius.circular(AppRadius.md),
+              borderRadius: BorderRadius.circular(AppRadius.sm),
               border: Border.all(color: context.border),
             ),
             child: Row(mainAxisSize: MainAxisSize.min, children: [
-              Icon(icon, color: AppColors.brandBlue),
-              const SizedBox(width: 10),
-              Flexible(
-                child: Text(label,
-                    maxLines: 1,
-                    softWrap: false,
-                    overflow: TextOverflow.ellipsis,
-                    style: GoogleFonts.inter(fontSize: 14, fontWeight: FontWeight.w700, color: context.textPrimary)),
-              ),
+              Icon(icon, size: 16, color: AppColors.brandBlue),
+              const SizedBox(width: 6),
+              Text(label,
+                  maxLines: 1,
+                  style: GoogleFonts.inter(fontSize: 12, fontWeight: FontWeight.w700, color: context.textPrimary)),
             ]),
           ),
-        ),
-      );
-}
-
-class _SwitchRow extends StatelessWidget {
-  const _SwitchRow({
-    required this.icon,
-    required this.title,
-    required this.subtitle,
-    required this.value,
-    required this.onChanged,
-    this.accent = AppColors.brandBlue,
-  });
-  final IconData icon;
-  final String title;
-  final String subtitle;
-  final bool value;
-  final ValueChanged<bool>? onChanged;
-  final Color accent;
-
-  @override
-  Widget build(BuildContext context) => Padding(
-        padding: const EdgeInsets.only(bottom: 10),
-        child: Container(
-          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
-          decoration: BoxDecoration(
-            color: context.surface,
-            borderRadius: BorderRadius.circular(AppRadius.lg),
-            border: Border.all(color: context.border),
-          ),
-          child: Row(children: [
-            Icon(icon, color: value ? accent : context.textMuted),
-            const SizedBox(width: 14),
-            Expanded(
-              child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                Text(title, style: GoogleFonts.inter(fontSize: 15, fontWeight: FontWeight.w700, color: context.textPrimary)),
-                Text(subtitle, style: GoogleFonts.inter(fontSize: 12, color: context.textSecondary)),
-              ]),
-            ),
-            Switch.adaptive(value: value, onChanged: onChanged, activeTrackColor: accent),
-          ]),
         ),
       );
 }
@@ -1125,20 +1413,23 @@ class _SliderRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => Padding(
-        padding: const EdgeInsets.fromLTRB(14, 0, 4, 6),
-        child: Row(children: [
-          SizedBox(
-            width: 70,
-            child: Text(label, style: GoogleFonts.inter(fontSize: 13, fontWeight: FontWeight.w700, color: context.textSecondary)),
-          ),
-          Expanded(
-            child: Slider(
-              value: value.clamp(0, 1).toDouble(),
-              onChanged: onChanged,
-              activeColor: AppColors.brandPink,
+        padding: const EdgeInsets.fromLTRB(8, 2, 4, 2),
+        child: SizedBox(
+          height: 32,
+          child: Row(children: [
+            SizedBox(
+              width: 72,
+              child: Text(label, style: GoogleFonts.inter(fontSize: 11.5, fontWeight: FontWeight.w700, color: context.textSecondary)),
             ),
-          ),
-        ]),
+            Expanded(
+              child: Slider(
+                value: value.clamp(0, 1).toDouble(),
+                onChanged: onChanged,
+                activeColor: AppColors.brandPink,
+              ),
+            ),
+          ]),
+        ),
       );
 }
 
@@ -1151,21 +1442,22 @@ class _Notice extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => Container(
-        margin: const EdgeInsets.only(bottom: 12),
-        padding: const EdgeInsets.all(14),
+        margin: const EdgeInsets.only(bottom: 8),
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 9),
         decoration: BoxDecoration(
           color: AppColors.brandBlue.withValues(alpha: 0.08),
-          borderRadius: BorderRadius.circular(AppRadius.lg),
-          border: Border.all(color: AppColors.brandBlue.withValues(alpha: 0.3)),
+          borderRadius: BorderRadius.circular(AppRadius.sm),
+          border: Border.all(color: AppColors.brandBlue.withValues(alpha: 0.28)),
         ),
         child: Row(children: [
-          Icon(icon, color: AppColors.brandBlue),
-          const SizedBox(width: 12),
-          Expanded(child: Text(text, style: GoogleFonts.inter(fontSize: 13, height: 1.3, color: context.textPrimary))),
+          Icon(icon, size: 16, color: AppColors.brandBlue),
+          const SizedBox(width: 8),
+          Expanded(child: Text(text, style: GoogleFonts.inter(fontSize: 12, height: 1.25, color: context.textPrimary))),
           if (action != null)
             TextButton(
+              style: TextButton.styleFrom(visualDensity: VisualDensity.compact),
               onPressed: onAction,
-              child: Text(action!, style: GoogleFonts.inter(fontWeight: FontWeight.w800, color: AppColors.brandBlue)),
+              child: Text(action!, style: GoogleFonts.inter(fontSize: 12, fontWeight: FontWeight.w800, color: AppColors.brandBlue)),
             ),
         ]),
       );

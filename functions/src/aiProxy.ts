@@ -32,7 +32,7 @@ async function underDailyCap(uid: string): Promise<boolean> {
 }
 
 export const aiProxy = onRequest(
-  { secrets: [openRouterSecret], timeoutSeconds: 300, memory: '256MiB', cors: true },
+  { secrets: [openRouterSecret], timeoutSeconds: 300, memory: '512MiB', cors: true },
   async (req, res) => {
     const path = req.path.replace(/^\/api\/v1/, '');
     const isChat = req.method === 'POST' && path === '/chat/completions';

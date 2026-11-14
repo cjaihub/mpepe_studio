@@ -700,7 +700,7 @@ class _VoiceTabState extends State<_VoiceTab> {
   }
 }
 
-/// Looks and beauty on the host's live camera (the GPU track processor).
+/// Looks, Studio Key Lighting, and Beauty on the host's live camera.
 class _FaceAndLooksTab extends ConsumerWidget {
   const _FaceAndLooksTab({required this.streamId});
   final String streamId;
@@ -712,6 +712,7 @@ class _FaceAndLooksTab extends ConsumerWidget {
     ('Slim face', _slim, _setSlim),
     ('Bigger eyes', _eyes, _setEyes),
     ('Bright eyes', _eyeLight, _setEyeLight),
+    ('White smile', _teeth, _setTeeth),
   ];
   static double _smooth(LiveBeauty b) => b.smooth;
   static double _tone(LiveBeauty b) => b.tone;
@@ -719,20 +720,28 @@ class _FaceAndLooksTab extends ConsumerWidget {
   static double _slim(LiveBeauty b) => b.slim;
   static double _eyes(LiveBeauty b) => b.eyes;
   static double _eyeLight(LiveBeauty b) => b.eyeLight;
+  static double _teeth(LiveBeauty b) => b.teeth;
   static LiveBeauty _setSmooth(LiveBeauty b, double v) => b.copyWith(smooth: v);
   static LiveBeauty _setTone(LiveBeauty b, double v) => b.copyWith(tone: v);
   static LiveBeauty _setGlow(LiveBeauty b, double v) => b.copyWith(glow: v);
   static LiveBeauty _setSlim(LiveBeauty b, double v) => b.copyWith(slim: v);
   static LiveBeauty _setEyes(LiveBeauty b, double v) => b.copyWith(eyes: v);
   static LiveBeauty _setEyeLight(LiveBeauty b, double v) => b.copyWith(eyeLight: v);
+  static LiveBeauty _setTeeth(LiveBeauty b, double v) => b.copyWith(teeth: v);
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final looks = ref.watch(liveLooksControllerProvider);
     final ctl = ref.read(liveLooksControllerProvider.notifier);
+    if (looks.activeStreamId != streamId) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        ctl.bindLiveStream(streamId);
+      });
+    }
     final beautyOn = looks.beauty.isEnabled;
     final beauty = LiveBeauty.fromBoost(looks.beauty);
     final activeId = looks.activeLook.id;
+    final activeLightId = looks.lightingPresetId;
 
     void setBeauty(LiveBeauty b, {bool? on}) => ctl.applyBeauty(b.toBoost(enabled: on ?? beautyOn));
 
@@ -740,19 +749,12 @@ class _FaceAndLooksTab extends ConsumerWidget {
       padding: const EdgeInsets.only(bottom: 24),
       shrinkWrap: true,
       children: [
-        if (!looks.isAttached)
-          _Card(
-            icon: Icons.videocam_off_outlined,
-            title: 'Camera effects',
-            child: Text('Turn your camera on to use looks and beauty.',
-                style: LiveStudioType.s(13, FontWeight.w500, LiveStudioWorld.textDim)),
-          ),
         _Card(
           icon: Icons.palette_rounded,
-          title: 'Looks',
+          title: 'Cinema Looks',
           trailing: Text(looks.activeLook.name, style: LiveStudioType.s(12, FontWeight.w700, LiveStudioAccent.blue)),
           child: SizedBox(
-            height: 64,
+            height: 44,
             child: ListView.separated(
               scrollDirection: Axis.horizontal,
               itemCount: liveLookPresets.length,
@@ -763,22 +765,75 @@ class _FaceAndLooksTab extends ConsumerWidget {
                 return GestureDetector(
                   onTap: () {
                     HapticFeedback.selectionClick();
-                    ctl.applyLook(look, crossFade: const Duration(milliseconds: 350));
+                    ctl.applyLook(look, crossFade: const Duration(milliseconds: 250));
                   },
                   child: AnimatedContainer(
-                    duration: const Duration(milliseconds: 200),
-                    width: 96,
+                    duration: const Duration(milliseconds: 180),
+                    padding: const EdgeInsets.symmetric(horizontal: 14),
                     alignment: Alignment.center,
-                    padding: const EdgeInsets.symmetric(horizontal: 8),
                     decoration: BoxDecoration(
-                      color: on ? LiveStudioAccent.blue.withValues(alpha: 0.22) : LiveStudioWorld.surface3,
-                      borderRadius: BorderRadius.circular(12),
-                      border: Border.all(color: on ? LiveStudioAccent.blue : LiveStudioWorld.nameplateBorder, width: on ? 1.5 : 1),
+                      color: on ? LiveStudioAccent.blue.withValues(alpha: 0.24) : LiveStudioWorld.surface3,
+                      borderRadius: BorderRadius.circular(999),
+                      border: Border.all(
+                        color: on ? LiveStudioAccent.blue : LiveStudioWorld.nameplateBorder,
+                        width: on ? 1.5 : 1,
+                      ),
                     ),
-                    child: Text(look.name,
-                        textAlign: TextAlign.center,
-                        maxLines: 2,
-                        style: LiveStudioType.s(12, FontWeight.w700, on ? LiveStudioAccent.white : LiveStudioWorld.textDim)),
+                    child: Text(
+                      look.name,
+                      maxLines: 1,
+                      style: LiveStudioType.s(12, FontWeight.w700, on ? LiveStudioAccent.white : LiveStudioWorld.textDim),
+                    ),
+                  ),
+                );
+              },
+            ),
+          ),
+        ),
+        _Card(
+          icon: Icons.flare_rounded,
+          title: 'Studio Key Lighting',
+          trailing: Text(
+            lightingPresetById(activeLightId).name,
+            style: LiveStudioType.s(12, FontWeight.w700, LiveStudioAccent.pink),
+          ),
+          child: SizedBox(
+            height: 44,
+            child: ListView.separated(
+              scrollDirection: Axis.horizontal,
+              itemCount: liveLightingPresets.length,
+              separatorBuilder: (_, _) => const SizedBox(width: 8),
+              itemBuilder: (context, i) {
+                final light = liveLightingPresets[i];
+                final on = light.id == activeLightId;
+                return GestureDetector(
+                  onTap: () {
+                    HapticFeedback.selectionClick();
+                    ctl.applyLightingPreset(light.id);
+                  },
+                  child: AnimatedContainer(
+                    duration: const Duration(milliseconds: 180),
+                    padding: const EdgeInsets.symmetric(horizontal: 12),
+                    alignment: Alignment.center,
+                    decoration: BoxDecoration(
+                      color: on ? LiveStudioAccent.pinkA(0.22) : LiveStudioWorld.surface3,
+                      borderRadius: BorderRadius.circular(999),
+                      border: Border.all(
+                        color: on ? LiveStudioAccent.pink : LiveStudioWorld.nameplateBorder,
+                        width: on ? 1.5 : 1,
+                      ),
+                    ),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(light.icon, size: 15, color: on ? LiveStudioAccent.pink : LiveStudioWorld.textMedium),
+                        const SizedBox(width: 6),
+                        Text(
+                          light.name,
+                          style: LiveStudioType.s(12, FontWeight.w700, on ? LiveStudioAccent.white : LiveStudioWorld.textDim),
+                        ),
+                      ],
+                    ),
                   ),
                 );
               },
@@ -787,7 +842,7 @@ class _FaceAndLooksTab extends ConsumerWidget {
         ),
         _Card(
           icon: Icons.auto_awesome_rounded,
-          title: 'Beauty',
+          title: 'Studio Beauty Retouch',
           trailing: Switch.adaptive(
             value: beautyOn,
             activeTrackColor: LiveStudioAccent.pink,
@@ -797,11 +852,11 @@ class _FaceAndLooksTab extends ConsumerWidget {
             },
           ),
           child: !beautyOn
-              ? Text('Natural skin, glow and eye light, live on your camera.',
-                  style: LiveStudioType.s(13, FontWeight.w500, LiveStudioWorld.textDim))
+              ? Text('Natural skin, glow, face sculpt and eye light — live on your broadcast.',
+                  style: LiveStudioType.s(12, FontWeight.w500, LiveStudioWorld.textDim))
               : Column(children: [
                   SizedBox(
-                    height: 36,
+                    height: 34,
                     child: ListView(scrollDirection: Axis.horizontal, children: [
                       for (final (name, _, look) in LiveBeauty.presets)
                         Padding(
@@ -812,7 +867,7 @@ class _FaceAndLooksTab extends ConsumerWidget {
                               setBeauty(look);
                             },
                             child: Container(
-                              padding: const EdgeInsets.symmetric(horizontal: 14),
+                              padding: const EdgeInsets.symmetric(horizontal: 12),
                               alignment: Alignment.center,
                               decoration: BoxDecoration(
                                 color: beauty == look ? LiveStudioAccent.pinkA(0.22) : LiveStudioWorld.surface3,
@@ -827,19 +882,30 @@ class _FaceAndLooksTab extends ConsumerWidget {
                   ),
                   const SizedBox(height: 6),
                   for (final (label, get, set) in _beautySliders)
-                    Row(children: [
-                      SizedBox(
-                        width: 86,
-                        child: Text(label, style: LiveStudioType.s(12, FontWeight.w600, LiveStudioWorld.textDim)),
-                      ),
-                      Expanded(
-                        child: Slider(
-                          value: get(beauty).clamp(0.0, 1.0),
-                          activeColor: LiveStudioAccent.pink,
-                          onChanged: (v) => setBeauty(set(beauty, v)),
+                    SizedBox(
+                      height: 34,
+                      child: Row(children: [
+                        SizedBox(
+                          width: 82,
+                          child: Text(label, style: LiveStudioType.s(12, FontWeight.w600, LiveStudioWorld.textDim)),
                         ),
-                      ),
-                    ]),
+                        Expanded(
+                          child: Slider(
+                            value: get(beauty).clamp(0.0, 1.0),
+                            activeColor: LiveStudioAccent.pink,
+                            onChanged: (v) => setBeauty(set(beauty, v)),
+                          ),
+                        ),
+                        SizedBox(
+                          width: 28,
+                          child: Text(
+                            '${(get(beauty) * 100).round()}',
+                            textAlign: TextAlign.right,
+                            style: LiveStudioType.s(11, FontWeight.w700, LiveStudioWorld.textDim),
+                          ),
+                        ),
+                      ]),
+                    ),
                 ]),
         ),
       ],

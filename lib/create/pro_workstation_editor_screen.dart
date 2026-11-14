@@ -1451,6 +1451,41 @@ class _ProWorkstationEditorScreenState
             setState(() => _colorGrade = _colorGrade.copyWith(saturation: v));
             _markChanged();
           }),
+          _sliderRow('Warmth', _colorGrade.temperature, -1.0, 1.0, (v) {
+            setState(() => _colorGrade = _colorGrade.copyWith(temperature: v));
+            _markChanged();
+          }),
+          _sliderRow('Tint', _colorGrade.tint, -1.0, 1.0, (v) {
+            setState(() => _colorGrade = _colorGrade.copyWith(tint: v));
+            _markChanged();
+          }),
+          const SizedBox(height: 6),
+          Row(
+            children: [
+              OutlinedButton.icon(
+                onPressed: _runAiColorNormalize,
+                icon: const Icon(Icons.auto_fix_high_rounded, size: 15, color: AppColors.brandPink),
+                label: Text('AI Auto Balance', style: GoogleFonts.inter(fontSize: 11.5, fontWeight: FontWeight.w700, color: context.textPrimary)),
+              ),
+              const SizedBox(width: 8),
+              TextButton(
+                onPressed: () {
+                  setState(() {
+                    _colorGrade = const OneovaColorGrade(
+                      exposure: 0.0,
+                      contrast: 1.0,
+                      saturation: 1.0,
+                      temperature: 0.0,
+                      tint: 0.0,
+                      lutPreset: 'default',
+                    );
+                  });
+                  _markChanged();
+                },
+                child: Text('Reset Color', style: GoogleFonts.inter(fontSize: 11.5, color: context.textMuted)),
+              ),
+            ],
+          ),
         ],
       ),
     );
@@ -1485,8 +1520,63 @@ class _ProWorkstationEditorScreenState
           _aiActionCard(
             icon: Icons.palette,
             title: 'Cinematic quick grade',
-            subtitle: 'Exposure +0.1 · contrast 1.15 · saturation 1.1',
+            subtitle: 'Exposure +0.1 · contrast 1.15 · saturation 1.1 · Oneova Film Teal',
             onTap: _runAiColorNormalize,
+          ),
+          const SizedBox(height: 8),
+          _aiActionCard(
+            icon: Icons.wb_sunny_rounded,
+            title: 'Golden Hour Sunlight',
+            subtitle: 'Warmth +0.35 · contrast 1.10 · saturation 1.18 · Sunset Glow LUT',
+            onTap: () {
+              setState(() {
+                _colorGrade = _colorGrade.copyWith(
+                  exposure: 0.08,
+                  contrast: 1.10,
+                  saturation: 1.18,
+                  temperature: 0.35,
+                  tint: 0.05,
+                  lutPreset: 'warm_gold',
+                );
+              });
+              _markChanged();
+            },
+          ),
+          const SizedBox(height: 8),
+          _aiActionCard(
+            icon: Icons.bolt_rounded,
+            title: 'Oneova Cyber Neon',
+            subtitle: 'Cool shadows · magenta highlights · contrast 1.22 · Oneova Cyber LUT',
+            onTap: () {
+              setState(() {
+                _colorGrade = _colorGrade.copyWith(
+                  exposure: 0.04,
+                  contrast: 1.22,
+                  saturation: 1.32,
+                  temperature: -0.22,
+                  tint: 0.28,
+                  lutPreset: 'cyber_pink',
+                );
+              });
+              _markChanged();
+            },
+          ),
+          const SizedBox(height: 8),
+          _aiActionCard(
+            icon: Icons.compare_arrows_rounded,
+            title: 'Align & Stretch Clip to Full Duration',
+            subtitle: 'Snaps start to 0:00 and extends clip across full timeline',
+            onTap: () {
+              final fullSec = (_totalDuration.inMilliseconds / 1000.0).clamp(1.0, 600.0);
+              setState(() {
+                _draft = _draft.copyWith(
+                  trimStartSeconds: 0.0,
+                  trimEndSeconds: fullSec,
+                  durationSeconds: fullSec,
+                );
+              });
+              _markChanged();
+            },
           ),
         ],
       ),

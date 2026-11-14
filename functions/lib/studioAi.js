@@ -256,7 +256,7 @@ async function translateWithOpenRouter(texts, target, source, detectSource = fal
     const parsed = JSON.parse(content.replace(/^```(json)?|```$/g, '').trim());
     return Object.assign({ support: (_e = parsed.support) !== null && _e !== void 0 ? _e : 'limited', translations: (_f = parsed.translations) !== null && _f !== void 0 ? _f : [] }, (typeof parsed.source === 'string' ? { source: parsed.source } : {}));
 }
-exports.studioTranslate = (0, https_1.onCall)({ memory: '256MiB', timeoutSeconds: 120, secrets: [exports.openRouterSecret] }, async (request) => {
+exports.studioTranslate = (0, https_1.onCall)({ memory: '512MiB', timeoutSeconds: 120, secrets: [exports.openRouterSecret] }, async (request) => {
     var _a, _b, _c, _d, _e;
     if (!request.auth)
         throw new https_1.HttpsError('unauthenticated', 'Sign in to translate.');

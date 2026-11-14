@@ -43,12 +43,22 @@ class MainActivity : FlutterFragmentActivity() {
     // Screen off while an audio call is held to the ear.
     private var proximityLock: PowerManager.WakeLock? = null
 
+    private var lastSuggestionPostedAt = 0L
+
     override fun onCreate(savedInstanceState: Bundle?) {
         ensureProcessEngine()
         super.onCreate(savedInstanceState)
         createHighPriorityNotificationChannel()
         enableWakeAndLockScreenDisplay()
         showPersistentAssistantNotification()
+    }
+
+    override fun onResume() {
+        super.onResume()
+        val now = System.currentTimeMillis()
+        if (lastSuggestionPostedAt > 0L && now - lastSuggestionPostedAt > 120_000L) {
+            showPersistentAssistantNotification()
+        }
     }
 
     // One FlutterEngine per process, kept alive across MainActivity instances.
@@ -220,11 +230,6 @@ class MainActivity : FlutterFragmentActivity() {
 
     private fun createHighPriorityNotificationChannel() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            val channelId = "oneova_high_importance_channel"
-            val channelName = "OneOva Priority Alerts"
-            val channelDescription = "Instant notifications for live streams, new followers, studio exports, and messages."
-            val importance = NotificationManager.IMPORTANCE_HIGH
-
             val soundUri = Uri.parse(
                 ContentResolver.SCHEME_ANDROID_RESOURCE + "://" + packageName + "/" + R.raw.oneova_notification
             )
@@ -234,19 +239,35 @@ class MainActivity : FlutterFragmentActivity() {
                 .setUsage(AudioAttributes.USAGE_NOTIFICATION)
                 .build()
 
-            val channel = NotificationChannel(channelId, channelName, importance).apply {
-                description = channelDescription
-                enableLights(true)
-                lightColor = Color.parseColor("#1877F2") // OneOva Brand Blue
-                enableVibration(true)
-                vibrationPattern = longArrayOf(0, 100, 60, 140)
-                lockscreenVisibility = Notification.VISIBILITY_PUBLIC
-                setSound(soundUri, audioAttributes)
-                setShowBadge(true)
-            }
-
             val notificationManager = getSystemService(NotificationManager::class.java)
-            notificationManager?.createNotificationChannel(channel)
+
+            // Primary channel + refreshed v3 channel so existing installs immediately pick up the new catchy chime
+            val channels = listOf(
+                Triple(
+                    "oneova_high_importance_channel",
+                    "Oneova Priority Alerts",
+                    "Instant notifications for live streams, new followers, studio exports, and messages."
+                ),
+                Triple(
+                    "oneova_ai_pulse_channel",
+                    "Oneova Live AI Suggestions & Pulse",
+                    "Live AI creative suggestions, smart cross-app actions, and studio insights."
+                )
+            )
+
+            for ((id, name, desc) in channels) {
+                val channel = NotificationChannel(id, name, NotificationManager.IMPORTANCE_HIGH).apply {
+                    description = desc
+                    enableLights(true)
+                    lightColor = Color.parseColor("#0C4FA8")
+                    enableVibration(true)
+                    vibrationPattern = longArrayOf(0, 90, 50, 130, 50, 160)
+                    lockscreenVisibility = Notification.VISIBILITY_PUBLIC
+                    setSound(soundUri, audioAttributes)
+                    setShowBadge(true)
+                }
+                notificationManager?.createNotificationChannel(channel)
+            }
         }
     }
 
@@ -260,11 +281,27 @@ class MainActivity : FlutterFragmentActivity() {
         }
     }
 
-    private fun showPersistentAssistantNotification() {
-        val channelId = "oneova_high_importance_channel"
+    private fun showPersistentAssistantNotification(customTitle: String? = null, customBody: String? = null) {
+        lastSuggestionPostedAt = System.currentTimeMillis()
+        val suggestions = listOf(
+            "✨ Ova AI · Trending Reel Hook" to "Start your next Reel with a 1.5s visual contrast cut — creators using fast hook transitions are seeing +42% watch time today.",
+            "🎬 Ova Director · Multi-Photo + Music" to "Drop up to 10 photos in Status or Reels with a trending beat — carousel posts with music are getting 2.3× more replies right now.",
+            "⚡ Ova Live Pulse · Smart Quick Replies" to "Cross-app notifications now pop up live inside Oneova with 1-second AI reply pills so you never miss a message while creating.",
+            "🎨 Ova Color Grader · Cinema Look" to "Try 'Golden Hour Warmth' or ask Ova AI to grade your clip in natural language before posting your next Reel.",
+            "🚀 Ova Growth AI · Best Window to Post" to "Your audience engagement peaks in the next 45 minutes — record a 15s update or drop a musical photo story now.",
+            "🎙️ Ova Voice Studio · Instant Polish" to "Tap the AI Polish ✨ button in the composer to turn quick voice notes into punchy captions, scripts, or smart replies in 1 second.",
+            "🔥 Ova AI · Remix & Collab Idea" to "Reply to your top comment with a short video or multi-photo story to spark a back-and-forth thread with your followers.",
+            "💡 Ova Strategist · Bio & Hook Tip" to "Pin a high-retention Reel and add 3 niche keywords to your caption so Oneova Semantic Search surfaces your work first."
+        )
+        val picked = suggestions.random()
+        val titleText = customTitle?.takeIf { it.isNotBlank() } ?: picked.first
+        val bodyText = customBody?.takeIf { it.isNotBlank() } ?: picked.second
+
+        val channelId = "oneova_ai_pulse_channel"
         val intent = Intent(this, MainActivity::class.java).apply {
             flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP
             putExtra("wake_assistant", true)
+            putExtra("pending_query", bodyText)
             action = "com.oneova.app.WAKE_ASSISTANT"
         }
         val flags = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
@@ -282,12 +319,13 @@ class MainActivity : FlutterFragmentActivity() {
         }
 
         val notification = builder
-            .setContentTitle("Oneova AI Studio")
-            .setContentText("All you need in your Pocket as a creative")
+            .setContentTitle(titleText)
+            .setContentText(bodyText)
+            .setStyle(Notification.BigTextStyle().bigText(bodyText).setBigContentTitle(titleText))
             .setSmallIcon(R.mipmap.ic_launcher)
             .setContentIntent(pendingIntent)
-            .setOngoing(true)
-            .setAutoCancel(false)
+            .setOngoing(false)
+            .setAutoCancel(true)
             .setVisibility(Notification.VISIBILITY_PUBLIC)
             .build()
 

@@ -226,7 +226,7 @@ export async function translateWithOpenRouter(
   };
 }
 
-export const studioTranslate = onCall({ memory: '256MiB', timeoutSeconds: 120, secrets: [openRouterSecret] }, async (request) => {
+export const studioTranslate = onCall({ memory: '512MiB', timeoutSeconds: 120, secrets: [openRouterSecret] }, async (request) => {
   if (!request.auth) throw new HttpsError('unauthenticated', 'Sign in to translate.');
   const data = (request.data ?? {}) as Record<string, unknown>;
   const texts = Array.isArray(data.texts) ? (data.texts as unknown[]).map((t) => String(t ?? '')) : [];

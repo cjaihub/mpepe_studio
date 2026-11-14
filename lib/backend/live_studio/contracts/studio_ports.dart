@@ -25,11 +25,25 @@ class FirebaseStudioCallPort implements StudioCallPort {
 
   @override
   Future<Map<String, dynamic>> call(String name, Map<String, dynamic> args) async {
-    final res = await _functions
-        .httpsCallable(name, options: HttpsCallableOptions(timeout: const Duration(seconds: 15)))
-        .call<Object?>(args);
-    final data = res.data;
-    return data is Map ? Map<String, dynamic>.from(data) : <String, dynamic>{};
+    final callable = _functions.httpsCallable(
+      name,
+      options: HttpsCallableOptions(timeout: const Duration(seconds: 40)),
+    );
+    for (var attempt = 0; attempt < 2; attempt++) {
+      try {
+        final res = await callable.call<Object?>(args);
+        final data = res.data;
+        return data is Map ? Map<String, dynamic>.from(data) : <String, dynamic>{};
+      } on FirebaseFunctionsException catch (e) {
+        final retryable = e.code == 'deadline-exceeded' ||
+            e.code == 'unavailable' ||
+            e.code == 'aborted' ||
+            e.code == 'internal';
+        if (!retryable || attempt == 1) rethrow;
+        await Future<void>.delayed(const Duration(milliseconds: 600));
+      }
+    }
+    return <String, dynamic>{};
   }
 }
 

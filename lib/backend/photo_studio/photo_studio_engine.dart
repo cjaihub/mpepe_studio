@@ -239,6 +239,13 @@ class PhotoProjectNotifier extends Notifier<PhotoProject> {
     _pushToHistory(command?.operation ?? 'Update mask graph', command: command);
   }
 
+  void updateCrop(CropConfiguration crop) {
+    state = state.copyWith(
+      currentGraph: state.currentGraph.copyWith(crop: crop),
+    );
+    _pushToHistory('Update crop (${crop.ratio.name})');
+  }
+
   // ─── History & Snapshots ───────────────────────────────────────────────
 
   void undo() {

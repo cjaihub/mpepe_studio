@@ -13,6 +13,7 @@ import '../hub/messaging/chat_detail_screen.dart';
 import '../hub/hub_ai_screen.dart';
 import '../ova_assistant/widgets/ova_assistant_sheet.dart';
 import '../ova_assistant/widgets/ova_floating_dock.dart' show OvaPopupObserver;
+import '../feed/widgets/comment_bottom_sheet.dart' show CommentBottomSheet;
 
 import '../hub/messaging/in_app_messaging_screen.dart';
 import '../auth/main_login_screen.dart';
@@ -138,6 +139,7 @@ import '../social_hub/live/studio_v2/gaming/gaming_lives_screen.dart';
 import '../feed/providers/oneova_focus_mode_provider.dart';
 import '../wishes/feedback_sheet.dart';
 import '../settings/screens/personalization_screen.dart';
+import '../voice/my_voice_wizard_screen.dart';
 
 export '../backend/social/services/video_playback_manager.dart'
     show mainFeedRouteObserver, homeBranchRouteObserver;
@@ -155,9 +157,16 @@ class _HubShellState extends ConsumerState<HubShell> with RouteAware {
   VideoPlaybackManager? _playbackManager;
   bool _isRootRouteCurrent = true;
 
+  void _onOverlayPopupChanged() {
+    if (mounted) setState(() {});
+  }
+
   @override
   void initState() {
     super.initState();
+    OvaAssistantSheet.openState.addListener(_onOverlayPopupChanged);
+    OvaPopupObserver.depth.addListener(_onOverlayPopupChanged);
+    CommentBottomSheet.openCount.addListener(_onOverlayPopupChanged);
     WidgetsBinding.instance.addPostFrameCallback((_) async {
       if (!mounted) return;
       _playbackManager ??= ref.read(videoPlaybackManagerProvider);
@@ -208,6 +217,9 @@ class _HubShellState extends ConsumerState<HubShell> with RouteAware {
 
   @override
   void dispose() {
+    OvaAssistantSheet.openState.removeListener(_onOverlayPopupChanged);
+    OvaPopupObserver.depth.removeListener(_onOverlayPopupChanged);
+    CommentBottomSheet.openCount.removeListener(_onOverlayPopupChanged);
     mainFeedRouteObserver.unsubscribe(this);
     super.dispose();
   }
@@ -241,8 +253,12 @@ class _HubShellState extends ConsumerState<HubShell> with RouteAware {
     final isFocusMode = ref.watch(oneovaFocusModeProvider);
     final isHome = widget.navigationShell.currentIndex == 0;
     // Reels play full screen: the nav comes back when the viewer pauses.
+    // Also auto-hide whenever Ova Assistant or the Comment section (or any modal sheet) pops up!
     final peek = ref.watch(reelsNavPeekProvider);
-    final shouldHide = !isHome || isFocusMode || !peek;
+    final popupOpen = OvaAssistantSheet.openState.value ||
+        OvaPopupObserver.depth.value > 0 ||
+        CommentBottomSheet.openCount.value > 0;
+    final shouldHide = !isHome || isFocusMode || !peek || popupOpen;
 
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (mounted) {
@@ -958,6 +974,11 @@ final routerProvider = Provider<GoRouter>((ref) {
         builder: (context, state) => const CallsSettingsScreen(),
       ),
       GoRoute(
+        path: '/settings/my-voice',
+        redirect: _requireAuth,
+        builder: (context, state) => const MyVoiceWizardScreen(),
+      ),
+      GoRoute(
         path: '/settings/storage',
         redirect: _requireAuth,
         builder: (context, state) => const StorageSettingsScreen(),
@@ -1054,14 +1075,24 @@ final routerProvider = Provider<GoRouter>((ref) {
         },
         branches: [
           StatefulShellBranch(
-            observers: [homeBranchRouteObserver],
+            observers: [homeBranchRouteObserver, OvaPopupObserver()],
             routes: [GoRoute(
               path: '/hub/home', 
               redirect: _requireAuth,
               builder: (context, state) {
                 final videoId = state.uri.queryParameters['v'];
+                final openComments = state.uri.queryParameters['openComments'] == '1' ||
+                    state.uri.queryParameters['openComments'] == 'true';
+                final commentId = state.uri.queryParameters['commentId'];
+                final highlight = state.uri.queryParameters['highlight'] == '1' ||
+                    state.uri.queryParameters['highlight'] == 'true';
                 debugPrint('[GoRoute /hub/home builder] building ShortVideoFeedScreen for state: ${state.uri}');
-                return ShortVideoFeedScreen(initialVideoId: videoId);
+                return ShortVideoFeedScreen(
+                  initialVideoId: videoId,
+                  openCommentsOnLoad: openComments,
+                  highlightCommentId: commentId,
+                  highlightReel: highlight,
+                );
               }
             )],
           ),

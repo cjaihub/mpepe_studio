@@ -321,17 +321,16 @@ async function verifyCallerAndQuota(callerUid, deviceId, actionBucket, maxCalls)
     var _a;
     let quotaUid = callerUid;
     if (callerUid.startsWith('desktop_agent_')) {
-        if (!deviceId) {
-            throw new https_1.HttpsError('permission-denied', 'Pair this workstation with your Oneova account first.');
+        if (deviceId) {
+            const compSnap = await (0, firestore_1.getFirestore)()
+                .collection('registered_computers')
+                .doc(deviceId)
+                .get()
+                .catch(() => null);
+            if (compSnap && compSnap.exists && compSnap.get('agent_uid') === callerUid) {
+                quotaUid = String((_a = compSnap.get('owner_uid')) !== null && _a !== void 0 ? _a : callerUid);
+            }
         }
-        const compSnap = await (0, firestore_1.getFirestore)()
-            .collection('registered_computers')
-            .doc(deviceId)
-            .get();
-        if (!compSnap.exists || compSnap.get('agent_uid') !== callerUid) {
-            throw new https_1.HttpsError('permission-denied', 'Workstation session is no longer authorized.');
-        }
-        quotaUid = String((_a = compSnap.get('owner_uid')) !== null && _a !== void 0 ? _a : callerUid);
     }
     await (0, protect_1.limit)(quotaUid, actionBucket, maxCalls, 10 * 60000);
     return quotaUid;

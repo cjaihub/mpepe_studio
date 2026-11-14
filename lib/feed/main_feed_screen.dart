@@ -62,7 +62,6 @@ import 'package:oneova/backend/recommendation/algorithm/oneova_algorithm_models.
 import 'package:oneova/backend/recommendation/algorithm/online_feature_store.dart';
 import '../auth/widgets/auth_interaction_gate.dart';
 import '../social_hub/feed/widgets/share_sheet.dart';
-import '../shared/widgets/advanced_voice_interface.dart';
 import '../widgets/oneova_assistant_overlay.dart';
 import '../backend/money/money_service.dart' show WatchTimeRecorder;
 import 'dart:async';
@@ -71,11 +70,17 @@ import 'dart:ui';
 class ShortVideoFeedScreen extends ConsumerStatefulWidget {
   final FeedMode initialMode;
   final String? initialVideoId;
+  final bool openCommentsOnLoad;
+  final String? highlightCommentId;
+  final bool highlightReel;
 
   const ShortVideoFeedScreen({
     super.key,
     this.initialMode = FeedMode.forYou,
     this.initialVideoId,
+    this.openCommentsOnLoad = false,
+    this.highlightCommentId,
+    this.highlightReel = false,
   });
 
   @override
@@ -87,6 +92,9 @@ class _ShortVideoFeedScreenState extends ConsumerState<ShortVideoFeedScreen>
   late PageController _pageController;
   int _currentIndex = 0;
   DateTime _currentVideoStartTime = DateTime.now();
+  String? _highlightedContentId;
+  Timer? _highlightClearTimer;
+  String? _lastHandledDeepLinkSignature;
   
   FeedMode _currentMode = FeedMode.forYou;
   List<Content> _feed = [];
@@ -196,6 +204,7 @@ class _ShortVideoFeedScreenState extends ConsumerState<ShortVideoFeedScreen>
     super.initState();
     WidgetsBinding.instance.addObserver(this);
     debugPrint('[ShortVideoFeedScreen] initState called');
+    SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersiveSticky);
     _currentMode = widget.initialMode;
     _pageController = PageController(initialPage: 0);
     final playback = ref.read(settingsProvider).value?['playback'];
@@ -207,6 +216,97 @@ class _ShortVideoFeedScreenState extends ConsumerState<ShortVideoFeedScreen>
     // Posts that didn't finish uploading last time pick up where they left off.
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (mounted) ref.read(pendingPostQueueProvider.notifier).resumeAll();
+    });
+  }
+
+  @override
+  void didUpdateWidget(ShortVideoFeedScreen oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    final sig = '${widget.initialVideoId}|${widget.openCommentsOnLoad}|${widget.highlightCommentId}|${widget.highlightReel}';
+    final oldSig = '${oldWidget.initialVideoId}|${oldWidget.openCommentsOnLoad}|${oldWidget.highlightCommentId}|${oldWidget.highlightReel}';
+    if (sig != oldSig && widget.initialVideoId != null && widget.initialVideoId!.isNotEmpty) {
+      _focusDeepLinkedVideo(
+        widget.initialVideoId!,
+        openComments: widget.openCommentsOnLoad,
+        commentId: widget.highlightCommentId,
+        highlight: widget.highlightReel || widget.openCommentsOnLoad,
+      );
+    }
+  }
+
+  Future<void> _focusDeepLinkedVideo(
+    String videoId, {
+    required bool openComments,
+    String? commentId,
+    required bool highlight,
+  }) async {
+    final sig = '$videoId|$openComments|$commentId|$highlight';
+    if (_lastHandledDeepLinkSignature == sig) return;
+    _lastHandledDeepLinkSignature = sig;
+
+    Content? target;
+    int existingPageIdx = _pages.indexWhere((p) => p is Content && p.id == videoId);
+    if (existingPageIdx >= 0) {
+      target = _pages[existingPageIdx] as Content;
+    } else {
+      try {
+        final doc = await FirebaseFirestore.instance.collection('content').doc(videoId).get();
+        if (doc.exists) {
+          target = Content.fromFirestore(doc);
+        }
+      } catch (e) {
+        debugPrint('[ShortVideoFeedScreen] Error fetching deep-linked video $videoId: $e');
+      }
+      if (!mounted || target == null) return;
+      final inserted = target;
+      setState(() {
+        _pages.removeWhere((p) => p is Content && p.id == inserted.id);
+        _feed.removeWhere((c) => c.id == inserted.id);
+        final insertPage = _pages.isEmpty ? 0 : _currentPage;
+        final insertFeed = _pages.take(insertPage).whereType<Content>().length;
+        _pages.insert(insertPage, inserted);
+        _feed.insert(insertFeed, inserted);
+        existingPageIdx = insertPage;
+        _currentIndex = insertFeed;
+      });
+    }
+
+    if (!mounted) return;
+    if (existingPageIdx >= 0 && existingPageIdx != _currentPage) {
+      _safeJumpToPage(existingPageIdx);
+      _onPageChanged(existingPageIdx);
+    } else if (target != null) {
+      final feedIdx = _feed.indexWhere((c) => c.id == target!.id);
+      if (feedIdx >= 0) _warmAround(feedIdx);
+      ref.read(videoPlaybackManagerProvider).ensureCurrentPlaying(target.id);
+    }
+
+    if (highlight && target != null) {
+      _triggerHighlightReel(target.id);
+    }
+
+    if (openComments && target != null) {
+      final contentForSheet = target;
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted) return;
+        CommentBottomSheet.show(
+          context,
+          contentForSheet,
+          autoFocus: commentId == null || commentId.isEmpty,
+          initialCommentId: commentId,
+        );
+      });
+    }
+  }
+
+  void _triggerHighlightReel(String contentId) {
+    _highlightClearTimer?.cancel();
+    setState(() => _highlightedContentId = contentId);
+    HapticFeedback.mediumImpact();
+    _highlightClearTimer = Timer(const Duration(milliseconds: 3600), () {
+      if (mounted) {
+        setState(() => _highlightedContentId = null);
+      }
     });
   }
 
@@ -316,13 +416,42 @@ class _ShortVideoFeedScreenState extends ConsumerState<ShortVideoFeedScreen>
     });
   }
 
-  /// Focus mode hides the status bar too; only Back (or a circle) leaves it.
+  /// Focus mode keeps the top phone status bar hidden.
   void _onFocusChanged(bool focus) {
-    SystemChrome.setEnabledSystemUIMode(focus ? SystemUiMode.immersiveSticky : SystemUiMode.edgeToEdge);
+    SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersiveSticky);
+    if (_reelFullScreen != focus && mounted) {
+      setState(() => _reelFullScreen = focus);
+    }
     if (focus) {
       _autoFocusArmed = false; // one time only
       _autoFocusTimer?.cancel();
     }
+    final cur = _currentContent;
+    if (cur != null && mounted) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) {
+          ref.read(videoPlaybackManagerProvider).ensureCurrentPlaying(cur.id);
+        }
+      });
+    }
+  }
+
+  void _toggleFullScreenMode([bool? targetValue]) {
+    final next = targetValue ?? !(_reelFullScreen || ref.read(oneovaFocusModeProvider));
+    final activeId = _currentContent?.id;
+    final savedPage = _currentPage;
+    setState(() => _reelFullScreen = next);
+    ref.read(oneovaFocusModeProvider.notifier).set(next);
+    SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersiveSticky);
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      if (_pageController.hasClients && _currentPage != savedPage) {
+        _safeJumpToPage(savedPage);
+      }
+      if (activeId != null) {
+        ref.read(videoPlaybackManagerProvider).ensureCurrentPlaying(activeId);
+      }
+    });
   }
 
   /// Circle drawn in focus mode: leave it and bring up Ova for this reel.
@@ -525,6 +654,24 @@ class _ShortVideoFeedScreenState extends ConsumerState<ShortVideoFeedScreen>
       _warmAround(0);
       _attachAutoScrollListener();
       _scheduleAutoFocus();
+      if (widget.initialVideoId != null && widget.initialVideoId!.isNotEmpty) {
+        final vid = widget.initialVideoId!;
+        if (widget.highlightReel || widget.openCommentsOnLoad) {
+          _triggerHighlightReel(vid);
+        }
+        if (widget.openCommentsOnLoad) {
+          final target = _feed.firstWhere((c) => c.id == vid, orElse: () => _feed.first);
+          WidgetsBinding.instance.addPostFrameCallback((_) {
+            if (!mounted) return;
+            CommentBottomSheet.show(
+              context,
+              target,
+              autoFocus: widget.highlightCommentId == null || widget.highlightCommentId!.isEmpty,
+              initialCommentId: widget.highlightCommentId,
+            );
+          });
+        }
+      }
     }
   }
 
@@ -561,9 +708,9 @@ class _ShortVideoFeedScreenState extends ConsumerState<ShortVideoFeedScreen>
     WidgetsBinding.instance.removeObserver(this);
     _feedSub?.cancel();
     _autoFocusTimer?.cancel();
+    _highlightClearTimer?.cancel();
     _playerCompletionSub?.cancel();
     _playerCompletionSub = null;
-    SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
     final uid = FirebaseAuth.instance.currentUser?.uid;
     if (uid != null) {
       _featureStore?.flushProfile(uid);
@@ -731,10 +878,11 @@ class _ShortVideoFeedScreenState extends ConsumerState<ShortVideoFeedScreen>
     // on 2026-11-14 ("Switch to framed") after trying full-bleed. Keep it on;
     // full-bleed remains only for focus mode and landscape.
     final portrait = MediaQuery.orientationOf(context) == Orientation.portrait;
-    // Full-screen reel (button in the frame): video fills the screen, header,
-    // stories and bottom nav hide; only the reel actions stay.
-    final immersive = _framedDesignEnabled && _reelFullScreen && !isFocusMode && portrait;
-    final framed = _framedDesignEnabled && !isFocusMode && portrait && !_reelFullScreen;
+    // Full-screen / Focus reel: video fills the extended frame, header,
+    // stories and bottom nav hide; reel actions + comment input stay visible.
+    final fullScreenActive = _reelFullScreen || isFocusMode;
+    final immersive = _framedDesignEnabled && fullScreenActive && portrait;
+    final framed = _framedDesignEnabled && !fullScreenActive && portrait;
     _framedLayout = framed;
     // The framed design keeps the bottom nav on screen; full-screen hides it.
     final peek = ref.watch(reelsNavPeekProvider);
@@ -759,14 +907,11 @@ class _ShortVideoFeedScreenState extends ConsumerState<ShortVideoFeedScreen>
 
     return PopScope(
       // Back is the only way out of focus mode (taps and double-taps are not).
-      canPop: !isFocusMode && !immersive,
+      canPop: !fullScreenActive,
       onPopInvokedWithResult: (didPop, _) {
-        if (!didPop && isFocusMode) {
+        if (!didPop && fullScreenActive) {
           HapticFeedback.lightImpact();
-          ref.read(oneovaFocusModeProvider.notifier).set(false);
-        } else if (!didPop && immersive) {
-          HapticFeedback.lightImpact();
-          setState(() => _reelFullScreen = false);
+          _toggleFullScreenMode(false);
         }
       },
       child: ReelTheme(
@@ -777,11 +922,20 @@ class _ShortVideoFeedScreenState extends ConsumerState<ShortVideoFeedScreen>
       backgroundColor: _palette.bg,
       extendBodyBehindAppBar: true,
       body: OneovaCircleGesture(
-        enabled: isFocusMode,
+        enabled: fullScreenActive,
         onCircle: _summonAssistant,
         child: Stack(
         children: [
-          if (framed) Positioned.fill(child: _FramedBackdrop(dark: _palette.dark)),
+          Positioned.fill(
+            key: const ValueKey('feed_framed_backdrop'),
+            child: IgnorePointer(
+              child: AnimatedOpacity(
+                opacity: framed ? 1.0 : 0.0,
+                duration: const Duration(milliseconds: 220),
+                child: _FramedBackdrop(dark: _palette.dark),
+              ),
+            ),
+          ),
           if (_pages.isEmpty)
             Builder(builder: (context) {
               // Nothing to watch: keep the bottom nav on screen.
@@ -792,9 +946,14 @@ class _ShortVideoFeedScreenState extends ConsumerState<ShortVideoFeedScreen>
             })
           else
             AnimatedPadding(
+              key: const ValueKey('feed_animated_padding'),
               duration: const Duration(milliseconds: 280),
               curve: Curves.easeOutCubic,
-              padding: framed ? EdgeInsets.fromLTRB(10, frameTop, 10, frameBottom) : EdgeInsets.zero,
+              padding: framed
+                  ? EdgeInsets.fromLTRB(0, frameTop, 0, frameBottom)
+                  : (immersive
+                      ? EdgeInsets.fromLTRB(0, math.max(pad.top, 2), 0, pad.bottom + _framedCommentHeight)
+                      : EdgeInsets.zero),
               child: PageView.builder(
               key: const ValueKey('short_video_feed_pageview'),
               controller: _pageController,
@@ -804,7 +963,7 @@ class _ShortVideoFeedScreenState extends ConsumerState<ShortVideoFeedScreen>
               allowImplicitScrolling: true,
               onPageChanged: _onPageChanged,
               itemCount: _pages.length,
-              itemBuilder: (context, index) => _buildPage(index, isFocusMode: isFocusMode, framed: framed, immersive: immersive),
+              itemBuilder: (context, index) => _buildPage(index, isFocusMode: fullScreenActive, framed: framed, immersive: immersive),
             ),
             ),
 
@@ -816,48 +975,47 @@ class _ShortVideoFeedScreenState extends ConsumerState<ShortVideoFeedScreen>
             child: _buildScrim(
               height: MediaQuery.paddingOf(context).top + 150,
               top: true,
-              visible: !isFocusMode && !framed,
+              visible: !fullScreenActive && !framed,
             ),
           ),
           Positioned(
             bottom: 0,
             left: 0,
             right: 0,
-            child: _buildScrim(height: 300, top: false, visible: !isFocusMode && !framed),
+            child: _buildScrim(height: 300, top: false, visible: !fullScreenActive && !framed),
           ),
 
-          // Framed design: brand header, in-frame chips, comment row.
+          // Framed design: brand header, in-frame chips.
           if (framed) ...[
             Positioned(left: 0, right: 0, top: pad.top, child: _buildFramedHeader()),
             AnimatedPositioned(
               duration: const Duration(milliseconds: 280),
               curve: Curves.easeOutCubic,
-              left: 22,
-              right: 22,
-              top: frameTop + 12,
+              left: 12,
+              right: 12,
+              top: frameTop + 10,
               child: _buildFrameChips(),
             ),
-            if (_currentContent != null)
-              Positioned(
-                left: 10,
-                right: 10,
-                bottom: navH + pad.bottom + 6,
-                child: _FramedCommentRow(key: ValueKey('fcr_${_currentContent!.id}'), content: _currentContent!),
-              ),
           ],
 
-          // Full-screen reel: one small button to return to the framed view.
+          // Full-screen reel with extended frame: top chips to control or exit back to standard frame.
           if (immersive)
             Positioned(
-              top: pad.top + 8,
+              top: math.max(pad.top, 8) + 8,
+              left: 12,
               right: 12,
-              child: _frameChip(
-                onTap: () => setState(() => _reelFullScreen = false),
-                child: const Row(mainAxisSize: MainAxisSize.min, children: [
-                  Icon(Icons.fullscreen_exit_rounded, size: 15, color: Colors.white),
-                  SizedBox(width: 4),
-                  Text('Exit'),
-                ]),
+              child: _buildFrameChips(),
+            ),
+
+          // Comment input row: visible in both Framed AND Full-Screen (immersive) modes!
+          if ((framed || immersive) && _currentContent != null)
+            Positioned(
+              left: 8,
+              right: 8,
+              bottom: (framed ? navH : 0) + pad.bottom + 4,
+              child: _FramedCommentRow(
+                key: ValueKey('fcr_${_currentContent!.id}'),
+                content: _currentContent!,
               ),
             ),
 
@@ -865,14 +1023,14 @@ class _ShortVideoFeedScreenState extends ConsumerState<ShortVideoFeedScreen>
           if (!framed && !immersive)
           SafeArea(
             child: AnimatedSlide(
-              offset: isFocusMode ? const Offset(0, -0.6) : Offset.zero,
+              offset: fullScreenActive ? const Offset(0, -0.6) : Offset.zero,
               duration: const Duration(milliseconds: 250),
               curve: Curves.easeInOutCubic,
               child: AnimatedOpacity(
-                opacity: isFocusMode ? 0.0 : 1.0,
+                opacity: fullScreenActive ? 0.0 : 1.0,
                 duration: const Duration(milliseconds: 220),
                 child: IgnorePointer(
-                  ignoring: isFocusMode,
+                  ignoring: fullScreenActive,
                   child: Padding(
                     padding: const EdgeInsets.fromLTRB(12, 4, 12, 0),
                     child: _buildTopOverlay(),
@@ -883,7 +1041,7 @@ class _ShortVideoFeedScreenState extends ConsumerState<ShortVideoFeedScreen>
           ),
 
           // Posting progress / one-tap retry, under the stories row.
-          if (!isFocusMode && !immersive)
+          if (!fullScreenActive && !immersive)
             Positioned(
               top: framed ? frameTop + 48 : MediaQuery.paddingOf(context).top + 128,
               left: framed ? 22 : 12,
@@ -928,11 +1086,10 @@ class _ShortVideoFeedScreenState extends ConsumerState<ShortVideoFeedScreen>
   bool _reelFullScreen = false;
   /// User's choice 2026-11-14: framed reels. Don't switch off without asking them.
   final bool _framedDesignEnabled = true;
-  /// Header with stories (top of the feed) and without (once you swipe on),
-  /// so the frame takes the most height while watching.
-  static const double _framedHeaderFull = 128;
-  static const double _framedHeaderSlim = 50;
-  static const double _framedCommentHeight = 52;
+  /// Header with stories stays visible across reel scrolls; only hides in full-screen.
+  static const double _framedHeaderFull = 102;
+  static const double _framedHeaderSlim = 40;
+  static const double _framedCommentHeight = 40;
   bool get _framedStories => true;
   double get _framedHeaderHeight => _framedStories ? _framedHeaderFull : _framedHeaderSlim;
 
@@ -941,17 +1098,32 @@ class _ShortVideoFeedScreenState extends ConsumerState<ShortVideoFeedScreen>
     return item is Content ? item : null;
   }
 
-  /// The reel's screen frame: 25px corners, hairline border, brand glow.
-  Widget _framedCard(Widget child) {
+  /// The reel's screen frame: 25px top and bottom corners, zero side space, hairline border.
+  Widget _framedCard(Widget child, {bool highlighted = false}) {
     return RepaintBoundary(
       child: Padding(
-        padding: const EdgeInsets.symmetric(vertical: 3),
-        child: DecoratedBox(
+        padding: const EdgeInsets.symmetric(vertical: 1),
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 320),
           decoration: BoxDecoration(
             borderRadius: BorderRadius.circular(25),
             boxShadow: [
-              BoxShadow(color: AppColors.brandBlue.withValues(alpha: _palette.dark ? 0.22 : 0.14), blurRadius: 28, spreadRadius: -6, offset: const Offset(0, 10)),
-              BoxShadow(color: AppColors.brandPink.withValues(alpha: _palette.dark ? 0.12 : 0.08), blurRadius: 18, spreadRadius: -8, offset: const Offset(0, 4)),
+              BoxShadow(
+                color: highlighted
+                    ? AppColors.brandPink.withValues(alpha: 0.55)
+                    : AppColors.brandBlue.withValues(alpha: _palette.dark ? 0.22 : 0.14),
+                blurRadius: highlighted ? 32 : 24,
+                spreadRadius: highlighted ? 2 : -6,
+                offset: const Offset(0, 8),
+              ),
+              BoxShadow(
+                color: highlighted
+                    ? AppColors.brandBlue.withValues(alpha: 0.45)
+                    : AppColors.brandPink.withValues(alpha: _palette.dark ? 0.12 : 0.08),
+                blurRadius: highlighted ? 24 : 16,
+                spreadRadius: highlighted ? 1 : -8,
+                offset: const Offset(0, 4),
+              ),
             ],
           ),
           child: ClipRRect(
@@ -960,10 +1132,18 @@ class _ShortVideoFeedScreenState extends ConsumerState<ShortVideoFeedScreen>
               ColoredBox(color: _palette.dark ? const Color(0xFF0F131D) : Colors.black),
               child,
               IgnorePointer(
-                child: DecoratedBox(
+                child: AnimatedContainer(
+                  duration: const Duration(milliseconds: 320),
                   decoration: BoxDecoration(
                     borderRadius: BorderRadius.circular(25),
-                    border: Border.all(color: _palette.dark ? Colors.white.withValues(alpha: 0.12) : Colors.black.withValues(alpha: 0.08)),
+                    border: Border.all(
+                      color: highlighted
+                          ? AppColors.brandPink
+                          : (_palette.dark
+                              ? Colors.white.withValues(alpha: 0.12)
+                              : Colors.black.withValues(alpha: 0.08)),
+                      width: highlighted ? 2.2 : 1.0,
+                    ),
                   ),
                 ),
               ),
@@ -1108,7 +1288,7 @@ class _ShortVideoFeedScreenState extends ConsumerState<ShortVideoFeedScreen>
     );
   }
 
-  /// Auto · Loop (left) and Captions (right), inside the frame.
+  /// Auto · Loop (left) and Fullscreen + Captions (right), inside the frame.
   Widget _buildFrameChips() {
     final cc = ref.watch(oneovaCaptionsEnabledProvider);
     return Row(children: [
@@ -1143,8 +1323,20 @@ class _ShortVideoFeedScreenState extends ConsumerState<ShortVideoFeedScreen>
       ),
       const Spacer(),
       _frameChip(
-        onTap: () => setState(() => _reelFullScreen = true),
-        child: const Icon(Icons.fullscreen_rounded, size: 15, color: Colors.white),
+        onTap: () => _toggleFullScreenMode(),
+        child: Row(mainAxisSize: MainAxisSize.min, children: [
+          Icon(
+            (_reelFullScreen || ref.watch(oneovaFocusModeProvider))
+                ? Icons.fullscreen_exit_rounded
+                : Icons.fullscreen_rounded,
+            size: 15,
+            color: (_reelFullScreen || ref.watch(oneovaFocusModeProvider))
+                ? AppColors.brandPink
+                : Colors.white,
+          ),
+          const SizedBox(width: 3),
+          Text((_reelFullScreen || ref.watch(oneovaFocusModeProvider)) ? 'Exit' : 'Full'),
+        ]),
       ),
       const SizedBox(width: 6),
       _frameChip(
@@ -1187,7 +1379,7 @@ class _ShortVideoFeedScreenState extends ConsumerState<ShortVideoFeedScreen>
                     slot: item,
                     onDone: () => _safeAnimateToNextPage(),
                   );
-                  return framed ? _framedCard(card) : card;
+                  return (framed || immersive) ? _framedCard(card) : card;
                 }
                 if (item is LiveFeedSlot) {
                   final live = LiveFeedCard(
@@ -1196,19 +1388,22 @@ class _ShortVideoFeedScreenState extends ConsumerState<ShortVideoFeedScreen>
                     isActive: index == _currentPage && isScreenActive,
                     onSkip: () => _safeAnimateToNextPage(),
                   );
-                  return framed ? _framedCard(live) : live;
+                  return (framed || immersive) ? _framedCard(live) : live;
                 }
                 final content = item as Content;
+                final isHighlighted = _highlightedContentId != null && _highlightedContentId == content.id;
                 final item0 = _ShortVideoItem(
                       key: ValueKey(content.id),
                       content: content,
                       isActive: index == _currentPage && isScreenActive,
-                      isFullScreen: isFocusMode,
+                      isFullScreen: isFocusMode && !(framed || immersive),
                       framed: framed || immersive,
                       immersive: immersive,
+                      onToggleFullScreen: (framed || immersive)
+                          ? () => _toggleFullScreenMode()
+                          : null,
                     );
-                if (framed) return _framedCard(item0);
-                if (immersive) return RepaintBoundary(child: item0);
+                if (framed || immersive) return _framedCard(item0, highlighted: isHighlighted);
                 return RepaintBoundary(
                   child: _buildCinemaFrame(index: index, cinema: isFocusMode, child: item0),
                 );
@@ -1758,7 +1953,7 @@ class _ShortVideoFeedScreenState extends ConsumerState<ShortVideoFeedScreen>
           GestureDetector(
             onTap: () {
               HapticFeedback.lightImpact();
-              ref.read(oneovaFocusModeProvider.notifier).set(true);
+              _toggleFullScreenMode();
             },
             child: Row(
               mainAxisSize: MainAxisSize.min,
@@ -1879,7 +2074,7 @@ class _ShortVideoFeedScreenState extends ConsumerState<ShortVideoFeedScreen>
         decoration: BoxDecoration(shape: BoxShape.circle, color: _palette.bg),
         padding: const EdgeInsets.all(1.5),
         child: CircleAvatar(
-          radius: _framedLayout ? 24 : 19,
+          radius: _framedLayout ? 19.5 : 19,
           backgroundColor: _palette.placeholder,
           backgroundImage: isNetwork
               ? NetworkImage(image)
@@ -1904,10 +2099,11 @@ class _ShortVideoFeedScreenState extends ConsumerState<ShortVideoFeedScreen>
     }
 
     return SizedBox(
-      width: _framedLayout ? 72 : 54,
+      width: _framedLayout ? 62 : 54,
       child: Padding(
-        padding: const EdgeInsets.only(right: 8),
+        padding: const EdgeInsets.only(right: 6),
         child: Column(
+          mainAxisSize: MainAxisSize.min,
           children: [
             Stack(
               clipBehavior: Clip.none,
@@ -1954,12 +2150,12 @@ class _ShortVideoFeedScreenState extends ConsumerState<ShortVideoFeedScreen>
                   ),
               ],
             ),
-            const SizedBox(height: 5),
+            const SizedBox(height: 3),
             Text(
               name,
               style: GoogleFonts.inter(
                 color: _palette.fg,
-                fontSize: _framedLayout ? 11.0 : 10.0,
+                fontSize: 10.0,
                 fontWeight: FontWeight.w600,
                 shadows: _palette.textShadow,
               ),
@@ -1982,9 +2178,12 @@ class _ShortVideoItem extends ConsumerStatefulWidget {
   /// to the frame and the comment bar sits under it, outside the reel.
   final bool framed;
 
-  /// Full-screen reel (framed styling, no frame): offsets include the
+  /// Full-screen reel (framed styling, extended frame): offsets include the
   /// phone's bottom inset since the nav is hidden.
   final bool immersive;
+
+  /// One-tap toggle between standard framed reel and extended full-screen frame.
+  final VoidCallback? onToggleFullScreen;
 
   const _ShortVideoItem({
     super.key,
@@ -1993,6 +2192,7 @@ class _ShortVideoItem extends ConsumerStatefulWidget {
     this.isFullScreen = false,
     this.framed = false,
     this.immersive = false,
+    this.onToggleFullScreen,
   });
 
   @override
@@ -2002,6 +2202,8 @@ class _ShortVideoItem extends ConsumerStatefulWidget {
 class _ShortVideoItemState extends ConsumerState<_ShortVideoItem> with TickerProviderStateMixin {
   bool get _landscape => MediaQuery.orientationOf(context) == Orientation.landscape;
   double _itemHeight = 0;
+  int _photoPageIndex = 0;
+  final PageController _photoPageController = PageController();
 
   late AnimationController _vinylController;
   late AnimationController _likePulseController;
@@ -2094,6 +2296,14 @@ class _ShortVideoItemState extends ConsumerState<_ShortVideoItem> with TickerPro
         setState(() {
           _audioTrack = track;
         });
+        if (track != null &&
+            track.contentUrl.trim().isNotEmpty &&
+            widget.content.isPhotoOrCarousel) {
+          _playbackManager?.attachAudioForPhotoReel(
+            widget.content.id,
+            track.contentUrl.trim(),
+          );
+        }
       }
     }
   }
@@ -2116,6 +2326,7 @@ class _ShortVideoItemState extends ConsumerState<_ShortVideoItem> with TickerPro
   @override
   void dispose() {
     _playPauseFadeTimer?.cancel();
+    _photoPageController.dispose();
     for (final s in _subs) {
       s.cancel();
     }
@@ -2227,10 +2438,10 @@ class _ShortVideoItemState extends ConsumerState<_ShortVideoItem> with TickerPro
     // Paused: the bottom nav slides back; playing: it hides again.
     if (!widget.framed) ref.read(reelsNavPeekProvider.notifier).set(!isPlaying);
     setState(() {
-      _showPlayPauseIndicator = !isPlaying;
+      _showPlayPauseIndicator = true;
     });
+    _playPauseFadeTimer?.cancel();
     if (isPlaying) {
-      _playPauseFadeTimer?.cancel();
       _playPauseFadeTimer = Timer(const Duration(milliseconds: 650), () {
         if (mounted) setState(() => _showPlayPauseIndicator = false);
       });
@@ -2243,6 +2454,13 @@ class _ShortVideoItemState extends ConsumerState<_ShortVideoItem> with TickerPro
     if (widget.isActive && !oldWidget.isActive) {
       if (!widget.framed) ref.read(reelsNavPeekProvider.notifier).set(false);
       ref.read(videoPlaybackManagerProvider).ensureCurrentPlaying(widget.content.id);
+      if (widget.content.isPhotoOrCarousel &&
+          _audioTrack != null &&
+          _audioTrack!.contentUrl.trim().isNotEmpty) {
+        ref
+            .read(videoPlaybackManagerProvider)
+            .attachAudioForPhotoReel(widget.content.id, _audioTrack!.contentUrl.trim());
+      }
       _vinylController.repeat();
     } else if (!widget.isActive && oldWidget.isActive) {
       final player = ref.read(videoPlaybackManagerProvider).getPlayer(widget.content.id);
@@ -2262,48 +2480,96 @@ class _ShortVideoItemState extends ConsumerState<_ShortVideoItem> with TickerPro
   }
 
   Widget _buildItem(BuildContext context, VideoController? controller) {
+    final isMultiPhoto = widget.content.isPhotoOrCarousel && widget.content.mediaUrls.length > 1;
     return GestureDetector(
       behavior: HitTestBehavior.opaque,
       onTap: () {
         HapticFeedback.lightImpact();
-        _togglePlay();
+        if (widget.onToggleFullScreen != null) {
+          widget.onToggleFullScreen!();
+        } else {
+          _togglePlay();
+        }
       },
       onDoubleTapDown: (details) {
         _lastTapPosition = details.localPosition;
       },
       onDoubleTap: () {
-        _triggerDoubleTapLike(_lastTapPosition ?? const Offset(180, 320));
+        HapticFeedback.mediumImpact();
+        _togglePlay();
       },
       onLongPress: widget.isFullScreen ? null : () => _showFeedControls(context),
-      onHorizontalDragEnd: (details) {
-        if (widget.isFullScreen) return;
-        if (details.primaryVelocity != null && details.primaryVelocity! < 0) {
-          // Swipe left -> Creator Profile
-          Navigator.push(context, MaterialPageRoute(builder: (_) => PublicProfileScreen(targetUserId: widget.content.authorId)));
-        } else if (details.primaryVelocity != null && details.primaryVelocity! > 0) {
-          // Swipe right -> Comments
-          _showComments(context);
-        }
-      },
+      onHorizontalDragEnd: isMultiPhoto
+          ? null
+          : (details) {
+              if (widget.isFullScreen) return;
+              if (details.primaryVelocity != null && details.primaryVelocity! < 0) {
+                // Swipe left -> Creator Profile
+                Navigator.push(context, MaterialPageRoute(builder: (_) => PublicProfileScreen(targetUserId: widget.content.authorId)));
+              } else if (details.primaryVelocity != null && details.primaryVelocity! > 0) {
+                // Swipe right -> Comments
+                _showComments(context);
+              }
+            },
       child: LayoutBuilder(builder: (context, box) {
         _itemHeight = box.maxHeight;
+        final halfReelHeight = ((_itemHeight > 120 ? _itemHeight : MediaQuery.sizeOf(context).height * 0.72) * 0.45)
+            .clamp(180.0, 340.0);
         return Stack(
         fit: StackFit.expand,
         children: [
-          // ── Video Player ──────────────────────────────────
-          // Cover first (from the prefetch disk cache), video on top: the
-          // texture is transparent until its first frame, so there is never
-          // a black flash while a reel starts.
-          _buildThumbnail(),
-          if (controller != null)
-            RepaintBoundary(
-              child: Video(
-                controller: controller,
-                fit: _landscape ? BoxFit.contain : BoxFit.cover,
-                fill: Colors.transparent,
-                controls: NoVideoControls,
+          // ── Video / Multi-Photo Player Surface ────────────────────
+          // Cover stays visible underneath until the video decoder outputs its
+          // first real frame (width > 0), eliminating black screen blinking.
+          if (widget.content.isPhotoOrCarousel)
+            _buildPhotoCarousel()
+          else ...[
+            _buildThumbnail(),
+            if (controller != null)
+              StreamBuilder<int?>(
+                stream: controller.player.stream.width,
+                initialData: controller.player.state.width,
+                builder: (context, snap) {
+                  final hasFrame = (snap.data ?? controller.player.state.width ?? 0) > 0;
+                  return AnimatedOpacity(
+                    opacity: hasFrame ? 1.0 : 0.0,
+                    duration: const Duration(milliseconds: 140),
+                    curve: Curves.easeOut,
+                    child: RepaintBoundary(
+                      child: Video(
+                        controller: controller,
+                        fit: _landscape ? BoxFit.contain : BoxFit.cover,
+                        fill: Colors.transparent,
+                        controls: NoVideoControls,
+                      ),
+                    ),
+                  );
+                },
+              ),
+          ],
+
+          // ── Bottom Legibility Gradient Scrim (ensures owner & title are never hidden) ──
+          Positioned(
+            left: 0,
+            right: 0,
+            bottom: 0,
+            height: 185,
+            child: IgnorePointer(
+              child: DecoratedBox(
+                decoration: BoxDecoration(
+                  gradient: LinearGradient(
+                    begin: Alignment.bottomCenter,
+                    end: Alignment.topCenter,
+                    colors: [
+                      Colors.black.withValues(alpha: 0.74),
+                      Colors.black.withValues(alpha: 0.32),
+                      Colors.transparent,
+                    ],
+                  ),
+                ),
               ),
             ),
+          ),
 
           // ── Oneova Centered Play/Pause Indicator ─────────
           if (_showPlayPauseIndicator)
@@ -2316,7 +2582,7 @@ class _ShortVideoItemState extends ConsumerState<_ShortVideoItem> with TickerPro
                     width: 68,
                     height: 68,
                     decoration: BoxDecoration(
-                      color: Colors.black.withValues(alpha: 0.5),
+                      color: Colors.black.withValues(alpha: 0.55),
                       shape: BoxShape.circle,
                       border: Border.all(color: Colors.white.withValues(alpha: 0.35), width: 1.5),
                       boxShadow: [
@@ -2326,8 +2592,10 @@ class _ShortVideoItemState extends ConsumerState<_ShortVideoItem> with TickerPro
                         ),
                       ],
                     ),
-                    child: const Icon(
-                      Icons.play_arrow_rounded,
+                    child: Icon(
+                      (controller?.player.state.playing ?? false)
+                          ? Icons.play_arrow_rounded
+                          : Icons.pause_rounded,
                       color: Colors.white,
                       size: 42,
                     ),
@@ -2420,50 +2688,50 @@ class _ShortVideoItemState extends ConsumerState<_ShortVideoItem> with TickerPro
               heartAnchor: _likeAnchorKey,
             ),
 
-          // ── Engagement Rail Overlay (right: 8) ────────────
-          if (widget.isActive)
-            AnimatedPositioned(
-              duration: const Duration(milliseconds: 220),
-              curve: Curves.easeOutCubic,
-              right: widget.framed ? 10 : 8,
-              top: _landscape ? MediaQuery.paddingOf(context).top + 64 : null,
-              bottom: widget.framed
-                  ? 18 + (widget.immersive ? MediaQuery.paddingOf(context).bottom : 0)
-                  : _landscape
-                  ? 8.0 + MediaQuery.paddingOf(context).bottom
-                  : (ref.watch(oneovaBottomNavVisibleProvider) && !widget.isFullScreen
-                      ? 56.0 + MediaQuery.paddingOf(context).bottom
-                      : 6.0 + MediaQuery.paddingOf(context).bottom),
-              child: AnimatedSlide(
-                offset: widget.isFullScreen ? const Offset(1.2, 0) : Offset.zero,
-                duration: const Duration(milliseconds: 250),
-                curve: Curves.easeInOutCubic,
-                child: AnimatedOpacity(
-                  opacity: widget.isFullScreen ? 0.0 : 1.0,
-                  duration: const Duration(milliseconds: 220),
-                  child: IgnorePointer(
-                    ignoring: widget.isFullScreen,
-                    // Landscape: shrink the rail to the available height.
-                    // Landscape: the rail scrolls within the space left
-                    // below the top row.
-                    child: _landscape
-                        ? SingleChildScrollView(child: _buildEngagementOverlay())
-                        // Portrait: never above the middle of the screen; shrinks to fit.
-                        : ConstrainedBox(
-                            constraints: BoxConstraints(maxHeight: MediaQuery.sizeOf(context).height * 0.48),
-                            child: FittedBox(fit: BoxFit.scaleDown, alignment: Alignment.bottomCenter, child: _buildEngagementOverlay()),
+          // ── Engagement Rail Overlay (right: 8, constrained to half of the reel) ──
+          AnimatedPositioned(
+            duration: const Duration(milliseconds: 220),
+            curve: Curves.easeOutCubic,
+            right: widget.framed ? 8 : 8,
+            top: _landscape ? MediaQuery.paddingOf(context).top + 64 : null,
+            bottom: widget.framed
+                ? 14
+                : _landscape
+                ? 8.0 + MediaQuery.paddingOf(context).bottom
+                : (ref.watch(oneovaBottomNavVisibleProvider) && !widget.isFullScreen
+                    ? 56.0 + MediaQuery.paddingOf(context).bottom
+                    : 6.0 + MediaQuery.paddingOf(context).bottom),
+            child: AnimatedSlide(
+              offset: widget.isFullScreen ? const Offset(1.2, 0) : Offset.zero,
+              duration: const Duration(milliseconds: 250),
+              curve: Curves.easeInOutCubic,
+              child: AnimatedOpacity(
+                opacity: widget.isFullScreen ? 0.0 : 1.0,
+                duration: const Duration(milliseconds: 220),
+                child: IgnorePointer(
+                  ignoring: widget.isFullScreen,
+                  child: _landscape
+                      ? SingleChildScrollView(child: _buildEngagementOverlay())
+                      // Portrait: strictly constrained to the lower half of the reel frame.
+                      : ConstrainedBox(
+                          constraints: BoxConstraints(maxHeight: halfReelHeight),
+                          child: FittedBox(
+                            fit: BoxFit.scaleDown,
+                            alignment: Alignment.bottomCenter,
+                            child: _buildEngagementOverlay(),
                           ),
-                  ),
+                        ),
                 ),
               ),
             ),
+          ),
           // ── Realtime Auto-Synced Closed Caption (CC) Overlay ──
           if (widget.isActive)
             Positioned(
               left: 16,
               right: _landscape ? null : 76,
               bottom: widget.framed
-                  ? 150 + (widget.immersive ? MediaQuery.paddingOf(context).bottom : 0)
+                  ? 140
                   : _landscape
                   ? 120.0 + MediaQuery.paddingOf(context).bottom
                   : (ref.watch(oneovaBottomNavVisibleProvider) && !widget.isFullScreen
@@ -2471,48 +2739,45 @@ class _ShortVideoItemState extends ConsumerState<_ShortVideoItem> with TickerPro
                       : 136.0 + MediaQuery.paddingOf(context).bottom),
               child: OneovaCaptionOverlay(content: widget.content),
             ),
-          // ── Content Info Overlay (left: 0, right: 70) ──────
-          if (widget.isActive)
-            AnimatedPositioned(
-              duration: const Duration(milliseconds: 220),
-              curve: Curves.easeOutCubic,
-              left: 0,
-              right: _landscape ? null : (widget.framed ? 62 : 70),
-              width: _landscape ? (MediaQuery.sizeOf(context).width * 0.45).clamp(280.0, 520.0) : null,
-              bottom: widget.framed
-                  ? 12 + (widget.immersive ? MediaQuery.paddingOf(context).bottom : 0)
-                  : _landscape
-                  ? 8.0 + MediaQuery.paddingOf(context).bottom
-                  : (ref.watch(oneovaBottomNavVisibleProvider) && !widget.isFullScreen
-                      ? 56.0 + MediaQuery.paddingOf(context).bottom
-                      : 4.0 + MediaQuery.paddingOf(context).bottom),
-              child: AnimatedSlide(
-                offset: widget.isFullScreen ? const Offset(0, 0.4) : Offset.zero,
-                duration: const Duration(milliseconds: 250),
-                curve: Curves.easeInOutCubic,
-                child: AnimatedOpacity(
-                  opacity: widget.isFullScreen ? 0.0 : 1.0,
-                  duration: const Duration(milliseconds: 220),
-                  child: IgnorePointer(
-                    ignoring: widget.isFullScreen,
-                    child: _landscape
-                        ? ConstrainedBox(
-                            constraints: BoxConstraints(
-                              // Feed height (above the bottom nav) minus the
-                              // landscape top row.
-                              maxHeight: (_itemHeight - MediaQuery.paddingOf(context).top - 80)
-                                  .clamp(120.0, double.infinity),
-                            ),
-                            child: SingleChildScrollView(
-                              reverse: true,
-                              child: _buildContentInfoOverlay(controller?.player.state.playing ?? true),
-                            ),
-                          )
-                        : _buildContentInfoOverlay(controller?.player.state.playing ?? true),
-                  ),
+          // ── Content Info Overlay (Owner & Title never hidden) ──────
+          AnimatedPositioned(
+            duration: const Duration(milliseconds: 220),
+            curve: Curves.easeOutCubic,
+            left: 0,
+            right: _landscape ? null : (widget.framed ? 58 : 66),
+            width: _landscape ? (MediaQuery.sizeOf(context).width * 0.45).clamp(280.0, 520.0) : null,
+            bottom: widget.framed
+                ? 12
+                : _landscape
+                ? 8.0 + MediaQuery.paddingOf(context).bottom
+                : (ref.watch(oneovaBottomNavVisibleProvider) && !widget.isFullScreen
+                    ? 56.0 + MediaQuery.paddingOf(context).bottom
+                    : 4.0 + MediaQuery.paddingOf(context).bottom),
+            child: AnimatedSlide(
+              offset: widget.isFullScreen ? const Offset(0, 0.4) : Offset.zero,
+              duration: const Duration(milliseconds: 250),
+              curve: Curves.easeInOutCubic,
+              child: AnimatedOpacity(
+                opacity: widget.isFullScreen ? 0.0 : 1.0,
+                duration: const Duration(milliseconds: 220),
+                child: IgnorePointer(
+                  ignoring: widget.isFullScreen,
+                  child: _landscape
+                      ? ConstrainedBox(
+                          constraints: BoxConstraints(
+                            maxHeight: (_itemHeight - MediaQuery.paddingOf(context).top - 80)
+                                .clamp(120.0, double.infinity),
+                          ),
+                          child: SingleChildScrollView(
+                            reverse: true,
+                            child: _buildContentInfoOverlay(controller?.player.state.playing ?? true),
+                          ),
+                        )
+                      : _buildContentInfoOverlay(controller?.player.state.playing ?? true),
                 ),
               ),
             ),
+          ),
 
 
           // ── Focus Mode (Clear Display) Floating Controls ──
@@ -2640,8 +2905,103 @@ class _ShortVideoItemState extends ConsumerState<_ShortVideoItem> with TickerPro
 
   }
 
+  Widget _buildPhotoCarousel() {
+    final urls = widget.content.mediaUrls.isNotEmpty
+        ? widget.content.mediaUrls
+        : (widget.content.mediaUrl.isNotEmpty ? [widget.content.mediaUrl] : const <String>[]);
+    if (urls.length <= 1) {
+      return _buildThumbnail();
+    }
+    final mq = MediaQuery.maybeOf(context);
+    final rawPx = mq != null ? (mq.size.width * mq.devicePixelRatio) : null;
+    final rawWidth = (rawPx != null && rawPx.isFinite) ? rawPx.round() : null;
+    final cacheWidth = (rawWidth != null && rawWidth > 0) ? rawWidth : null;
+    return Stack(
+      fit: StackFit.expand,
+      children: [
+        PageView.builder(
+          controller: _photoPageController,
+          itemCount: urls.length,
+          onPageChanged: (idx) {
+            HapticFeedback.selectionClick();
+            setState(() => _photoPageIndex = idx);
+          },
+          itemBuilder: (context, idx) {
+            final imgUrl = urls[idx];
+            return Image(
+              image: ResizeImage.resizeIfNeeded(
+                cacheWidth,
+                null,
+                CachedNetworkImageProvider(imgUrl, cacheManager: ReelPrefetcher.thumbCache),
+              ),
+              fit: _landscape ? BoxFit.contain : BoxFit.cover,
+              gaplessPlayback: true,
+              errorBuilder: (_, _, _) => _buildThumbnail(),
+            );
+          },
+        ),
+        // Top-right counter badge (e.g. 1 / 4)
+        Positioned(
+          top: 44,
+          right: 12,
+          child: IgnorePointer(
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 4),
+              decoration: BoxDecoration(
+                color: Colors.black.withValues(alpha: 0.55),
+                borderRadius: BorderRadius.circular(AppRadius.full),
+                border: Border.all(color: Colors.white.withValues(alpha: 0.18)),
+              ),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  const Icon(Icons.collections_rounded, size: 12, color: Colors.white),
+                  const SizedBox(width: 4),
+                  Text(
+                    '${_photoPageIndex + 1} / ${urls.length}',
+                    style: GoogleFonts.inter(
+                      color: Colors.white,
+                      fontSize: 10.5,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+        // Bottom-center dot indicators above the author/caption block
+        Positioned(
+          left: 0,
+          right: 0,
+          bottom: 112,
+          child: IgnorePointer(
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                for (var i = 0; i < urls.length; i++)
+                  AnimatedContainer(
+                    duration: const Duration(milliseconds: 180),
+                    margin: const EdgeInsets.symmetric(horizontal: 2.5),
+                    width: i == _photoPageIndex ? 16 : 6,
+                    height: 6,
+                    decoration: BoxDecoration(
+                      color: i == _photoPageIndex
+                          ? AppColors.brandPink
+                          : Colors.white.withValues(alpha: 0.48),
+                      borderRadius: BorderRadius.circular(AppRadius.full),
+                    ),
+                  ),
+              ],
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
   Widget _buildThumbnail() {
-    final url = widget.content.type == ContentType.photo
+    final url = widget.content.isPhotoOrCarousel
         ? widget.content.mediaUrl
         : widget.content.mediaMetadata.thumbnailUrl;
     if (url == null || url.isEmpty) {
@@ -3113,7 +3473,7 @@ class _ShortVideoItemState extends ConsumerState<_ShortVideoItem> with TickerPro
   }) {
     final f = widget.framed;
     return Padding(
-      padding: EdgeInsets.only(bottom: f ? 12 : 9),
+      padding: EdgeInsets.only(bottom: f ? 8 : 8),
       child: _PressScale(
         onTap: () {
           HapticFeedback.lightImpact();
@@ -3123,13 +3483,17 @@ class _ShortVideoItemState extends ConsumerState<_ShortVideoItem> with TickerPro
           children: [
             AnimatedContainer(
               duration: const Duration(milliseconds: 200),
-              width: f ? 40 : 38,
-              height: f ? 40 : 38,
+              width: 36,
+              height: 36,
               decoration: BoxDecoration(
-                color: glowColor != null ? glowColor.withValues(alpha: 0.22) : _p.glass,
+                color: glowColor != null
+                    ? glowColor.withValues(alpha: 0.22)
+                    : Colors.black.withValues(alpha: 0.38),
                 shape: BoxShape.circle,
                 border: Border.all(
-                  color: glowColor != null ? glowColor.withValues(alpha: 0.7) : _p.glassBorder,
+                  color: glowColor != null
+                      ? glowColor.withValues(alpha: 0.7)
+                      : Colors.white.withValues(alpha: 0.18),
                   width: 1.0,
                 ),
                 boxShadow: glowColor != null
@@ -3142,18 +3506,18 @@ class _ShortVideoItemState extends ConsumerState<_ShortVideoItem> with TickerPro
                   scale: CurvedAnimation(parent: anim, curve: Curves.easeOutBack),
                   child: child,
                 ),
-                child: Icon(icon, key: ValueKey(icon), color: color ?? _p.fg, size: f ? 20 : 19),
+                child: Icon(icon, key: ValueKey(icon), color: color ?? Colors.white, size: 18),
               ),
             ),
-            SizedBox(height: f ? 4 : 3),
+            const SizedBox(height: 2),
             RollingCount(
               value: math.max(0, count),
               style: GoogleFonts.inter(
-                color: _p.fg,
-                fontSize: f ? 11 : 10,
+                color: Colors.white,
+                fontSize: 10.5,
                 fontWeight: FontWeight.w700,
                 letterSpacing: -0.1,
-                shadows: _p.textShadow,
+                shadows: const [Shadow(color: Colors.black54, blurRadius: 6)],
               ),
             ),
           ],
@@ -3165,7 +3529,7 @@ class _ShortVideoItemState extends ConsumerState<_ShortVideoItem> with TickerPro
   /// Framed rail: the pink Gift button (sends a coin gift to the creator).
   Widget _buildGiftAction() {
     return Padding(
-      padding: const EdgeInsets.only(bottom: 12),
+      padding: const EdgeInsets.only(bottom: 8),
       child: _PressScale(
         onTap: () {
           HapticFeedback.mediumImpact();
@@ -3184,23 +3548,23 @@ class _ShortVideoItemState extends ConsumerState<_ShortVideoItem> with TickerPro
         },
         child: Column(children: [
           Container(
-            width: 40,
-            height: 40,
+            width: 36,
+            height: 36,
             decoration: BoxDecoration(
               shape: BoxShape.circle,
               color: AppColors.brandPink,
               border: Border.all(color: Colors.white.withValues(alpha: 0.4)),
-              boxShadow: [BoxShadow(color: AppColors.brandPink.withValues(alpha: 0.55), blurRadius: 16)],
+              boxShadow: [BoxShadow(color: AppColors.brandPink.withValues(alpha: 0.55), blurRadius: 14)],
             ),
-            child: const Icon(Icons.card_giftcard_rounded, color: Colors.white, size: 20),
+            child: const Icon(Icons.card_giftcard_rounded, color: Colors.white, size: 18),
           ),
-          const SizedBox(height: 4),
+          const SizedBox(height: 2),
           Text('Gift',
               style: GoogleFonts.inter(
                 color: AppColors.brandPink,
                 fontSize: 10,
                 fontWeight: FontWeight.w800,
-                shadows: _p.textShadow,
+                shadows: const [Shadow(color: Colors.black54, blurRadius: 6)],
               )),
         ]),
       ),
@@ -3319,9 +3683,29 @@ class _ShortVideoItemState extends ConsumerState<_ShortVideoItem> with TickerPro
             ],
           ),
 
+          // ── Reel Title (always visible when provided) ───────
+          if (widget.content.title != null &&
+              widget.content.title!.trim().isNotEmpty &&
+              widget.content.title!.trim() !=
+                  widget.content.description.trim()) ...[
+            const SizedBox(height: 6),
+            Text(
+              widget.content.title!.trim(),
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
+              style: GoogleFonts.inter(
+                color: Colors.white,
+                fontSize: 13.5,
+                fontWeight: FontWeight.w700,
+                height: 1.25,
+                shadows: textShadow,
+              ),
+            ),
+          ],
+
           // ── Caption (tap to expand) ─────────────────────────
           if (widget.content.description.replaceAll(RegExp(r'(^|\s)#[\w\u00C0-\uFFFF]+'), '').trim().isNotEmpty) ...[
-            const SizedBox(height: 7),
+            const SizedBox(height: 5),
             GestureDetector(
               behavior: HitTestBehavior.opaque,
               onTap: () => setState(() => _captionExpanded = !_captionExpanded),
@@ -3336,7 +3720,7 @@ class _ShortVideoItemState extends ConsumerState<_ShortVideoItem> with TickerPro
                       ? widget.content.description
                       : widget.content.description.replaceAll(RegExp(r'(^|\s)#[\w\u00C0-\uFFFF]+'), '').replaceAll(RegExp(r'\s{2,}'), ' ').trim(),
                   style: GoogleFonts.inter(
-                    color: p.fg,
+                    color: Colors.white,
                     fontSize: 13,
                     fontWeight: FontWeight.w500,
                     height: 1.35,
@@ -3368,7 +3752,7 @@ class _ShortVideoItemState extends ConsumerState<_ShortVideoItem> with TickerPro
                     style: GoogleFonts.inter(
                       color: widget.framed
                           ? (widget.content.hashtags.indexOf(tag).isEven
-                              ? (p.dark ? const Color(0xFF5EA2FF) : AppColors.brandBlue)
+                              ? const Color(0xFF5EA2FF)
                               : AppColors.brandPink)
                           : (p.dark ? Colors.white : AppColors.brandBlue),
                       fontSize: 12.5,
@@ -3392,15 +3776,7 @@ class _ShortVideoItemState extends ConsumerState<_ShortVideoItem> with TickerPro
           // ── Shop chip (real Biz products only) ──────────────
           if (!widget.framed) _ShopChip(authorId: widget.content.authorId, username: username),
 
-          const SizedBox(height: 8),
-          // ── Sound ───────────────────────────────────────────
-          ReelLiveAudioWavesWidget(
-            isPlaying: isPlaying,
-            trackTitle: _audioTrack?.title ?? 'Original sound · @$username',
-            artistName: _audioTrack?.ownerName,
-            onTap: _openSound,
-          ),
-          const SizedBox(height: 8),
+          const SizedBox(height: 4),
 
           // ── Add comment bar (tap mic = live transcription, hold = voice comment) ──
           if (!widget.framed) ReelCommentBar(
@@ -3477,7 +3853,13 @@ class _ShortVideoItemState extends ConsumerState<_ShortVideoItem> with TickerPro
                 '@$username',
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
-                style: GoogleFonts.inter(color: p.fg, fontSize: 14, fontWeight: FontWeight.w800, letterSpacing: -0.2, shadows: p.textShadow),
+                style: GoogleFonts.inter(
+                  color: Colors.white,
+                  fontSize: 14,
+                  fontWeight: FontWeight.w800,
+                  letterSpacing: -0.2,
+                  shadows: const [Shadow(color: Colors.black54, blurRadius: 8)],
+                ),
               ),
             ),
             if (author?.isVerified ?? false) ...[

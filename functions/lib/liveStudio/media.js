@@ -35,7 +35,7 @@ async function mintToken(streamId, uid, role, name) {
         ttl: media_logic_1.TOKEN_TTL_SECONDS,
         attributes: { role },
     });
-    at.addGrant(Object.assign(Object.assign({}, g), { canPublishSources: g.canPublishSources.map((s) => SOURCE[s]) }));
+    at.addGrant(Object.assign(Object.assign(Object.assign({}, g), (role === 'host' ? { roomCreate: true } : {})), { canPublishSources: g.canPublishSources.map((s) => SOURCE[s]) }));
     return at.toJwt();
 }
 function streamIdArg(data) {
@@ -67,22 +67,24 @@ exports.lsStart = (0, https_1.onCall)({ secrets: shared_1.LIVEKIT_SECRETS, memor
     const streamRef = (0, shared_1.db)().collection(contracts_1.Paths.streams).doc();
     const streamId = streamRef.id;
     const now = Date.now();
-    // Room first: if LiveKit is unreachable nothing is written.
-    try {
-        await (0, shared_1.roomService)().createRoom({ name: (0, shared_1.roomName)(streamId), emptyTimeout: media_logic_1.ROOM_EMPTY_TIMEOUT_SECONDS });
-    }
-    catch (e) {
-        console.error('[liveStudio] createRoom failed:', e.message);
-        throw new https_1.HttpsError('unavailable', 'Could not open the live room. Try again.');
-    }
+    // Open LiveKit room with a fast 3.5s cap in parallel with Firestore writes;
+    // host JWT carries roomCreate:true so even if the SFU node is cold, the room
+    // is auto-created when the host connects and lsStart never hits deadline-exceeded.
+    const createRoomTask = Promise.race([
+        (0, shared_1.roomService)().createRoom({ name: (0, shared_1.roomName)(streamId), emptyTimeout: media_logic_1.ROOM_EMPTY_TIMEOUT_SECONDS }),
+        new Promise((_, reject) => setTimeout(() => reject(new Error('createRoom fast-timeout (3500ms)')), 3500)),
+    ]).catch((e) => {
+        console.warn('[liveStudio] createRoom non-fatal warning (host JWT will auto-create):', e.message);
+    });
     const batch = (0, shared_1.db)().batch();
     batch.set(streamRef, Object.assign(Object.assign(Object.assign(Object.assign(Object.assign({}, (0, media_logic_1.buildStreamDoc)({ streamId, hostId: uid, title, profile, kind, gameTitle })), { audienceMode: extras.audienceMode, allowGuestRequests: extras.allowGuestRequests }), (extras.category && kind !== 'gaming' ? { category: extras.category } : {})), (extras.coverUrl ? { coverUrl: extras.coverUrl, thumbnailUrl: extras.coverUrl } : {})), { createdAt: firestore_1.FieldValue.serverTimestamp(), hostHeartbeatAt: firestore_1.FieldValue.serverTimestamp() }));
     batch.set((0, shared_1.db)().doc(contracts_1.Paths.state(streamId)), Object.assign(Object.assign({}, (0, media_logic_1.buildInitialState)({ streamId, hostId: uid, title, settings, nowMs: now, gameTitle })), { updatedAt: firestore_1.FieldValue.serverTimestamp() }));
     batch.set((0, shared_1.db)().doc(`${contracts_1.Paths.members(streamId)}/${uid}`), (0, media_logic_1.buildHostMember)(uid, profile, now));
-    await batch.commit();
-    const [token, e2ee] = await Promise.all([
+    const [, token, e2ee] = await Promise.all([
+        batch.commit(),
         mintToken(streamId, uid, 'host', profile.displayName),
         (0, security_1.mediaKeyForToken)(streamId),
+        createRoomTask,
     ]);
     return { streamId, token, url: shared_1.LIVEKIT_URL.value(), role: 'host', e2ee };
 });

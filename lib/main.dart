@@ -2,6 +2,7 @@ import 'dart:io';
 import 'dart:ui';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
@@ -60,6 +61,9 @@ Future<void> ovaOverlayMain() => runOvaOverlayApp();
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
   MediaKit.ensureInitialized();
+  try {
+    SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersiveSticky);
+  } catch (_) {}
 
   try {
     await dotenv.load(fileName: ".env");
@@ -200,6 +204,9 @@ class _OneOvaAppState extends ConsumerState<OneOvaApp> with WidgetsBindingObserv
         prefs.setInt('last_active_time', DateTime.now().millisecondsSinceEpoch);
       });
     } else if (state == AppLifecycleState.resumed) {
+      try {
+        SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersiveSticky);
+      } catch (_) {}
       PlayUpdateService.instance.check();
       // Mark presence online when app resumes
       try {

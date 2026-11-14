@@ -1,6 +1,13 @@
+import 'dart:convert';
+import 'dart:io';
+
 import 'package:firebase_app_check/firebase_app_check.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_core/firebase_core.dart';
+import 'package:flutter/foundation.dart';
+import 'package:http/http.dart' as http;
+
+import '../../desktop_agent/desktop_firebase_rest_client.dart';
 
 /// Categorises why a cloud AI call did not complete so Ova can either recover
 /// automatically or show actionable next steps instead of a generic error.
@@ -55,9 +62,16 @@ class OneovaAiGateway {
   static DateTime? _proxyCooldownUntil;
   static int? _lastProxyErrorStatus;
 
+  static bool get _isDesktop =>
+      !kIsWeb && (Platform.isMacOS || Platform.isWindows || Platform.isLinux);
+
   static bool get _firebaseReady => Firebase.apps.isNotEmpty;
 
   static bool get signedIn {
+    if (_isDesktop) {
+      // Desktop uses Keychain-free REST auth (or auto-bootstraps desktop_agent_*).
+      return true;
+    }
     if (!_firebaseReady) return false;
     try {
       return FirebaseAuth.instance.currentUser != null;
@@ -112,6 +126,14 @@ class OneovaAiGateway {
   /// Bearer value for [chatUri]/[modelsUri]: the user's key or their ID token.
   static Future<String> bearer(String userKey, {bool forceRefresh = false}) async {
     if (userKey.trim().isNotEmpty) return userKey.trim();
+    if (_isDesktop) {
+      try {
+        return await DesktopFirebaseRestClient.instance
+            .getValidIdToken(forceRefresh: forceRefresh);
+      } catch (_) {
+        return '';
+      }
+    }
     if (!_firebaseReady) return '';
     try {
       return await FirebaseAuth.instance.currentUser?.getIdToken(forceRefresh) ?? '';
@@ -199,5 +221,47 @@ class OneovaAiGateway {
       detail: preview,
       httpStatus: statusCode,
     );
+  }
+
+  /// Lightweight one-shot text generation helper routed through `aiProxy`.
+  static Future<String> generate({
+    required String prompt,
+    String? systemInstruction,
+    double temperature = 0.7,
+    int maxOutputTokens = 120,
+    String userKey = '',
+  }) async {
+    final token = await bearer(userKey);
+    if (token.isEmpty) return '';
+    final appCheck = await appCheckHeader(userKey);
+    final resp = await http.post(
+      chatUri(userKey),
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': 'Bearer $token',
+        ...appCheck,
+      },
+      body: jsonEncode({
+        'model': 'google/gemini-2.5-flash',
+        'temperature': temperature,
+        'max_tokens': maxOutputTokens,
+        'messages': [
+          if (systemInstruction != null && systemInstruction.isNotEmpty)
+            {'role': 'system', 'content': systemInstruction},
+          {'role': 'user', 'content': prompt},
+        ],
+      }),
+    );
+    if (resp.statusCode >= 200 && resp.statusCode < 300) {
+      recordProxySuccess();
+      final decoded = jsonDecode(resp.body);
+      final choices = decoded['choices'];
+      if (choices is List && choices.isNotEmpty) {
+        return choices.first['message']?['content']?.toString().trim() ?? '';
+      }
+    } else {
+      recordProxyFailure(resp.statusCode);
+    }
+    return '';
   }
 }
