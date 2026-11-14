@@ -18,6 +18,12 @@
 - App name is **Oneova**. Color is `AppColors.brandBlue` (#007AFF). Never reintroduce Mpepe, Maroon, or Red.
 - All data must come from the backend (no mocks). Likes/comments update in real time.
 
+## Approved changes (by the user)
+- 2026-11-14: Reels are full width and full height (the framed card design is off). On Reels the bottom
+  nav hides while a reel plays and slides back when the viewer taps to pause or the feed is empty
+  (`reelsNavPeekProvider`). Its design and placement are unchanged. The side rail stays in the lower
+  half. Comments roll in one at a time, and hearts rise only from the like button.
+
 ## Never
 - Never use `lucide_icons` (broken on current Flutter). Use Material `Icons`.
 - Never change the bottom nav design or placement.

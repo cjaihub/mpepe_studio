@@ -127,6 +127,10 @@ class OneovaLiveActivityOverlay extends ConsumerStatefulWidget {
   final VoidCallback? onCommentTap;
   final VoidCallback? onLikesTap;
 
+  /// The like button: hearts rise from it and fade, instead of floating
+  /// across the video.
+  final GlobalKey? heartAnchor;
+
   const OneovaLiveActivityOverlay({
     super.key,
     required this.contentId,
@@ -134,6 +138,7 @@ class OneovaLiveActivityOverlay extends ConsumerStatefulWidget {
     this.immersive = false,
     this.onCommentTap,
     this.onLikesTap,
+    this.heartAnchor,
   });
 
   @override
@@ -149,8 +154,9 @@ class _OneovaLiveActivityOverlayState extends ConsumerState<OneovaLiveActivityOv
   Timer? _ambientHeartTimer;
   Timer? _tickerTimer;
 
-  static const Duration _normalPillLife = Duration(milliseconds: 5400);
-  static const Duration _immersivePillLife = Duration(milliseconds: 6000);
+  // One comment at a time: each stays ~3 s, then the next slides in.
+  static const Duration _normalPillLife = Duration(milliseconds: 3000);
+  static const Duration _immersivePillLife = Duration(milliseconds: 3400);
 
   final List<_ShownItem> _shownItems = [];
   int _streamCursor = 0;
@@ -165,7 +171,8 @@ class _OneovaLiveActivityOverlayState extends ConsumerState<OneovaLiveActivityOv
   ];
 
   Duration get _activeLifetime => widget.immersive ? _immersivePillLife : _normalPillLife;
-  int get _maxVisiblePills => widget.immersive ? 4 : 3;
+  int get _maxVisiblePills => 1;
+  final GlobalKey _selfKey = GlobalKey();
 
   @override
   void initState() {
@@ -206,11 +213,11 @@ class _OneovaLiveActivityOverlayState extends ConsumerState<OneovaLiveActivityOv
 
   void _startHeartEngine() {
     _ambientHeartTimer?.cancel();
-    _ambientHeartTimer = Timer.periodic(const Duration(milliseconds: 1250), (_) {
+    _ambientHeartTimer = Timer.periodic(const Duration(milliseconds: 1800), (_) {
       if (!mounted || !widget.isVisible) return;
       final liveEvents = ref.read(contentLiveActivityStreamProvider(widget.contentId)).value ?? const [];
       final likers = liveEvents.where((e) => e.type.contains('like') || e.type.contains('reaction')).length;
-      final cap = min(likers, widget.immersive ? 12 : 8);
+      final cap = min(likers, 4);
       if (_activeHearts.length < cap) {
         _spawnGlowingHeart();
       }
@@ -219,7 +226,7 @@ class _OneovaLiveActivityOverlayState extends ConsumerState<OneovaLiveActivityOv
 
   void _startTickerEngine() {
     _tickerTimer?.cancel();
-    _tickerTimer = Timer.periodic(const Duration(milliseconds: 2100), (_) {
+    _tickerTimer = Timer.periodic(const Duration(milliseconds: 3200), (_) {
       if (!mounted || !widget.isVisible) return;
       _advanceTicker();
     });
@@ -232,6 +239,7 @@ class _OneovaLiveActivityOverlayState extends ConsumerState<OneovaLiveActivityOv
     final seenIds = <String>{};
     final initial = <LiveActivityCardItem>[];
     for (final ev in liveEvents) {
+      if (ev.type.contains('like')) continue;
       if (seenIds.add(ev.id)) {
         initial.add(ev);
         if (initial.length >= min(2, _maxVisiblePills)) break;
@@ -250,7 +258,11 @@ class _OneovaLiveActivityOverlayState extends ConsumerState<OneovaLiveActivityOv
   void _advanceTicker() {
     final now = DateTime.now();
     final life = _activeLifetime;
-    final liveEvents = ref.read(contentLiveActivityStreamProvider(widget.contentId)).value ?? const [];
+    // Likes show as hearts from the like button; the stream is comments only.
+    final liveEvents = [
+      for (final e in ref.read(contentLiveActivityStreamProvider(widget.contentId)).value ?? const <LiveActivityCardItem>[])
+        if (!e.type.contains('like')) e,
+    ];
 
     if (liveEvents.isEmpty) {
       if (_shownItems.isNotEmpty) {
@@ -396,6 +408,7 @@ class _OneovaLiveActivityOverlayState extends ConsumerState<OneovaLiveActivityOv
     }
 
     return LayoutBuilder(
+      key: _selfKey,
       builder: (context, constraints) {
         final mediaSize = MediaQuery.sizeOf(context);
         final safeBottom = MediaQuery.paddingOf(context).bottom;
@@ -498,14 +511,21 @@ class _OneovaLiveActivityOverlayState extends ConsumerState<OneovaLiveActivityOv
     final elapsedMs = now.difference(heart.createdAt).inMilliseconds;
     final progress = (elapsedMs / heart.durationMs).clamp(0.0, 1.0);
 
-    final bottomInset = (widget.immersive ? 36.0 : 90.0) + safeBottom;
-    // Cap maximum ascent at 50% of the video height (middle of the video)
-    final midVideoFromBottom = viewportH * 0.50;
-    final maxTravel = max(90.0, midVideoFromBottom - bottomInset);
-    final currentY = bottomInset + (progress * maxTravel);
-
-    final sway = sin((progress * pi * heart.swayFrequency) + heart.swayPhase) * heart.swayAmplitude;
-    final currentX = (viewportW * heart.startX) + sway;
+    // Origin: the like button's centre (fallback: right side, lower third).
+    var originX = viewportW - 34.0;
+    var originBottom = viewportH * 0.32;
+    final self = _selfKey.currentContext?.findRenderObject() as RenderBox?;
+    final anchor = widget.heartAnchor?.currentContext?.findRenderObject() as RenderBox?;
+    if (self != null && anchor != null && self.attached && anchor.attached) {
+      final c = self.globalToLocal(anchor.localToGlobal(anchor.size.center(Offset.zero)));
+      originX = c.dx;
+      originBottom = self.size.height - c.dy;
+    }
+    // Rises a short way above the button with a gentle sway, then fades.
+    final rise = 120.0 + heart.speed * 40.0;
+    final currentY = originBottom + progress * rise - heart.size / 2;
+    final sway = sin((progress * pi * heart.swayFrequency) + heart.swayPhase) * min(heart.swayAmplitude, 9.0) * progress;
+    final currentX = originX - heart.size / 2 + sway;
 
     double scale;
     if (progress < 0.15) {
@@ -585,28 +605,25 @@ class _OneovaLiveActivityOverlayState extends ConsumerState<OneovaLiveActivityOv
   /// Self-fading rolling stream of pills with unique sequence keys.
   /// Older pills at the top progressively dim and dissolve at the midpoint.
   Widget _buildFloatingMidpointStream() {
-    final total = _shownItems.length;
-    return Column(
-      mainAxisSize: MainAxisSize.min,
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        for (var i = 0; i < total; i++)
-          _FadingLifetime(
-            key: ValueKey('pill_${_shownItems[i].seq}'),
-            lifetime: _activeLifetime,
-            child: Padding(
-              padding: const EdgeInsets.only(bottom: 5.0),
-              child: Opacity(
-                opacity: (total >= 3 && i == 0)
-                    ? 0.65
-                    : (total >= 3 && i == 1)
-                        ? 0.88
-                        : 1.0,
-                child: _buildCompactPill(_shownItems[i].card),
-              ),
+    final item = _shownItems.isEmpty ? null : _shownItems.last;
+    return AnimatedSwitcher(
+      duration: const Duration(milliseconds: 360),
+      switchInCurve: Curves.easeOutCubic,
+      switchOutCurve: Curves.easeInCubic,
+      transitionBuilder: (child, anim) => FadeTransition(
+        opacity: anim,
+        child: SlideTransition(
+          position: Tween<Offset>(begin: const Offset(0, 0.35), end: Offset.zero).animate(anim),
+          child: child,
+        ),
+      ),
+      child: item == null
+          ? const SizedBox.shrink()
+          : _FadingLifetime(
+              key: ValueKey('pill_${item.seq}'),
+              lifetime: _activeLifetime,
+              child: _buildCompactPill(item.card),
             ),
-          ),
-      ],
     );
   }
 

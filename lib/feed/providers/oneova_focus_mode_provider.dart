@@ -31,6 +31,11 @@ class OneovaBottomNavVisibleNotifier extends Notifier<bool> {
 ///
 /// Tracks whether the bottom navigation is currently mounted and visible on-screen,
 /// allowing full-bleed feed overlays to drop down and eliminate bottom dead space.
+/// Reels: the bottom nav stays hidden while a reel plays and slides back
+/// when the viewer taps to pause (or the feed is empty). Approved by the user
+/// on 2026-11-14.
+final reelsNavPeekProvider = NotifierProvider<OneovaFocusModeNotifier, bool>(OneovaFocusModeNotifier.new);
+
 final oneovaBottomNavVisibleProvider =
     NotifierProvider<OneovaBottomNavVisibleNotifier, bool>(OneovaBottomNavVisibleNotifier.new);
 

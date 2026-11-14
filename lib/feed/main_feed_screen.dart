@@ -727,7 +727,10 @@ class _ShortVideoFeedScreenState extends ConsumerState<ShortVideoFeedScreen>
     ref.listen<bool>(oneovaFocusModeProvider, (_, next) => _onFocusChanged(next));
     // Portrait feed: each reel sits in a rounded screen frame between the
     // brand header and the comment row. Focus mode and landscape stay full-bleed.
-    final framed = !isFocusMode && MediaQuery.orientationOf(context) == Orientation.portrait;
+    // Full-width, full-height video (user, 2026-11-14): the video stands out;
+    // header, rail and caption sit lightly on top. The framed card design is
+    // kept behind [_framedDesignEnabled] but off.
+    final framed = _framedDesignEnabled && !isFocusMode && MediaQuery.orientationOf(context) == Orientation.portrait;
     _framedLayout = framed;
     final pad = MediaQuery.paddingOf(context);
     // The shell's bottom bar is usually already in the bottom padding; only
@@ -766,7 +769,13 @@ class _ShortVideoFeedScreenState extends ConsumerState<ShortVideoFeedScreen>
         children: [
           if (framed) Positioned.fill(child: _FramedBackdrop(dark: _palette.dark)),
           if (_pages.isEmpty)
-            _buildEmptyState()
+            Builder(builder: (context) {
+              // Nothing to watch: keep the bottom nav on screen.
+              WidgetsBinding.instance.addPostFrameCallback((_) {
+                if (mounted && !ref.read(reelsNavPeekProvider)) ref.read(reelsNavPeekProvider.notifier).set(true);
+              });
+              return _buildEmptyState();
+            })
           else
             AnimatedPadding(
               duration: const Duration(milliseconds: 280),
@@ -878,6 +887,7 @@ class _ShortVideoFeedScreenState extends ConsumerState<ShortVideoFeedScreen>
 
   /// True while the portrait framed design is showing.
   bool _framedLayout = false;
+  final bool _framedDesignEnabled = false;
   static const double _framedHeaderHeight = 138;
   static const double _framedCommentHeight = 58;
 
@@ -1950,6 +1960,8 @@ class _ShortVideoItemState extends ConsumerState<_ShortVideoItem> with TickerPro
   // A tap made while a write is still in flight: applied when it finishes.
   bool? _queuedLiked;
   final GlobalKey<FloatingHeartsState> _floatingHeartsKey = GlobalKey<FloatingHeartsState>();
+  /// The like button: ambient hearts rise from here.
+  final GlobalKey _likeAnchorKey = GlobalKey();
 
   bool? _optimisticIsSaved;
   int _optimisticSaveDelta = 0;
@@ -1988,6 +2000,12 @@ class _ShortVideoItemState extends ConsumerState<_ShortVideoItem> with TickerPro
   @override
   void initState() {
     super.initState();
+    // A reel starts playing: hide the bottom nav (it peeks back on pause).
+    if (widget.isActive) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) ref.read(reelsNavPeekProvider.notifier).set(false);
+      });
+    }
     _subscribeLive();
     // The record only spins on the reel that is on screen.
     _vinylController = AnimationController(
@@ -2144,6 +2162,8 @@ class _ShortVideoItemState extends ConsumerState<_ShortVideoItem> with TickerPro
     final manager = ref.read(videoPlaybackManagerProvider);
     manager.togglePlayPause(widget.content.id);
     final isPlaying = manager.getController(widget.content.id)?.player.state.playing ?? false;
+    // Paused: the bottom nav slides back; playing: it hides again.
+    ref.read(reelsNavPeekProvider.notifier).set(!isPlaying);
     setState(() {
       _showPlayPauseIndicator = !isPlaying;
     });
@@ -2159,6 +2179,7 @@ class _ShortVideoItemState extends ConsumerState<_ShortVideoItem> with TickerPro
   void didUpdateWidget(_ShortVideoItem oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (widget.isActive && !oldWidget.isActive) {
+      ref.read(reelsNavPeekProvider.notifier).set(false);
       ref.read(videoPlaybackManagerProvider).ensureCurrentPlaying(widget.content.id);
       _vinylController.repeat();
     } else if (!widget.isActive && oldWidget.isActive) {
@@ -2334,6 +2355,7 @@ class _ShortVideoItemState extends ConsumerState<_ShortVideoItem> with TickerPro
               immersive: widget.isFullScreen,
               onCommentTap: () => _showComments(context),
               onLikesTap: () => ReelLikesBottomSheet.show(context, widget.content),
+              heartAnchor: _likeAnchorKey,
             ),
 
           // ── Engagement Rail Overlay (right: 8) ────────────
@@ -2364,7 +2386,11 @@ class _ShortVideoItemState extends ConsumerState<_ShortVideoItem> with TickerPro
                     // below the top row.
                     child: _landscape
                         ? SingleChildScrollView(child: _buildEngagementOverlay())
-                        : _buildEngagementOverlay(),
+                        // Portrait: never above the middle of the screen; shrinks to fit.
+                        : ConstrainedBox(
+                            constraints: BoxConstraints(maxHeight: MediaQuery.sizeOf(context).height * 0.48),
+                            child: FittedBox(fit: BoxFit.scaleDown, alignment: Alignment.bottomCenter, child: _buildEngagementOverlay()),
+                          ),
                   ),
                 ),
               ),
@@ -2744,7 +2770,7 @@ class _ShortVideoItemState extends ConsumerState<_ShortVideoItem> with TickerPro
                     ),
                 ],
               ),
-              if (!widget.framed) const SizedBox(height: 14),
+              if (!widget.framed) const SizedBox(height: 8),
               ValueListenableBuilder<bool>(
                 valueListenable: _liked,
                 builder: (context, serverLiked, _) {
@@ -2771,7 +2797,9 @@ class _ShortVideoItemState extends ConsumerState<_ShortVideoItem> with TickerPro
                           final scale = 1.0 + math.sin(t * math.pi) * 0.3;
                           return Transform.scale(scale: scale, child: child);
                         },
-                        child: _buildRailAction(
+                        child: KeyedSubtree(
+                          key: _likeAnchorKey,
+                          child: _buildRailAction(
                           isLiked ? Icons.favorite_rounded : Icons.favorite_outline_rounded,
                           displayLikeCount,
                           color: isLiked ? AppColors.brandPink : _p.fg,
@@ -2789,6 +2817,7 @@ class _ShortVideoItemState extends ConsumerState<_ShortVideoItem> with TickerPro
                               },
                             );
                           },
+                        ),
                         ),
                       ),
                       // Hearts rise from the like button when liking.

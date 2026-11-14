@@ -240,7 +240,9 @@ class _HubShellState extends ConsumerState<HubShell> with RouteAware {
   Widget build(BuildContext context) {
     final isFocusMode = ref.watch(oneovaFocusModeProvider);
     final isHome = widget.navigationShell.currentIndex == 0;
-    final shouldHide = !isHome || isFocusMode;
+    // Reels play full screen: the nav comes back when the viewer pauses.
+    final peek = ref.watch(reelsNavPeekProvider);
+    final shouldHide = !isHome || isFocusMode || !peek;
 
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (mounted) {
