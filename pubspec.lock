@@ -1327,6 +1327,14 @@ packages:
       url: "https://pub.dev"
     source: hosted
     version: "0.6.1"
+  google_mlkit_language_id:
+    dependency: "direct main"
+    description:
+      name: google_mlkit_language_id
+      sha256: b326dd4c91ab64f7ee9d8dfb1ffc1090b84f55f9d1b0e8fa34f5c999a39acd20
+      url: "https://pub.dev"
+    source: hosted
+    version: "1.0.3"
   google_mlkit_pose_detection:
     dependency: "direct main"
     description:

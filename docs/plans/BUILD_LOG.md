@@ -109,6 +109,18 @@ Design: `docs/payments/platform/` (architecture, security model, schema and API,
 - ⏳ E5. Local slot in For You, Thompson-sampling exploration, travel mode.
 - ⏳ E6. Restrict the Firebase Android API key to the app package and signing SHA-256 (console).
 
+## Stage G: Multilingual chats and translated calls (design: `docs/architecture/translated_calls.md`)
+- ✅ G1. Chats: on-device language detection (ML Kit Language ID, `lib/shared/language/language_detector.dart`).
+  Messages in a language you don't read show "Translate from Swahili" (one tap). The per-chat
+  auto-translate now sends only foreign-language messages to the AI. Left: "I read these" languages and
+  an all-chats switch in Settings → Chat.
+- ⏳ G2. Calls: live translated captions over the call's encrypted data channel (check mic sharing on
+  real phones first).
+- ⏳ G3. Interpreter mode: speech to speech through Vertex Live, sent over the data channel and played
+  with `flutter_pcm_sound`.
+- ⏳ G4. Speaker's own voice: closest preset voice now; exact voice cloning needs Google approval and
+  each speaker's consent. 🤝
+
 ## Session notes
 - 2026-11-14: build 1.0.0 (33) on Play internal. A1–A4 done; B1 next. A4 checked with analyze, the guard
   test and a render test at 360 px in light and dark; not yet seen on a signed-in phone (not in a Play build yet).

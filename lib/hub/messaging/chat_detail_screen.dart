@@ -48,6 +48,7 @@ import 'package:firebase_storage/firebase_storage.dart';
 import '../../security/widgets/link_safety_gate.dart';
 import '../../shared/audio/mic_coordinator.dart';
 import '../../shared/widgets/oneova_smart_status_banner.dart';
+import '../../shared/language/language_detector.dart';
 
 part 'chat_detail_upgrades.dart';
 
@@ -126,6 +127,8 @@ class _ChatDetailScreenState extends ConsumerState<ChatDetailScreen> with Single
   final Map<String, ChatTranslation> _translations = {};
   final Set<String> _translating = {};
   final Set<String> _hiddenTranslations = {};
+  /// Message id → detected foreign language (null: your language or unsure). On the phone only.
+  final Map<String, String?> _foreignLang = {};
   List<String> _aiReplies = const [];
   bool _aiRepliesLoading = false;
   String? _aiRepliesFor;

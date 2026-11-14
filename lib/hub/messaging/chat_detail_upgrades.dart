@@ -555,6 +555,23 @@ extension _ChatUpgrades on _ChatDetailScreenState {
           .toList();
       if (todo.isEmpty) return;
       _refresh(() => _translating.addAll(todo.map((m) => m.id)));
+      // Only messages in a language you don't read go to the AI.
+      Future.wait([for (final m in todo) LanguageDetector.instance.foreignLanguageOf(_getDisplayText(m))]).then((codes) {
+        final foreign = [for (var i = 0; i < todo.length; i++) if (codes[i] != null) todo[i]];
+        for (var i = 0; i < todo.length; i++) {
+          if (codes[i] == null) _translations.putIfAbsent(todo[i].id, () => ChatTranslation(_getDisplayText(todo[i]), '', true));
+        }
+        if (foreign.isEmpty) {
+          if (mounted) _refresh(() => _translating.removeAll(todo.map((m) => m.id)));
+          return;
+        }
+        _autoTranslate(foreign);
+      });
+    }
+  }
+
+  void _autoTranslate(List<MessageModel> todo) {
+    {
       ref.read(chatAssistServiceProvider).translate([for (final m in todo) _getDisplayText(m)]).then((res) {
         if (!mounted) return;
         _refresh(() {
@@ -839,6 +856,36 @@ extension _ChatUpgrades on _ChatDetailScreenState {
     );
   }
 
+  /// "Translate from Swahili": shown when the phone detects a language you
+  /// don't read. Detection runs on the phone; nothing is sent until you tap.
+  Widget _translateChip(MessageModel message) {
+    if (message.isEncrypted && !_decryptedCache.containsKey(message.id)) return const SizedBox.shrink();
+    final text = _getDisplayText(message);
+    if (text.trim().length < 12) return const SizedBox.shrink();
+    if (!_foreignLang.containsKey(message.id)) {
+      _foreignLang[message.id] = null;
+      LanguageDetector.instance.foreignLanguageOf(text).then((code) {
+        if (mounted && code != null) _refresh(() => _foreignLang[message.id] = code);
+      });
+      return const SizedBox.shrink();
+    }
+    final code = _foreignLang[message.id];
+    if (code == null) return const SizedBox.shrink();
+    return Padding(
+      padding: const EdgeInsets.only(top: 5),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(AppRadius.full),
+        onTap: () => _translateOne(message),
+        child: Row(mainAxisSize: MainAxisSize.min, children: [
+          const Icon(Icons.translate_rounded, size: 12, color: AppColors.brandBlue),
+          const SizedBox(width: 4),
+          Text('Translate from ${LanguageDetector.nameOf(code)}',
+              style: GoogleFonts.inter(color: AppColors.brandBlue, fontSize: 10.5, fontWeight: FontWeight.w600)),
+        ]),
+      ),
+    );
+  }
+
   /// Translation under a bubble, with its source language.
   Widget _buildTranslation(MessageModel message, bool isMe) {
     if (_translating.contains(message.id) && !_translations.containsKey(message.id)) {
@@ -850,6 +897,7 @@ extension _ChatUpgrades on _ChatDetailScreenState {
       );
     }
     final t = _translations[message.id];
+    if (t == null && !isMe) return _translateChip(message);
     if (t == null || t.same || _hiddenTranslations.contains(message.id)) return const SizedBox.shrink();
     final muted = isMe ? AppColors.brandWhite.withValues(alpha: 0.72) : context.textMuted;
     return Container(
