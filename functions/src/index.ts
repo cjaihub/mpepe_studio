@@ -310,6 +310,7 @@ export { payMoveToPersonal } from './pay/businessBalance';
 export { payDeviceChallenge, payDeviceRegister, payDeviceTrust, payDeviceVerify, payDeviceList, payDeviceRevoke } from './pay/devices';
 export { aiProxy } from './aiProxy';
 export { studioCaptions, studioTranslate } from './studioAi';
+export { reelTranslate } from './reelTranslate';
 export { arEffectGenerate, arEffectCreateFromUpload, arEffectUse, arEffectFavoriteAdded, arEffectFavoriteRemoved, arMakeupSuggest } from './arEffects';
 export { tiktokExchangeCode, tiktokDisconnect, tiktokProfile, tiktokVideos, tiktokCreatorInfo, tiktokPublish, tiktokWebhook } from './tiktokOAuth';
 export { globalSemanticSearch } from './search/searchQuery';

@@ -622,6 +622,14 @@ service cloud.firestore {
         allow delete: if canDeleteComment(contentId);
       }
 
+      // Reel translations, one per language (functions/src/reelTranslate.ts).
+      // Readable like the reel itself; only Cloud Functions write them.
+      match /translations/{lang} {
+        allow read: if get(/databases/$(database)/documents/content/$(contentId)).data.get('visibility', 'public') == 'public' ||
+                       canReadAuthorContent(get(/databases/$(database)/documents/content/$(contentId)).data.authorId);
+        allow write: if false;
+      }
+
       // Collab invites / co-authors (collab_service): the content owner
       // invites, the invited user (doc id) responds or leaves.
       match /collaborators/{collaboratorId} {
@@ -723,6 +731,13 @@ service cloud.firestore {
         allow create: if canCreateComment();
         allow update: if canUpdateComment(postId);
         allow delete: if canDeleteComment(postId);
+      }
+
+      // Reel translations (functions/src/reelTranslate.ts): read like the post, written only by Functions.
+      match /translations/{lang} {
+        allow read: if get(/databases/$(database)/documents/posts/$(postId)).data.get('visibility', 'public') == 'public' ||
+                       canReadAuthorContent(get(/databases/$(database)/documents/posts/$(postId)).data.authorId);
+        allow write: if false;
       }
     }
 

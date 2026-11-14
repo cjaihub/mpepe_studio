@@ -9,6 +9,7 @@ import '../../backend/social/services/video_playback_manager.dart';
 import '../models/video_transcript_model.dart';
 import '../services/oneova_transcription_service.dart';
 import 'oneova_transcript_sheet.dart';
+import '../services/reel_translation_service.dart';
 
 /// Realtime floating Closed Caption (CC) overlay widget.
 ///
@@ -87,12 +88,28 @@ class _OneovaCaptionOverlayState extends ConsumerState<OneovaCaptionOverlay> {
     });
   }
 
+  String? _translatedShown;
+
   void _updateSegment(int posMs) {
     if (_transcript == null) return;
     final next = _transcript!.segmentAt(posMs);
-    if (next?.text != _currentSegment?.text) {
-      setState(() => _currentSegment = next);
+    final translated = _translatedLine(posMs);
+    if (next?.text != _currentSegment?.text || translated != _translatedShown) {
+      setState(() {
+        _currentSegment = next;
+        _translatedShown = translated;
+      });
     }
+  }
+
+  /// Line of the translated caption track at [posMs], or null when not translated.
+  String? _translatedLine(int posMs) {
+    final tr = ref.read(reelTranslationProvider((id: widget.content.id, caption: widget.content.description))).value;
+    if (tr == null || tr.segments.isEmpty || ref.read(reelShowOriginalProvider(widget.content.id))) return null;
+    for (final s in tr.segments) {
+      if (posMs >= s.startMs && posMs < s.endMs) return s.text;
+    }
+    return null;
   }
 
   void _openFullTranscript() {
@@ -116,6 +133,10 @@ class _OneovaCaptionOverlayState extends ConsumerState<OneovaCaptionOverlay> {
     if (!captionsEnabled || _currentSegment == null || _currentSegment!.text.isEmpty) {
       return const SizedBox.shrink();
     }
+    // Translated caption track (reel_translation_service.dart) unless "See original".
+    ref.watch(reelTranslationProvider((id: widget.content.id, caption: widget.content.description)));
+    ref.watch(reelShowOriginalProvider(widget.content.id));
+    final line = _translatedLine(_currentPosition.inMilliseconds) ?? _currentSegment!.text;
 
     return Center(
       child: GestureDetector(
@@ -127,7 +148,7 @@ class _OneovaCaptionOverlayState extends ConsumerState<OneovaCaptionOverlay> {
             child: child,
           ),
           child: Container(
-            key: ValueKey(_currentSegment!.text),
+            key: ValueKey(line),
             constraints: BoxConstraints(
               maxWidth: MediaQuery.of(context).size.width * 0.82,
             ),
@@ -161,7 +182,7 @@ class _OneovaCaptionOverlayState extends ConsumerState<OneovaCaptionOverlay> {
                 ),
                 Flexible(
                   child: Text(
-                    _currentSegment!.text,
+                    line,
                     textAlign: TextAlign.center,
                     style: GoogleFonts.inter(
                       fontSize: 12.5,

@@ -24,7 +24,7 @@ import { getFirestore, FieldValue } from 'firebase-admin/firestore';
 import { Type } from '@google/genai';
 import { generateVertexContent } from './vertexAi';
 
-const openRouterSecret = defineSecret('OPENROUTER_API_KEY');
+export const openRouterSecret = defineSecret('OPENROUTER_API_KEY');
 
 /** Base64 of ~6 MB audio (≈ 25 min of 16 kHz mono AAC). */
 const MAX_AUDIO_B64 = 8_500_000;
@@ -189,14 +189,20 @@ const TRANSLATE_SCHEMA = {
   required: ['support', 'translations'],
 };
 
-function translatePrompt(texts: string[], target: string, source?: string): string {
-  return `Translate each item of this JSON array ${source ? `from "${source}" ` : ''}into the language "${target}" (a language code or name; it may be a local or regional language).
-Rules: rate yourself honestly in "support": "good" if you write this language fluently, "limited" if your translation may contain mistakes, "unsupported" if you cannot write it (then return the items unchanged). Use the language's usual writing system. Keep the meaning, tone and slang level of short-video captions; keep emojis, @handles, #tags, numbers and URLs; keep line breaks; never merge, split, drop or reorder items; output exactly ${texts.length} translations in order as {"support": "...", "translations": [...]}.
+function translatePrompt(texts: string[], target: string, source?: string, detectSource = false): string {
+  return `${detectSource ? 'First detect the original language of the items and put its BCP-47 / ISO 639 code (e.g. en, sw, yo, ha, ig, zu, am, so, ar, fr, pt) in "source". Then t' : 'T'}ranslate each item of this JSON array ${source ? `from "${source}" ` : ''}into the language "${target}" (a language code or name; it may be a local or regional language).
+Rules: rate yourself honestly in "support": "good" if you write this language fluently, "limited" if your translation may contain mistakes, "unsupported" if you cannot write it (then return the items unchanged). Use the language's usual writing system. Keep the meaning, tone and slang level of short-video captions; keep emojis, @handles, #tags, numbers and URLs; keep line breaks; never merge, split, drop or reorder items; output exactly ${texts.length} translations in order as {${detectSource ? '"source": "...", ' : ''}"support": "...", "translations": [...]}.
 Items:
 ${JSON.stringify(texts)}`;
 }
 
-async function translateWithOpenRouter(texts: string[], target: string, source?: string): Promise<{ support: string; translations: string[] }> {
+/** Also used by reelTranslate (reelTranslate.ts); `detectSource` asks for the original language too. */
+export async function translateWithOpenRouter(
+  texts: string[],
+  target: string,
+  source?: string,
+  detectSource = false,
+): Promise<{ support: string; translations: string[]; source?: string }> {
   const key = openRouterSecret.value();
   if (!key) throw new Error('OpenRouter key missing');
   const res = await fetch('https://openrouter.ai/api/v1/chat/completions', {
@@ -206,14 +212,18 @@ async function translateWithOpenRouter(texts: string[], target: string, source?:
       model: 'google/gemini-2.5-flash',
       temperature: 0.1,
       response_format: { type: 'json_object' },
-      messages: [{ role: 'user', content: translatePrompt(texts, target, source) }],
+      messages: [{ role: 'user', content: translatePrompt(texts, target, source, detectSource) }],
     }),
   });
   if (!res.ok) throw new Error(`OpenRouter ${res.status}`);
   const body = (await res.json()) as { choices?: { message?: { content?: string } }[] };
   const content = body.choices?.[0]?.message?.content ?? '{}';
-  const parsed = JSON.parse(content.replace(/^```(json)?|```$/g, '').trim()) as { support?: string; translations?: string[] };
-  return { support: parsed.support ?? 'limited', translations: parsed.translations ?? [] };
+  const parsed = JSON.parse(content.replace(/^```(json)?|```$/g, '').trim()) as { support?: string; translations?: string[]; source?: string };
+  return {
+    support: parsed.support ?? 'limited',
+    translations: parsed.translations ?? [],
+    ...(typeof parsed.source === 'string' ? { source: parsed.source } : {}),
+  };
 }
 
 export const studioTranslate = onCall({ memory: '256MiB', timeoutSeconds: 120, secrets: [openRouterSecret] }, async (request) => {

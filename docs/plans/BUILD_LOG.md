@@ -121,6 +121,24 @@ Design: `docs/payments/platform/` (architecture, security model, schema and API,
 - ⏳ G4. Speaker's own voice: closest preset voice now; exact voice cloning needs Google approval and
   each speaker's consent. 🤝
 
+## Stage H: Reel translator
+- ✅ H1. Server: `reelTranslate({postId, target})` (`functions/src/reelTranslate.ts`, pure parts in
+  `reelTranslateLogic.ts` with node tests). Each reel is translated once per language and cached at
+  `content|posts/{id}/translations/{lang}` (caption without hashtags, hashtags kept, plus the caption
+  track from `transcripts/default` when there is one). Text goes through OpenRouter via the
+  studioTranslate helper. Source language detected once and stored on the reel (`sourceLanguage`,
+  re-detected if the caption changes). Limits: 300 calls / 10 min, 60 new translations / hour per user.
+  Private reels: only the author. Rules: clients read translations, only Functions write. Not deployed yet.
+- ✅ H2. App: the Reels caption shows in the viewer's language with "Translated from X · See original"
+  (`lib/feed/widgets/reel_translated_caption.dart`); the CC overlay uses the translated track. Language
+  is detected on the phone first, so reels you can read never call the server.
+- ✅ H3. Settings → Language: "Translate reels automatically" and "Translate into" with a searchable
+  list of world and local languages (`lib/shared/language/world_languages.dart`); default is the
+  phone language.
+- ⏳ H4. Deploy `reelTranslate` and the rules (ask first), then check on a phone with a Swahili or Yoruba
+  reel. Clients can't read `transcripts/default` yet, so the overlay's own fallback track is still built
+  from the caption.
+
 ## Session notes
 - 2026-11-14: build 1.0.0 (33) on Play internal. A1–A4 done; B1 next. A4 checked with analyze, the guard
   test and a render test at 360 px in light and dark; not yet seen on a signed-in phone (not in a Play build yet).

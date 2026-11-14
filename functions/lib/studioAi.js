@@ -33,7 +33,8 @@ var __importStar = (this && this.__importStar) || (function () {
     };
 })();
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.studioTranslate = exports.studioCaptions = void 0;
+exports.studioTranslate = exports.studioCaptions = exports.openRouterSecret = void 0;
+exports.translateWithOpenRouter = translateWithOpenRouter;
 /**
  * Studio AI: auto captions and translation for the video editor.
  *
@@ -59,7 +60,7 @@ const logger = __importStar(require("firebase-functions/logger"));
 const firestore_1 = require("firebase-admin/firestore");
 const genai_1 = require("@google/genai");
 const vertexAi_1 = require("./vertexAi");
-const openRouterSecret = (0, params_1.defineSecret)('OPENROUTER_API_KEY');
+exports.openRouterSecret = (0, params_1.defineSecret)('OPENROUTER_API_KEY');
 /** Base64 of ~6 MB audio (≈ 25 min of 16 kHz mono AAC). */
 const MAX_AUDIO_B64 = 8500000;
 const MAX_TRANSLATE_ITEMS = 400;
@@ -225,16 +226,17 @@ const TRANSLATE_SCHEMA = {
     },
     required: ['support', 'translations'],
 };
-function translatePrompt(texts, target, source) {
-    return `Translate each item of this JSON array ${source ? `from "${source}" ` : ''}into the language "${target}" (a language code or name; it may be a local or regional language).
-Rules: rate yourself honestly in "support": "good" if you write this language fluently, "limited" if your translation may contain mistakes, "unsupported" if you cannot write it (then return the items unchanged). Use the language's usual writing system. Keep the meaning, tone and slang level of short-video captions; keep emojis, @handles, #tags, numbers and URLs; keep line breaks; never merge, split, drop or reorder items; output exactly ${texts.length} translations in order as {"support": "...", "translations": [...]}.
+function translatePrompt(texts, target, source, detectSource = false) {
+    return `${detectSource ? 'First detect the original language of the items and put its BCP-47 / ISO 639 code (e.g. en, sw, yo, ha, ig, zu, am, so, ar, fr, pt) in "source". Then t' : 'T'}ranslate each item of this JSON array ${source ? `from "${source}" ` : ''}into the language "${target}" (a language code or name; it may be a local or regional language).
+Rules: rate yourself honestly in "support": "good" if you write this language fluently, "limited" if your translation may contain mistakes, "unsupported" if you cannot write it (then return the items unchanged). Use the language's usual writing system. Keep the meaning, tone and slang level of short-video captions; keep emojis, @handles, #tags, numbers and URLs; keep line breaks; never merge, split, drop or reorder items; output exactly ${texts.length} translations in order as {${detectSource ? '"source": "...", ' : ''}"support": "...", "translations": [...]}.
 Items:
 ${JSON.stringify(texts)}`;
 }
-async function translateWithOpenRouter(texts, target, source) {
+/** Also used by reelTranslate (reelTranslate.ts); `detectSource` asks for the original language too. */
+async function translateWithOpenRouter(texts, target, source, detectSource = false) {
     var _a, _b, _c;
     var _d, _e, _f;
-    const key = openRouterSecret.value();
+    const key = exports.openRouterSecret.value();
     if (!key)
         throw new Error('OpenRouter key missing');
     const res = await fetch('https://openrouter.ai/api/v1/chat/completions', {
@@ -244,7 +246,7 @@ async function translateWithOpenRouter(texts, target, source) {
             model: 'google/gemini-2.5-flash',
             temperature: 0.1,
             response_format: { type: 'json_object' },
-            messages: [{ role: 'user', content: translatePrompt(texts, target, source) }],
+            messages: [{ role: 'user', content: translatePrompt(texts, target, source, detectSource) }],
         }),
     });
     if (!res.ok)
@@ -252,9 +254,9 @@ async function translateWithOpenRouter(texts, target, source) {
     const body = (await res.json());
     const content = (_d = (_c = (_b = (_a = body.choices) === null || _a === void 0 ? void 0 : _a[0]) === null || _b === void 0 ? void 0 : _b.message) === null || _c === void 0 ? void 0 : _c.content) !== null && _d !== void 0 ? _d : '{}';
     const parsed = JSON.parse(content.replace(/^```(json)?|```$/g, '').trim());
-    return { support: (_e = parsed.support) !== null && _e !== void 0 ? _e : 'limited', translations: (_f = parsed.translations) !== null && _f !== void 0 ? _f : [] };
+    return Object.assign({ support: (_e = parsed.support) !== null && _e !== void 0 ? _e : 'limited', translations: (_f = parsed.translations) !== null && _f !== void 0 ? _f : [] }, (typeof parsed.source === 'string' ? { source: parsed.source } : {}));
 }
-exports.studioTranslate = (0, https_1.onCall)({ memory: '256MiB', timeoutSeconds: 120, secrets: [openRouterSecret] }, async (request) => {
+exports.studioTranslate = (0, https_1.onCall)({ memory: '256MiB', timeoutSeconds: 120, secrets: [exports.openRouterSecret] }, async (request) => {
     var _a, _b, _c, _d, _e;
     if (!request.auth)
         throw new https_1.HttpsError('unauthenticated', 'Sign in to translate.');

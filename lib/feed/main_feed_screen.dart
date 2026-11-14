@@ -53,6 +53,7 @@ import 'widgets/circle_gesture_detector.dart';
 import '../providers/settings_provider.dart';
 import 'services/oneova_transcription_service.dart';
 import 'widgets/oneova_caption_overlay.dart';
+import 'widgets/reel_translated_caption.dart';
 import 'widgets/oneova_transcript_sheet.dart';
 
 import 'package:oneova/backend/social/models/audio_track.dart';
@@ -3237,8 +3238,10 @@ class _ShortVideoItemState extends ConsumerState<_ShortVideoItem> with TickerPro
                 duration: const Duration(milliseconds: 200),
                 curve: Curves.easeOutCubic,
                 alignment: Alignment.topLeft,
-                child: Text(
-                  widget.content.hashtags.isEmpty
+                child: ReelTranslatedCaption(
+                  reelId: widget.content.id,
+                  caption: widget.content.description,
+                  originalText: widget.content.hashtags.isEmpty
                       ? widget.content.description
                       : widget.content.description.replaceAll(RegExp(r'(^|\s)#[\w\u00C0-\uFFFF]+'), '').replaceAll(RegExp(r'\s{2,}'), ' ').trim(),
                   style: GoogleFonts.inter(
@@ -3930,8 +3933,10 @@ class _ReelContentInfoState extends ConsumerState<_ReelContentInfo> {
             child: AnimatedSize(
               duration: const Duration(milliseconds: 200),
               curve: Curves.easeOut,
-              child: Text(
-                widget.content.description,
+              child: ReelTranslatedCaption(
+                reelId: widget.content.id,
+                caption: widget.content.description,
+                originalText: widget.content.description,
                 style: GoogleFonts.inter(
                   color: Colors.white,
                   fontSize: 13.5,
