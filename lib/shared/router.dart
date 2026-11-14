@@ -230,7 +230,7 @@ class _HubShellState extends ConsumerState<HubShell> with RouteAware {
       case 2:
         return OneovaTab.chat;
       case 3:
-        return OneovaTab.ai;
+        return OneovaTab.wallet;
       default:
         return null;
     }
@@ -262,7 +262,7 @@ class _HubShellState extends ConsumerState<HubShell> with RouteAware {
               if (stepIndex == 3) {
                 widget.navigationShell.goBranch(2); // Chat
               } else if (stepIndex == 5) {
-                widget.navigationShell.goBranch(3); // AI Lab
+                context.push('/hub/ai'); // AI Lab (now opened from Chats)
               } else if (stepIndex <= 2) {
                 widget.navigationShell.goBranch(0); // Reels
               }
@@ -289,7 +289,7 @@ class _HubShellState extends ConsumerState<HubShell> with RouteAware {
                     onReels: () => widget.navigationShell.goBranch(0, initialLocation: widget.navigationShell.currentIndex == 0),
                     onChat: () => widget.navigationShell.goBranch(2),
                     onStudio: () => CreationTypeModal.show(context),
-                    onAi: () => widget.navigationShell.goBranch(3),
+                    onWallet: () => widget.navigationShell.goBranch(3),
                     onMe: () => OneovaProfileSidebarDrawer.show(context),
                   ),
                 ),
@@ -501,13 +501,15 @@ final routerProvider = Provider<GoRouter>((ref) {
       GoRoute(path: '/biz/payouts', redirect: _requireAuth, builder: (context, state) => const PayoutsScreen()),
       GoRoute(path: '/hub/discover', redirect: _requireAuth, builder: (context, state) => const GlobalSearchScreen()),
       GoRoute(path: '/profile/earnings', redirect: _requireAuth, builder: (context, state) => const OneovaWalletScreen()),
-      GoRoute(path: '/wallet', redirect: _requireAuth, builder: (context, state) => const OneovaWalletScreen()),
+      // One wallet: every wallet link opens the Wallet tab.
+      GoRoute(path: '/wallet', redirect: (context, state) => '/hub/wallet'),
+      GoRoute(path: '/hub/ai', redirect: _requireAuth, builder: (context, state) => const HubAiScreen()),
       GoRoute(path: '/wallet/coins', redirect: _requireAuth, builder: (context, state) => const CoinShopScreen()),
       GoRoute(path: '/wallet/plans', redirect: _requireAuth, builder: (context, state) => const PlansScreen()),
       GoRoute(path: '/wallet/withdraw', redirect: _requireAuth, builder: (context, state) => const WithdrawScreen()),
       GoRoute(path: '/wallet/scan', redirect: _requireAuth, builder: (context, state) => const ScanToPayScreen()),
-      GoRoute(path: '/pay', redirect: _requireAuth, builder: (context, state) => const OneovaPayHomeScreen()),
-      GoRoute(path: '/pay/business', redirect: _requireAuth, builder: (context, state) => const OneovaPayHomeScreen(business: true)),
+      GoRoute(path: '/pay', redirect: (context, state) => '/hub/wallet'),
+      GoRoute(path: '/pay/business', redirect: (context, state) => '/hub/wallet?kind=business'),
       GoRoute(path: '/wallet/receive', redirect: _requireAuth, builder: (context, state) => const ReceivePayScreen()),
       GoRoute(path: '/wallet/verify', redirect: _requireAuth, builder: (context, state) => const KycScreen()),
       GoRoute(path: '/wallet/payments', redirect: _requireAuth, builder: (context, state) => const PaymentsHistoryScreen()),
@@ -1082,10 +1084,12 @@ final routerProvider = Provider<GoRouter>((ref) {
               ],
             )
           ]),
+          // Wallet tab (Oneova Pay). AI Lab moved out of the bar: it opens
+          // from the AI button in Chats (/hub/ai below).
           StatefulShellBranch(routes: [GoRoute(
-            path: '/hub/ai', 
+            path: '/hub/wallet',
             redirect: _requireAuth,
-            builder: (context, state) => const HubAiScreen()
+            builder: (context, state) => OneovaPayHomeScreen(asTab: true, business: state.uri.queryParameters['kind'] == 'business'),
           )]),
         ],
       ),

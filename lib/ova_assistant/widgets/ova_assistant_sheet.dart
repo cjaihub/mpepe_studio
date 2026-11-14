@@ -725,6 +725,8 @@ class _OvaAssistantPanelState extends ConsumerState<OvaAssistantPanel> {
     final recentShared = sharedHistory.threads.take(2).toList();
     final recentTasks = taskCenter.tasks.take(2).toList();
     final chips = <_Suggestion>[
+      // Mobile money in one tap (Wallet tab: balance, add money, withdraw).
+      const _Suggestion(Icons.account_balance_wallet_rounded, 'My wallet', '', accent: true, route: '/hub/wallet'),
       if (inv.contentId != null) const _Suggestion(Icons.favorite_rounded, 'Like this reel', 'like this'),
       if (inv.contentId != null) const _Suggestion(Icons.mode_comment_rounded, 'Comment on this', 'comment ', fill: true),
       if (inv.chatId != null) const _Suggestion(Icons.edit_note_rounded, 'Draft a reply', 'Help me write a friendly reply to this chat'),
@@ -917,6 +919,12 @@ class _OvaAssistantPanelState extends ConsumerState<OvaAssistantPanel> {
     return _Pressable(
       onTap: () {
         HapticFeedback.selectionClick();
+        if (s.route != null) {
+          Navigator.of(context).maybePop();
+          final nav = rootNavigatorKey.currentContext;
+          if (nav != null) GoRouter.of(nav).go(s.route!);
+          return;
+        }
         if (s.fill) {
           _input.text = s.prompt;
           final caret = s.prompt.indexOf('  ');
@@ -1541,7 +1549,10 @@ class _Suggestion {
   final String prompt;
   final bool fill;
   final bool accent;
-  const _Suggestion(this.icon, this.label, this.prompt, {this.fill = false, this.accent = false});
+
+  /// Opens this screen instead of sending a prompt.
+  final String? route;
+  const _Suggestion(this.icon, this.label, this.prompt, {this.fill = false, this.accent = false, this.route});
 }
 
 class _OvaMark extends StatelessWidget {

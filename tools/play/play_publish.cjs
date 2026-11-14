@@ -72,11 +72,26 @@ if (track === 'production' && args['confirm-production'] !== 'true') {
   });
 
   // --not-sent-for-review: needed while other Console changes are waiting; send them from Publishing overview.
-  const { data: committed } = await play.edits.commit({
-    packageName: PACKAGE,
-    editId: edit.id,
-    ...(args['not-sent-for-review'] ? { changesNotSentForReview: true } : {}),
-  });
+  let committed;
+  try {
+    ({ data: committed } = await play.edits.commit({
+      packageName: PACKAGE,
+      editId: edit.id,
+      ...(args['not-sent-for-review'] ? { changesNotSentForReview: true } : {}),
+    }));
+  } catch (commitErr) {
+    const msg = JSON.stringify(commitErr?.errors || commitErr?.message || commitErr);
+    if (!args['not-sent-for-review'] && msg.includes('changesNotSentForReview')) {
+      console.log('retrying commit with changesNotSentForReview: true...');
+      ({ data: committed } = await play.edits.commit({
+        packageName: PACKAGE,
+        editId: edit.id,
+        changesNotSentForReview: true,
+      }));
+    } else {
+      throw commitErr;
+    }
+  }
   console.log(`committed edit ${committed.id}: versionCode ${versionCode} → ${track} (${release.status})`);
 })().catch((e) => {
   console.error(e.errors || e.message || e);

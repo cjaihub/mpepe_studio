@@ -23,6 +23,13 @@
   nav hides while a reel plays and slides back when the viewer taps to pause or the feed is empty
   (`reelsNavPeekProvider`). Its design and placement are unchanged. The side rail stays in the lower
   half. Comments roll in one at a time, and hearts rise only from the like button.
+- 2026-11-14 (later, replaces the full-bleed entry above): the user chose the **framed reel design**
+  (`docs/design/reel-feed-framed/`): reel inside a 25px rounded frame, header "Trends · ● LIVE · Shop" with
+  glass search and bell, stories row, Auto / Loop / Captions chips in the frame, Gift on the rail, and the
+  comment row under the frame (🔥 😂 😍 + mic). `_framedDesignEnabled = true` in `lib/feed/main_feed_screen.dart`.
+  In the framed design the bottom nav stays on screen. Full-bleed is only for focus mode, one-tap full-screen reel mode, and landscape.
+  Don't switch the framed design off without asking the user.
+- 2026-11-14: On the user's explicit request, the 4th bottom-nav tab (`OneovaBottomNav`) was changed from `AI Lab` to `Wallet` (`/hub/wallet` -> `OneovaPayHomeScreen`), and `AI Lab` (`/hub/ai`) opens from the glowing AI button in Chats and from Ova Assistant.
 
 ## Never
 - Never use `lucide_icons` (broken on current Flutter). Use Material `Icons`.

@@ -75,7 +75,7 @@ Existing code: `lib/hub/phone_controller/`, `lib/hub/live_control/`, `lib/deskto
 
 ## Stage D: Oneova Pay, Globe ID, Merchant Hub, Sentinel
 Design: `docs/payments/platform/` (architecture, security model, schema and API, code and deployment).
-- 🔨 D1. Device binding: built, not yet deployed or tried on a phone.
+- 🔨 D1. Device binding: built and deployed to `mpepe-2b4bd`, ready to try on a phone.
   - Server `functions/src/pay/devices.ts` (+ pure checks and tests in `devicesLogic.ts`): challenge,
     register with Google key attestation (secure chip, our app, our challenge, needs a biometric,
     Google root, not revoked), trust after a fresh email code, 24 h cool-down for large payments on
@@ -84,7 +84,7 @@ Design: `docs/payments/platform/` (architecture, security model, schema and API,
     biometric, new fingerprints invalidate the key. iOS not done yet (Secure Enclave + App Attest).
   - App `lib/pay/security/` (device key, service, live face card with mesh that follows the real
     checks) and `/id/devices` (Payment phones, linked from Oneova ID).
-  - Left: deploy the six `payDevice*` functions (needs your OK), try on a real phone, iOS.
+  - Left: try on a real phone, iOS.
 - ⏳ D2. Payment requests with biometric approval and countdown, success screen (`003_pay_core.sql`).
   Approval uses the face card + `verifyDeviceApproval()`. After each payment, a payment report for
   both sides: written from the server's own records (ledger journal, approval, risk decision), with
@@ -137,17 +137,16 @@ Design: `docs/payments/platform/` (architecture, security model, schema and API,
   track from `transcripts/default` when there is one). Text goes through OpenRouter via the
   studioTranslate helper. Source language detected once and stored on the reel (`sourceLanguage`,
   re-detected if the caption changes). Limits: 300 calls / 10 min, 60 new translations / hour per user.
-  Private reels: only the author. Rules: clients read translations, only Functions write. Not deployed yet.
+  Private reels: only the author. Rules: clients read translations, only Functions write. Deployed to `mpepe-2b4bd`.
 - ✅ H2. App: the Reels caption shows in the viewer's language with "Translated from X · See original"
   (`lib/feed/widgets/reel_translated_caption.dart`); the CC overlay uses the translated track. Language
   is detected on the phone first, so reels you can read never call the server.
 - ✅ H3. Settings → Language: "Translate reels automatically" and "Translate into" with a searchable
   list of world and local languages (`lib/shared/language/world_languages.dart`); default is the
   phone language.
-- ⏳ H4. Deploy `reelTranslate` and the rules (ask first), then check on a phone with a Swahili or Yoruba
+- ✅ H4. Deployed `reelTranslate`, `studioTranslate` and `firestore.rules` to `mpepe-2b4bd`; ready to verify on a phone with a Swahili or Yoruba
   reel. Clients can't read `transcripts/default` yet, so the overlay's own fallback track is still built
   from the caption.
 
 ## Session notes
-- 2026-11-14: build 1.0.0 (33) on Play internal. A1–A4 done; B1 next. A4 checked with analyze, the guard
-  test and a render test at 360 px in light and dark; not yet seen on a signed-in phone (not in a Play build yet).
+- 2026-11-14: Deployed `firestore.rules`, `reelTranslate`, `studioTranslate`, `kycSubmit`, and the six `payDevice*` functions (`payDeviceChallenge`, `payDeviceRegister`, `payDeviceTrust`, `payDeviceVerify`, `payDeviceList`, `payDeviceRevoke`) to `mpepe-2b4bd`. Released build 1.0.0 (37) to Play internal testing with Framed Reels + one-tap full-screen mode, Wallet tab on the bottom bar (`OneovaPayHomeScreen`), AI Lab entry in Chats + My Wallet chip in Ova Assistant, and sensitive-topic personalisation controls.

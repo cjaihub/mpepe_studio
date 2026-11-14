@@ -1,0 +1,373 @@
+<!DOCTYPE html><html lang="en"><head>
+<meta charset="utf-8">
+<meta content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" name="viewport">
+<title>Social Reels Feed - Floating Player</title>
+<!-- Tailwind CSS v3 with Plugins -->
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<!-- Google Fonts: Inter -->
+<link href="https://fonts.googleapis.com" rel="preconnect">
+<link crossorigin="" href="https://fonts.gstatic.com" rel="preconnect">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&amp;display=swap" rel="stylesheet">
+<!-- Tailwind Config customization -->
+<script data-purpose="tailwind-config">
+    tailwind.config = {
+      theme: {
+        extend: {
+          colors: {
+            brand: {
+              blue: '#0066FF',
+              'blue-light': '#2563EB',
+              pink: '#FF2A85',
+              'pink-alt': '#EC4899',
+              dark: '#080B11',
+              surface: '#0F131D',
+            }
+          },
+          fontFamily: {
+            sans: ['Inter', 'sans-serif'],
+          },
+        }
+      }
+    };
+  </script>
+<!-- Custom Styles for shadows, glassmorphism, and animations -->
+<style data-purpose="custom-shadows-and-effects">
+    /* Multi-layered luxury glow and depth for the floating reel card */
+    .luxury-card-shadow {
+      box-shadow: 
+        0 25px 60px -10px rgba(0, 102, 255, 0.35), 
+        0 35px 80px -15px rgba(0, 0, 0, 0.8), 
+        0 0 35px rgba(255, 42, 133, 0.22);
+      border: 1.5px solid rgba(255, 255, 255, 0.16);
+    }
+    
+    /* Subtle horizontal scrollbar hide */
+    .no-scrollbar::-webkit-scrollbar {
+      display: none;
+    }
+    .no-scrollbar {
+      -ms-overflow-style: none;
+      scrollbar-width: none;
+    }
+
+    /* Sound disc rotation */
+    @keyframes spin-slow {
+      from { transform: rotate(0deg); }
+      to { transform: rotate(360deg); }
+    }
+    .animate-spin-slow {
+      animation: spin-slow 5s linear infinite;
+    }
+
+    /* Pink glowing accent */
+    .pink-glow {
+      box-shadow: 0 0 16px rgba(255, 42, 133, 0.55);
+    }
+
+    /* Blue tab indicator glow */
+    .blue-glow {
+      box-shadow: 0 0 10px rgba(0, 102, 255, 0.85);
+    }
+  </style>
+</head>
+<body class="bg-[#080B11] text-white font-sans antialiased min-h-screen flex justify-center selection:bg-[#FF2A85]/30">
+<!-- Main Mobile Canvas Container -->
+<div class="w-full max-w-[428px] min-h-screen bg-[#080B11] flex flex-col justify-between pb-4 overflow-x-hidden relative">
+<!-- BEGIN: TopHeaderSection -->
+<header class="pt-3 px-4 flex flex-col gap-3 z-30 shrink-0" data-purpose="top-navigation">
+<!-- iOS Status Bar Placeholder / Top Info Bar -->
+<div class="flex items-center justify-between text-xs text-white/70 px-1 font-medium select-none">
+<span class="font-semibold text-white tracking-tight">9:41</span>
+<div class="flex items-center gap-1.5 text-[11px]">
+<svg class="w-3.5 h-3.5 fill-current" viewBox="0 0 24 24"><path d="M12 3c-4.97 0-9 4.03-9 9 0 2.12.74 4.07 1.97 5.61L4.35 19.4c-.39.39-.39 1.02 0 1.41.39.39 1.02.39 1.41 0l1.9-1.9C9.35 19.98 10.63 20.4 12 20.4c4.97 0 9-4.03 9-9s-4.03-9-9-9z"></path></svg>
+<svg class="w-3 h-3 fill-current" viewBox="0 0 24 24"><path d="M12 4C7.31 4 3.07 5.9 0 8.98L12 21 24 8.98C20.93 5.9 16.69 4 12 4z"></path></svg>
+<div class="w-5 h-2.5 border border-white/60 rounded-sm p-0.5 flex items-center">
+<div class="h-full w-full bg-white rounded-2xs"></div>
+</div>
+</div>
+</div>
+<!-- Main App Top Navigation Bar -->
+<div class="flex items-center justify-between">
+<!-- Left: Search Button -->
+<button aria-label="Search" class="w-9 h-9 rounded-full bg-white/10 backdrop-blur-md border border-white/15 flex items-center justify-center text-white active:scale-95 transition-transform" type="button">
+<svg class="w-4 h-4 stroke-[2.2]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+<circle cx="11" cy="11" r="8"></circle>
+<line x1="21" x2="16.65" y1="21" y2="16.65"></line>
+</svg>
+</button>
+<!-- Center: Primary Navigation Tabs -->
+<nav aria-label="Feed Navigation" class="flex items-center gap-4 text-sm font-semibold">
+<!-- Trends Tab (Active) -->
+<div class="relative py-1 flex flex-col items-center">
+<span class="text-[#0066FF] font-bold tracking-wide">Trends</span>
+<!-- Active Blue Underline Glow -->
+<span class="absolute bottom-0 w-4 h-0.5 bg-[#0066FF] rounded-full blue-glow"></span>
+</div>
+<!-- Live Tab (With Pink Pill) -->
+<div class="flex items-center">
+<span class="bg-[#FF2A85] text-white px-2 py-0.5 rounded-full text-[11px] font-bold tracking-wider flex items-center gap-1 shadow-sm shadow-[#FF2A85]/50 animate-pulse">
+<span class="w-1.5 h-1.5 rounded-full bg-white"></span> LIVE
+            </span>
+</div>
+<!-- Shop Tab -->
+<span class="text-white/60 hover:text-white transition-colors cursor-pointer text-sm font-medium">Shop</span>
+</nav>
+<!-- Right: Notifications Button with Pink Dot -->
+<button aria-label="Notifications" class="w-9 h-9 rounded-full bg-white/10 backdrop-blur-md border border-white/15 flex items-center justify-center text-white relative active:scale-95 transition-transform" type="button">
+<svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+<path d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9" stroke-linecap="round" stroke-linejoin="round"></path>
+</svg>
+<!-- Pink dot notification -->
+<span class="absolute top-1.5 right-1.5 w-2.5 h-2.5 rounded-full bg-[#FF2A85] border-2 border-[#080B11] pink-glow"></span>
+</button>
+</div>
+</header>
+<!-- END: TopHeaderSection -->
+<!-- BEGIN: StoryStripSection -->
+<section aria-label="Stories Row" class="mt-2.5 px-4 overflow-x-auto no-scrollbar shrink-0" data-purpose="stories-strip">
+<div class="flex items-center gap-3.5 py-1">
+<!-- Story: Your story with (+) badge -->
+<div class="flex flex-col items-center gap-1.5 shrink-0 cursor-pointer">
+<div class="relative w-14 h-14 rounded-full p-[2px] border border-white/20 flex items-center justify-center">
+<div class="w-full h-full rounded-full bg-gradient-to-tr from-neutral-800 to-neutral-700 flex items-center justify-center text-xs font-semibold text-white/80">
+              You
+            </div>
+<!-- Add badge -->
+<div class="absolute bottom-0 right-0 w-4 h-4 bg-[#0066FF] rounded-full border-2 border-[#080B11] flex items-center justify-center text-white text-[10px] font-bold">
+              +
+            </div>
+</div>
+<span class="text-[11px] text-white/70 tracking-tight font-medium">Your story</span>
+</div>
+<!-- Story: elena_r with LIVE badge -->
+<div class="flex flex-col items-center gap-1.5 shrink-0 cursor-pointer">
+<div class="relative w-14 h-14 rounded-full p-[2px] bg-gradient-to-tr from-[#FF2A85] via-purple-500 to-[#0066FF]">
+<div class="w-full h-full rounded-full bg-[#080B11] p-[2px]">
+<div class="w-full h-full rounded-full bg-neutral-700 flex items-center justify-center text-xs font-semibold text-white/90">
+                ER
+              </div>
+</div>
+<!-- LIVE tiny pill -->
+<span class="absolute -bottom-1 left-1/2 -translate-x-1/2 bg-[#FF2A85] text-white text-[8px] font-black px-1.5 py-0.2 rounded-full uppercase tracking-tighter border border-[#080B11]">
+              LIVE
+            </span>
+</div>
+<span class="text-[11px] text-white/90 tracking-tight font-medium">elena_r</span>
+</div>
+<!-- Story: marcus.v with Green Active Dot -->
+<div class="flex flex-col items-center gap-1.5 shrink-0 cursor-pointer">
+<div class="relative w-14 h-14 rounded-full p-[2px] bg-gradient-to-tr from-[#FF2A85] to-[#0066FF]">
+<div class="w-full h-full rounded-full bg-[#080B11] p-[2px]">
+<div class="w-full h-full rounded-full bg-neutral-800 flex items-center justify-center text-xs font-semibold text-white/80">
+                MV
+              </div>
+</div>
+<span class="absolute bottom-0.5 right-0.5 w-3 h-3 bg-emerald-500 rounded-full border-2 border-[#080B11]"></span>
+</div>
+<span class="text-[11px] text-white/70 tracking-tight font-medium">marcus.v</span>
+</div>
+<!-- Story: novafilms with Gradient Ring -->
+<div class="flex flex-col items-center gap-1.5 shrink-0 cursor-pointer">
+<div class="w-14 h-14 rounded-full p-[2px] bg-gradient-to-tr from-[#FF2A85] via-blue-500 to-[#0066FF]">
+<div class="w-full h-full rounded-full bg-[#080B11] p-[2px]">
+<div class="w-full h-full rounded-full bg-neutral-800 flex items-center justify-center text-xs font-semibold text-white/80">
+                NF
+              </div>
+</div>
+</div>
+<span class="text-[11px] text-white/70 tracking-tight font-medium">novafilms</span>
+</div>
+<!-- Story: koavibes -->
+<div class="flex flex-col items-center gap-1.5 shrink-0 cursor-pointer">
+<div class="w-14 h-14 rounded-full p-[2px] bg-gradient-to-tr from-purple-500 to-[#FF2A85]">
+<div class="w-full h-full rounded-full bg-[#080B11] p-[2px]">
+<div class="w-full h-full rounded-full bg-neutral-800 flex items-center justify-center text-xs font-semibold text-white/80">
+                KV
+              </div>
+</div>
+</div>
+<span class="text-[11px] text-white/70 tracking-tight font-medium">koavibes</span>
+</div>
+</div>
+</section>
+<!-- END: StoryStripSection -->
+<!-- BEGIN: FloatingReelCardSection -->
+<main class="my-2.5 px-4 flex-1 flex flex-col justify-center" data-purpose="floating-reel-player">
+<!-- Framed Floating Reel Card Container -->
+<article class="relative w-full mx-auto rounded-[25px] overflow-hidden luxury-card-shadow bg-[#0F131D] h-full flex-1">
+<!-- Video Background Still -->
+<img alt="Creative filmmaker smiling in golden hour sunlight holding camera" class="w-full h-full object-cover select-none" src="https://lh3.googleusercontent.com/aida/ALJJyrDJOkC-MVcqMsv06IQdC8G4RujoJ93-Ce6rGJMHTaDqtz02X3SFTGtQtIEg3bHXuFjaboz_W9l1JQvVeot7lrA68DuL9AJCQndyyYzomHEkAWy8gM42c0N0XW9QfvoJnIIS33JVz5IuVgpFBLdqya3e_fihtD3oktVkj8Dk7Prv36q9oLtsSKyqX7knIUhWoefowrnRISqcIj9SjmsBpz91tvoWb6URk_sXKaKZhQvO">
+<!-- Dark Gradient Overlays for High Legibility -->
+<!-- Top Overlay -->
+<div class="absolute inset-x-0 top-0 h-28 bg-gradient-to-b from-black/85 via-black/40 to-transparent pointer-events-none"></div>
+<!-- Bottom Overlay -->
+<div class="absolute inset-x-0 bottom-0 h-48 bg-gradient-to-t from-black/95 via-black/60 to-transparent pointer-events-none"></div>
+<!-- Top Player Controls Bar (Frosted Glass Pills) -->
+<div class="absolute top-3.5 inset-x-3.5 flex items-center justify-between z-20">
+<div class="flex items-center gap-1.5">
+<!-- Auto Quality Pill -->
+<button class="px-2.5 py-1 rounded-full bg-black/40 backdrop-blur-md border border-white/15 text-[11px] font-medium text-white/90 flex items-center gap-1 shadow-sm" type="button">
+<span class="w-1.5 h-1.5 rounded-full bg-emerald-400"></span> Auto
+            </button>
+<!-- Loop Pill -->
+<button class="px-2.5 py-1 rounded-full bg-black/40 backdrop-blur-md border border-white/15 text-[11px] font-medium text-white/90 flex items-center gap-1 shadow-sm" type="button">
+<span class="text-[12px] leading-none">⟲</span> Loop
+            </button>
+</div>
+<!-- Captions Pill -->
+<button class="px-2.5 py-1 rounded-full bg-black/40 backdrop-blur-md border border-white/15 text-[11px] font-medium text-white/90 flex items-center gap-1 shadow-sm" type="button">
+<svg class="w-3 h-3 text-white/80" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+<rect height="14" rx="2" width="18" x="3" y="5"></rect>
+<path d="M7 15h3M7 11h7"></path>
+</svg>
+            Captions
+          </button>
+</div>
+<!-- Right Side Action Rail -->
+<div class="absolute right-2.5 bottom-6 flex flex-col items-center gap-3.5 z-20" data-purpose="interaction-rail">
+<!-- Like Button -->
+<div class="flex flex-col items-center gap-0.5 cursor-pointer group">
+<div class="w-10 h-10 rounded-full bg-black/35 backdrop-blur-md border border-white/20 flex items-center justify-center text-white active:scale-90 transition-transform">
+<svg class="w-5 h-5 fill-white" viewBox="0 0 24 24">
+<path d="M12 21.35l-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54L12 21.35z"></path>
+</svg>
+</div>
+<span class="text-[11px] font-semibold tracking-tight text-white drop-shadow">148.5K</span>
+</div>
+<!-- Comment Button -->
+<div class="flex flex-col items-center gap-0.5 cursor-pointer group">
+<div class="w-10 h-10 rounded-full bg-black/35 backdrop-blur-md border border-white/20 flex items-center justify-center text-white active:scale-90 transition-transform">
+<svg class="w-5 h-5 stroke-[2]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+<path d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" stroke-linecap="round" stroke-linejoin="round"></path>
+</svg>
+</div>
+<span class="text-[11px] font-semibold tracking-tight text-white drop-shadow">2,840</span>
+</div>
+<!-- Bookmark Button -->
+<div class="flex flex-col items-center gap-0.5 cursor-pointer group">
+<div class="w-10 h-10 rounded-full bg-black/35 backdrop-blur-md border border-white/20 flex items-center justify-center text-white active:scale-90 transition-transform">
+<svg class="w-5 h-5 stroke-[2]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+<path d="M5 5a2 2 0 012-2h10a2 2 0 012 2v16l-7-3.5L5 21V5z" stroke-linecap="round" stroke-linejoin="round"></path>
+</svg>
+</div>
+<span class="text-[11px] font-semibold tracking-tight text-white drop-shadow">14.2K</span>
+</div>
+<!-- Radiant Gift Button (Brand Secondary Pink) -->
+<div class="flex flex-col items-center gap-0.5 cursor-pointer group">
+<div class="w-10 h-10 rounded-full bg-[#FF2A85] text-white flex items-center justify-center pink-glow active:scale-95 transition-transform border border-white/40">
+<!-- Gift Box Icon -->
+<svg class="w-5 h-5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+<polyline points="20 12 20 22 4 22 4 12"></polyline>
+<rect height="5" width="20" x="2" y="7"></rect>
+<line x1="12" x2="12" y1="22" y2="7"></line>
+<path d="M12 7H7.5a2.5 2.5 0 0 1 0-5C11 2 12 7 12 7z"></path>
+<path d="M12 7h4.5a2.5 2.5 0 0 0 0-5C13 2 12 7 12 7z"></path>
+</svg>
+</div>
+<span class="text-[10px] font-bold tracking-tight text-[#FF2A85] drop-shadow">Gift</span>
+</div>
+<!-- Share Button -->
+<div class="flex flex-col items-center gap-0.5 cursor-pointer group">
+<div class="w-10 h-10 rounded-full bg-black/35 backdrop-blur-md border border-white/20 flex items-center justify-center text-white active:scale-90 transition-transform">
+<svg class="w-4 h-4 stroke-[2.2]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+<line x1="22" x2="11" y1="2" y2="13"></line>
+<polygon points="22 2 15 22 11 13 2 9 22 2"></polygon>
+</svg>
+</div>
+<span class="text-[11px] font-semibold tracking-tight text-white drop-shadow">Share</span>
+</div>
+<!-- Rotating Vinyl Disc Audio Icon -->
+<div class="mt-1 relative w-9 h-9 rounded-full bg-neutral-900 border-2 border-white/80 p-1 flex items-center justify-center animate-spin-slow">
+<div class="w-full h-full rounded-full bg-gradient-to-tr from-stone-900 via-neutral-700 to-stone-900 flex items-center justify-center border border-white/20">
+<div class="w-2.5 h-2.5 rounded-full bg-[#080B11] border border-white/40"></div>
+</div>
+</div>
+</div>
+<!-- Bottom Left Creator Details & Captions -->
+<div class="absolute left-3.5 right-16 bottom-4 z-20 flex flex-col gap-2" data-purpose="creator-meta">
+<!-- Creator Profile Row -->
+<div class="flex items-center gap-2">
+<!-- Small Avatar -->
+<div class="w-9 h-9 rounded-full p-[1.5px] bg-gradient-to-r from-[#FF2A85] to-[#0066FF] shrink-0">
+<div class="w-full h-full rounded-full bg-neutral-800 flex items-center justify-center text-xs font-bold text-white uppercase">
+                CJ
+              </div>
+</div>
+<!-- Username & Verification -->
+<div class="flex items-center gap-1">
+<span class="font-bold text-sm tracking-tight text-white drop-shadow-md">@cjangel</span>
+<!-- Verified Blue Check Badge -->
+<svg class="w-4 h-4 text-[#0066FF] fill-current" viewBox="0 0 24 24">
+<path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-2 15l-5-5 1.41-1.41L10 14.17l7.59-7.59L19 8l-9 9z"></path>
+</svg>
+</div>
+<!-- Follow CTA Button (Brand Blue) -->
+<button class="ml-1 px-3 py-1 bg-[#0066FF] hover:bg-[#2563EB] text-white text-[11px] font-bold rounded-full transition-colors active:scale-95 shadow-sm shadow-[#0066FF]/60" type="button">
+              Follow
+            </button>
+</div>
+<!-- Video Caption Description -->
+<p class="text-xs text-white/95 leading-relaxed font-normal drop-shadow pr-2">
+            Capturing the spontaneous moments in creative filmmaking 🎬 <span class="font-semibold text-white/90">#cinematic #creator</span>
+</p>
+<!-- Audio Ticker with Soundwave Effect -->
+<div class="flex items-center gap-2 text-[11px] text-white/90 font-medium">
+<span class="shrink-0">🎵</span>
+<span class="truncate">Original sound - @cjangel</span>
+<!-- Mini audio visualizer waves -->
+<div class="flex items-end gap-0.5 h-3 ml-1 shrink-0">
+<span class="w-0.5 h-2 bg-white/80 rounded-full animate-pulse"></span>
+<span class="w-0.5 h-3 bg-white rounded-full"></span>
+<span class="w-0.5 h-1.5 bg-white/70 rounded-full animate-pulse"></span>
+<span class="w-0.5 h-2.5 bg-white rounded-full"></span>
+</div>
+</div>
+</div>
+</article>
+</main>
+<!-- END: FloatingReelCardSection -->
+<!-- BEGIN: BottomInteractionBar -->
+<footer class="px-4 pt-1 pb-1 z-30 shrink-0" data-purpose="quick-comment-and-reactions">
+<div class="flex items-center gap-2">
+<!-- Pill Input: Add a comment -->
+<div class="flex-1 bg-[#0F131D]/90 backdrop-blur-md border border-white/15 rounded-full px-3.5 py-2 flex items-center justify-between shadow-lg">
+<input class="bg-transparent text-xs text-white placeholder-white/40 focus:outline-none w-full border-none p-0 focus:ring-0" placeholder="Add a comment..." type="text">
+<button aria-label="Emoji Picker" class="text-white/60 hover:text-white transition-colors ml-1.5 shrink-0" type="button">
+<svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+<circle cx="12" cy="12" r="10"></circle>
+<path d="M8 14s1.5 2 4 2 4-2 4-2"></path>
+<line x1="9" x2="9.01" y1="9" y2="9"></line>
+<line x1="15" x2="15.01" y1="9" y2="9"></line>
+</svg>
+</button>
+</div>
+<!-- Quick Reaction Emoji Shortcuts -->
+<div class="flex items-center gap-1 shrink-0">
+<button aria-label="React Fire" class="w-8 h-8 rounded-full bg-white/10 hover:bg-white/20 active:scale-90 transition border border-white/10 flex items-center justify-center text-sm" type="button">
+            🔥
+          </button>
+<button aria-label="React Laugh" class="w-8 h-8 rounded-full bg-white/10 hover:bg-white/20 active:scale-90 transition border border-white/10 flex items-center justify-center text-sm" type="button">
+            😂
+          </button>
+<button aria-label="React Love" class="w-8 h-8 rounded-full bg-white/10 hover:bg-white/20 active:scale-90 transition border border-white/10 flex items-center justify-center text-sm" type="button">
+            😍
+          </button>
+<!-- Microphone Voice Note Button -->
+<button aria-label="Voice Comment" class="w-8 h-8 rounded-full bg-white/10 hover:bg-white/20 active:scale-90 transition border border-white/10 flex items-center justify-center text-white/80" type="button">
+<svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+<path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"></path>
+<path d="M19 10v2a7 7 0 0 1-14 0v-2"></path>
+<line x1="12" x2="12" y1="19" y2="23"></line>
+<line x1="8" x2="16" y1="23" y2="23"></line>
+</svg>
+</button>
+</div>
+</div>
+<!-- iOS Home Bar Indicator -->
+<div class="w-32 h-1 bg-white/25 rounded-full mx-auto mt-3"></div>
+</footer>
+<!-- END: BottomInteractionBar -->
+</div>
+
+
+</body></html>

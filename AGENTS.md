@@ -10,7 +10,7 @@ This app is **Oneova**. Re-introducing old versions burns tokens and the user's 
 
 ## 1. LOCKED (do not change without explicit user request)
 - Home = `ShortVideoFeedScreen` (`lib/feed/main_feed_screen.dart`) at `/hub/home`. Splash `/splash` -> home.
-- Bottom nav = `OneovaBottomNav` (`lib/shared/widgets/oneova_bottom_nav.dart`): Reels | Chat | STUDIO(+) | AI Lab | Me. Used by `HubShell` in `lib/shared/router.dart`.
+- Bottom nav = `OneovaBottomNav` (`lib/shared/widgets/oneova_bottom_nav.dart`): Reels | Chat | STUDIO(+) | Wallet | Me. Used by `HubShell` in `lib/shared/router.dart`.
 - Top row: Search · Following / For You / Biz · Bell. Stories row below it.
 - Routes that must exist: `/splash`, `/hub/home`, `/hub/messages`, `/hub/ai`, `/hub/discover`, `/biz_feed`, `/notifications`, `/profile/me`, `/profile/:uid`.
 

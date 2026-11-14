@@ -663,7 +663,7 @@ class _ReelCommentBarState extends ConsumerState<ReelCommentBar> with SingleTick
     final pill = ClipRRect(
       borderRadius: BorderRadius.circular(AppRadius.full),
       child: Container(
-        height: widget.framed ? 38 : 36,
+        height: 36,
         padding: EdgeInsets.only(left: 14, right: widget.framed ? 6 : 4),
         decoration: BoxDecoration(
           color: p.glassStrong,

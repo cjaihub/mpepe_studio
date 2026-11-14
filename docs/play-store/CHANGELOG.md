@@ -1,5 +1,21 @@
 # Oneova release notes
 
+## 1.0.0 (37) — 2026-11-14 · Internal Testing Release
+
+**Framed Reels & Full-Screen Mode**
+- **Framed reel**: each reel sits in a rounded screen frame with Trends · LIVE · Shop on top, your stories underneath, Auto, Loop and Captions inside the frame, a Gift button on the side, and the comment bar with quick reactions and the mic below.
+- **Full screen with one tap**: the full-screen button in the frame hides the top and bottom bars and keeps only the reel actions; tap Exit or go back to return.
+- **Voice typing that keeps listening**: speak naturally with pauses, pick your language while you talk.
+- **Faster Ova**: answers appear word by word and sound friendlier on reels.
+
+**Wallet Tab & Mobile Money Dashboard**
+- **Wallet on the home bar**: Oneova Pay sits right next to STUDIO (+) for instant access to your balance, virtual card, Add Money, Withdraw, recent activity, and open shops.
+- **AI in Chats & Draw "O"**: open AI Lab from the glowing AI button in Chats, and jump straight to your wallet from Ova Assistant when drawing an "O".
+
+**Your choice on sensitive topics**
+- **Include sensitive topics** (Settings → Privacy → Personalisation): off by default. Turn it on and your feed can learn interests like fitness, gospel, elections or budgeting from your Ova chats, only for your own feed. Turn it off and they're deleted.
+- Sexuality, sexual content, ethnicity and crime are never learned.
+
 ## 1.0.0 (36) — 2026-11-14 · Internal Testing Release
 
 **Full-screen Reels and live translated calls**

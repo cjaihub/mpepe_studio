@@ -1,0 +1,295 @@
+<!DOCTYPE html>
+
+<html lang="en"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" name="viewport"/>
+<title>Short Video Feed Experience</title>
+<!-- Tailwind CSS v3 with Plugins -->
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<!-- Google Fonts: Inter -->
+<link href="https://fonts.googleapis.com" rel="preconnect"/>
+<link crossorigin="" href="https://fonts.gstatic.com" rel="preconnect"/>
+<link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&amp;display=swap" rel="stylesheet"/>
+<!-- Tailwind Configuration -->
+<script data-purpose="tailwind-config">
+    tailwind.config = {
+      theme: {
+        extend: {
+          fontFamily: {
+            sans: ['"Plus Jakarta Sans"', 'sans-serif'],
+          },
+          colors: {
+            brand: {
+              pink: '#FF2E7E',
+              purple: '#7928CA',
+              blue: '#0070F3',
+              cyan: '#00DFD8',
+            }
+          },
+          animation: {
+            'spin-slow': 'spin 5s linear infinite',
+            'sound-wave-1': 'soundWave 1.2s ease-in-out infinite',
+            'sound-wave-2': 'soundWave 1.2s ease-in-out infinite 0.2s',
+            'sound-wave-3': 'soundWave 1.2s ease-in-out infinite 0.4s',
+          },
+          keyframes: {
+            soundWave: {
+              '0%, 100%': { height: '4px' },
+              '50%': { height: '14px' },
+            }
+          }
+        }
+      }
+    }
+  </script>
+<!-- Custom Styles: Glassmorphism and Mobile Reset -->
+<style data-purpose="custom-layout-tweaks">
+    /* Disable bounce scroll and ensure high performance view */
+    body {
+      background-color: #030712;
+      touch-action: pan-y;
+      -webkit-tap-highlight-color: transparent;
+      user-select: none;
+    }
+    
+    /* Subtle scrollbar hiding for horizontal chip list */
+    .no-scrollbar::-webkit-scrollbar {
+      display: none;
+    }
+    .no-scrollbar {
+      -ms-overflow-style: none;
+      scrollbar-width: none;
+    }
+
+    /* Soft shadow text for video overlay legibility */
+    .shadow-ambient-text {
+      text-shadow: 0 1px 3px rgba(0, 0, 0, 0.75), 0 3px 12px rgba(0, 0, 0, 0.5);
+    }
+  </style>
+</head>
+<body class="flex justify-center items-center min-h-screen bg-slate-950 font-sans text-white antialiased">
+<!-- BEGIN: PhoneFrameContainer -->
+<!-- Outer viewport wrapper simulating high-end iOS mobile form factor -->
+<div class="relative w-full max-w-[430px] h-[100dvh] max-h-[932px] overflow-hidden bg-black shadow-2xl flex flex-col justify-between select-none" style="border-radius: 28px;"><!-- BEGIN: Ambient Background Glow -->
+<div class="absolute inset-0 bg-[#090a0f] pointer-events-none overflow-hidden z-0">
+<div class="absolute top-1/4 left-1/2 -translate-x-1/2 w-80 h-96 bg-brand-purple/15 rounded-full filter blur-3xl"></div>
+<div class="absolute top-1/3 left-1/3 w-64 h-64 bg-brand-pink/10 rounded-full filter blur-3xl"></div>
+</div>
+<!-- END: Ambient Background Glow -->
+<!-- BEGIN: TopHeaderNavigation -->
+<header class="relative z-20 px-4 flex flex-col bg-transparent pt-1">
+<div class="flex items-center justify-between w-full pb-2">
+<button aria-label="Search" class="w-10 h-10 rounded-full bg-white/10 backdrop-blur-md border border-white/10 flex items-center justify-center text-white/90 active:scale-95 transition-all shadow-sm">
+<svg class="w-5 h-5 stroke-[2.2]" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" viewbox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+<circle cx="11" cy="11" r="8"></circle>
+<line x1="21" x2="16.65" y1="21" y2="16.65"></line>
+</svg>
+</button>
+<nav aria-label="Feed channels" class="flex items-center gap-6">
+<div class="relative flex flex-col items-center">
+<button class="text-base font-bold text-sky-400 tracking-wide">Trends</button>
+<span class="absolute -bottom-2 w-4 h-0.5 rounded-full bg-brand-blue shadow-sm"></span>
+</div>
+<button class="flex items-center gap-1 px-2 py-0.5 rounded-full bg-brand-pink/20 border border-brand-pink/30 hover:bg-brand-pink/30 transition-colors">
+<span class="w-1.5 h-1.5 rounded-full bg-brand-pink animate-pulse"></span>
+<span class="text-[11px] font-bold text-brand-pink tracking-wider uppercase">Live</span>
+</button>
+<button class="text-sm font-semibold text-sky-400/70 tracking-wide hover:text-sky-300 transition-colors duration-200">Shop</button>
+</nav>
+<button aria-label="Notifications" class="relative w-10 h-10 rounded-full bg-white/10 backdrop-blur-md border border-white/10 flex items-center justify-center text-white/90 active:scale-95 transition-all shadow-sm">
+<svg class="w-5 h-5 stroke-[2]" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" viewbox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+<path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"></path>
+<path d="M13.73 21a2 2 0 0 1-3.46 0"></path>
+</svg>
+<span class="absolute top-2.5 right-2.5 w-2 h-2 rounded-full bg-brand-pink ring-2 ring-black"></span>
+</button>
+</div>
+<!-- Creator Status Stories Strip -->
+<div class="flex items-center gap-2.5 overflow-x-auto no-scrollbar w-full pt-1 pb-1">
+<button class="flex flex-col items-center gap-0.5 shrink-0 group active:scale-95 transition-transform">
+<div class="relative">
+<div class="w-10 h-10 rounded-full p-[2px] bg-gradient-to-tr from-brand-pink to-brand-blue shadow-md">
+<img alt="Your Story" class="w-full h-full object-cover rounded-full" src="https://lh3.googleusercontent.com/aida-public/AB6AXuC0My3lwPdf_03RDbR2aQfhxK6qmLggAXNanGzybihtCHA5QyTwWgLpdPediEjMc34kaJD7-dHaba9FLJx3aOn0RTxUyPmn9YovmkWxu9jQHSY6gVYXS5V4InLNiH2I1PbdmgtpMpZSGoMrstaxx8U2caPz7cyFj-cRM-fsSECswgTUUMFN3skNtr_O1Wbii2sNkTMjLlvxeR9sToL6YSG7jUW0-rDoJGxP89QDLVjrXHL_6Uchv51h"/>
+</div>
+<span class="absolute -bottom-0.5 right-0 w-3.5 h-3.5 rounded-full bg-brand-pink border border-black flex items-center justify-center text-white text-[9px] font-bold shadow-sm leading-none">+</span>
+</div>
+<span class="text-[10px] font-medium text-white/90 truncate max-w-[50px]">Your story</span>
+</button>
+<button class="flex flex-col items-center gap-0.5 shrink-0 group active:scale-95 transition-transform">
+<div class="relative">
+<div class="w-10 h-10 rounded-full p-[2px] bg-gradient-to-tr from-brand-pink via-brand-purple to-brand-cyan shadow-md animate-pulse">
+<img alt="Elena Live" class="w-full h-full object-cover rounded-full" src="https://lh3.googleusercontent.com/aida/ALJJyrDJOkC-MVcqMsv06IQdC8G4RujoJ93-Ce6rGJMHTaDqtz02X3SFTGtQtIEg3bHXuFjaboz_W9l1JQvVeot7lrA68DuL9AJCQndyyYzomHEkAWy8gM42c0N0XW9QfvoJnIIS33JVz5IuVgpFBLdqya3e_fihtD3oktVkj8Dk7Prv36q9oLtsSKyqX7knIUhWoefowrnRISqcIj9SjmsBpz91tvoWb6URk_sXKaKZhQvO"/>
+</div>
+<span class="absolute -bottom-0.5 left-1/2 -translate-x-1/2 px-1 py-0.5 rounded-full bg-brand-pink text-[8px] font-bold text-white tracking-wider uppercase shadow-sm leading-none">LIVE</span>
+</div>
+<span class="text-[10px] font-medium text-white/90 truncate max-w-[50px]">elena_r</span>
+</button>
+<button class="flex flex-col items-center gap-0.5 shrink-0 group active:scale-95 transition-transform">
+<div class="relative">
+<div class="w-10 h-10 rounded-full p-[2px] bg-gradient-to-tr from-brand-blue to-brand-purple shadow-md">
+<img alt="Marcus Story" class="w-full h-full object-cover rounded-full" src="https://lh3.googleusercontent.com/aida-public/AB6AXuC0My3lwPdf_03RDbR2aQfhxK6qmLggAXNanGzybihtCHA5QyTwWgLpdPediEjMc34kaJD7-dHaba9FLJx3aOn0RTxUyPmn9YovmkWxu9jQHSY6gVYXS5V4InLNiH2I1PbdmgtpMpZSGoMrstaxx8U2caPz7cyFj-cRM-fsSECswgTUUMFN3skNtr_O1Wbii2sNkTMjLlvxeR9sToL6YSG7jUW0-rDoJGxP89QDLVjrXHL_6Uchv51h"/>
+</div>
+<span class="absolute bottom-0 right-0 w-2 h-2 rounded-full bg-emerald-400 ring-2 ring-black"></span>
+</div>
+<span class="text-[10px] font-medium text-white/80 truncate max-w-[50px]">marcus.v</span>
+</button>
+<button class="flex flex-col items-center gap-0.5 shrink-0 group active:scale-95 transition-transform">
+<div class="relative">
+<div class="w-10 h-10 rounded-full p-[2px] bg-gradient-to-tr from-brand-pink to-brand-purple shadow-md">
+<img alt="Nova Story" class="w-full h-full object-cover rounded-full" src="https://lh3.googleusercontent.com/aida/ALJJyrDJOkC-MVcqMsv06IQdC8G4RujoJ93-Ce6rGJMHTaDqtz02X3SFTGtQtIEg3bHXuFjaboz_W9l1JQvVeot7lrA68DuL9AJCQndyyYzomHEkAWy8gM42c0N0XW9QfvoJnIIS33JVz5IuVgpFBLdqya3e_fihtD3oktVkj8Dk7Prv36q9oLtsSKyqX7knIUhWoefowrnRISqcIj9SjmsBpz91tvoWb6URk_sXKaKZhQvO"/>
+</div>
+<span class="absolute bottom-0 right-0 w-2 h-2 rounded-full bg-emerald-400 ring-2 ring-black"></span>
+</div>
+<span class="text-[10px] font-medium text-white/80 truncate max-w-[50px]">novafilms</span>
+</button>
+<button class="flex flex-col items-center gap-0.5 shrink-0 group active:scale-95 transition-transform">
+<div class="relative">
+<div class="w-10 h-10 rounded-full p-[2px] bg-white/20 shadow-md">
+<img alt="Koa Story" class="w-full h-full object-cover rounded-full" src="https://lh3.googleusercontent.com/aida-public/AB6AXuC0My3lwPdf_03RDbR2aQfhxK6qmLggAXNanGzybihtCHA5QyTwWgLpdPediEjMc34kaJD7-dHaba9FLJx3aOn0RTxUyPmn9YovmkWxu9jQHSY6gVYXS5V4InLNiH2I1PbdmgtpMpZSGoMrstaxx8U2caPz7cyFj-cRM-fsSECswgTUUMFN3skNtr_O1Wbii2sNkTMjLlvxeR9sToL6YSG7jUW0-rDoJGxP89QDLVjrXHL_6Uchv51h"/>
+</div>
+</div>
+<span class="text-[10px] font-medium text-white/60 truncate max-w-[50px]">koavibes</span>
+</button>
+</div>
+</header>
+<!-- END: TopHeaderNavigation -->
+<!-- BEGIN: Floating Zoomed-Out Reel Player Card -->
+<div class="relative z-10 flex-1 flex flex-col items-center justify-center min-h-0 px-2">
+<div class="relative w-full max-w-[390px] h-full rounded-[26px] overflow-hidden border border-white/20 shadow-2xl bg-black flex flex-col justify-between ring-1 ring-white/10" style="box-shadow: 0 25px 50px -12px rgba(0, 102, 255, 0.25), 0 0 35px rgba(255, 42, 133, 0.15), 0 10px 20px -5px rgba(0,0,0,0.8); border-radius: 25px;">
+<!-- Video Background Image Layer -->
+<div class="absolute inset-0 z-0">
+<img alt="Creator Portrait Reel" class="w-full h-full object-cover object-center filter contrast-[1.03] brightness-[0.96]" src="https://lh3.googleusercontent.com/aida/ALJJyrDJOkC-MVcqMsv06IQdC8G4RujoJ93-Ce6rGJMHTaDqtz02X3SFTGtQtIEg3bHXuFjaboz_W9l1JQvVeot7lrA68DuL9AJCQndyyYzomHEkAWy8gM42c0N0XW9QfvoJnIIS33JVz5IuVgpFBLdqya3e_fihtD3oktVkj8Dk7Prv36q9oLtsSKyqX7knIUhWoefowrnRISqcIj9SjmsBpz91tvoWb6URk_sXKaKZhQvO"/>
+<div class="absolute inset-0 bg-gradient-to-b from-black/50 via-transparent to-black/90 pointer-events-none"></div>
+</div>
+<!-- Reel Internal Top Bar (Quick Controls) -->
+<div class="relative z-10 p-3 flex items-center justify-between">
+<div class="flex items-center gap-1.5">
+<div class="px-2 py-0.5 rounded-full bg-black/50 backdrop-blur-md border border-white/10 flex items-center gap-1 text-[10px] font-medium text-white/90">
+<span class="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse"></span>
+<span>Auto</span>
+</div>
+<div class="px-2 py-0.5 rounded-full bg-black/50 backdrop-blur-md border border-white/10 flex items-center gap-1 text-[10px] font-medium text-white/70">
+<svg class="w-2.5 h-2.5" fill="none" stroke="currentColor" viewbox="0 0 24 24">
+<path d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" stroke-linecap="round" stroke-linejoin="round" stroke-width="2"></path>
+</svg>
+<span>Loop</span>
+</div>
+</div>
+<div class="px-2 py-0.5 rounded-full bg-black/50 backdrop-blur-md border border-white/10 flex items-center gap-1 text-[10px] font-medium text-white/70">
+<svg class="w-2.5 h-2.5" fill="none" stroke="currentColor" viewbox="0 0 24 24">
+<rect height="14" rx="2" stroke-width="2" width="18" x="3" y="5"></rect>
+<path d="M7 15h2M15 15h2M7 11h10" stroke-linecap="round" stroke-width="2"></path>
+</svg>
+<span>Captions</span>
+</div>
+</div>
+<!-- Reel Internal Bottom Content & Action Rail -->
+<div class="relative z-10 p-3 pt-0 grid grid-cols-[1fr_auto] items-end gap-2 mt-auto">
+<!-- Left Creator Meta -->
+<div class="flex flex-col space-y-2 max-w-[240px]">
+<div class="flex items-center gap-2">
+<div class="relative">
+<div class="w-8 h-8 rounded-full ring-2 ring-brand-blue/80 p-0.5 overflow-hidden bg-slate-800">
+<img alt="Author Avatar" class="w-full h-full object-cover rounded-full" src="https://lh3.googleusercontent.com/aida-public/AB6AXuC0My3lwPdf_03RDbR2aQfhxK6qmLggAXNanGzybihtCHA5QyTwWgLpdPediEjMc34kaJD7-dHaba9FLJx3aOn0RTxUyPmn9YovmkWxu9jQHSY6gVYXS5V4InLNiH2I1PbdmgtpMpZSGoMrstaxx8U2caPz7cyFj-cRM-fsSECswgTUUMFN3skNtr_O1Wbii2sNkTMjLlvxeR9sToL6YSG7jUW0-rDoJGxP89QDLVjrXHL_6Uchv51h"/>
+</div>
+<span class="absolute bottom-0 right-0 w-2 h-2 rounded-full bg-emerald-500 ring-2 ring-black"></span>
+</div>
+<div class="flex items-center gap-1">
+<span class="font-bold text-xs tracking-wide shadow-ambient-text">cjangel</span>
+<svg class="w-3.5 h-3.5 text-sky-400 fill-current" viewbox="0 0 24 24">
+<path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-1.2 14.6l-3.9-3.9 1.4-1.4 2.5 2.5 6.1-6.1 1.4 1.4-7.5 7.5z"></path>
+</svg>
+</div>
+<button class="ml-1 px-2.5 py-0.5 text-[11px] font-semibold rounded-full bg-brand-blue hover:bg-brand-blue/80 border border-brand-blue/40 text-white transition duration-150 flex items-center gap-0.5 active:scale-95 shadow-md shadow-brand-blue/30" type="button">
+<span>Follow</span>
+</button>
+</div>
+<div class="text-[11px] leading-snug text-white/95 shadow-ambient-text">
+<p class="font-normal line-clamp-2">
+            Capturing the spontaneous moments in creative filmmaking 🎬 <span class="font-medium text-sky-300">#cinematic</span> <span class="font-medium text-pink-300">#creator</span>
+</p>
+</div>
+<!-- Audio Marquee -->
+<div class="inline-flex items-center gap-1.5 py-0.5 px-2 rounded-full bg-black/40 backdrop-blur-md border border-white/10 w-fit max-w-[210px]">
+<svg class="w-3 h-3 text-brand-pink shrink-0" fill="currentColor" viewbox="0 0 24 24">
+<path d="M12 3v10.55c-.59-.34-1.27-.55-2-.55-2.21 0-4 1.79-4 4s1.79 4 4 4 4-1.79 4-4V7h4V3h-6z"></path>
+</svg>
+<span class="text-[10px] font-medium text-white/80 truncate">Original sound - @cjangel</span>
+<div class="flex items-center gap-0.5 h-2.5 shrink-0 ml-0.5">
+<span class="w-[2px] bg-brand-pink rounded-full animate-sound-wave-1"></span>
+<span class="w-[2px] bg-brand-cyan rounded-full animate-sound-wave-2"></span>
+<span class="w-[2px] bg-brand-purple rounded-full animate-sound-wave-3"></span>
+</div>
+</div>
+</div>
+<!-- Right Compact Action Rail -->
+<aside aria-label="Video actions" class="flex flex-col items-center space-y-2 pb-0.5">
+<!-- Like Button -->
+<button class="group flex flex-col items-center gap-0.5 active:scale-90 transition-transform">
+<div class="w-9 h-9 rounded-full bg-black/50 backdrop-blur-md border border-white/15 flex items-center justify-center text-white group-hover:bg-brand-pink/20 transition-colors shadow-md">
+<svg class="w-5 h-5 text-white group-hover:text-brand-pink transition-colors fill-transparent hover:fill-brand-pink stroke-[2.2]" stroke="currentColor" viewbox="0 0 24 24">
+<path d="M4.318 6.318a4.5 4.5 0 000 6.364L12 20.364l7.682-7.682a4.5 4.5 0 00-6.364-6.364L12 7.636l-1.318-1.318a4.5 4.5 0 00-6.364 0z" stroke-linecap="round" stroke-linejoin="round"></path>
+</svg>
+</div>
+<span class="text-[10px] font-semibold text-white/90 shadow-ambient-text">148.5K</span>
+</button>
+<!-- Comment Button -->
+<button class="group flex flex-col items-center gap-0.5 active:scale-90 transition-transform">
+<div class="w-9 h-9 rounded-full bg-black/50 backdrop-blur-md border border-white/15 flex items-center justify-center text-white group-hover:bg-sky-500/20 transition-colors shadow-md">
+<svg class="w-5 h-5 text-white stroke-[2.2]" fill="none" stroke="currentColor" viewbox="0 0 24 24">
+<path d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" stroke-linecap="round" stroke-linejoin="round"></path>
+</svg>
+</div>
+<span class="text-[10px] font-semibold text-white/90 shadow-ambient-text">2,840</span>
+</button>
+<!-- Bookmark Button -->
+<button class="group flex flex-col items-center gap-0.5 active:scale-90 transition-transform">
+<div class="w-9 h-9 rounded-full bg-black/50 backdrop-blur-md border border-white/15 flex items-center justify-center text-white group-hover:bg-amber-500/20 transition-colors shadow-md">
+<svg class="w-5 h-5 text-white stroke-[2.2]" fill="none" stroke="currentColor" viewbox="0 0 24 24">
+<path d="M5 5a2 2 0 012-2h10a2 2 0 012 2v16l-7-3.5L5 21V5z" stroke-linecap="round" stroke-linejoin="round"></path>
+</svg>
+</div>
+<span class="text-[10px] font-semibold text-white/90 shadow-ambient-text">14.2K</span>
+</button>
+<!-- Gift Button -->
+<button class="group flex flex-col items-center gap-0.5 active:scale-90 transition-transform"><div class="w-9 h-9 rounded-full bg-brand-pink/20 border border-brand-pink/50 flex items-center justify-center text-brand-pink group-hover:bg-brand-pink/30 transition-colors shadow-md shadow-brand-pink/30"><svg class="w-4 h-4 text-brand-pink stroke-[2.2]" fill="none" stroke="currentColor" viewbox="0 0 24 24"><polyline points="20 12 20 22 4 22 4 12"></polyline><rect height="5" width="20" x="2" y="7"></rect><line x1="12" x2="12" y1="22" y2="7"></line><path d="M12 7H7.5a2.5 2.5 0 0 1 0-5C11 2 12 7 12 7z"></path><path d="M12 7h4.5a2.5 2.5 0 0 0 0-5C13 2 12 7 12 7z"></path></svg></div><span class="text-[10px] font-bold text-pink-300 shadow-ambient-text">Gift</span></button>
+<!-- Spinning Vinyl Disc -->
+<button class="group flex flex-col items-center gap-0.5 active:scale-90 transition-transform"><div class="w-9 h-9 rounded-full bg-black/50 backdrop-blur-md border border-white/15 flex items-center justify-center text-white group-hover:bg-brand-blue/20 transition-colors shadow-md"><svg class="w-4 h-4 text-white stroke-[2.2]" fill="none" stroke="currentColor" viewbox="0 0 24 24"><path d="M8.684 13.342C8.886 12.938 9 12.482 9 12c0-.482-.114-.938-.316-1.342m0 2.684a3 3 0 110-2.684m0 2.684l6.632 3.316m-6.632-6l6.632-3.316m0 0a3 3 0 105.367-2.684 3 3 0 00-5.367 2.684zm0 9.316a3 3 0 105.368 2.684 3 3 0 00-5.368-2.684z" stroke-linecap="round" stroke-linejoin="round"></path></svg></div><span class="text-[10px] font-semibold text-white/90 shadow-ambient-text">Share</span></button><div class="pt-0.5 flex flex-col items-center">
+<div class="relative w-8 h-8 rounded-full bg-gradient-to-tr from-slate-900 to-slate-700 p-0.5 ring-2 ring-white/20 animate-spin-slow shadow-xl">
+<img alt="Sound Track Disc" class="w-full h-full rounded-full object-cover filter saturate-150" src="https://lh3.googleusercontent.com/aida-public/AB6AXuC0My3lwPdf_03RDbR2aQfhxK6qmLggAXNanGzybihtCHA5QyTwWgLpdPediEjMc34kaJD7-dHaba9FLJx3aOn0RTxUyPmn9YovmkWxu9jQHSY6gVYXS5V4InLNiH2I1PbdmgtpMpZSGoMrstaxx8U2caPz7cyFj-cRM-fsSECswgTUUMFN3skNtr_O1Wbii2sNkTMjLlvxeR9sToL6YSG7jUW0-rDoJGxP89QDLVjrXHL_6Uchv51h"/>
+<div class="absolute inset-0 m-auto w-2 h-2 rounded-full bg-black ring-1 ring-white/40"></div>
+</div>
+</div>
+</aside>
+</div>
+</div>
+</div>
+<!-- END: Floating Zoomed-Out Reel Player Card -->
+<!-- BEGIN: Lower Interaction & Next Preview Section -->
+<div class="relative z-20 px-4 pt-1 pb-4 flex flex-col gap-2.5">
+<!-- Quick Comment Input Bar -->
+<div class="flex items-center gap-2 p-1.5 rounded-full bg-white/10 backdrop-blur-xl border border-white/15 shadow-lg">
+<div class="relative flex-1 flex items-center">
+<input class="w-full h-8 pl-3.5 pr-7 rounded-full bg-black/30 border border-white/10 text-xs text-white placeholder-white/50 focus:outline-none focus:ring-1 focus:ring-brand-pink transition-all" placeholder="Add a comment..." type="text"/>
+<button class="absolute right-2 text-white/60 hover:text-white transition-colors">
+<svg class="w-4 h-4" fill="none" stroke="currentColor" viewbox="0 0 24 24">
+<path d="M14.828 14.828a4 4 0 01-5.656 0M9 10h.01M15 10h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" stroke-linecap="round" stroke-linejoin="round" stroke-width="2"></path>
+</svg>
+</button>
+</div>
+<div class="flex items-center gap-1 shrink-0 pr-0.5">
+<button class="w-7 h-7 rounded-full bg-white/10 hover:bg-white/20 flex items-center justify-center text-xs active:scale-125 transition-transform" title="Fire">🔥</button>
+<button class="w-7 h-7 rounded-full bg-white/10 hover:bg-white/20 flex items-center justify-center text-xs active:scale-125 transition-transform" title="Laugh">😂</button>
+<button class="w-7 h-7 rounded-full bg-white/10 hover:bg-white/20 flex items-center justify-center text-xs active:scale-125 transition-transform" title="Heart eyes">😍</button>
+<button class="w-7 h-7 rounded-full bg-brand-pink/20 border border-brand-pink/30 flex items-center justify-center text-brand-pink active:scale-95 transition-transform" title="Audio Reaction">
+<svg class="w-3 h-3 fill-current" viewbox="0 0 24 24">
+<path d="M12 14c1.66 0 3-1.34 3-3V5c0-1.66-1.34-3-3-3S9 3.34 9 5v6c0 1.66 1.34 3 3 3z"></path>
+<path d="M17 11c0 2.76-2.24 5-5 5s-5-2.24-5-5H5c0 3.53 2.61 6.43 6 6.92V21h2v-3.08c3.39-.49 6-3.39 6-6.92h-2z"></path>
+</svg>
+</button>
+</div>
+</div>
+</div>
+<!-- END: Lower Interaction & Next Preview Section --></div>
+<!-- END: PhoneFrameContainer -->
+</body></html>

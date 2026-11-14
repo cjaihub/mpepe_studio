@@ -635,34 +635,6 @@ class _InAppMessagingScreenState extends ConsumerState<InAppMessagingScreen> {
                 ],
               ),
             ),
-            // Ova AI: compact gradient chip
-            Tooltip(
-              message: 'Ova AI Assistant',
-              child: GestureDetector(
-                onTap: () {
-                  HapticFeedback.lightImpact();
-                  OvaAssistantSheet.show(context);
-                },
-                child: Container(
-                  width: 32,
-                  height: 32,
-                  decoration: BoxDecoration(
-                    shape: BoxShape.circle,
-                    gradient: const LinearGradient(
-                      colors: [AppColors.brandBlue, AppColors.brandPink],
-                      begin: Alignment.topLeft,
-                      end: Alignment.bottomRight,
-                    ),
-                    border: Border.all(
-                      color: fg.withValues(alpha: 0.35),
-                      width: 1,
-                    ),
-                  ),
-                  child: Icon(Icons.auto_awesome_rounded, color: fg, size: 16),
-                ),
-              ),
-            ),
-            const SizedBox(width: 2),
             action(
               Icons.camera_alt_outlined,
               'Camera',
@@ -3223,6 +3195,44 @@ class _InAppMessagingScreenState extends ConsumerState<InAppMessagingScreen> {
 
   /// Labelled primary action above the bottom nav ("New chat" / "New call").
   Widget _buildComposeFab({bool forCall = false}) {
+    final compose = _composeButton(forCall: forCall);
+    if (forCall) return compose;
+    // AI lives here now (the AI Lab tab became Wallet): one tap opens the AI Lab.
+    return Row(mainAxisSize: MainAxisSize.min, children: [
+      Semantics(
+        button: true,
+        label: 'Ova and AI tools',
+        child: GestureDetector(
+          onTap: () {
+            HapticFeedback.lightImpact();
+            context.push('/hub/ai');
+          },
+          onLongPress: () {
+            HapticFeedback.mediumImpact();
+            OvaAssistantSheet.show(context);
+          },
+          child: Container(
+            width: 48,
+            height: 48,
+            decoration: BoxDecoration(
+              shape: BoxShape.circle,
+              gradient: const LinearGradient(
+                colors: [AppColors.brandBlue, AppColors.brandPink],
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
+              ),
+              boxShadow: AppShadows.md,
+            ),
+            child: const Icon(Icons.auto_awesome_rounded, color: AppColors.brandWhite, size: 22),
+          ),
+        ),
+      ).animate().fadeIn(duration: 250.ms).scale(begin: const Offset(0.85, 0.85)),
+      const SizedBox(width: 10),
+      compose,
+    ]);
+  }
+
+  Widget _composeButton({bool forCall = false}) {
     return MediaQuery.withClampedTextScaling(
       maxScaleFactor: 1.1,
       child: Material(

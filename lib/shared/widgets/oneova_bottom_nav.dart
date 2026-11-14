@@ -1,5 +1,6 @@
 // LOCKED WIDGET — see .agents/rules/oneova_home_launch_screen.md and AGENTS.md.
-// Matches the approved home design: Reels | Chat(badge) | STUDIO (+) | AI Lab(dot) | Me(dot).
+// Matches the approved home design: Reels | Chat(badge) | STUDIO (+) | Wallet | Me(dot).
+// 2026-11-14: AI Lab tab replaced by Wallet on the user's explicit request (AI now opens from Chats).
 // Glyphs upgraded on user request (custom Reels/Chat painters, gradient AI, avatar Me); layout unchanged.
 // Do NOT restyle, reorder, or replace without explicit user approval.
 import 'package:flutter/material.dart';
@@ -14,14 +15,14 @@ import 'oneova_nav_glyphs.dart';
 /// Draws a tab glyph for the given state.
 typedef _GlyphBuilder = Widget Function(bool active, Color color, double size);
 
-enum OneovaTab { reels, chat, ai, me }
+enum OneovaTab { reels, chat, wallet, me }
 
 class OneovaBottomNav extends ConsumerWidget {
   final OneovaTab? active;
   final VoidCallback onReels;
   final VoidCallback onChat;
   final VoidCallback onStudio;
-  final VoidCallback onAi;
+  final VoidCallback onWallet;
   final VoidCallback onMe;
 
   const OneovaBottomNav({
@@ -30,7 +31,7 @@ class OneovaBottomNav extends ConsumerWidget {
     required this.onReels,
     required this.onChat,
     required this.onStudio,
-    required this.onAi,
+    required this.onWallet,
     required this.onMe,
   });
 
@@ -75,11 +76,12 @@ class OneovaBottomNav extends ConsumerWidget {
               _studio(context),
               _item(
                 context,
-                (a, c, s) => a ? GradientIcon(Icons.auto_awesome_rounded, size: s) : Icon(Icons.auto_awesome_outlined, color: c, size: s),
-                'AI Lab',
-                active == OneovaTab.ai,
-                onAi,
-                dot: AppColors.brandPink,
+                (a, c, s) => a
+                    ? GradientIcon(Icons.account_balance_wallet_rounded, size: s)
+                    : Icon(Icons.account_balance_wallet_outlined, color: c, size: s),
+                'Wallet',
+                active == OneovaTab.wallet,
+                onWallet,
               ),
               _item(
                 context,

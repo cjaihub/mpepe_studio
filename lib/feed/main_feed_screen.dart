@@ -727,11 +727,22 @@ class _ShortVideoFeedScreenState extends ConsumerState<ShortVideoFeedScreen>
     ref.listen<bool>(oneovaFocusModeProvider, (_, next) => _onFocusChanged(next));
     // Portrait feed: each reel sits in a rounded screen frame between the
     // brand header and the comment row. Focus mode and landscape stay full-bleed.
-    // Full-width, full-height video (user, 2026-11-14): the video stands out;
-    // header, rail and caption sit lightly on top. The framed card design is
-    // kept behind [_framedDesignEnabled] but off.
-    final framed = _framedDesignEnabled && !isFocusMode && MediaQuery.orientationOf(context) == Orientation.portrait;
+    // Framed reel design (docs/design/reel-feed-framed/) — the user chose it
+    // on 2026-11-14 ("Switch to framed") after trying full-bleed. Keep it on;
+    // full-bleed remains only for focus mode and landscape.
+    final portrait = MediaQuery.orientationOf(context) == Orientation.portrait;
+    // Full-screen reel (button in the frame): video fills the screen, header,
+    // stories and bottom nav hide; only the reel actions stay.
+    final immersive = _framedDesignEnabled && _reelFullScreen && !isFocusMode && portrait;
+    final framed = _framedDesignEnabled && !isFocusMode && portrait && !_reelFullScreen;
     _framedLayout = framed;
+    // The framed design keeps the bottom nav on screen; full-screen hides it.
+    final peek = ref.watch(reelsNavPeekProvider);
+    if ((framed && !peek) || (immersive && peek)) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) ref.read(reelsNavPeekProvider.notifier).set(framed);
+      });
+    }
     final pad = MediaQuery.paddingOf(context);
     // The shell's bottom bar is usually already in the bottom padding; only
     // add it when it isn't, so the frame doesn't float above empty space.
@@ -748,11 +759,14 @@ class _ShortVideoFeedScreenState extends ConsumerState<ShortVideoFeedScreen>
 
     return PopScope(
       // Back is the only way out of focus mode (taps and double-taps are not).
-      canPop: !isFocusMode,
+      canPop: !isFocusMode && !immersive,
       onPopInvokedWithResult: (didPop, _) {
         if (!didPop && isFocusMode) {
           HapticFeedback.lightImpact();
           ref.read(oneovaFocusModeProvider.notifier).set(false);
+        } else if (!didPop && immersive) {
+          HapticFeedback.lightImpact();
+          setState(() => _reelFullScreen = false);
         }
       },
       child: ReelTheme(
@@ -780,7 +794,7 @@ class _ShortVideoFeedScreenState extends ConsumerState<ShortVideoFeedScreen>
             AnimatedPadding(
               duration: const Duration(milliseconds: 280),
               curve: Curves.easeOutCubic,
-              padding: framed ? EdgeInsets.fromLTRB(14, frameTop, 14, frameBottom) : EdgeInsets.zero,
+              padding: framed ? EdgeInsets.fromLTRB(10, frameTop, 10, frameBottom) : EdgeInsets.zero,
               child: PageView.builder(
               key: const ValueKey('short_video_feed_pageview'),
               controller: _pageController,
@@ -790,7 +804,7 @@ class _ShortVideoFeedScreenState extends ConsumerState<ShortVideoFeedScreen>
               allowImplicitScrolling: true,
               onPageChanged: _onPageChanged,
               itemCount: _pages.length,
-              itemBuilder: (context, index) => _buildPage(index, isFocusMode: isFocusMode, framed: framed),
+              itemBuilder: (context, index) => _buildPage(index, isFocusMode: isFocusMode, framed: framed, immersive: immersive),
             ),
             ),
 
@@ -815,18 +829,40 @@ class _ShortVideoFeedScreenState extends ConsumerState<ShortVideoFeedScreen>
           // Framed design: brand header, in-frame chips, comment row.
           if (framed) ...[
             Positioned(left: 0, right: 0, top: pad.top, child: _buildFramedHeader()),
-            Positioned(left: 26, right: 26, top: frameTop + 12, child: _buildFrameChips()),
+            AnimatedPositioned(
+              duration: const Duration(milliseconds: 280),
+              curve: Curves.easeOutCubic,
+              left: 22,
+              right: 22,
+              top: frameTop + 12,
+              child: _buildFrameChips(),
+            ),
             if (_currentContent != null)
               Positioned(
-                left: 14,
-                right: 14,
-                bottom: navH + pad.bottom + 8,
+                left: 10,
+                right: 10,
+                bottom: navH + pad.bottom + 6,
                 child: _FramedCommentRow(key: ValueKey('fcr_${_currentContent!.id}'), content: _currentContent!),
               ),
           ],
 
+          // Full-screen reel: one small button to return to the framed view.
+          if (immersive)
+            Positioned(
+              top: pad.top + 8,
+              right: 12,
+              child: _frameChip(
+                onTap: () => setState(() => _reelFullScreen = false),
+                child: const Row(mainAxisSize: MainAxisSize.min, children: [
+                  Icon(Icons.fullscreen_exit_rounded, size: 15, color: Colors.white),
+                  SizedBox(width: 4),
+                  Text('Exit'),
+                ]),
+              ),
+            ),
+
           // Top ambient navigation & stories overlay (slides & fades out in focus mode)
-          if (!framed)
+          if (!framed && !immersive)
           SafeArea(
             child: AnimatedSlide(
               offset: isFocusMode ? const Offset(0, -0.6) : Offset.zero,
@@ -847,18 +883,18 @@ class _ShortVideoFeedScreenState extends ConsumerState<ShortVideoFeedScreen>
           ),
 
           // Posting progress / one-tap retry, under the stories row.
-          if (!isFocusMode)
+          if (!isFocusMode && !immersive)
             Positioned(
               top: framed ? frameTop + 48 : MediaQuery.paddingOf(context).top + 128,
-              left: framed ? 26 : 12,
+              left: framed ? 22 : 12,
               child: const PendingPostPill(),
             ),
 
           // Subtle buffering line at bottom when active reel is loading
           Positioned(
-            left: framed ? 34 : 0,
-            right: framed ? 34 : 0,
-            bottom: framed ? frameBottom + 6 : 0,
+            left: framed ? 30 : 0,
+            right: framed ? 30 : 0,
+            bottom: framed ? frameBottom + 5 : 0,
             child: ValueListenableBuilder<bool>(
               valueListenable: ref.read(videoPlaybackManagerProvider).activeReelBuffering,
               builder: (context, isBuffering, _) {
@@ -887,9 +923,18 @@ class _ShortVideoFeedScreenState extends ConsumerState<ShortVideoFeedScreen>
 
   /// True while the portrait framed design is showing.
   bool _framedLayout = false;
-  final bool _framedDesignEnabled = false;
-  static const double _framedHeaderHeight = 138;
-  static const double _framedCommentHeight = 58;
+
+  /// Full-screen reel chosen from the frame's button.
+  bool _reelFullScreen = false;
+  /// User's choice 2026-11-14: framed reels. Don't switch off without asking them.
+  final bool _framedDesignEnabled = true;
+  /// Header with stories (top of the feed) and without (once you swipe on),
+  /// so the frame takes the most height while watching.
+  static const double _framedHeaderFull = 128;
+  static const double _framedHeaderSlim = 50;
+  static const double _framedCommentHeight = 52;
+  bool get _framedStories => true;
+  double get _framedHeaderHeight => _framedStories ? _framedHeaderFull : _framedHeaderSlim;
 
   Content? get _currentContent {
     final item = _currentPage < _pages.length ? _pages[_currentPage] : null;
@@ -900,7 +945,7 @@ class _ShortVideoFeedScreenState extends ConsumerState<ShortVideoFeedScreen>
   Widget _framedCard(Widget child) {
     return RepaintBoundary(
       child: Padding(
-        padding: const EdgeInsets.symmetric(vertical: 4),
+        padding: const EdgeInsets.symmetric(vertical: 3),
         child: DecoratedBox(
           decoration: BoxDecoration(
             borderRadius: BorderRadius.circular(25),
@@ -931,26 +976,31 @@ class _ShortVideoFeedScreenState extends ConsumerState<ShortVideoFeedScreen>
 
   /// Search · Trends · LIVE · Shop · bell, then stories.
   Widget _buildFramedHeader() {
-    return SizedBox(
-      height: _framedHeaderHeight,
-      child: Column(children: [
-        Padding(
-          padding: const EdgeInsets.fromLTRB(10, 2, 10, 0),
+    return Column(mainAxisSize: MainAxisSize.min, children: [
+      SizedBox(
+        height: _framedHeaderSlim - 4,
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 8),
           child: Row(children: [
             _buildSearchButton(),
             Expanded(child: Center(child: _buildFramedTabs())),
             const _RingingBell(),
           ]),
         ),
-        const SizedBox(height: 6),
-        Expanded(
-          child: Padding(
-            padding: const EdgeInsets.only(left: 14),
-            child: _buildStoriesList(),
-          ),
-        ),
-      ]),
-    );
+      ),
+      // Stories only at the top of the feed; they fold away once you swipe.
+      AnimatedSize(
+        duration: const Duration(milliseconds: 280),
+        curve: Curves.easeOutCubic,
+        alignment: Alignment.topCenter,
+        child: _framedStories
+            ? SizedBox(
+                height: _framedHeaderFull - _framedHeaderSlim,
+                child: Padding(padding: const EdgeInsets.only(left: 12), child: _buildStoriesList()),
+              )
+            : const SizedBox(width: double.infinity),
+      ),
+    ]);
   }
 
   Widget _buildFramedTabs() {
@@ -1093,6 +1143,11 @@ class _ShortVideoFeedScreenState extends ConsumerState<ShortVideoFeedScreen>
       ),
       const Spacer(),
       _frameChip(
+        onTap: () => setState(() => _reelFullScreen = true),
+        child: const Icon(Icons.fullscreen_rounded, size: 15, color: Colors.white),
+      ),
+      const SizedBox(width: 6),
+      _frameChip(
         onTap: () => ref.read(oneovaCaptionsEnabledProvider.notifier).toggle(),
         onLongPress: () async {
           final item = _currentContent;
@@ -1123,7 +1178,7 @@ class _ShortVideoFeedScreenState extends ConsumerState<ShortVideoFeedScreen>
   }
 
   /// One feed page (reel, live slot or feedback card).
-  Widget _buildPage(int index, {required bool isFocusMode, bool framed = false}) {
+  Widget _buildPage(int index, {required bool isFocusMode, bool framed = false, bool immersive = false}) {
                 final isScreenActive = ref.watch(videoPlaybackManagerProvider).isScreenActive;
                 final item = _pages[index];
                 if (item is FeedPulseSlot) {
@@ -1149,9 +1204,11 @@ class _ShortVideoFeedScreenState extends ConsumerState<ShortVideoFeedScreen>
                       content: content,
                       isActive: index == _currentPage && isScreenActive,
                       isFullScreen: isFocusMode,
-                      framed: framed,
+                      framed: framed || immersive,
+                      immersive: immersive,
                     );
                 if (framed) return _framedCard(item0);
+                if (immersive) return RepaintBoundary(child: item0);
                 return RepaintBoundary(
                   child: _buildCinemaFrame(index: index, cinema: isFocusMode, child: item0),
                 );
@@ -1925,12 +1982,17 @@ class _ShortVideoItem extends ConsumerStatefulWidget {
   /// to the frame and the comment bar sits under it, outside the reel.
   final bool framed;
 
+  /// Full-screen reel (framed styling, no frame): offsets include the
+  /// phone's bottom inset since the nav is hidden.
+  final bool immersive;
+
   const _ShortVideoItem({
     super.key,
     required this.content,
     required this.isActive,
     this.isFullScreen = false,
     this.framed = false,
+    this.immersive = false,
   });
 
   @override
@@ -2001,7 +2063,7 @@ class _ShortVideoItemState extends ConsumerState<_ShortVideoItem> with TickerPro
   void initState() {
     super.initState();
     // A reel starts playing: hide the bottom nav (it peeks back on pause).
-    if (widget.isActive) {
+    if (widget.isActive && !widget.framed) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (mounted) ref.read(reelsNavPeekProvider.notifier).set(false);
       });
@@ -2163,7 +2225,7 @@ class _ShortVideoItemState extends ConsumerState<_ShortVideoItem> with TickerPro
     manager.togglePlayPause(widget.content.id);
     final isPlaying = manager.getController(widget.content.id)?.player.state.playing ?? false;
     // Paused: the bottom nav slides back; playing: it hides again.
-    ref.read(reelsNavPeekProvider.notifier).set(!isPlaying);
+    if (!widget.framed) ref.read(reelsNavPeekProvider.notifier).set(!isPlaying);
     setState(() {
       _showPlayPauseIndicator = !isPlaying;
     });
@@ -2179,7 +2241,7 @@ class _ShortVideoItemState extends ConsumerState<_ShortVideoItem> with TickerPro
   void didUpdateWidget(_ShortVideoItem oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (widget.isActive && !oldWidget.isActive) {
-      ref.read(reelsNavPeekProvider.notifier).set(false);
+      if (!widget.framed) ref.read(reelsNavPeekProvider.notifier).set(false);
       ref.read(videoPlaybackManagerProvider).ensureCurrentPlaying(widget.content.id);
       _vinylController.repeat();
     } else if (!widget.isActive && oldWidget.isActive) {
@@ -2366,7 +2428,7 @@ class _ShortVideoItemState extends ConsumerState<_ShortVideoItem> with TickerPro
               right: widget.framed ? 10 : 8,
               top: _landscape ? MediaQuery.paddingOf(context).top + 64 : null,
               bottom: widget.framed
-                  ? 18
+                  ? 18 + (widget.immersive ? MediaQuery.paddingOf(context).bottom : 0)
                   : _landscape
                   ? 8.0 + MediaQuery.paddingOf(context).bottom
                   : (ref.watch(oneovaBottomNavVisibleProvider) && !widget.isFullScreen
@@ -2401,7 +2463,7 @@ class _ShortVideoItemState extends ConsumerState<_ShortVideoItem> with TickerPro
               left: 16,
               right: _landscape ? null : 76,
               bottom: widget.framed
-                  ? 150
+                  ? 150 + (widget.immersive ? MediaQuery.paddingOf(context).bottom : 0)
                   : _landscape
                   ? 120.0 + MediaQuery.paddingOf(context).bottom
                   : (ref.watch(oneovaBottomNavVisibleProvider) && !widget.isFullScreen
@@ -2418,7 +2480,7 @@ class _ShortVideoItemState extends ConsumerState<_ShortVideoItem> with TickerPro
               right: _landscape ? null : (widget.framed ? 62 : 70),
               width: _landscape ? (MediaQuery.sizeOf(context).width * 0.45).clamp(280.0, 520.0) : null,
               bottom: widget.framed
-                  ? 12
+                  ? 12 + (widget.immersive ? MediaQuery.paddingOf(context).bottom : 0)
                   : _landscape
                   ? 8.0 + MediaQuery.paddingOf(context).bottom
                   : (ref.watch(oneovaBottomNavVisibleProvider) && !widget.isFullScreen

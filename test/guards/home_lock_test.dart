@@ -32,7 +32,7 @@ void main() {
 
   test('nav labels intact', () {
     final nav = read('lib/shared/widgets/oneova_bottom_nav.dart');
-    for (final l in ["'Reels'", "'Chat'", "'STUDIO'", "'AI Lab'", "'Me'"]) {
+    for (final l in ["'Reels'", "'Chat'", "'STUDIO'", "'Wallet'", "'Me'"]) {
       expect(nav, contains(l));
     }
   });
