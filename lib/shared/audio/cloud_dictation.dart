@@ -1,10 +1,14 @@
 import 'dart:async';
 import 'dart:io';
 
-import 'package:firebase_ai/firebase_ai.dart';
+import 'dart:convert';
+
+import 'package:http/http.dart' as http;
 import 'package:flutter/foundation.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:record/record.dart';
+
+import '../../backend/security/oneova_ai_gateway.dart';
 
 /// Dictation that doesn't depend on the phone's speech service.
 ///
@@ -37,13 +41,13 @@ class CloudDictation {
     try {
       if (!await _recorder.hasPermission()) return false;
       final dir = await getTemporaryDirectory();
-      _path = '${dir.path}/dictation_${DateTime.now().microsecondsSinceEpoch}.m4a';
+      _path = '${dir.path}/dictation_${DateTime.now().microsecondsSinceEpoch}.wav';
       await _recorder.start(
         const RecordConfig(
-          encoder: AudioEncoder.aacLc,
+          // WAV: every speech model on OpenRouter accepts it; 22 s ≈ 700 KB.
+          encoder: AudioEncoder.wav,
           sampleRate: 16000,
           numChannels: 1,
-          bitRate: 48000,
           noiseSuppress: true,
           autoGain: true,
           echoCancel: true,
@@ -126,26 +130,48 @@ class CloudDictation {
     }
   }
 
+  /// Transcribes through the Oneova server proxy (`aiProxy` → OpenRouter).
+  /// No model key in the app; the Gemini API is never called directly.
   static Future<String> _transcribe(Uint8List bytes) async {
     const prompt = 'Transcribe this speech exactly as spoken, in the language spoken. '
         'Return only the transcript text with natural punctuation. '
         'If there is no speech, return nothing.';
-    for (final (vertex, model) in const [
-      (false, 'gemini-2.5-flash'),
-      (true, 'gemini-2.5-flash'),
-      (false, 'gemini-2.0-flash'),
-    ]) {
+    if (!OneovaAiGateway.canCall('')) throw StateError('Transcription unavailable');
+    for (final model in const ['google/gemini-2.5-flash', 'openai/gpt-4o-audio-preview']) {
       try {
-        final ai = vertex ? FirebaseAI.agentPlatform(location: 'us-central1') : FirebaseAI.googleAI();
-        final res = await ai
-            .generativeModel(model: model)
-            .generateContent([
-              Content.multi([TextPart(prompt), InlineDataPart('audio/mp4', bytes)]),
-            ])
-            .timeout(const Duration(seconds: 20));
-        final text = res.text?.trim() ?? '';
-        if (text.isNotEmpty) return text;
-        return '';
+        final res = await http
+            .post(
+              OneovaAiGateway.chatUri(''),
+              headers: {
+                'Content-Type': 'application/json',
+                'Authorization': 'Bearer ${await OneovaAiGateway.bearer('')}',
+                'X-Title': 'Oneova',
+                ...await OneovaAiGateway.appCheckHeader(''),
+              },
+              body: jsonEncode({
+                'model': model,
+                'temperature': 0,
+                'messages': [
+                  {
+                    'role': 'user',
+                    'content': [
+                      {'type': 'text', 'text': prompt},
+                      {
+                        'type': 'input_audio',
+                        'input_audio': {'data': base64Encode(bytes), 'format': 'wav'},
+                      },
+                    ],
+                  },
+                ],
+              }),
+            )
+            .timeout(const Duration(seconds: 25));
+        if (res.statusCode == 200) {
+          OneovaAiGateway.recordProxySuccess();
+          return ((jsonDecode(res.body)['choices']?[0]?['message']?['content'] as String?) ?? '').trim();
+        }
+        OneovaAiGateway.recordProxyFailure(res.statusCode);
+        debugPrint('[CloudDictation] $model failed: ${res.statusCode}');
       } catch (e) {
         debugPrint('[CloudDictation] $model failed: $e');
       }

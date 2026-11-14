@@ -3,7 +3,6 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:cloud_functions/cloud_functions.dart';
-import 'package:firebase_ai/firebase_ai.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -523,11 +522,10 @@ class AIBrainService {
 
   /// Resilient multi-provider cascade:
   /// 1. User's own OpenRouter key (Keystore / setApiKey)
-  /// 2. User's own Gemini API key (Keystore / env) with `gemini-3.8-flash` -> `gemini-2.5-flash`
-  /// 3. Keyless Firebase AI Logic (`FirebaseAI.googleAI` -> `FirebaseAI.agentPlatform`)
-  /// 4. Oneova Cloud Proxy (`aiProxy` with App Check + ID token refresh + 5xx cooldown)
-  /// 5. Oneova `aiGateway` Cloud Function callable
-  /// 6. Instant Local Ova Smart Synthesis + structured `OvaAiDiagnostic`
+  /// 2. Oneova Cloud Proxy (`aiProxy` → OpenRouter, App Check + ID token refresh + 5xx cooldown)
+  /// 3. Oneova `aiGateway` Cloud Function callable
+  /// 4. Instant Local Ova Smart Synthesis + structured `OvaAiDiagnostic`
+  /// No model keys live in the app; the Gemini API is never called directly.
   Future<AiResponse> _callResilientBrain(
     List<Map<String, dynamic>> openAiMessages, {
     required List<Map<String, dynamic>> plainHistory,
@@ -602,34 +600,6 @@ class AIBrainService {
       if (lastDiagnostic != null && lastDiagnostic.kind == OvaAiIssueKind.offline) {
         return _buildLocalFallbackResponse(plainHistory, diagnostic: lastDiagnostic);
       }
-    }
-
-    // ── Stage 2: User-supplied Google Gemini API Key (Keystore / env) ───
-    final geminiKey = await vault?.getGeminiApiKey() ?? '';
-    if (geminiKey.isNotEmpty) {
-      final (geminiRes, diag) = await _callGeminiDirect(
-        plainHistory,
-        geminiKey: geminiKey,
-        systemPrompt: systemPrompt,
-        imageBase64: imageBase64,
-      );
-      if (geminiRes != null) return geminiRes;
-      if (diag != null) {
-        lastDiagnostic = diag;
-        if (diag.kind == OvaAiIssueKind.offline) {
-          return _buildLocalFallbackResponse(plainHistory, diagnostic: diag);
-        }
-      }
-    }
-
-    // ── Stage 3: Keyless Firebase AI Logic (Google AI -> Vertex AI) ─────
-    if (Firebase.apps.isNotEmpty && _httpClient == null) {
-      final fbRes = await _tryFirebaseAiLogic(
-        plainHistory,
-        systemPrompt: systemPrompt,
-        imageBase64: imageBase64,
-      );
-      if (fbRes != null) return fbRes;
     }
 
     // ── Stage 4: Signed-in Oneova Cloud Proxy (`aiProxy`) ───────────────
@@ -775,176 +745,6 @@ class AIBrainService {
       if (kDebugMode) debugPrint('[AIBrainService] Parse response error: $e');
       return null;
     }
-  }
-
-  Future<(AiResponse?, OvaAiDiagnostic?)> _callGeminiDirect(
-    List<Map<String, dynamic>> messages, {
-    required String geminiKey,
-    required String systemPrompt,
-    String? imageBase64,
-    bool jsonMode = false,
-  }) async {
-    OvaAiDiagnostic? lastDiag;
-    final models = await vault?.getGeminiModelCascade() ?? SecureKeyVault.geminiFallbackModels;
-
-    final contents = <Map<String, dynamic>>[];
-    for (int i = 0; i < messages.length; i++) {
-      final m = messages[i];
-      if (m['role'] == 'system') continue;
-      final role = m['role'] == 'user' ? 'user' : 'model';
-      final raw = m['content'];
-      final text = raw is String ? raw : jsonEncode(raw);
-      final parts = <Map<String, dynamic>>[
-        if (text.trim().isNotEmpty) {'text': text},
-      ];
-      if (imageBase64 != null && imageBase64.isNotEmpty && i == messages.length - 1 && role == 'user') {
-        parts.add({
-          'inline_data': {'mime_type': 'image/jpeg', 'data': imageBase64},
-        });
-      }
-      if (parts.isNotEmpty) {
-        contents.add({'role': role, 'parts': parts});
-      }
-    }
-
-    if (contents.isEmpty) {
-      contents.add({
-        'role': 'user',
-        'parts': [
-          {'text': 'Hello'}
-        ],
-      });
-    }
-
-    for (final model in models) {
-      try {
-        final uri = Uri.parse(
-          'https://generativelanguage.googleapis.com/v1beta/models/$model:generateContent?key=$geminiKey',
-        );
-        final body = {
-          'system_instruction': {
-            'parts': [
-              {'text': systemPrompt}
-            ]
-          },
-          'contents': contents,
-          'generationConfig': {
-            'temperature': jsonMode ? 0.25 : 0.7,
-            'maxOutputTokens': 2048,
-            if (jsonMode) 'responseMimeType': 'application/json',
-          },
-        };
-
-        final response = await _postOnce(
-          uri,
-          headers: {'Content-Type': 'application/json'},
-          body: jsonEncode(body),
-          timeout: const Duration(seconds: 12),
-        );
-
-        if (response.statusCode == 200) {
-          final data = jsonDecode(response.body);
-          final candidates = data['candidates'] as List<dynamic>?;
-          if (candidates != null && candidates.isNotEmpty) {
-            final parts = candidates[0]['content']?['parts'] as List<dynamic>?;
-            if (parts != null && parts.isNotEmpty) {
-              final text = parts
-                  .map((p) => (p is Map ? p['text']?.toString() : null) ?? '')
-                  .join()
-                  .trim();
-              if (text.isNotEmpty) {
-                return (AiTextResponse(text), null);
-              }
-            }
-          }
-        } else {
-          lastDiag = OneovaAiGateway.classifyHttpFailure(
-            response.statusCode,
-            response.body,
-            usingUserKey: true,
-          );
-          if (response.statusCode == 400 || response.statusCode == 401 || response.statusCode == 403) {
-            // Try next model only on 404 model-not-found; stop on invalid key/billing
-            if (response.statusCode != 404) break;
-          }
-        }
-      } on SocketException {
-        return (
-          null,
-          const OvaAiDiagnostic(
-            kind: OvaAiIssueKind.offline,
-            badgeLabel: 'Offline Mode · Local Ova',
-            detail: 'No internet connection detected. Local Ova answered below—tap Retry when back online.',
-          )
-        );
-      } on TimeoutException {
-        lastDiag = const OvaAiDiagnostic(
-          kind: OvaAiIssueKind.cloudUnavailable,
-          badgeLabel: 'Connection Slow · Local Ova',
-          detail: 'Gemini request timed out. Local Ova answered below—tap Retry.',
-        );
-        break;
-      } catch (e) {
-        if (kDebugMode) debugPrint('[AIBrainService] Gemini Direct ($model) error: $e');
-      }
-    }
-    return (null, lastDiag);
-  }
-
-  Future<AiResponse?> _tryFirebaseAiLogic(
-    List<Map<String, dynamic>> plainHistory, {
-    required String systemPrompt,
-    String? imageBase64,
-    bool jsonMode = false,
-  }) async {
-    final contents = <Content>[];
-    for (int i = 0; i < plainHistory.length; i++) {
-      final m = plainHistory[i];
-      if (m['role'] == 'system') continue;
-      final isUser = m['role'] == 'user';
-      final text = (m['content'] ?? '').toString().trim();
-      final parts = <Part>[
-        if (text.isNotEmpty) TextPart(text),
-      ];
-      if (imageBase64 != null && imageBase64.isNotEmpty && i == plainHistory.length - 1 && isUser) {
-        try {
-          parts.add(InlineDataPart('image/jpeg', base64Decode(imageBase64)));
-        } catch (_) {}
-      }
-      if (parts.isEmpty) continue;
-      contents.add(isUser ? Content.multi(parts) : Content.model(parts));
-    }
-    if (contents.isEmpty) return null;
-
-    final genCfg = GenerationConfig(
-      temperature: jsonMode ? 0.25 : 0.7,
-      maxOutputTokens: 1536,
-      responseMimeType: jsonMode ? 'application/json' : null,
-    );
-
-    // 1) Try FirebaseAI.googleAI() / Vertex AI with real gemini-2.5-flash -> gemini-2.0-flash
-    for (final (useVertex, modelName) in const [
-      (false, 'gemini-2.5-flash'),
-      (false, 'gemini-2.0-flash'),
-      (true, 'gemini-2.5-flash'),
-    ]) {
-      try {
-        final ai = useVertex
-            ? FirebaseAI.agentPlatform(location: 'us-central1')
-            : FirebaseAI.googleAI();
-        final gm = ai.generativeModel(
-          model: modelName,
-          systemInstruction: Content.system(systemPrompt),
-          generationConfig: genCfg,
-        );
-        final res = await gm.generateContent(contents).timeout(const Duration(seconds: 8));
-        final text = res.text?.trim() ?? '';
-        if (text.isNotEmpty) return AiTextResponse(text);
-      } catch (e) {
-        if (kDebugMode) debugPrint('[AIBrainService] FirebaseAI($modelName) skipped: $e');
-      }
-    }
-    return null;
   }
 
   Future<AiResponse?> _tryAiGatewayCallable(List<Map<String, dynamic>> plainHistory) async {

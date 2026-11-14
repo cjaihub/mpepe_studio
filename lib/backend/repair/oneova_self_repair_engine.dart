@@ -177,30 +177,15 @@ class OneOvaSelfRepairEngine {
       ));
     }
 
-    // 4. Check Gemini Primary AI Connectivity
-    final geminiKey = await _vault.getGeminiApiKey();
+    // 4. AI connectivity: the server proxy (OpenRouter) or the user's own OpenRouter key.
     final openRouterKey = await _vault.getOpenRouterApiKey();
-    if (geminiKey.isNotEmpty) {
-      checks.add(HealthCheckItem(
-        component: 'Gemini Autonomous AI Core',
-        status: ComponentStatus.healthy,
-        details: 'Google AI Studio key verified (${_vault.maskKey(geminiKey)})',
-      ));
-    } else if (OneovaAiGateway.canCall(openRouterKey)) {
-      checks.add(HealthCheckItem(
-        component: 'Gemini Autonomous AI Core',
-        status: ComponentStatus.healthy,
-        details: openRouterKey.isNotEmpty
-            ? 'Bridged via OpenRouter fallback (${_vault.maskKey(openRouterKey)})'
-            : 'Connected through Oneova AI gateway',
-      ));
-    } else {
-      checks.add(const HealthCheckItem(
-        component: 'Gemini Autonomous AI Core',
-        status: ComponentStatus.degraded,
-        details: 'API Key missing in Keystore and .env. Heuristic fallback engaged.',
-      ));
-    }
+    checks.add(HealthCheckItem(
+      component: 'Ova AI Core',
+      status: OneovaAiGateway.canCall(openRouterKey) ? ComponentStatus.healthy : ComponentStatus.degraded,
+      details: OneovaAiGateway.canCall(openRouterKey)
+          ? (openRouterKey.isNotEmpty ? 'Your OpenRouter key (${_vault.maskKey(openRouterKey)})' : 'Connected through Oneova AI gateway')
+          : 'Sign in to use Oneova AI. Local fallback engaged.',
+    ));
 
     // 5. Check Local App Storage & Cache
     try {
@@ -410,15 +395,13 @@ class OneOvaSelfRepairEngine {
     }
   }
 
-  /// Sends the caught error context to Google Gemini to formulate an exact
+  /// Sends the caught error context to Ova AI (OpenRouter via the server) to formulate an exact
   /// root cause analysis and autonomously trigger the prescribed repair.
   Future<AiDiagnosisResult> diagnoseAndRepairWithGemini({
     required String errorSummary,
     String? stackTrace,
     String? componentContext,
   }) async {
-    final geminiKey = await _vault.getGeminiApiKey();
-    final model = await _vault.getPreferredGeminiModel();
 
     final systemInstruction = '''
 You are Ova Engine, the primary autonomous self-repair and diagnostics intelligence of the Oneova mobile app.
@@ -442,49 +425,8 @@ Platform: ${Platform.operatingSystem}
     try {
       String jsonResponse = '';
 
-      if (geminiKey.isNotEmpty) {
-        // Direct Google AI Studio Gemini REST Endpoint
-        final uri = Uri.parse(
-          'https://generativelanguage.googleapis.com/v1beta/models/$model:generateContent?key=$geminiKey',
-        );
-
-        final payload = {
-          'system_instruction': {
-            'parts': [
-              {'text': systemInstruction}
-            ]
-          },
-          'contents': [
-            {
-              'role': 'user',
-              'parts': [
-                {'text': promptText}
-              ]
-            }
-          ],
-          'generationConfig': {
-            'temperature': 0.2,
-            'maxOutputTokens': 512,
-            'responseMimeType': 'application/json',
-          }
-        };
-
-        final response = await http
-            .post(
-              uri,
-              headers: {'Content-Type': 'application/json'},
-              body: jsonEncode(payload),
-            )
-            .timeout(const Duration(seconds: 10));
-
-        if (response.statusCode == 200) {
-          final data = jsonDecode(response.body);
-          jsonResponse = data['candidates']?[0]?['content']?['parts']?[0]?['text'] ?? '';
-        }
-      }
-
-      // Fallback to OpenRouter if Gemini Key is not set or failed
-      if (jsonResponse.isEmpty) {
+      // OpenRouter: the user's own key, or the Oneova server proxy.
+      {
         final openRouterKey = await _vault.getOpenRouterApiKey();
         if (OneovaAiGateway.canCall(openRouterKey)) {
           final uri = OneovaAiGateway.chatUri(openRouterKey);
@@ -496,6 +438,7 @@ Platform: ${Platform.operatingSystem}
                   'Authorization': 'Bearer ${await OneovaAiGateway.bearer(openRouterKey)}',
                   'HTTP-Referer': 'https://oneova.app',
                   'X-Title': 'Oneova',
+                  ...await OneovaAiGateway.appCheckHeader(openRouterKey),
                 },
                 body: jsonEncode({
                   'model': 'google/gemini-2.5-flash',

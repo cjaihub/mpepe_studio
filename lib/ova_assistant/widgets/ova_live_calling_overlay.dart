@@ -14,7 +14,6 @@ import '../../shared/audio/speech_hub.dart';
 import '../../shared/theme/app_theme.dart';
 import '../../shared/widgets/live_recording_waveform.dart';
 import '../../backend/gemini/gemini_live_voice_service.dart';
-import '../../backend/security/secure_api_key_vault.dart';
 
 /// Represents a live spoken stream item (User speech or AI Twin spoken response)
 class LiveTranscriptionItem {
@@ -620,8 +619,6 @@ class _OvaLiveCallingOverlayState extends ConsumerState<OvaLiveCallingOverlay>
       builder: (ctx) {
         return Consumer(
           builder: (context, ref, _) {
-            final vault = ref.watch(secureKeyVaultProvider);
-            final keyController = TextEditingController();
 
             return Container(
               padding: EdgeInsets.only(
@@ -640,10 +637,8 @@ class _OvaLiveCallingOverlayState extends ConsumerState<OvaLiveCallingOverlay>
               ),
               child: SafeArea(
                 child: FutureBuilder<String>(
-                  future: vault.getGeminiApiKey(),
+                  future: Future<String>.value(''),
                   builder: (context, snapshot) {
-                    final currentKey = snapshot.data ?? '';
-                    final hasKey = currentKey.isNotEmpty;
 
                     return Column(
                       mainAxisSize: MainAxisSize.min,
@@ -693,71 +688,6 @@ class _OvaLiveCallingOverlayState extends ConsumerState<OvaLiveCallingOverlay>
                             ),
                           ],
                         ),
-                        // Bring-your-own key is a developer option only.
-                        if (kDebugMode) ...[
-                        const SizedBox(height: 14),
-                        Container(
-                          padding: const EdgeInsets.all(12),
-                          decoration: BoxDecoration(
-                            color: ctx.surfaceMid,
-                            borderRadius: BorderRadius.circular(12),
-                            border: Border.all(color: ctx.border),
-                          ),
-                          child: Row(
-                            children: [
-                              Icon(
-                                hasKey ? Icons.check_circle_rounded : Icons.info_outline_rounded,
-                                color: hasKey ? Colors.greenAccent : AppColors.brandPink,
-                                size: 18,
-                              ),
-                              const SizedBox(width: 8),
-                              Expanded(
-                                child: Text(
-                                  hasKey
-                                      ? 'Hardened Key Active: ${vault.maskKey(currentKey)}'
-                                      : 'No custom key. Dotenv or OpenRouter fallback engaged.',
-                                  style: GoogleFonts.inter(fontSize: 12, color: ctx.textPrimary),
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
-                        const SizedBox(height: 12),
-                        TextField(
-                          controller: keyController,
-                          obscureText: true,
-                          style: TextStyle(color: ctx.textPrimary, fontSize: 13),
-                          decoration: InputDecoration(
-                            hintText: 'Paste Gemini Key (saved to hardware Keystore)',
-                            hintStyle: TextStyle(color: ctx.textMuted, fontSize: 12),
-                            filled: true,
-                            fillColor: ctx.surfaceMid,
-                            contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-                            border: OutlineInputBorder(
-                              borderRadius: BorderRadius.circular(10),
-                              borderSide: BorderSide(color: ctx.border),
-                            ),
-                            suffixIcon: IconButton(
-                              icon: const Icon(Icons.save_rounded, color: AppColors.brandBlue, size: 20),
-                              onPressed: () async {
-                                final text = keyController.text.trim();
-                                if (text.isNotEmpty) {
-                                  await vault.storeGeminiApiKey(text);
-                                  HapticFeedback.mediumImpact();
-                                  if (ctx.mounted) {
-                                    Navigator.pop(ctx);
-                                    ScaffoldMessenger.of(context).showSnackBar(
-                                      const SnackBar(
-                                        content: Text('Gemini API Key securely stored in Keystore.'),
-                                      ),
-                                    );
-                                  }
-                                }
-                              },
-                            ),
-                          ),
-                        ),
-                        ],
                         const SizedBox(height: 14),
                         SizedBox(
                           width: double.infinity,

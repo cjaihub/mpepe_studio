@@ -155,71 +155,7 @@ Rules:
 
       String responseText = '';
 
-      // 1. User's personal Gemini key if saved in SecureKeyVault
-      final vault = ref.read(secureKeyVaultProvider);
-      final gKey = await vault.getGeminiApiKey();
-      if (gKey.isNotEmpty) {
-        final model = await vault.getPreferredGeminiModel();
-        try {
-          final res = await http
-              .post(
-                Uri.parse(
-                  'https://generativelanguage.googleapis.com/v1beta/models/$model:generateContent?key=$gKey',
-                ),
-                headers: {'Content-Type': 'application/json'},
-                body: jsonEncode({
-                  'systemInstruction': {
-                    'parts': [
-                      {'text': systemPrompt}
-                    ]
-                  },
-                  'contents': [
-                    {
-                      'role': 'user',
-                      'parts': [
-                        {'text': cleanInput}
-                      ]
-                    }
-                  ],
-                  'generationConfig': {'temperature': 0.7, 'maxOutputTokens': 256},
-                }),
-              )
-              .timeout(const Duration(seconds: 10));
-          if (res.statusCode == 200) {
-            final parts = (jsonDecode(res.body)['candidates']?[0]?['content']?['parts'] as List?) ?? const [];
-            responseText = parts.map((p) => (p is Map ? p['text'] : '') ?? '').join().trim();
-          }
-        } catch (e) {
-          debugPrint('[GeminiLiveVoice] Direct Gemini key error: $e');
-        }
-      }
-
-      // 2. Keyless Firebase AI Logic (Google AI gemini-2.5-flash -> Vertex AI gemini-2.5-flash)
-      if (responseText.isEmpty && Firebase.apps.isNotEmpty) {
-        for (final (useVertex, modelName) in const [
-          (false, 'gemini-2.5-flash'),
-          (false, 'gemini-2.0-flash'),
-          (true, 'gemini-2.5-flash'),
-        ]) {
-          try {
-            final ai = (useVertex
-                    ? FirebaseAI.agentPlatform(location: 'us-central1')
-                    : FirebaseAI.googleAI())
-                .generativeModel(
-              model: modelName,
-              systemInstruction: Content.system(systemPrompt),
-              generationConfig: GenerationConfig(temperature: 0.7, maxOutputTokens: 256),
-            );
-            final res = await ai.generateContent([Content.text(cleanInput)]).timeout(const Duration(seconds: 10));
-            responseText = res.text?.trim() ?? '';
-            if (responseText.isNotEmpty) break;
-          } catch (e) {
-            debugPrint('[GeminiLiveVoice] FirebaseAI($modelName) error: $e');
-          }
-        }
-      }
-
-      // 3. Signed-in Oneova server proxy (`aiProxy`) with App Check + 5xx cooldown
+      // Oneova server proxy (`aiProxy` → OpenRouter) with App Check + 5xx cooldown
       if (responseText.isEmpty && OneovaAiGateway.canCall('')) {
         try {
           final res = await http

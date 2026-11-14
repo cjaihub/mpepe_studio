@@ -206,37 +206,8 @@ class OvaMediaBrain {
     }
   }
 
-  /// Short text-only completion (live chat suggestions). Throws when no key.
+  /// Short text-only completion (live chat suggestions) through OpenRouter.
   Future<String> complete(String system, String user, {int maxTokens = 300}) async {
-    final gKey = await _vault.getGeminiApiKey();
-    if (gKey.isNotEmpty) {
-      final model = await _vault.getPreferredGeminiModel();
-      final res = await http
-          .post(
-            Uri.parse('https://generativelanguage.googleapis.com/v1beta/models/$model:generateContent?key=$gKey'),
-            headers: {'Content-Type': 'application/json'},
-            body: jsonEncode({
-              'systemInstruction': {
-                'parts': [
-                  {'text': system},
-                ],
-              },
-              'contents': [
-                {
-                  'role': 'user',
-                  'parts': [
-                    {'text': user},
-                  ],
-                },
-              ],
-              'generationConfig': {'temperature': 0.6, 'maxOutputTokens': maxTokens},
-            }),
-          )
-          .timeout(const Duration(seconds: 25));
-      if (res.statusCode != 200) throw OvaMediaException('Ova error (${res.statusCode}).');
-      final parts = (jsonDecode(res.body)['candidates']?[0]?['content']?['parts'] as List?) ?? const [];
-      return parts.map((p) => p['text'] ?? '').join().trim();
-    }
     var orKey = _brain.openRouterKey;
     if (orKey.isEmpty) orKey = await _vault.getOpenRouterApiKey();
     if (OneovaAiGateway.canCall(orKey)) {
@@ -275,7 +246,7 @@ class OvaMediaBrain {
     if (fallback is AiTextResponse && !fallback.isDegraded && fallback.text.trim().isNotEmpty) {
       return fallback.text.trim();
     }
-    throw const OvaMediaException('Ova cloud reasoning is temporarily busy. Add an AI key in AI Settings or try again shortly.');
+    throw const OvaMediaException('Ova is busy right now. Try again shortly.');
   }
 
   String _kindLabel(OvaMediaKind k) => switch (k) {
@@ -302,45 +273,10 @@ class OvaMediaBrain {
     const system = 'You are Ova, the premium creative and brand assistant inside the Oneova app. '
         'Answer in clean plain text with short paragraphs or "-" bullets, no markdown headings, no preamble.';
 
-    final gKey = await _vault.getGeminiApiKey();
-    if (gKey.isNotEmpty) {
-      final model = await _vault.getPreferredGeminiModel();
-      final res = await http
-          .post(
-            Uri.parse('https://generativelanguage.googleapis.com/v1beta/models/$model:generateContent?key=$gKey'),
-            headers: {'Content-Type': 'application/json'},
-            body: jsonEncode({
-              'systemInstruction': {
-                'parts': [
-                  {'text': system},
-                ],
-              },
-              'contents': [
-                {
-                  'role': 'user',
-                  'parts': [
-                    {
-                      'inlineData': {'mimeType': mime, 'data': data},
-                    },
-                    {'text': instruction},
-                  ],
-                },
-              ],
-              'generationConfig': {'temperature': 0.4, 'maxOutputTokens': 2048},
-            }),
-          )
-          .timeout(const Duration(seconds: 90));
-      if (res.statusCode != 200) throw OvaMediaException('Ova vision error (${res.statusCode}).');
-      final parts = (jsonDecode(res.body)['candidates']?[0]?['content']?['parts'] as List?) ?? const [];
-      final text = parts.map((p) => p['text'] ?? '').join().trim();
-      if (text.isEmpty) throw const OvaMediaException('Ova could not read this file.');
-      return text;
-    }
-
     var orKey = _brain.openRouterKey;
     if (orKey.isEmpty) orKey = await _vault.getOpenRouterApiKey();
     if (!OneovaAiGateway.canCall(orKey)) {
-      throw const OvaMediaException('Add a Gemini or OpenRouter key in Settings → AI to let Ova read media.');
+      throw const OvaMediaException('Sign in to let Ova read media.');
     }
     final Map<String, dynamic> part = switch (kind) {
       OvaMediaKind.image => {
@@ -355,7 +291,11 @@ class OvaMediaBrain {
           'type': 'input_audio',
           'input_audio': {'data': data, 'format': mime.split('/').last},
         },
-      _ => throw const OvaMediaException('Video and documents need a Gemini key (Settings → AI).'),
+      OvaMediaKind.video => {
+          'type': 'video_url',
+          'video_url': {'url': 'data:$mime;base64,$data'},
+        },
+      _ => throw const OvaMediaException('Ova can read photos, videos, voice notes and PDFs. Save this document as a PDF and try again.'),
     };
     final res = await http
         .post(

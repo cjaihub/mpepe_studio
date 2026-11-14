@@ -6,14 +6,18 @@ import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'oneova_ai_gateway.dart';
 
 final secureKeyVaultProvider = Provider<SecureKeyVault>((ref) {
-  return SecureKeyVault();
+  final vault = SecureKeyVault();
+  // One-time clean-up of a Gemini key saved by an older version.
+  vault.purgeLegacyGeminiKey();
+  return vault;
 });
 
 /// Hardened API Key and Credential Vault for Oneova.
 ///
 /// Encapsulates API keys with:
 /// 1. Secure hardware-backed storage (iOS Keychain / Android Keystore).
-/// 2. Dotenv and compile-time environment fallback.
+/// 2. No model keys are bundled: without a user's own OpenRouter key, AI goes
+///    through the Oneova server proxy.
 /// 3. In-memory obfuscation and safe masked representation for observability.
 /// 4. Strict header sandboxing to avoid credential leaks to 3rd party logs.
 class SecureKeyVault {
@@ -31,69 +35,15 @@ class SecureKeyVault {
   static const String _geminiKeyStorageKey = 'oneova_secure_gemini_key';
   static const String _geminiModelStorageKey = 'oneova_secure_gemini_model';
 
-  /// Obtains the hardened Google Gemini API key.
-  /// Priority:
-  /// 1. Hardware-backed secure storage (Keystore / Keychain)
-  /// 2. Dotenv ('GEMINI_API_KEY' or 'GOOGLE_AI_API_KEY')
-  /// 3. Compile-time environment ('GEMINI_API_KEY' or 'GOOGLE_AI_API_KEY')
-  Future<String> getGeminiApiKey() async {
-    // 1. Check hardware-backed secure storage
+  /// Oneova never calls the Gemini API directly (text goes through OpenRouter,
+  /// live models through Vertex AI). Removes a Gemini key an older version may
+  /// have saved on this phone.
+  Future<void> purgeLegacyGeminiKey() async {
     try {
-      final secureVal = await _secureStorage.read(key: _geminiKeyStorageKey);
-      if (secureVal != null && secureVal.trim().isNotEmpty) {
-        return secureVal.trim();
-      }
-    } catch (_) {
-      // Secure storage read fallback
-    }
-
-    // 2. Check dotenv (guarded when dotenv is not loaded in tests)
-    if (dotenv.isInitialized) {
-      final envGemini = dotenv.env['GEMINI_API_KEY'];
-      if (envGemini != null && envGemini.trim().isNotEmpty) {
-        return envGemini.trim();
-      }
-      final envGoogle = dotenv.env['GOOGLE_AI_API_KEY'];
-      if (envGoogle != null && envGoogle.trim().isNotEmpty) {
-        return envGoogle.trim();
-      }
-    }
-
-    // 3. Check compile-time environment variables
-    const compileGemini = String.fromEnvironment('GEMINI_API_KEY', defaultValue: '');
-    if (compileGemini.trim().isNotEmpty) {
-      return compileGemini.trim();
-    }
-    const compileGoogle = String.fromEnvironment('GOOGLE_AI_API_KEY', defaultValue: '');
-    if (compileGoogle.trim().isNotEmpty) {
-      return compileGoogle.trim();
-    }
-
-    return '';
-  }
-
-  /// Sets or updates the Gemini API key in hardware-backed secure storage.
-  Future<void> storeGeminiApiKey(String apiKey) async {
-    final clean = apiKey.trim();
-    if (clean.isEmpty) {
       await _secureStorage.delete(key: _geminiKeyStorageKey);
-    } else {
-      await _secureStorage.write(key: _geminiKeyStorageKey, value: clean);
-    }
+      await _secureStorage.delete(key: _geminiModelStorageKey);
+    } catch (_) {}
   }
-
-  /// Checks if a valid Gemini API key is configured.
-  Future<bool> hasGeminiApiKey() async {
-    final key = await getGeminiApiKey();
-    return key.isNotEmpty;
-  }
-
-  static const String defaultGeminiModel = 'gemini-2.5-flash';
-  static const List<String> geminiFallbackModels = <String>[
-    'gemini-2.5-flash',
-    'gemini-2.0-flash',
-    'gemini-1.5-flash',
-  ];
 
   static const String defaultOpenRouterModel = 'google/gemini-2.5-flash';
   static const List<String> openRouterFallbackModels = <String>[
@@ -101,54 +51,6 @@ class SecureKeyVault {
     'meta-llama/llama-3.3-70b-instruct:free',
     'google/gemma-3-27b-it:free',
   ];
-
-  /// Upgrades retired Gemini Developer API model IDs so older saved settings
-  /// do not hit 404 on `generativelanguage.googleapis.com`.
-  static String normalizeGeminiModel(String raw) {
-    final clean = raw.trim();
-    if (clean.isEmpty) return defaultGeminiModel;
-    switch (clean) {
-      case 'gemini-3.8-flash':
-      case 'gemini-2.5-flash':
-        return 'gemini-2.5-flash';
-      case 'gemini-2.0-flash':
-      case 'gemini-2.0-flash-exp':
-        return 'gemini-2.0-flash';
-      case 'gemini-1.5-flash':
-      case 'gemini-1.5-pro':
-        return clean;
-      default:
-        return clean;
-    }
-  }
-
-  /// Ordered Gemini models to try (normalized preferred first, then fallbacks).
-  Future<List<String>> getGeminiModelCascade() async {
-    final preferred = normalizeGeminiModel(await getPreferredGeminiModel());
-    return <String>{preferred, ...geminiFallbackModels}.toList();
-  }
-
-  /// Obtains the preferred Gemini model (defaults to gemini-2.5-flash for speed & multimodality).
-  Future<String> getPreferredGeminiModel() async {
-    try {
-      final customModel = await _secureStorage.read(key: _geminiModelStorageKey);
-      if (customModel != null && customModel.isNotEmpty) {
-        return normalizeGeminiModel(customModel);
-      }
-    } catch (_) {}
-
-    final envModel = dotenv.isInitialized ? dotenv.env['GEMINI_DEFAULT_MODEL'] : null;
-    if (envModel != null && envModel.isNotEmpty) {
-      return normalizeGeminiModel(envModel);
-    }
-
-    return defaultGeminiModel;
-  }
-
-  /// Sets the preferred Gemini model in secure storage.
-  Future<void> setPreferredGeminiModel(String modelId) async {
-    await _secureStorage.write(key: _geminiModelStorageKey, value: modelId.trim());
-  }
 
   /// Obtains the hardened OpenRouter API key.
   Future<String> getOpenRouterApiKey() async {

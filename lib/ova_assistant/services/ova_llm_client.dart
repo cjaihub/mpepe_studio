@@ -2,8 +2,6 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
-import 'package:firebase_ai/firebase_ai.dart';
-import 'package:firebase_core/firebase_core.dart';
 import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 
@@ -60,10 +58,9 @@ class _StreamAttemptOutcome {
 
 /// Streams chat completions with tool calling and multi-provider failover:
 /// 1. User's saved OpenRouter key (OpenAI SSE + free-model fallback)
-/// 2. User's saved Gemini key (`gemini-3.8-flash` -> `gemini-2.5-flash` SSE)
-/// 3. Keyless Firebase AI Logic (`FirebaseAI.googleAI` -> `FirebaseAI.agentPlatform`)
-/// 4. Signed-in Oneova Cloud Proxy (`aiProxy` with App Check + 401 refresh + 5xx cooldown)
-/// 5. Instant Local Ova Smart Synthesis via [AIBrainService] + [OvaLlmDegraded]
+/// 2. Signed-in Oneova Cloud Proxy (`aiProxy` → OpenRouter, App Check + 401 refresh + 5xx cooldown)
+/// 3. Instant Local Ova Smart Synthesis via [AIBrainService] + [OvaLlmDegraded]
+/// No model keys live in the app; the Gemini API is never called directly.
 class OvaLlmClient {
   final AIBrainService brain;
   final SecureKeyVault vault;
@@ -115,45 +112,6 @@ class OvaLlmClient {
         yield* _emitLocalFallback(cleanHistory, system, imageBase64, lastDiagnostic);
         return;
       }
-    }
-
-    // ── Stage 2: User-supplied Google Gemini API Key ────────────────────
-    final gKey = await vault.getGeminiApiKey();
-    if (gKey.isNotEmpty) {
-      final models = await vault.getGeminiModelCascade();
-      for (final model in models) {
-        var outcome = const _StreamAttemptOutcome(emitted: false);
-        yield* _live(
-          (sink) => _collectGemini(
-            key: gKey,
-            model: model,
-            system: system,
-            history: cleanHistory,
-            tools: tools,
-            imageBase64: imageBase64,
-            sink: sink,
-          ),
-          (o) => outcome = o,
-        );
-        if (outcome.emitted) return;
-        if (outcome.diagnostic != null) lastDiagnostic = outcome.diagnostic;
-        if (outcome.offline) break;
-        if (outcome.statusCode != null && outcome.statusCode != 404) break;
-      }
-      if (lastDiagnostic?.kind == OvaAiIssueKind.offline) {
-        yield* _emitLocalFallback(cleanHistory, system, imageBase64, lastDiagnostic);
-        return;
-      }
-    }
-
-    // ── Stage 3: Keyless Firebase AI Logic (Google AI -> Vertex AI) ─────
-    if (Firebase.apps.isNotEmpty && _httpClient == null) {
-      var any = false;
-      await for (final ev in _firebaseAiLive(system: system, history: cleanHistory, imageBase64: imageBase64)) {
-        any = true;
-        yield ev;
-      }
-      if (any) return;
     }
 
     // ── Stage 4: Signed-in Oneova Cloud Proxy (`aiProxy`) ───────────────
@@ -409,170 +367,6 @@ class OvaLlmClient {
     }
   }
 
-  // ── Gemini Direct (streamGenerateContent SSE) ──────────────────────────
-
-  Future<_StreamAttemptOutcome> _collectGemini({
-    required String key,
-    required String model,
-    required String system,
-    required List<Map<String, dynamic>> history,
-    required List<OvaToolSpec> tools,
-    required String? imageBase64,
-    required void Function(OvaLlmEvent) sink,
-  }) async {
-    final contents = <Map<String, dynamic>>[];
-    for (final m in history) {
-      switch (m['role']) {
-        case 'user':
-          contents.add({
-            'role': 'user',
-            'parts': [
-              {'text': (m['content'] ?? '').toString()},
-            ],
-          });
-          break;
-        case 'assistant':
-          final parts = <Map<String, dynamic>>[];
-          final text = m['content'];
-          if (text is String && text.isNotEmpty) parts.add({'text': text});
-          for (final c in (m['tool_calls'] as List? ?? const [])) {
-            final fn = (c as Map)['function'] as Map;
-            parts.add({
-              'functionCall': {
-                'name': fn['name'],
-                'args': _decodeArgs(fn['arguments'] as String? ?? '{}'),
-              },
-            });
-          }
-          if (parts.isNotEmpty) contents.add({'role': 'model', 'parts': parts});
-          break;
-        case 'tool':
-          contents.add({
-            'role': 'user',
-            'parts': [
-              {
-                'functionResponse': {
-                  'name': m['name'],
-                  'response': {'result': m['content']},
-                },
-              },
-            ],
-          });
-          break;
-      }
-    }
-    if (imageBase64 != null && imageBase64.isNotEmpty) {
-      final lastUser = contents.lastIndexWhere((c) => c['role'] == 'user');
-      if (lastUser >= 0) {
-        (contents[lastUser]['parts'] as List).add({
-          'inlineData': {'mimeType': 'image/png', 'data': imageBase64},
-        });
-      }
-    }
-
-    final uri = Uri.parse(
-      'https://generativelanguage.googleapis.com/v1beta/models/$model:streamGenerateContent?alt=sse&key=$key',
-    );
-    final req = http.Request('POST', uri)
-      ..headers['Content-Type'] = 'application/json'
-      ..body = jsonEncode({
-        'systemInstruction': {
-          'parts': [
-            {'text': system},
-          ],
-        },
-        'contents': contents,
-        'tools': [
-          {'functionDeclarations': tools.map((t) => t.toGemini()).toList()},
-        ],
-      });
-
-    final client = _httpClient ?? http.Client();
-    final ownsClient = _httpClient == null;
-    try {
-      final res = await client.send(req).timeout(const Duration(seconds: 12));
-      if (res.statusCode != 200) {
-        final body = await res.stream.bytesToString();
-        return _StreamAttemptOutcome(
-          emitted: false,
-          statusCode: res.statusCode,
-          diagnostic: OneovaAiGateway.classifyHttpFailure(
-            res.statusCode,
-            body,
-            usingUserKey: true,
-          ),
-        );
-      }
-
-      var emittedAny = false;
-      final calls = <OvaToolCall>[];
-      await for (final line in res.stream.transform(utf8.decoder).transform(const LineSplitter())) {
-        if (!line.startsWith('data:')) continue;
-        Map<String, dynamic> json;
-        try {
-          json = jsonDecode(line.substring(5).trim()) as Map<String, dynamic>;
-        } catch (_) {
-          continue;
-        }
-        final cands = json['candidates'] as List?;
-        if (cands == null || cands.isEmpty) continue;
-        final parts = ((cands.first as Map)['content'] as Map?)?['parts'] as List? ?? const [];
-        for (final p in parts) {
-          final part = p as Map;
-          if (part['text'] is String && (part['text'] as String).isNotEmpty) {
-            emittedAny = true;
-            sink(OvaTextDelta(part['text'] as String));
-          }
-          final fc = part['functionCall'];
-          if (fc is Map) {
-            calls.add(
-              OvaToolCall(
-                'g${DateTime.now().microsecondsSinceEpoch}_${calls.length}',
-                fc['name'] as String,
-                Map<String, dynamic>.from((fc['args'] as Map?) ?? const {}),
-              ),
-            );
-          }
-        }
-      }
-      if (calls.isNotEmpty) {
-        emittedAny = true;
-        sink(OvaToolCallsEvent(calls));
-      }
-      return _StreamAttemptOutcome(emitted: emittedAny);
-    } on SocketException {
-      return const _StreamAttemptOutcome(
-        emitted: false,
-        offline: true,
-        diagnostic: OvaAiDiagnostic(
-          kind: OvaAiIssueKind.offline,
-          badgeLabel: 'Offline Mode · Local Ova',
-          detail: 'No internet connection detected. Local Ova answered above—tap Retry when back online.',
-        ),
-      );
-    } on TimeoutException {
-      return const _StreamAttemptOutcome(
-        emitted: false,
-        statusCode: 504,
-        diagnostic: OvaAiDiagnostic(
-          kind: OvaAiIssueKind.cloudUnavailable,
-          badgeLabel: 'Connection Slow · Local Ova',
-          detail: 'Gemini stream timed out. Local Ova answered above—tap Retry.',
-          httpStatus: 504,
-        ),
-      );
-    } catch (e) {
-      debugPrint('[OvaLlmClient] Gemini error: $e');
-      return const _StreamAttemptOutcome(emitted: false);
-    } finally {
-      if (ownsClient) client.close();
-    }
-  }
-
-  /// Runs one provider attempt and yields its text and tool calls the moment
-  /// they arrive. Errors and degraded notes are held back and only passed on
-  /// when the attempt produced something; otherwise the caller fails over and
-  /// the user never sees the failed try.
   Stream<OvaLlmEvent> _live(
     Future<_StreamAttemptOutcome> Function(void Function(OvaLlmEvent) sink) run,
     void Function(_StreamAttemptOutcome) done,
@@ -595,58 +389,6 @@ class OvaLlmClient {
     }
     done(outcome);
   }
-
-  /// Keyless Firebase AI, streamed token by token (Google AI, then Vertex AI).
-  Stream<OvaLlmEvent> _firebaseAiLive({
-    required String system,
-    required List<Map<String, dynamic>> history,
-    required String? imageBase64,
-  }) async* {
-    final contents = <Content>[];
-    for (int i = 0; i < history.length; i++) {
-      final m = history[i];
-      final role = m['role'];
-      if (role != 'user' && role != 'assistant') continue;
-      final text = (m['content'] ?? '').toString().trim();
-      final parts = <Part>[if (text.isNotEmpty) TextPart(text)];
-      if (imageBase64 != null && imageBase64.isNotEmpty && i == history.length - 1 && role == 'user') {
-        try {
-          parts.add(InlineDataPart('image/png', base64Decode(imageBase64)));
-        } catch (_) {}
-      }
-      if (parts.isEmpty) continue;
-      contents.add(role == 'user' ? Content.multi(parts) : Content.model(parts));
-    }
-    if (contents.isEmpty) return;
-    for (final (useVertex, modelName) in const [
-      (false, 'gemini-2.5-flash'),
-      (true, 'gemini-2.5-flash'),
-      (false, 'gemini-2.0-flash'),
-    ]) {
-      var yielded = false;
-      try {
-        final ai = useVertex ? FirebaseAI.agentPlatform(location: 'us-central1') : FirebaseAI.googleAI();
-        final gm = ai.generativeModel(model: modelName, systemInstruction: Content.system(system));
-        // The first words must come quickly; after that let it finish.
-        final stream = gm.generateContentStream(contents).timeout(
-              const Duration(seconds: 6),
-              onTimeout: (sink) => yielded ? null : sink.close(),
-            );
-        await for (final chunk in stream) {
-          final t = chunk.text ?? '';
-          if (t.isEmpty) continue;
-          yielded = true;
-          yield OvaTextDelta(t);
-        }
-        if (yielded) return;
-      } catch (e) {
-        if (yielded) return;
-        if (kDebugMode) debugPrint('[OvaLlmClient] FirebaseAI($modelName) skipped: $e');
-      }
-    }
-  }
-
-  // ── Keyless Firebase AI Logic Stream ───────────────────────────────────
 
   static Map<String, dynamic> _decodeArgs(String raw) {
     try {

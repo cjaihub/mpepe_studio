@@ -195,8 +195,6 @@ class _AiSettingsScreenState extends ConsumerState<AiSettingsScreen> {
                 context,
                 'Ova Brain & Credentials',
                 [
-                  _buildGeminiKeyTile(context, vault),
-                  Divider(height: 1, indent: 20, endIndent: 20, color: context.border),
                   _buildOpenRouterKeyTile(context, vault),
                   Divider(height: 1, indent: 20, endIndent: 20, color: context.border),
                   _buildConnectionTestTile(context),
@@ -218,20 +216,12 @@ class _AiSettingsScreenState extends ConsumerState<AiSettingsScreen> {
                     'Default Model',
                     'defaultModel',
                     const [
-                      'gemini-2.5-flash',
-                      'gemini-2.0-flash',
                       'google/gemini-2.5-flash',
                       'gpt-4o',
                       'claude-3.5-sonnet',
                     ],
                     true,
-                    onApplied: (newVal) {
-                      if (newVal.startsWith('gemini-')) {
-                        vault.setPreferredGeminiModel(newVal);
-                      } else {
-                        vault.setPreferredOpenRouterModel(newVal);
-                      }
-                    },
+                    onApplied: (newVal) => vault.setPreferredOpenRouterModel(newVal),
                   ),
                   _buildDropdown(
                     context,
@@ -484,55 +474,6 @@ class _AiSettingsScreenState extends ConsumerState<AiSettingsScreen> {
         ),
         if (showDivider) Divider(height: 1, color: context.border, indent: 64, endIndent: 20),
       ],
-    );
-  }
-
-  Widget _buildGeminiKeyTile(BuildContext context, SecureKeyVault vault) {
-    return FutureBuilder<String>(
-      future: vault.getGeminiApiKey(),
-      builder: (context, snapshot) {
-        final key = snapshot.data ?? '';
-        final hasKey = key.isNotEmpty;
-
-        return ListTile(
-          contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
-          leading: Container(
-            padding: const EdgeInsets.all(9),
-            decoration: BoxDecoration(
-              color: AppColors.brandBlue.withValues(alpha: 0.12),
-              borderRadius: BorderRadius.circular(AppRadius.sm),
-            ),
-            child: const Icon(Icons.key_rounded, color: AppColors.brandBlue, size: 20),
-          ),
-          title: Text(
-            'Google Gemini API Key',
-            style: GoogleFonts.inter(fontWeight: FontWeight.w700, color: context.textPrimary, fontSize: 13.5),
-          ),
-          subtitle: Text(
-            hasKey
-                ? 'Active in Hardware Vault · ${vault.maskKey(key)}'
-                : 'Optional personal key (AI Studio) for direct Gemini 3.8 Flash',
-            style: GoogleFonts.inter(
-              fontSize: 11.5,
-              color: hasKey ? AppColors.brandBlue : context.textSecondary,
-              fontWeight: hasKey ? FontWeight.w600 : FontWeight.w400,
-            ),
-          ),
-          trailing: Icon(Icons.arrow_forward_ios_rounded, size: 15, color: context.textMuted),
-          onTap: () => _showKeyVaultSheet(
-            context,
-            title: 'Google Gemini API Key',
-            hint: 'AIzaSy...',
-            helperText: 'Saved in Android Keystore / iOS Keychain. Calls Gemini 3.8 Flash directly.',
-            currentKey: key,
-            providerLabel: 'Gemini',
-            onSave: (val) async {
-              await vault.storeGeminiApiKey(val);
-              OneovaAiGateway.resetCooldown();
-            },
-          ),
-        );
-      },
     );
   }
 

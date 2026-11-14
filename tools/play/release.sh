@@ -15,7 +15,8 @@ PRIORITY="${3:-0}"
 export JAVA_HOME="${JAVA_HOME:-/Applications/Android Studio.app/Contents/jbr/Contents/Home}"
 
 # Guard: never ship secrets inside the bundled .env.
-if grep -qE '^(OPENROUTER_API_KEY|TIKTOK_CLIENT_SECRET|META_APP_SECRET)=.+' .env; then
+# Model keys never ship: text AI goes through the server (OpenRouter), live models through Vertex.
+if grep -qE '^(OPENROUTER_API_KEY|TIKTOK_CLIENT_SECRET|META_APP_SECRET|GEMINI_API_KEY|GOOGLE_AI_API_KEY|[A-Z_]*SECRET[A-Z_]*)=.+' .env; then
   echo "ERROR: a server secret is set in .env, which ships inside the app." >&2; exit 1
 fi
 

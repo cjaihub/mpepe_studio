@@ -5,6 +5,24 @@ Take the first step that isn't ✅, do it fully, then update this file in the sa
 
 Status: ✅ done · 🔨 in progress · ⏳ next · ⛔ blocked (says why)
 
+## ⚠️ Security first (do before new features)
+- 🔨 S1. Gemini key leak: app side done. No direct Gemini calls are left in the app. Text, vision,
+  dictation and self-repair go through OpenRouter (the user's own key, or the `aiProxy` server proxy).
+  Live voice/video stays on Vertex (`FirebaseAI.agentPlatform` live models). The keys are removed from
+  `.env`, a saved Gemini key is deleted on startup, and `release.sh` refuses `GEMINI_*`, `GOOGLE_AI_*`
+  and `*SECRET*` values. Left: delete the old key in Google AI Studio (it is in builds 1–34).
+- ⏳ S2. Server text AI still uses Vertex Gemini (`generateVertexContent` in about 17 modules: aiGateway,
+  chatAssist, shopChat, profileAssist, search, KYC pre-check…). Move text to OpenRouter and keep Vertex
+  for live models only.
+
+## Stage F: Language and location awareness
+- ⏳ F1. First run and sign-in: phone language + detected country set the account's language, country,
+  currency and time zone (one tap to confirm or change).
+- ⏳ F2. Ova knows your city, country, local time and language (coarse only, with location on) and
+  replies in your language by default.
+- ⏳ F3. App text in local languages (Swahili, French, Arabic, Hausa, Yoruba, Amharic, Portuguese…) with
+  `flutter gen-l10n`; the language setting actually switches the app.
+
 ## Stage A: Focus the app (this version)
 - ✅ A1. Vision and rules every agent follows (`.agents/rules/oneova_build_vision.md`, linked from `AGENTS.md`).
 - ✅ A2. Removed studio management: YouTube manager screens, video and audio production, team tab, CRM,
@@ -63,6 +81,18 @@ Design: `docs/payments/platform/` (architecture, security model, schema and API,
 - ⏳ D5. Sentinel rules and admin review queue; App Check enforcement; KMS for funding methods.
 - ⏳ D6. Merchant Hub: sales from the ledger, refunds, staff roles, statements.
 - ⛔ Release to production waits for the Play organization account.
+
+## Stage E: Location and discovery (design: `docs/architecture/location_discovery.md`)
+- ✅ E0. KYC country auto-detect (on-device: GPS + geocoder, network, SIM, phone, region), modern KYC
+  inputs, signals + mismatch flag stored for reviewers. Removed the unencrypted ip-api.com lookup.
+- ⏳ E1. Server door for Maps (`geoSearch`, `geoNearby`, `geoReverse`, `geoRoute`), with caching and
+  rate limits. Turn on the Geocoding, Routes and Time Zone APIs (needs your OK); move `geo_services.dart`
+  off the public OSM servers. Fixes the payout reverse geocode that fails today.
+- ⏳ E2. Location privacy settings and coarse geo cells on posts, lives and shops (set by Functions).
+- ⏳ E3. Shops that deliver to you (delivery zones, Routes matrix ETA).
+- ⏳ E4. Live near you row.
+- ⏳ E5. Local slot in For You, Thompson-sampling exploration, travel mode.
+- ⏳ E6. Restrict the Firebase Android API key to the app package and signing SHA-256 (console).
 
 ## Session notes
 - 2026-11-14: build 1.0.0 (33) on Play internal. A1–A4 done; B1 next. A4 checked with analyze, the guard
