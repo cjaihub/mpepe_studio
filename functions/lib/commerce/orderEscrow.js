@@ -167,16 +167,20 @@ async function payoutReady(who) {
 }
 /** Readiness + balances for the payouts screen. */
 exports.payPayoutStatus = (0, https_1.onCall)(async (req) => {
-    var _a;
     const me = uid(req);
-    const [r, bal] = await Promise.all([payoutReady(me), (0, ledger_1.balanceRef)(me).get()]);
-    const balances = {};
-    for (const [k, v] of Object.entries((_a = bal.data()) !== null && _a !== void 0 ? _a : {})) {
-        if (!/^[A-Z]{3}$/.test(k) || typeof v !== 'object' || v === null)
-            continue;
-        balances[k] = { available: (0, ledger_1.bucketOf)(bal.data(), k, 'available'), pending: (0, ledger_1.bucketOf)(bal.data(), k, 'pending'), locked: (0, ledger_1.bucketOf)(bal.data(), k, 'locked') };
-    }
-    return Object.assign(Object.assign({}, r), { payoutsEnabled: r.ready, balances });
+    const [r, bal, biz] = await Promise.all([payoutReady(me), (0, ledger_1.balanceRef)(me).get(), (0, ledger_1.businessBalanceRef)(me).get()]);
+    const read = (doc) => {
+        var _a;
+        const out = {};
+        for (const [k, v] of Object.entries((_a = doc.data()) !== null && _a !== void 0 ? _a : {})) {
+            if (!/^[A-Z]{3}$/.test(k) || typeof v !== 'object' || v === null)
+                continue;
+            out[k] = { available: (0, ledger_1.bucketOf)(doc.data(), k, 'available'), pending: (0, ledger_1.bucketOf)(doc.data(), k, 'pending'), locked: (0, ledger_1.bucketOf)(doc.data(), k, 'locked') };
+        }
+        return out;
+    };
+    // Personal (top-ups, deliveries, refunds) and business (shop sales, scan to pay) are separate.
+    return Object.assign(Object.assign({}, r), { payoutsEnabled: r.ready, balances: read(bal), businessBalances: read(biz) });
 });
 async function canReceive(who) {
     if ((await payoutReady(who)).ready)
