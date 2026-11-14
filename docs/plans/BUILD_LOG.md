@@ -37,10 +37,14 @@ Existing code: `lib/hub/phone_controller/`, `lib/hub/live_control/`, `lib/deskto
   line, and asks before risky actions (delete, send, buy, install).
 - ⏳ C5. Media back in chat: screenshots, recordings, files and audio from the computer shown inline and small.
 
-## Stage D: Platform growth (from `docs/payments/MASTER_PLAN.md` and `docs/ROADMAP.md`)
-- ⏳ D1. Payment requests with live approval, success screen, signed receipts.
-- ⏳ D2. Send by Oneova ID, personal QR.
-- ⏳ D3. Risk score, step-up and device binding.
+## Stage D: Oneova Pay, Globe ID, Merchant Hub, Sentinel
+Design: `docs/payments/platform/` (architecture, security model, schema and API, code and deployment).
+- ⏳ D1. Device binding: hardware key per phone, step-up, revoke (security first).
+- ⏳ D2. Payment requests with biometric approval and countdown, success screen (`003_pay_core.sql`).
+- ⏳ D3. Signed receipts and verify.
+- ⏳ D4. Send by Oneova ID, personal QR.
+- ⏳ D5. Sentinel rules and admin review queue; App Check enforcement; KMS for funding methods.
+- ⏳ D6. Merchant Hub: sales from the ledger, refunds, staff roles, statements.
 - ⛔ Release to production waits for the Play organization account.
 
 ## Session notes

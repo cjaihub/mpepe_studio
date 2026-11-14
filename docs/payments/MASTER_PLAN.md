@@ -7,6 +7,8 @@ dashboard. All of it uses Oneova colours (blue first, pink accent) and Material 
 
 Status: ✅ live in mpepe-2b4bd (sandbox rails) · 🔨 next · 🤝 needs a partner, licence or contract.
 
+Full design (architecture, security model, schema, API, code structure, deployment): `platform/`.
+
 ## 1. Money core (backend: Python + PostgreSQL ledger, Firebase Functions in TypeScript)
 - ✅ Double-entry ledger in PostgreSQL on Cloud Run (`services/ledger`). Entries are append-only, every journal must balance, there is no overdraft, entries are idempotent, the audit log is hash-chained, and there's a reconcile check.
 - ✅ Every money movement is mirrored from Firestore into the ledger, inside the same transaction, through the outbox.
