@@ -27,9 +27,16 @@ class OvaTasteLearner {
   static const int _batch = 6;
   static const int _maxTopics = 8;
 
-  /// Never learned (special categories of personal data).
-  static final RegExp _sensitive = RegExp(
-    r'(health|ill|disease|medic|diagnos|pregnan|hiv|cancer|mental|depress|therap|sex|gay|lesbian|lgbt|trans|religio|church|mosque|islam|christian|muslim|pray|politic|party|vote|election|ethnic|tribe|race|union|crim|arrest|debt|loan|salary|bank|password|address)',
+  /// Learned only after the person's explicit opt-in (special categories under
+  /// GDPR / Kenya DPA / NDPA: health, religion, politics; plus money).
+  static final RegExp _optInOnly = RegExp(
+    r'(health|ill|disease|medic|diagnos|pregnan|hiv|cancer|mental|depress|therap|fitness|religio|church|mosque|islam|christian|muslim|gospel|pray|politic|party|vote|election|union|debt|loan|salary|bank|money|finance|invest|budget)',
+    caseSensitive: false,
+  );
+
+  /// Never learned, even with consent (too identifying or too risky).
+  static final RegExp _neverLearn = RegExp(
+    r'(sex|gay|lesbian|lgbt|bisexual|queer|trans|porn|nude|naked|nsfw|xxx|onlyfans|erotic|adult|hookup|ethnic|tribe|race|crim|arrest|password|address)',
     caseSensitive: false,
   );
 
@@ -39,6 +46,7 @@ class OvaTasteLearner {
   bool _busy = false;
   bool? _enabledCache;
   String? _enabledFor;
+  bool? _sensitiveCache;
 
   /// Called once with the app's feature store so learned topics reach ranking.
   void attach(OnlineFeatureStore store) {
@@ -78,6 +86,44 @@ class OvaTasteLearner {
     await d.set({'personalizationEnabled': on}, SetOptions(merge: true));
   }
 
+  /// "Include sensitive topics" (health, religion, politics, money): off until
+  /// the person explicitly turns it on; the consent time is kept.
+  Future<bool> sensitiveAllowed() async {
+    final d = _doc();
+    if (d == null) return false;
+    if (_enabledFor == d.path && _sensitiveCache != null) return _sensitiveCache!;
+    try {
+      _sensitiveCache = (await d.get()).data()?['sensitiveTopicsConsent'] == true;
+    } catch (_) {
+      _sensitiveCache = false;
+    }
+    return _sensitiveCache!;
+  }
+
+  Future<void> setSensitiveAllowed(bool on) async {
+    final d = _doc();
+    if (d == null) return;
+    _sensitiveCache = on;
+    await d.set({
+      'sensitiveTopicsConsent': on,
+      'sensitiveTopicsConsentAt': FieldValue.serverTimestamp(),
+    }, SetOptions(merge: true));
+    if (on) return;
+    // Consent withdrawn: forget every sensitive topic already learned.
+    try {
+      final data = (await d.get()).data() ?? const {};
+      final keys = <String>{
+        for (final m in [data['ovaTopics'], data['topicAffinities']])
+          if (m is Map) ...m.keys.map((k) => k.toString()).where((k) => _optInOnly.hasMatch(k)),
+      };
+      for (final k in keys) {
+        await forget(k);
+      }
+    } catch (e) {
+      debugPrint('[OvaTasteLearner] withdraw: $e');
+    }
+  }
+
   /// One finished Ova turn (chat or voice). Cheap: just buffered in memory.
   void observe(String query, String response) {
     final q = query.trim();
@@ -97,7 +143,7 @@ class OvaTasteLearner {
     final batch = List<String>.from(_buffer);
     _buffer.clear();
     try {
-      final topics = await _extract(batch.join('\n---\n'));
+      final topics = await _extract(batch.join('\n---\n'), allowSensitive: await sensitiveAllowed());
       if (topics.isEmpty) return;
       final uid = FirebaseAuth.instance.currentUser!.uid;
       final store = _store;
@@ -116,7 +162,7 @@ class OvaTasteLearner {
     }
   }
 
-  Future<List<String>> _extract(String transcript) async {
+  Future<List<String>> _extract(String transcript, {required bool allowSensitive}) async {
     if (!OneovaAiGateway.canCall('')) return const [];
     final res = await http
         .post(
@@ -136,8 +182,9 @@ class OvaTasteLearner {
                 'role': 'system',
                 'content': 'From this person\'s chats with their assistant, list up to $_maxTopics things they enjoy or want to see '
                     'on a short-video, live and shopping app, as lowercase single words or short hashtags without "#" '
-                    '(for example "cooking", "afrobeats", "arsenal", "sneakers"). Only clear interests. Never include health, '
-                    'religion, politics, sexuality, ethnicity, money, crime or anything that identifies them. '
+                    '(for example "cooking", "afrobeats", "arsenal", "sneakers"). Only clear interests. '
+                    '${allowSensitive ? 'They allowed interests about health, faith, politics and money (for example "fitness", "gospel", "budgeting"); include those only when they clearly want content about them. ' : 'Never include health, religion, politics or money. '}'
+                    'Never include sexuality or sexual or adult content, ethnicity, crime or anything that identifies them. '
                     'Return JSON: {"topics": ["..."]}. Return {"topics": []} if none.',
               },
               {'role': 'user', 'content': transcript},
@@ -148,18 +195,20 @@ class OvaTasteLearner {
     if (res.statusCode != 200) return const [];
     final content = jsonDecode(res.body)['choices']?[0]?['message']?['content'];
     if (content is! String) return const [];
-    return cleanTopics(jsonDecode(content)['topics']);
+    return cleanTopics(jsonDecode(content)['topics'], allowSensitive: allowSensitive);
   }
 
-  /// Lowercase, short, no sensitive subjects, at most [_maxTopics]. Public for tests.
+  /// Lowercase, short, at most [_maxTopics]. Sensitive subjects only with
+  /// [allowSensitive]; never-learn subjects never. Public for tests.
   @visibleForTesting
-  static List<String> cleanTopics(Object? raw) {
+  static List<String> cleanTopics(Object? raw, {bool allowSensitive = false}) {
     if (raw is! List) return const [];
     final out = <String>{};
     for (final t in raw) {
       if (t is! String) continue;
       final c = t.trim().toLowerCase().replaceAll('#', '').replaceAll(RegExp(r'[^a-z0-9_]'), ''); // hashtag form, so it matches reels' tags
-      if (c.length < 2 || c.length > 30 || _sensitive.hasMatch(c)) continue;
+      if (c.length < 2 || c.length > 30 || _neverLearn.hasMatch(c)) continue;
+      if (!allowSensitive && _optInOnly.hasMatch(c)) continue;
       out.add(c);
       if (out.length >= _maxTopics) break;
     }

@@ -18,6 +18,7 @@ class PersonalizationScreen extends StatefulWidget {
 class _PersonalizationScreenState extends State<PersonalizationScreen> {
   final _learner = OvaTasteLearner.instance;
   bool? _on;
+  bool? _sensitive;
 
   @override
   void initState() {
@@ -25,6 +26,34 @@ class _PersonalizationScreenState extends State<PersonalizationScreen> {
     _learner.enabled().then((v) {
       if (mounted) setState(() => _on = v);
     });
+    _learner.sensitiveAllowed().then((v) {
+      if (mounted) setState(() => _sensitive = v);
+    });
+  }
+
+  /// Explicit consent for special-category topics (GDPR art. 9, Kenya DPA, NDPA).
+  Future<void> _setSensitive(bool v) async {
+    if (v) {
+      final yes = await showDialog<bool>(
+        context: context,
+        builder: (c) => AlertDialog(
+          title: const Text('Include health, faith, politics and money?'),
+          content: const Text(
+            'Ova may learn interests like "fitness", "gospel", "elections" or "budgeting" from your chats, so your feed '
+            'can show more of them. These topics stay private to your account, are used only for your own feed, and '
+            'are never used for ads or shared. Turn this off any time and they are deleted. '
+            'Sexuality, sexual content, ethnicity and crime are never learned.',
+          ),
+          actions: [
+            TextButton(onPressed: () => Navigator.pop(c, false), child: const Text('Not now')),
+            TextButton(onPressed: () => Navigator.pop(c, true), child: const Text('I agree')),
+          ],
+        ),
+      );
+      if (yes != true) return;
+    }
+    setState(() => _sensitive = v);
+    await _learner.setSensitiveAllowed(v);
   }
 
   Stream<DocumentSnapshot<Map<String, dynamic>>>? _profile() {
@@ -78,6 +107,17 @@ class _PersonalizationScreenState extends State<PersonalizationScreen> {
                       },
               ),
             ),
+            CompactRow(
+              icon: Icons.health_and_safety_outlined,
+              title: 'Include sensitive topics',
+              subtitle: 'Health, faith, politics and money. Off unless you agree',
+              showChevron: false,
+              trailing: Switch.adaptive(
+                value: _sensitive ?? false,
+                activeTrackColor: AppColors.brandBlue,
+                onChanged: _sensitive == null || _on == false ? null : _setSensitive,
+              ),
+            ),
           ]),
           if (stream != null)
             StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
@@ -122,8 +162,9 @@ class _PersonalizationScreenState extends State<PersonalizationScreen> {
             ),
           const SizedBox(height: 14),
           Text(
-            'Only you and Oneova’s feed see this. Your Ova chats aren’t kept for it: only short topic words are, and '
-            'never anything about health, religion, politics, sexuality, money or who you are. ✦ marks topics from Ova.',
+            'Only you and Oneova’s feed see this. Your Ova chats aren’t kept for it, only short topic words. '
+            'Health, faith, politics and money are learned only if you turn on sensitive topics. Sexuality, sexual '
+            'content, ethnicity, crime and anything that identifies you are never learned. ✦ marks topics from Ova.',
             style: AppTypography.caption(context.textMuted),
           ),
         ],
