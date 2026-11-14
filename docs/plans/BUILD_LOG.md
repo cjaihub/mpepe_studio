@@ -12,10 +12,13 @@ Status: ✅ done · 🔨 in progress · ⏳ next · ⛔ blocked (says why)
   existed (`/creator_studio/*`, `/communication/*`) in the Reels author panel and deep links. Old routes redirect (`/yt/*` → `/social_hub`,
   `/video/*` and `/audio/*` → `/create/studio`, `/hub/team` → `/hub/home`).
 - ✅ A3. Shared compact UI parts in `lib/shared/widgets/compact/`.
-- ⏳ A4. Settings and Me on compact rows (`lib/settings/main_settings_screen.dart`, profile sidebar).
+- ✅ A4. Settings and Me on compact rows. Settings: `CompactGroup`/`CompactRow` (50 px rows), quick
+  controls as one wrap of chips, the health card only shows when something needs attention (summary
+  first, issues and Fix on tap), slim profile row. Me sidebar: plain row icons, stats on one text line,
+  borderless quick actions, unread as pink dots. All routes, health dots and live hints kept.
 
 ## Stage B: Compact UI everywhere (one area per release, each checked in light and dark)
-- ⏳ B1. Business portal and shop tools.
+- 🔨 B1. Business portal and shop tools (next).
 - ⏳ B2. Chats: bubble padding 10–12, inline small previews for links, payments, gifts and reels;
   AI suggestion chips as one thin row only when useful.
 - ⏳ B3. Ova and AI Lab: replies without boxes, tool results as one-line summaries, small orb,
@@ -48,4 +51,5 @@ Design: `docs/payments/platform/` (architecture, security model, schema and API,
 - ⛔ Release to production waits for the Play organization account.
 
 ## Session notes
-- 2026-11-14: build 1.0.0 (33) on Play internal. A1–A3 done this session; A4 next.
+- 2026-11-14: build 1.0.0 (33) on Play internal. A1–A4 done; B1 next. A4 checked with analyze, the guard
+  test and a render test at 360 px in light and dark; not yet seen on a signed-in phone (not in a Play build yet).

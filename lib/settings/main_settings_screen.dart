@@ -10,6 +10,7 @@ import '../shared/theme/app_theme.dart';
 import '../shared/theme/theme_provider.dart';
 import '../shared/widgets/studio_background.dart';
 import '../shared/widgets/components.dart';
+import '../shared/widgets/compact/compact.dart';
 import '../providers/settings_provider.dart';
 import '../auth/services/secure_logout_service.dart';
 import 'services/platform_docs_cms_service.dart';
@@ -286,7 +287,6 @@ class _MainSettingsScreenState extends ConsumerState<MainSettingsScreen> {
                 ] else ...[
                   // 2. Autonomous Account Health & Diagnostics Card
                   _buildAccountHealthCard(context, healthReport),
-                  const SizedBox(height: 16),
 
                   // 3. Compact User Profile Summary
                   _buildUserProfileCard(context, displayName, user?.email, user?.photoURL),
@@ -294,7 +294,7 @@ class _MainSettingsScreenState extends ConsumerState<MainSettingsScreen> {
 
                   // 3b. Quick controls — one-tap, auto-saved toggles
                   _buildQuickControls(context, settings, isDark),
-                  const SizedBox(height: 16),
+                  const SizedBox(height: 4),
 
                   // 4. Preferences Group
                   _buildSettingsGroup(
@@ -308,7 +308,6 @@ class _MainSettingsScreenState extends ConsumerState<MainSettingsScreen> {
                         subtitle: 'Bubble density, swipe-to-reply & tone',
                         route: '/settings/chat',
                         categoryKey: 'chat',
-                        showDivider: true,
                         healthReport: healthReport,
                       ),
                       _buildSettingsTile(
@@ -318,7 +317,6 @@ class _MainSettingsScreenState extends ConsumerState<MainSettingsScreen> {
                         subtitle: 'Calls, messaging, persistent chat history',
                         route: '/settings/app',
                         categoryKey: 'app',
-                        showDivider: true,
                         healthReport: healthReport,
                       ),
                       _buildSettingsTile(
@@ -328,7 +326,6 @@ class _MainSettingsScreenState extends ConsumerState<MainSettingsScreen> {
                         subtitle: 'Push banners, badges & signature chimes',
                         route: '/settings/notifications',
                         categoryKey: 'notifications',
-                        showDivider: true,
                         healthReport: healthReport,
                       ),
                       _buildSettingsTile(
@@ -338,13 +335,12 @@ class _MainSettingsScreenState extends ConsumerState<MainSettingsScreen> {
                         subtitle: 'Ova\'s voice, tone and smart features',
                         route: '/settings/ai',
                         categoryKey: 'ai',
-                        showDivider: false,
                         healthReport: healthReport,
                       ),
                     ],
                   ).animate().fadeIn(duration: 250.ms),
 
-                  const SizedBox(height: 18),
+                  const SizedBox(height: 4),
 
                   // 4b. Display & Playback Group
                   _buildSettingsGroup(
@@ -358,7 +354,6 @@ class _MainSettingsScreenState extends ConsumerState<MainSettingsScreen> {
                         subtitle: 'Light / Dark, text size & motion',
                         route: '/settings/appearance',
                         categoryKey: 'appearance',
-                        showDivider: true,
                         healthReport: healthReport,
                       ),
                       _buildSettingsTile(
@@ -368,7 +363,6 @@ class _MainSettingsScreenState extends ConsumerState<MainSettingsScreen> {
                         subtitle: 'Reels theme, auto-scroll, loop & haptics',
                         route: '/settings/reels',
                         categoryKey: 'playback',
-                        showDivider: true,
                         healthReport: healthReport,
                       ),
                       _buildSettingsTile(
@@ -378,7 +372,6 @@ class _MainSettingsScreenState extends ConsumerState<MainSettingsScreen> {
                         subtitle: 'Contrast, large text & focus',
                         route: '/settings/accessibility',
                         categoryKey: 'accessibility',
-                        showDivider: true,
                         healthReport: healthReport,
                       ),
                       _buildSettingsTile(
@@ -388,7 +381,6 @@ class _MainSettingsScreenState extends ConsumerState<MainSettingsScreen> {
                         subtitle: 'Camera, mic & noise cancellation defaults',
                         route: '/settings/calls',
                         categoryKey: 'calls',
-                        showDivider: true,
                         healthReport: healthReport,
                       ),
                       _buildSettingsTile(
@@ -398,7 +390,6 @@ class _MainSettingsScreenState extends ConsumerState<MainSettingsScreen> {
                         subtitle: 'Media auto-download & gallery saving',
                         route: '/settings/storage',
                         categoryKey: 'storage',
-                        showDivider: true,
                         healthReport: healthReport,
                       ),
                       _buildSettingsTile(
@@ -408,13 +399,12 @@ class _MainSettingsScreenState extends ConsumerState<MainSettingsScreen> {
                         subtitle: 'Device Advisor, ceilings & Pro override',
                         route: '/settings/camera_and_live',
                         categoryKey: 'camera_and_live',
-                        showDivider: false,
                         healthReport: healthReport,
                       ),
                     ],
                   ).animate().fadeIn(delay: 25.ms, duration: 250.ms),
 
-                  const SizedBox(height: 18),
+                  const SizedBox(height: 4),
 
                   // 5. Integrations Group
                   _buildSettingsGroup(
@@ -428,13 +418,12 @@ class _MainSettingsScreenState extends ConsumerState<MainSettingsScreen> {
                         subtitle: 'Meta, Instagram, TikTok omnichannel sync',
                         route: '/social_hub',
                         categoryKey: 'integrations',
-                        showDivider: false,
                         healthReport: healthReport,
                       ),
                     ],
                   ).animate().fadeIn(delay: 50.ms, duration: 250.ms),
 
-                  const SizedBox(height: 18),
+                  const SizedBox(height: 4),
 
                   // 6. Security & Privacy Group
                   _buildSettingsGroup(
@@ -448,7 +437,6 @@ class _MainSettingsScreenState extends ConsumerState<MainSettingsScreen> {
                         subtitle: 'App PIN, biometric protection, 2FA & data',
                         route: '/settings/privacy',
                         categoryKey: 'privacy',
-                        showDivider: true,
                         healthReport: healthReport,
                       ),
                       _buildSettingsTile(
@@ -458,7 +446,6 @@ class _MainSettingsScreenState extends ConsumerState<MainSettingsScreen> {
                         subtitle: 'Features, Community rules, Terms, Privacy & African laws',
                         route: '/legal',
                         categoryKey: 'legal',
-                        showDivider: true,
                         healthReport: healthReport,
                       ),
                       if (ref.watch(isPlatformDocsAdminProvider).value == true)
@@ -469,7 +456,6 @@ class _MainSettingsScreenState extends ConsumerState<MainSettingsScreen> {
                           subtitle: 'Real-time App + Website editor & revision rollback',
                           route: '/settings/admin-cms',
                           categoryKey: 'legal',
-                          showDivider: true,
                           healthReport: healthReport,
                         ),
                       _buildSettingsTile(
@@ -479,7 +465,6 @@ class _MainSettingsScreenState extends ConsumerState<MainSettingsScreen> {
                         subtitle: 'Tell us what you wish Oneova had',
                         route: '/feedback',
                         categoryKey: 'feedback',
-                        showDivider: true,
                         healthReport: healthReport,
                       ),
                       _buildSettingsTile(
@@ -489,7 +474,6 @@ class _MainSettingsScreenState extends ConsumerState<MainSettingsScreen> {
                         subtitle: 'Version, promises & policy shortcuts',
                         route: '/settings/about',
                         categoryKey: 'about',
-                        showDivider: false,
                         healthReport: healthReport,
                       ),
                     ],
@@ -772,309 +756,123 @@ class _MainSettingsScreenState extends ConsumerState<MainSettingsScreen> {
   }
 
   /// Autonomous Account Health & Diagnostics Card
+  /// Shown only when something needs attention: one summary line, the
+  /// issues on tap. Healthy accounts see nothing here (low distraction).
   Widget _buildAccountHealthCard(BuildContext context, AccountHealthReport healthReport) {
-    final hasIssues = healthReport.hasIssues;
-    final score = healthReport.healthScore;
-
-    return Container(
-      decoration: BoxDecoration(
-        color: context.surface,
-        borderRadius: BorderRadius.circular(AppRadius.md),
-        border: Border.all(
-          color: hasIssues
-              ? AppColors.brandPink.withValues(alpha: 0.6)
-              : AppColors.brandBlue.withValues(alpha: 0.35),
-          width: 1.0,
-        ),
-        boxShadow: [
-          BoxShadow(
-            color: hasIssues
-                ? AppColors.brandPink.withValues(alpha: 0.08)
-                : AppColors.brandBlue.withValues(alpha: 0.04),
-            blurRadius: 10,
-            offset: const Offset(0, 4),
-          ),
-        ],
-      ),
-      padding: const EdgeInsets.all(14),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          // Top Status Header Row
-          Row(
+    if (!healthReport.hasIssues) return const SizedBox.shrink();
+    final count = healthReport.issues.length;
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 12),
+      child: CompactCard(
+        highlight: true,
+        child: CompactShowMore(
+          summary: Row(
             children: [
               Container(
-                width: 7,
-                height: 7,
-                decoration: BoxDecoration(
-                  color: hasIssues ? AppColors.brandPink : const Color(0xFF10B981),
-                  shape: BoxShape.circle,
-                ),
+                width: 8,
+                height: 8,
+                decoration: const BoxDecoration(color: AppColors.brandPink, shape: BoxShape.circle),
               ),
-              const SizedBox(width: 8),
+              const SizedBox(width: 10),
               Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      'Oneova Autonomous Health & Diagnostics',
-                      style: GoogleFonts.inter(
-                        fontSize: 12.5,
-                        fontWeight: FontWeight.w700,
-                        color: context.textPrimary,
-                        letterSpacing: -0.2,
-                      ),
-                    ),
-                    Text(
-                      hasIssues
-                          ? 'Background monitor detected ${healthReport.issues.length} optimization issue${healthReport.issues.length > 1 ? 's' : ''}'
-                          : 'Continuous 24/7 background audit active · Studio fully fortified',
-                      style: GoogleFonts.inter(
-                        fontSize: 10.5,
-                        color: hasIssues ? AppColors.brandPink : context.textMuted,
-                        fontWeight: hasIssues ? FontWeight.w600 : FontWeight.w400,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-                decoration: BoxDecoration(
-                  color: hasIssues
-                      ? AppColors.brandPink.withValues(alpha: 0.14)
-                      : const Color(0xFF10B981).withValues(alpha: 0.12),
-                  borderRadius: BorderRadius.circular(AppRadius.full),
-                  border: Border.all(
-                    color: hasIssues
-                        ? AppColors.brandPink.withValues(alpha: 0.4)
-                        : const Color(0xFF10B981).withValues(alpha: 0.3),
-                    width: 1.0,
-                  ),
-                ),
                 child: Text(
-                  '$score% Integrity',
-                  style: GoogleFonts.inter(
-                    fontSize: 10.5,
-                    fontWeight: FontWeight.w800,
-                    color: hasIssues ? AppColors.brandPink : const Color(0xFF10B981),
-                  ),
+                  '$count thing${count > 1 ? 's' : ''} need${count > 1 ? '' : 's'} attention',
+                  style: AppTypography.bodyMedium(context.textPrimary),
                 ),
               ),
+              Text('${healthReport.healthScore}%', style: AppTypography.small(context.textMuted)),
+              const SizedBox(width: 6),
             ],
           ),
-
-          if (hasIssues) ...[
-            const SizedBox(height: 12),
-            Divider(height: 1, thickness: 1, color: context.border),
-            const SizedBox(height: 10),
-
-            // Render list of issues
-            for (final issue in healthReport.issues) ...[
-              Padding(
-                padding: const EdgeInsets.symmetric(vertical: 4),
-                child: Row(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Container(
-                      margin: const EdgeInsets.only(top: 2),
-                      padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1),
-                      decoration: BoxDecoration(
-                        color: issue.severity == DiagnosticSeverity.error
-                            ? AppColors.brandPink.withValues(alpha: 0.2)
-                            : (issue.severity == DiagnosticSeverity.warning
-                                ? AppColors.brandPink.withValues(alpha: 0.14)
-                                : AppColors.brandBlue.withValues(alpha: 0.12)),
-                        borderRadius: BorderRadius.circular(4),
-                      ),
-                      child: Text(
-                        issue.severity.name.toUpperCase(),
-                        style: GoogleFonts.inter(
-                          fontSize: 8.5,
-                          fontWeight: FontWeight.w900,
-                          color: issue.severity == DiagnosticSeverity.info
-                              ? AppColors.brandBlue
-                              : AppColors.brandPink,
-                          letterSpacing: 0.4,
+          details: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              for (final issue in healthReport.issues)
+                Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 5),
+                  child: Row(
+                    children: [
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(issue.title, style: AppTypography.small(context.textPrimary).copyWith(fontWeight: FontWeight.w600)),
+                            Text(issue.description, maxLines: 2, overflow: TextOverflow.ellipsis, style: AppTypography.caption(context.textMuted)),
+                          ],
                         ),
                       ),
-                    ),
-                    const SizedBox(width: 8),
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            issue.title,
-                            style: GoogleFonts.inter(
-                              fontSize: 11.5,
-                              fontWeight: FontWeight.w600,
-                              color: context.textPrimary,
-                            ),
-                          ),
-                          Text(
-                            issue.description,
-                            style: GoogleFonts.inter(
-                              fontSize: 10.5,
-                              color: context.textMuted,
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                    const SizedBox(width: 8),
-                    if (issue.canAutoFix)
-                      SizedBox(
-                        height: 26,
-                        child: OutlinedButton(
-                          onPressed: () => _handleAutoFixSingle(issue.id, issue.title),
-                          style: OutlinedButton.styleFrom(
-                            side: const BorderSide(color: AppColors.brandBlue, width: 1.0),
-                            padding: const EdgeInsets.symmetric(horizontal: 8),
-                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(6)),
-                            backgroundColor: AppColors.brandBlue.withValues(alpha: 0.08),
-                          ),
-                          child: Text(
-                            issue.fixLabel,
-                            style: GoogleFonts.inter(
-                              fontSize: 10,
-                              fontWeight: FontWeight.w700,
-                              color: AppColors.brandBlue,
-                            ),
-                          ),
-                        ),
-                      ),
-                  ],
-                ),
-              ),
-            ],
-
-            const SizedBox(height: 10),
-
-            // Master 1-Tap AI Auto-Fix All Button
-            SizedBox(
-              width: double.infinity,
-              height: 36,
-              child: ElevatedButton.icon(
-                onPressed: _isAutoFixing ? null : _handleAutoFixAll,
-                icon: _isAutoFixing
-                    ? const SizedBox(
-                        width: 14,
-                        height: 14,
-                        child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
-                      )
-                    : const Icon(Icons.auto_fix_high_rounded, size: 16),
-                label: Text(
-                  _isAutoFixing ? 'Applying AI Optimizations...' : 'AI Auto-Fix All Issues',
-                  style: GoogleFonts.inter(
-                    fontSize: 12.0,
-                    fontWeight: FontWeight.w700,
-                    letterSpacing: -0.1,
+                      if (issue.canAutoFix) ...[
+                        const SizedBox(width: 8),
+                        CompactChip(label: issue.fixLabel, onTap: () => _handleAutoFixSingle(issue.id, issue.title)),
+                      ],
+                    ],
                   ),
                 ),
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: AppColors.brandBlue,
-                  foregroundColor: Colors.white,
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(AppRadius.sm),
+              if (healthReport.issues.any((i) => i.canAutoFix)) ...[
+                const SizedBox(height: 6),
+                Align(
+                  alignment: Alignment.centerLeft,
+                  child: CompactChip(
+                    icon: Icons.auto_fix_high_rounded,
+                    label: _isAutoFixing ? 'Fixing…' : 'Fix all',
+                    selected: true,
+                    onTap: _isAutoFixing ? null : _handleAutoFixAll,
                   ),
-                  elevation: 0,
-                  padding: const EdgeInsets.symmetric(horizontal: 14),
-                ),
-              ),
-            ),
-          ],
-        ],
-      ),
-    );
-  }
-
-  /// Compact User Profile Summary Card
-  Widget _buildUserProfileCard(BuildContext context, String displayName, String? email, String? photoUrl) {
-    return Container(
-      decoration: BoxDecoration(
-        color: context.surface,
-        borderRadius: BorderRadius.circular(AppRadius.md),
-        border: Border.all(color: context.border, width: 1.0),
-      ),
-      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-      child: Row(
-        children: [
-          CircleAvatar(
-            radius: 22,
-            backgroundColor: AppColors.brandBlue,
-            backgroundImage: photoUrl != null ? NetworkImage(photoUrl) : null,
-            child: photoUrl == null
-                ? Text(
-                    displayName.isNotEmpty ? displayName[0].toUpperCase() : 'C',
-                    style: GoogleFonts.inter(fontSize: 16, color: Colors.white, fontWeight: FontWeight.w800),
-                  )
-                : null,
-          ),
-          const SizedBox(width: 12),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Row(
-                  children: [
-                    Flexible(
-                      child: Text(
-                        displayName,
-                        style: GoogleFonts.inter(
-                          fontSize: 14.0,
-                          fontWeight: FontWeight.w700,
-                          color: context.textPrimary,
-                          letterSpacing: -0.2,
-                        ),
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                      ),
-                    ),
-                    const SizedBox(width: 5),
-                    const Icon(Icons.verified_rounded, color: AppColors.brandBlue, size: 15),
-                  ],
-                ),
-                const SizedBox(height: 2),
-                Text(
-                  email ?? 'Oneova Studio Creator',
-                  style: GoogleFonts.inter(
-                    fontSize: 11.5,
-                    color: context.textMuted,
-                  ),
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
                 ),
               ],
-            ),
+            ],
           ),
-          SizedBox(
-            height: 30,
-            child: OutlinedButton(
-              onPressed: () => context.push('/settings/profile'),
-              style: OutlinedButton.styleFrom(
-                side: BorderSide(color: context.border, width: 1.0),
-                padding: const EdgeInsets.symmetric(horizontal: 10),
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(6)),
-                backgroundColor: context.surfaceMid,
-              ),
-              child: Text(
-                'Edit',
-                style: GoogleFonts.inter(
-                  fontSize: 11,
-                  fontWeight: FontWeight.w600,
-                  color: context.textPrimary,
-                ),
-              ),
-            ),
-          ),
-        ],
+        ),
       ),
+    ).animate().fadeIn(duration: 200.ms);
+  }
+
+  /// Slim profile row; the whole row opens profile editing.
+  Widget _buildUserProfileCard(BuildContext context, String displayName, String? email, String? photoUrl) {
+    return CompactGroup(
+      children: [
+        Material(
+          type: MaterialType.transparency,
+          child: InkWell(
+            onTap: () => context.push('/settings/profile'),
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+              child: Row(
+                children: [
+                  CircleAvatar(
+                    radius: 18,
+                    backgroundColor: AppColors.brandBlue,
+                    backgroundImage: photoUrl != null ? NetworkImage(photoUrl) : null,
+                    child: photoUrl == null
+                        ? Text(
+                            displayName.isNotEmpty ? displayName[0].toUpperCase() : 'O',
+                            style: AppTypography.bodyMedium(Colors.white).copyWith(fontWeight: FontWeight.w800),
+                          )
+                        : null,
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(displayName, maxLines: 1, overflow: TextOverflow.ellipsis, style: AppTypography.sectionTitle(context.textPrimary)),
+                        if (email != null)
+                          Text(email, maxLines: 1, overflow: TextOverflow.ellipsis, style: AppTypography.caption(context.textMuted)),
+                      ],
+                    ),
+                  ),
+                  Text('Edit', style: AppTypography.small(AppColors.brandBlue).copyWith(fontWeight: FontWeight.w600)),
+                  Icon(Icons.chevron_right_rounded, size: 18, color: context.textMuted),
+                ],
+              ),
+            ),
+          ),
+        ),
+      ],
     );
   }
 
-  /// Clean group container for settings tiles
-  /// Grid of small one-tap toggles. Each tap auto-saves (theme on device,
+  /// One wrap of small one-tap chips. Each tap auto-saves (theme on device,
   /// the rest to `user_settings/{uid}`).
   Widget _buildQuickControls(BuildContext context, Map<String, dynamic> settings, bool isDark) {
     final notifications = settingsCategory(settings, 'notifications');
@@ -1086,90 +884,53 @@ class _MainSettingsScreenState extends ConsumerState<MainSettingsScreen> {
 
     Widget toggle(IconData icon, String label, String category, Map<String, dynamic> data, String key, bool fallback) {
       final value = data[key] as bool? ?? fallback;
-      return SettingsQuickToggle(
+      return CompactChip(
         icon: icon,
         label: label,
-        active: value,
-        onTap: () => settingsWrite(ref, category: category, current: data, key: key, value: !value, label: label),
+        selected: value,
+        onTap: () {
+          HapticFeedback.selectionClick();
+          settingsWrite(ref, category: category, current: data, key: key, value: !value, label: label);
+        },
       );
     }
 
-    final tiles = <Widget>[
-      SettingsQuickToggle(
-        icon: isDark ? Icons.dark_mode_rounded : Icons.light_mode_rounded,
-        label: isDark ? 'Dark' : 'Light',
-        active: isDark,
-        onTap: () => ref.read(themeProvider.notifier).toggleTheme(),
-      ),
-      toggle(Icons.notifications_active_rounded, 'Banners', 'notifications', notifications, 'inAppEnabled', true),
-      toggle(Icons.volume_up_rounded, 'Sounds', 'chat', chat, 'chatSoundEffects', true),
-      toggle(Icons.public_rounded, 'Public', 'privacy', privacy, 'publicProfile', true),
-      toggle(Icons.keyboard_double_arrow_down_rounded, 'Auto-scroll', 'playback', playback, 'autoScroll', false),
-      toggle(Icons.repeat_rounded, 'Loop', 'playback', playback, 'loopVideos', true),
-      toggle(Icons.animation_rounded, 'Less motion', 'accessibility', accessibility, 'reduceMotion', false),
-      toggle(Icons.wifi_rounded, 'Wi-Fi media', 'storage', storage, 'autoDownloadWifi', true),
-    ];
-
     return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
+      crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        Padding(
-          padding: const EdgeInsets.only(left: 4, bottom: 6),
-          child: Text(
-            'QUICK CONTROLS',
-            style: GoogleFonts.inter(
-              fontSize: 10.5,
-              fontWeight: FontWeight.w800,
-              letterSpacing: 0.8,
-              color: AppColors.brandBlue,
+        const CompactSectionHeader('Quick controls'),
+        Wrap(
+          spacing: 6,
+          runSpacing: 6,
+          children: [
+            CompactChip(
+              icon: isDark ? Icons.dark_mode_rounded : Icons.light_mode_rounded,
+              label: isDark ? 'Dark' : 'Light',
+              selected: isDark,
+              onTap: () {
+                HapticFeedback.selectionClick();
+                ref.read(themeProvider.notifier).toggleTheme();
+              },
             ),
-          ),
-        ),
-        GridView.count(
-          crossAxisCount: 4,
-          shrinkWrap: true,
-          physics: const NeverScrollableScrollPhysics(),
-          mainAxisSpacing: 8,
-          crossAxisSpacing: 8,
-          childAspectRatio: 1.25,
-          children: tiles,
+            toggle(Icons.notifications_active_rounded, 'Banners', 'notifications', notifications, 'inAppEnabled', true),
+            toggle(Icons.volume_up_rounded, 'Sounds', 'chat', chat, 'chatSoundEffects', true),
+            toggle(Icons.public_rounded, 'Public', 'privacy', privacy, 'publicProfile', true),
+            toggle(Icons.keyboard_double_arrow_down_rounded, 'Auto-scroll', 'playback', playback, 'autoScroll', false),
+            toggle(Icons.repeat_rounded, 'Loop', 'playback', playback, 'loopVideos', true),
+            toggle(Icons.animation_rounded, 'Less motion', 'accessibility', accessibility, 'reduceMotion', false),
+            toggle(Icons.wifi_rounded, 'Wi-Fi media', 'storage', storage, 'autoDownloadWifi', true),
+          ],
         ),
       ],
-    ).animate().fadeIn(duration: 250.ms);
+    ).animate().fadeIn(duration: 200.ms);
   }
 
   Widget _buildSettingsGroup(BuildContext context, String title, List<Widget> children) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Padding(
-          padding: const EdgeInsets.only(left: 4, bottom: 6),
-          child: Text(
-            title.toUpperCase(),
-            style: GoogleFonts.inter(
-              fontSize: 10.5,
-              fontWeight: FontWeight.w800,
-              letterSpacing: 0.8,
-              color: AppColors.brandBlue,
-            ),
-          ),
-        ),
-        Container(
-          decoration: BoxDecoration(
-            color: context.surface,
-            borderRadius: BorderRadius.circular(AppRadius.md),
-            border: Border.all(color: context.border, width: 1.0),
-          ),
-          clipBehavior: Clip.antiAlias,
-          child: Column(
-            children: children,
-          ),
-        ),
-      ],
-    );
+    return CompactGroup(title: title, children: children);
   }
 
-  /// Compact settings tile (38-42px scale) with error & warning highlights
+  /// Thin settings row. A pink dot and the issue as subtitle mark a setting
+  /// with an active diagnostic; "Fix" appears when it can be auto-fixed.
   Widget _buildSettingsTile(
     BuildContext context, {
     required IconData icon,
@@ -1177,125 +938,21 @@ class _MainSettingsScreenState extends ConsumerState<MainSettingsScreen> {
     required String subtitle,
     required String route,
     required String categoryKey,
-    required bool showDivider,
     required AccountHealthReport healthReport,
   }) {
-    // Check if this tile has an active diagnostic issue
     final activeIssue = healthReport.issues.where((i) => i.category == categoryKey || i.route == route).firstOrNull;
-    final hasWarning = activeIssue != null;
-
-    return Column(
-      children: [
-        InkWell(
-          onTap: () {
-            HapticFeedback.lightImpact();
-            context.push(route);
-          },
-          child: Container(
-            decoration: BoxDecoration(
-              color: hasWarning ? AppColors.brandPink.withValues(alpha: 0.04) : Colors.transparent,
-              border: hasWarning
-                  ? Border(left: BorderSide(color: AppColors.brandPink, width: 2.5))
-                  : null,
-            ),
-            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
-            child: Row(
-              children: [
-                SettingsIconChip(
-                  icon: icon,
-                  color: hasWarning ? AppColors.brandPink : AppColors.brandBlue,
-                ),
-                const SizedBox(width: 10),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Row(
-                        children: [
-                          Flexible(
-                            child: Text(
-                              title,
-                              style: GoogleFonts.inter(
-                                fontSize: 12.5,
-                                fontWeight: FontWeight.w600,
-                                color: context.textPrimary,
-                                letterSpacing: -0.1,
-                              ),
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                            ),
-                          ),
-                          if (hasWarning) ...[
-                            const SizedBox(width: 6),
-                            Container(
-                              padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1),
-                              decoration: BoxDecoration(
-                                color: AppColors.brandPink.withValues(alpha: 0.14),
-                                borderRadius: BorderRadius.circular(4),
-                                border: Border.all(color: AppColors.brandPink.withValues(alpha: 0.4), width: 1.0),
-                              ),
-                              child: Text(
-                                'ATTENTION',
-                                style: GoogleFonts.inter(
-                                  fontSize: 8.0,
-                                  fontWeight: FontWeight.w900,
-                                  color: AppColors.brandPink,
-                                  letterSpacing: 0.4,
-                                ),
-                              ),
-                            ),
-                          ],
-                        ],
-                      ),
-                      const SizedBox(height: 1.5),
-                      Text(
-                        hasWarning ? activeIssue.title : subtitle,
-                        style: GoogleFonts.inter(
-                          fontSize: 10.5,
-                          color: hasWarning ? AppColors.brandPink : context.textMuted,
-                          fontWeight: hasWarning ? FontWeight.w500 : FontWeight.w400,
-                        ),
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                      ),
-                    ],
-                  ),
-                ),
-                const SizedBox(width: 8),
-                if (hasWarning && activeIssue.canAutoFix)
-                  GestureDetector(
-                    onTap: () => _handleAutoFixSingle(activeIssue.id, activeIssue.title),
-                    child: Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-                      decoration: BoxDecoration(
-                        color: AppColors.brandBlue,
-                        borderRadius: BorderRadius.circular(6),
-                      ),
-                      child: Text(
-                        'AI Fix',
-                        style: GoogleFonts.inter(
-                          fontSize: 10,
-                          fontWeight: FontWeight.w800,
-                          color: Colors.white,
-                        ),
-                      ),
-                    ),
-                  )
-                else
-                  Icon(Icons.chevron_right_rounded, size: 18, color: context.textMuted),
-              ],
-            ),
-          ),
-        ),
-        if (showDivider)
-          Divider(
-            height: 1,
-            thickness: 1,
-            color: context.border,
-            indent: 50,
-            endIndent: 12,
-          ),
-      ],
+    return CompactRow(
+      icon: icon,
+      title: title,
+      subtitle: activeIssue?.title ?? subtitle,
+      dot: activeIssue != null,
+      trailing: activeIssue != null && activeIssue.canAutoFix
+          ? CompactChip(label: 'Fix', selected: true, onTap: () => _handleAutoFixSingle(activeIssue.id, activeIssue.title))
+          : null,
+      onTap: () {
+        HapticFeedback.lightImpact();
+        context.push(route);
+      },
     );
   }
 

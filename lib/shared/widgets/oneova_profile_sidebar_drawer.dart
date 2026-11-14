@@ -15,6 +15,7 @@ import '../theme/theme_provider.dart';
 import '../../auth/widgets/profile_completion_reminder_card.dart';
 import '../../auth/services/secure_logout_service.dart';
 import '../../auth/services/app_lifecycle_observer.dart';
+import 'compact/compact.dart';
 import 'creation_type_modal.dart';
 
 /// Live stream provider for current authenticated user's Firestore document.
@@ -287,25 +288,14 @@ class _OneovaProfileSidebarDrawerState extends ConsumerState<OneovaProfileSideba
             setState(() => collapsed ? _collapsed.remove(section.title) : _collapsed.add(section.title));
           },
           child: Padding(
-            padding: const EdgeInsets.fromLTRB(16, 12, 12, 6),
-            child: Row(
-              children: [
-                Text(
-                  section.title,
-                  style: GoogleFonts.inter(
-                    color: context.textMuted,
-                    fontSize: 9.5,
-                    fontWeight: FontWeight.w800,
-                    letterSpacing: 0.9,
-                  ),
-                ),
-                const Spacer(),
-                AnimatedRotation(
-                  turns: collapsed ? -0.25 : 0,
-                  duration: const Duration(milliseconds: 180),
-                  child: Icon(Icons.expand_more_rounded, size: 16, color: context.textMuted),
-                ),
-              ],
+            padding: const EdgeInsets.fromLTRB(12, 0, 8, 0),
+            child: CompactSectionHeader(
+              section.title,
+              trailing: AnimatedRotation(
+                turns: collapsed ? -0.25 : 0,
+                duration: const Duration(milliseconds: 180),
+                child: Icon(Icons.expand_more_rounded, size: 16, color: context.textMuted),
+              ),
             ),
           ),
         ),
@@ -336,7 +326,7 @@ class _OneovaProfileSidebarDrawerState extends ConsumerState<OneovaProfileSideba
       case _RowHint.live:
         return const _Pill(label: 'LIVE', color: AppColors.brandPink);
       case _RowHint.unreadAlerts:
-        return unread > 0 ? _Pill(label: unread > 99 ? '99+' : '$unread', color: AppColors.brandPink, solid: true) : null;
+        return unread > 0 ? const _Dot() : null;
       case _RowHint.pcOnline:
         return pcOnline ? const _Pill(label: 'ONLINE', color: AppColors.brandBlue) : null;
       case _RowHint.none:
@@ -495,7 +485,7 @@ class _AuthorHeader extends StatelessWidget {
                             padding: const EdgeInsets.all(2),
                             decoration: BoxDecoration(color: context.bg, shape: BoxShape.circle),
                             child: CircleAvatar(
-                              radius: 21,
+                              radius: 18,
                               backgroundColor: AppColors.brandBlue,
                               backgroundImage: hasAvatar ? NetworkImage(avatarUrl!) : null,
                               child: hasAvatar
@@ -570,27 +560,24 @@ class _AuthorHeader extends StatelessWidget {
               ),
             ],
           ),
-          const SizedBox(height: 8),
+          const SizedBox(height: 4),
           Padding(
-            padding: const EdgeInsets.only(right: 8),
+            padding: const EdgeInsets.only(left: 4, right: 8),
             child: InkWell(
               borderRadius: BorderRadius.circular(AppRadius.sm),
               onTap: onOpenProfile,
-              child: Container(
-                padding: const EdgeInsets.symmetric(vertical: 8),
-                decoration: BoxDecoration(
-                  color: context.surface,
-                  borderRadius: BorderRadius.circular(AppRadius.sm),
-                  border: Border.all(color: context.border, width: 1.0),
-                ),
-                child: Row(
-                  children: [
-                    _stat(context, posts, 'Posts'),
-                    _divider(context),
-                    _stat(context, followers, 'Followers'),
-                    _divider(context),
-                    _stat(context, following, 'Following'),
-                  ],
+              child: Padding(
+                padding: const EdgeInsets.symmetric(vertical: 4),
+                child: Text.rich(
+                  TextSpan(children: [
+                    _stat(context, posts, 'posts'),
+                    _sep(context),
+                    _stat(context, followers, 'followers'),
+                    _sep(context),
+                    _stat(context, following, 'following'),
+                  ]),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
                 ),
               ),
             ),
@@ -600,32 +587,15 @@ class _AuthorHeader extends StatelessWidget {
     );
   }
 
-  Widget _divider(BuildContext context) => Container(width: 1, height: 22, color: context.border);
+  TextSpan _sep(BuildContext context) => TextSpan(text: '  ·  ', style: AppTypography.caption(context.textMuted));
 
-  Widget _stat(BuildContext context, String value, String label) {
-    return Expanded(
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Text(
-            value,
-            style: GoogleFonts.inter(
-              color: context.textPrimary,
-              fontSize: 13.5,
-              fontWeight: FontWeight.w800,
-              letterSpacing: -0.2,
-            ),
-          ),
-          Text(
-            label,
-            style: GoogleFonts.inter(color: context.textMuted, fontSize: 10, fontWeight: FontWeight.w500),
-          ),
-        ],
-      ),
-    );
+  TextSpan _stat(BuildContext context, String value, String label) {
+    return TextSpan(children: [
+      TextSpan(text: value, style: AppTypography.small(context.textPrimary).copyWith(fontWeight: FontWeight.w700)),
+      TextSpan(text: ' $label', style: AppTypography.caption(context.textMuted)),
+    ]);
   }
 }
-
 /// One compact quick-action button (icon over label), with optional unread badge.
 class _QuickAction extends StatelessWidget {
   final IconData icon;
@@ -648,16 +618,13 @@ class _QuickAction extends StatelessWidget {
       button: true,
       label: badge > 0 ? '$label, $badge unread' : label,
       child: Material(
-        color: primary ? AppColors.brandBlue : context.surface,
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(AppRadius.md),
-          side: primary ? BorderSide.none : BorderSide(color: context.border, width: 1.0),
-        ),
+        color: primary ? AppColors.brandBlue : Colors.transparent,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(AppRadius.md)),
         clipBehavior: Clip.antiAlias,
         child: InkWell(
           onTap: onTap,
           child: Padding(
-            padding: const EdgeInsets.symmetric(vertical: 9),
+            padding: const EdgeInsets.symmetric(vertical: 7),
             child: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
@@ -665,29 +632,7 @@ class _QuickAction extends StatelessWidget {
                   clipBehavior: Clip.none,
                   children: [
                     Icon(icon, size: 20, color: primary ? AppColors.brandWhite : AppColors.brandBlue),
-                    if (badge > 0)
-                      Positioned(
-                        right: -7,
-                        top: -5,
-                        child: Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 1),
-                          constraints: const BoxConstraints(minWidth: 15),
-                          decoration: BoxDecoration(
-                            color: AppColors.brandPink,
-                            borderRadius: BorderRadius.circular(AppRadius.full),
-                            border: Border.all(color: context.surface, width: 1.0),
-                          ),
-                          child: Text(
-                            badge > 99 ? '99+' : '$badge',
-                            textAlign: TextAlign.center,
-                            style: GoogleFonts.inter(
-                              color: AppColors.brandWhite,
-                              fontSize: 8.5,
-                              fontWeight: FontWeight.w800,
-                            ),
-                          ),
-                        ),
-                      ),
+                    if (badge > 0) const Positioned(right: -3, top: -2, child: _Dot()),
                   ],
                 ),
                 const SizedBox(height: 4),
@@ -737,7 +682,7 @@ class _NavRow extends StatelessWidget {
           borderRadius: BorderRadius.circular(AppRadius.sm),
           onTap: onTap,
           child: SizedBox(
-            height: 40,
+            height: 42,
             child: Row(
               children: [
                 Container(
@@ -749,20 +694,8 @@ class _NavRow extends StatelessWidget {
                   ),
                 ),
                 const SizedBox(width: 7),
-                Container(
-                  width: 28,
-                  height: 28,
-                  decoration: BoxDecoration(
-                    color: active ? AppColors.brandBlue : context.surfaceMid,
-                    borderRadius: BorderRadius.circular(AppRadius.sm),
-                  ),
-                  child: Icon(
-                    link.icon,
-                    size: 16,
-                    color: active ? AppColors.brandWhite : AppColors.brandBlue,
-                  ),
-                ),
-                const SizedBox(width: 11),
+                Icon(link.icon, size: 20, color: AppColors.brandBlue),
+                const SizedBox(width: 12),
                 Expanded(
                   child: Text(
                     link.label,
@@ -791,26 +724,43 @@ class _NavRow extends StatelessWidget {
 class _Pill extends StatelessWidget {
   final String label;
   final Color color;
-  final bool solid;
-  const _Pill({required this.label, required this.color, this.solid = false});
+  const _Pill({required this.label, required this.color});
 
   @override
   Widget build(BuildContext context) {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
       decoration: BoxDecoration(
-        color: solid ? color : color.withValues(alpha: 0.12),
+        color: color.withValues(alpha: 0.12),
         borderRadius: BorderRadius.circular(AppRadius.full),
-        border: solid ? null : Border.all(color: color.withValues(alpha: 0.35), width: 1.0),
+        border: Border.all(color: color.withValues(alpha: 0.35), width: 1.0),
       ),
       child: Text(
         label,
         style: GoogleFonts.inter(
-          color: solid ? AppColors.brandWhite : color,
+          color: color,
           fontSize: 9,
           fontWeight: FontWeight.w800,
           letterSpacing: 0.6,
         ),
+      ),
+    );
+  }
+}
+
+/// Pink unread dot (badges are dots, not counters).
+class _Dot extends StatelessWidget {
+  const _Dot();
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: 8,
+      height: 8,
+      decoration: BoxDecoration(
+        color: AppColors.brandPink,
+        shape: BoxShape.circle,
+        border: Border.all(color: context.bg, width: 1.0),
       ),
     );
   }
