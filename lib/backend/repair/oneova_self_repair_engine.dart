@@ -13,6 +13,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import '../security/secure_api_key_vault.dart';
 import '../security/oneova_ai_gateway.dart';
+import '../../shared/services/auto_cache_cleaner.dart';
 
 /// Represents individual component health check state.
 enum ComponentStatus { healthy, degraded, repaired, failed }
@@ -349,24 +350,10 @@ class OneOvaSelfRepairEngine {
   Future<RepairResult> repairInterfaceAndCache() async {
     final List<String> purged = [];
     try {
-      // 1. Purge Temporary Directory
-      final tempDir = await getTemporaryDirectory();
-      if (tempDir.existsSync()) {
-        final entities = tempDir.listSync(followLinks: false);
-        for (var entity in entities) {
-          try {
-            if (entity is File) {
-              entity.deleteSync();
-              purged.add(entity.path.split('/').last);
-            } else if (entity is Directory) {
-              entity.deleteSync(recursive: true);
-              purged.add(entity.path.split('/').last);
-            }
-          } catch (_) {
-            // Skip in-use locks
-          }
-        }
-      }
+      // 1. Safe cache clean-up: leftovers older than 10 minutes and caches that
+      //    download again. Never files still in use (recordings, uploads).
+      final report = await AutoCacheCleaner.instance.run(force: true);
+      if (report != null) purged.add('cache: ${(report.freedBytes / (1024 * 1024)).toStringAsFixed(1)} MB freed');
 
       // 2. Clear Corrupted SharedPreferences Stale Flags
       final prefs = await SharedPreferences.getInstance();

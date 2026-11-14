@@ -16,6 +16,11 @@ Status: ✅ done · 🔨 in progress · ⏳ next · ⛔ blocked (says why)
   for live models only.
 
 ## Stage F: Language and location awareness
+- ✅ F6. Automatic cache clean-up (`lib/shared/services/auto_cache_cleaner.dart`): leftovers older than a
+  day, a 400 MB cache budget (Reels videos first, then thumbnails and images), runs after start and when
+  the app is hidden, at most every 6 h; on/off and "Clean up now" in Settings → Storage. Self-repair now
+  uses it instead of deleting the whole temp folder (which could break recordings and uploads).
+- ⏳ F7. Interest profile for discovery: waiting for your decision (it changes the Ova vault privacy rule).
 - ⏳ F1. First run and sign-in: phone language + detected country set the account's language, country,
   currency and time zone (one tap to confirm or change).
 - 🔨 F2. Ova voice now gets the local time, day and phone language every turn and replies in the

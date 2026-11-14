@@ -37,6 +37,7 @@ import 'looks/providers/looks_providers.dart';
 import 'ova_assistant/overlay/ova_overlay_app.dart';
 import 'shared/services/draft_store.dart';
 import 'shared/services/play_update_service.dart';
+import 'shared/services/auto_cache_cleaner.dart';
 
 /// Top-level FCM background message handler (must be a top-level function).
 @pragma('vm:entry-point')
@@ -110,6 +111,8 @@ void main() async {
     runApp(const ProviderScope(child: DesktopAgentApp()));
   } else {
     runApp(ProviderScope(overrides: liveStudioV2Overrides, child: const OneOvaApp()));
+    // Keeps caches small: old leftovers out, under a size budget (Settings → Storage).
+    AutoCacheCleaner.instance.start();
   }
 
   // Background initialization of non-critical and network-dependent services
