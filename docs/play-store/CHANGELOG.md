@@ -1,5 +1,13 @@
 # Oneova release notes
 
+## 1.0.0 (33) — 2026-11-14 · Internal Testing Release
+
+**Steadier calls and easier business setup**
+- **Calls no longer close the app** when someone joins, leaves or hangs up, and screen sharing works on Android 14+.
+- **Business setup steps**: a "You → Your business" progress bar and a checklist that hides once you're done.
+- **Every country** can be picked when verifying a business.
+- **Reels controls** fit narrow phones.
+
 ## 1.0.0 (32) — 2026-11-13 · Internal Testing Release
 
 **Oneova Pay: scan to pay, and personal + business balances**
