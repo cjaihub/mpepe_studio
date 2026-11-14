@@ -129,6 +129,55 @@ class WebRTCConnectionManager extends Notifier<WebRTCMeshState> {
   final Map<String, List<FrameCryptor>> _cryptors = {};
   final Set<String> _offeredE2ee = {};
 
+  /// One queue of WebRTC work per remote peer.
+  ///
+  /// On Android, libwebrtc calls flutter_webrtc's Java `onAddTrack` on its
+  /// signaling thread in the middle of `setRemoteDescription`. That callback
+  /// walks `PeerConnection.getTransceivers()`, which disposes the Java
+  /// wrappers handed out by the previous call. If Dart reaches the same
+  /// connection from the main thread at that moment (another
+  /// `getTransceivers`, a remote track lookup, `close`/`dispose` on hang-up),
+  /// one thread uses wrappers the other just disposed. The Java exception on
+  /// the signaling thread aborts the whole app (SIGABRT in
+  /// libjingle_peerconnection_so). Running every operation on a connection
+  /// one after another keeps Dart away from it until the description is set.
+  final Map<String, Future<void>> _peerOps = {};
+  static const Duration _peerOpTimeout = Duration(seconds: 15);
+
+  /// Runs [op] after every earlier operation on [uid]'s connection. Never
+  /// throws; returns null when [op] fails or times out.
+  Future<T?> _serial<T>(String uid, Future<T> Function() op, {Duration timeout = _peerOpTimeout}) {
+    final done = Completer<T?>();
+    final prev = _peerOps[uid] ?? Future<void>.value();
+    final next = prev.then((_) async {
+      try {
+        done.complete(await op().timeout(timeout));
+      } catch (e) {
+        debugPrint('[Mesh] operation for $uid failed: $e');
+        if (!done.isCompleted) done.complete(null);
+      }
+    });
+    _peerOps[uid] = next;
+    next.whenComplete(() {
+      if (identical(_peerOps[uid], next)) _peerOps.remove(uid);
+    });
+    return done.future;
+  }
+
+  /// [peer] is still the connection this manager holds for its user (not
+  /// removed, not replaced, call not left).
+  bool _isLive(String callId, PeerState peer) =>
+      _callId == callId && identical(state.peers[peer.remoteUserId]?.connection, peer.connection);
+
+  /// Signaling writes are fire-and-forget: Firestore applies them in order
+  /// locally, and awaiting the server ack would stall the peer's queue while
+  /// the network is down.
+  void _write(String callId, Map<String, dynamic> data) {
+    unawaited(_signaling(callId).add(data).then<void>((_) {}, onError: (Object e) {
+      debugPrint('[Mesh] signaling write ${data['type']} failed: $e');
+    }));
+  }
+
   /// Tunes Opus SDP parameters for zero-server-cost HD fullband voice clarity,
   /// packet-loss resilience (in-band FEC), silence savings (DTX), and 20ms
   /// low-latency framing.
@@ -225,7 +274,9 @@ class WebRTCConnectionManager extends Notifier<WebRTCMeshState> {
         if (change.type != DocumentChangeType.added) continue;
         final data = change.doc.data();
         if (data == null) continue;
-        _handleSignal(callId, data).whenComplete(() {
+        final from = data['senderId'] as String?;
+        if (from == null || from.isEmpty) continue;
+        _serial(from, () => _handleSignal(callId, data)).whenComplete(() {
           change.doc.reference.delete().catchError((_) {});
         });
       }
@@ -238,14 +289,28 @@ class WebRTCConnectionManager extends Notifier<WebRTCMeshState> {
     final callId = _callId;
     if (callId == null || remoteUserId == _me) return;
     if (state.peers.containsKey(remoteUserId) || _creating.contains(remoteUserId)) return;
-    final peer = await _createPeer(callId, remoteUserId, offerer: offerer);
-    if (offerer) await _sendOffer(callId, peer);
+    // Reserved before queueing so a second connectTo for the same user bails.
+    _creating.add(remoteUserId);
+    await _serial(remoteUserId, () async {
+      try {
+        if (_callId != callId || state.peers.containsKey(remoteUserId)) return;
+        final peer = await _createPeer(callId, remoteUserId, offerer: offerer);
+        if (peer != null && offerer) await _sendOffer(callId, peer);
+      } finally {
+        _creating.remove(remoteUserId);
+      }
+    });
   }
 
-  Future<PeerState> _createPeer(String callId, String remoteUserId, {required bool offerer}) async {
+  /// Opens the connection to [remoteUserId]. Returns null when the call was
+  /// left while it was being set up (the half-built connection is closed).
+  /// Only call from [remoteUserId]'s queue ([_serial]).
+  Future<PeerState?> _createPeer(String callId, String remoteUserId, {required bool offerer}) async {
     _creating.add(remoteUserId);
+    final renderer = RTCVideoRenderer();
+    RTCPeerConnection? created;
+    var owned = false;
     try {
-      final renderer = RTCVideoRenderer();
       await renderer.initialize();
       renderer.onFirstFrameRendered = () {
         _patch(remoteUserId, (p) => p.copyWith(hasRemoteVideo: true, videoRevision: p.videoRevision + 1));
@@ -254,7 +319,10 @@ class WebRTCConnectionManager extends Notifier<WebRTCMeshState> {
         _patch(remoteUserId, (p) => p.copyWith(videoRevision: p.videoRevision + 1));
       };
 
-      final pc = await createPeerConnection(CallIceConfig.configuration());
+      created = await createPeerConnection(CallIceConfig.configuration());
+      final pc = created;
+      // Hung up while the connection was opening: `finally` closes it.
+      if (_callId != callId) return null;
 
       // Unified Plan: ONLY the offerer pre-creates SendRecv transceivers before
       // SDP exchange. The answerer must call setRemoteDescription(offer) first
@@ -287,24 +355,30 @@ class WebRTCConnectionManager extends Notifier<WebRTCMeshState> {
         _videoSenders[remoteUserId] = videoTx.sender;
       }
 
-      pc.onTrack = (RTCTrackEvent event) async {
-        event.track.enabled = true;
+      // Fires while setRemoteDescription is still running natively. Remote
+      // tracks arrive enabled; setting `enabled` here (as before) made the
+      // Android plugin look the track up through getTransceivers() on the
+      // main thread, racing the signaling thread (native abort). Rendering is
+      // queued behind the description so nothing touches the connection
+      // until it is set.
+      pc.onTrack = (RTCTrackEvent event) {
         if (event.streams.isNotEmpty) {
           _remoteStreams[remoteUserId] = event.streams.first;
         }
         final stream = event.streams.isNotEmpty ? event.streams.first : _remoteStreams[remoteUserId];
         if (event.track.kind == 'video') {
           _remoteVideoTracks[remoteUserId] = event.track;
-          await _bindRemoteVideo(remoteUserId, renderer, stream, event.track);
+          unawaited(_serial(remoteUserId, () => _bindRemoteVideo(remoteUserId, renderer, stream, event.track)));
           event.track.onUnMute = () {
             final latestStream = _remoteStreams[remoteUserId] ?? stream;
-            unawaited(_bindRemoteVideo(remoteUserId, renderer, latestStream, event.track));
+            unawaited(_serial(remoteUserId, () => _bindRemoteVideo(remoteUserId, renderer, latestStream, event.track)));
           };
           event.track.onEnded = () {
             _patch(remoteUserId, (p) => p.copyWith(hasRemoteVideo: false, videoRevision: p.videoRevision + 1));
           };
         } else if (stream != null && _remoteVideoTracks[remoteUserId] != null && renderer.srcObject == null) {
-          await _bindRemoteVideo(remoteUserId, renderer, stream, _remoteVideoTracks[remoteUserId]!);
+          final videoTrack = _remoteVideoTracks[remoteUserId]!;
+          unawaited(_serial(remoteUserId, () => _bindRemoteVideo(remoteUserId, renderer, stream, videoTrack)));
         }
       };
 
@@ -315,6 +389,7 @@ class WebRTCConnectionManager extends Notifier<WebRTCMeshState> {
 
       pc.onConnectionState = (RTCPeerConnectionState s) => _onConnectionState(remoteUserId, s);
 
+      if (_callId != callId) return null;
       final peer = PeerState(
         remoteUserId: remoteUserId,
         connection: pc,
@@ -322,10 +397,42 @@ class WebRTCConnectionManager extends Notifier<WebRTCMeshState> {
         isOfferer: offerer,
       );
       state = WebRTCMeshState(peers: {...state.peers, remoteUserId: peer});
+      owned = true;
       _applyBitrateCaps();
       return peer;
     } finally {
       _creating.remove(remoteUserId);
+      if (!owned) {
+        if (!state.peers.containsKey(remoteUserId)) {
+          _audioSenders.remove(remoteUserId);
+          _videoSenders.remove(remoteUserId);
+        }
+        unawaited(_closeQuietly(created, renderer));
+      }
+    }
+  }
+
+  /// Closes a connection and its renderer, ignoring errors. Callbacks are
+  /// cleared first so late native events can't act on a peer that is gone.
+  Future<void> _closeQuietly(RTCPeerConnection? pc, RTCVideoRenderer? renderer) async {
+    if (renderer != null) {
+      try {
+        renderer.onFirstFrameRendered = null;
+        renderer.onResize = null;
+        renderer.srcObject = null;
+        await renderer.dispose();
+      } catch (_) {}
+    }
+    if (pc != null) {
+      pc.onTrack = null;
+      pc.onIceCandidate = null;
+      pc.onConnectionState = null;
+      try {
+        await pc.close();
+      } catch (_) {}
+      try {
+        await pc.dispose();
+      } catch (_) {}
     }
   }
 
@@ -335,6 +442,8 @@ class WebRTCConnectionManager extends Notifier<WebRTCMeshState> {
     MediaStream? stream,
     MediaStreamTrack videoTrack,
   ) async {
+    // The peer was removed (hang-up) before this queued bind ran.
+    if (!identical(state.peers[remoteUserId]?.renderer, renderer)) return;
     try {
       if (stream != null) {
         await renderer.setSrcObject(stream: stream, trackId: videoTrack.id);
@@ -402,7 +511,7 @@ class WebRTCConnectionManager extends Notifier<WebRTCMeshState> {
     if (batch == null || batch.isEmpty || _callId != callId) return;
     if (batch.length == 1) {
       final single = batch.first;
-      _signaling(callId).add({
+      _write(callId, {
         'type': 'candidate',
         'senderId': _me,
         'targetId': remoteUserId,
@@ -412,7 +521,7 @@ class WebRTCConnectionManager extends Notifier<WebRTCMeshState> {
         'timestamp': FieldValue.serverTimestamp(),
       });
     } else {
-      _signaling(callId).add({
+      _write(callId, {
         'type': 'candidates',
         'senderId': _me,
         'targetId': remoteUserId,
@@ -422,15 +531,21 @@ class WebRTCConnectionManager extends Notifier<WebRTCMeshState> {
     }
   }
 
+  /// Only call from the peer's queue ([_serial]).
   Future<void> _sendOffer(String callId, PeerState peer, {bool iceRestart = false}) async {
     try {
-      final offer = await peer.connection.createOffer({
+      if (!_isLive(callId, peer)) return;
+      final pc = peer.connection;
+      final offer = await pc.createOffer({
         if (iceRestart) 'iceRestart': true,
       });
-      final sdp = await _setLocalDescriptionTuned(peer.connection, offer);
-      final e2ee = peer.frameEncrypted ? null : await _e2eeOffer(peer.remoteUserId);
+      if (!_isLive(callId, peer)) return;
+      final sdp = await _setLocalDescriptionTuned(pc, offer);
+      final current = state.peers[peer.remoteUserId] ?? peer;
+      final e2ee = current.frameEncrypted ? null : await _e2eeOffer(peer.remoteUserId);
+      if (!_isLive(callId, peer)) return;
       if (e2ee != null) _offeredE2ee.add(peer.remoteUserId);
-      await _signaling(callId).add({
+      _write(callId, {
         'type': 'offer',
         'senderId': _me,
         'targetId': peer.remoteUserId,
@@ -444,23 +559,22 @@ class WebRTCConnectionManager extends Notifier<WebRTCMeshState> {
     }
   }
 
+  /// Only call from the sender's queue ([_serial]), so a description is
+  /// never set while anything else is using that connection.
   Future<void> _handleSignal(String callId, Map<String, dynamic> data) async {
     final from = data['senderId'] as String?;
     final type = data['type'] as String?;
     if (from == null || type == null) return;
+    // A late signal from a call this phone already left.
+    if (_callId != callId) return;
 
     try {
       switch (type) {
         case 'offer':
-          var peer = state.peers[from];
-          if (peer == null) {
-            // A newer joiner is calling us; we answer.
-            if (_creating.contains(from)) {
-              await Future<void>.delayed(const Duration(milliseconds: 200));
-              peer = state.peers[from];
-            }
-            peer ??= await _createPeer(callId, from, offerer: false);
-          }
+          // A newer joiner is calling us; we answer. Our own connectTo for
+          // this user runs in the same queue, so it has finished by now.
+          final peer = state.peers[from] ?? await _createPeer(callId, from, offerer: false);
+          if (peer == null || !_isLive(callId, peer)) return;
           final pc = peer.connection;
           if (pc.signalingState == RTCSignalingState.RTCSignalingStateHaveLocalOffer) {
             // Glare: both sides offered. The lower uid backs off.
@@ -468,17 +582,20 @@ class WebRTCConnectionManager extends Notifier<WebRTCMeshState> {
             await pc.setLocalDescription(RTCSessionDescription('', 'rollback'));
           }
           await pc.setRemoteDescription(RTCSessionDescription(data['sdp'] as String?, 'offer'));
+          if (!_isLive(callId, peer)) return;
           await _bindAnswererTracks(from, pc);
           await _flushCandidates(from, pc);
           final answer = await pc.createAnswer();
+          if (!_isLive(callId, peer)) return;
           final answerSdp = await _setLocalDescriptionTuned(pc, answer);
           // Turn frame encryption on after transceivers are associated, only
           // when both sides hold matching Oneova Shield keys.
           var e2eeOn = state.peers[from]?.frameEncrypted ?? false;
-          if (!e2eeOn && await _e2eeOfferMatches(from, data['e2ee'])) {
+          if (!e2eeOn && await _e2eeOfferMatches(from, data['e2ee']) && _isLive(callId, peer)) {
             e2eeOn = await _enableFrameCrypto(callId, from);
           }
-          await _signaling(callId).add({
+          if (!_isLive(callId, peer)) return;
+          _write(callId, {
             'type': 'answer',
             'senderId': _me,
             'targetId': from,
@@ -489,10 +606,12 @@ class WebRTCConnectionManager extends Notifier<WebRTCMeshState> {
           if (e2eeOn) _scheduleKeyframeNudge(from);
           break;
         case 'answer':
-          final pc = state.peers[from]?.connection;
-          if (pc == null) return;
+          final peer = state.peers[from];
+          if (peer == null) return;
+          final pc = peer.connection;
           if (pc.signalingState != RTCSignalingState.RTCSignalingStateHaveLocalOffer) return;
           await pc.setRemoteDescription(RTCSessionDescription(data['sdp'] as String?, 'answer'));
+          if (!_isLive(callId, peer)) return;
           await _flushCandidates(from, pc);
           final hadOfferE2ee = _offeredE2ee.remove(from);
           if (data['e2ee'] is Map && hadOfferE2ee) {
@@ -567,7 +686,8 @@ class WebRTCConnectionManager extends Notifier<WebRTCMeshState> {
 
   void _scheduleKeyframeNudge(String uid) {
     Timer(const Duration(milliseconds: 220), () {
-      unawaited(_nudgeVideoKeyframe(uid));
+      if (_callId == null || !state.peers.containsKey(uid)) return;
+      unawaited(_serial(uid, () => _nudgeVideoKeyframe(uid)));
     });
   }
 
@@ -643,20 +763,20 @@ class WebRTCConnectionManager extends Notifier<WebRTCMeshState> {
     }
     _iceRestartRetries[uid] = retries + 1;
     _lastRestart[uid] = DateTime.now();
+    await _requestIceRound(callId, peer);
+  }
 
-    try {
-      if (peer.isOfferer) {
-        await _sendOffer(callId, peer, iceRestart: true);
-      } else {
-        await _signaling(callId).add({
-          'type': 'restart',
-          'senderId': _me,
-          'targetId': uid,
-          'timestamp': FieldValue.serverTimestamp(),
-        });
-      }
-    } catch (e) {
-      debugPrint('[Mesh] restartIce error for $uid: $e');
+  /// Offerer: sends an ICE-restart offer. Answerer: asks the offerer to.
+  Future<void> _requestIceRound(String callId, PeerState peer) async {
+    if (peer.isOfferer) {
+      await _serial(peer.remoteUserId, () => _sendOffer(callId, peer, iceRestart: true));
+    } else {
+      _write(callId, {
+        'type': 'restart',
+        'senderId': _me,
+        'targetId': peer.remoteUserId,
+        'timestamp': FieldValue.serverTimestamp(),
+      });
     }
   }
 
@@ -664,67 +784,64 @@ class WebRTCConnectionManager extends Notifier<WebRTCMeshState> {
   Future<void> restartAll() async {
     final callId = _callId;
     if (callId == null) return;
-    for (final peer in state.peers.values) {
+    for (final peer in state.peers.values.toList()) {
       _patch(peer.remoteUserId, (p) => p.copyWith(link: PeerLinkState.reconnecting));
-      if (peer.isOfferer) {
-        await _sendOffer(callId, peer, iceRestart: true);
-      } else {
-        await _signaling(callId).add({
-          'type': 'restart',
-          'senderId': _me,
-          'targetId': peer.remoteUserId,
-          'timestamp': FieldValue.serverTimestamp(),
-        });
-      }
+      await _requestIceRound(callId, peer);
     }
   }
 
   /// Hot-swaps the outgoing microphone track on every connection (e.g. toggling
   /// Studio Voice Clean DSP) without dropping or renegotiating the call.
   Future<void> replaceAudioTrack(MediaStreamTrack? track) async {
-    for (final sender in _audioSenders.values) {
-      try {
-        await sender.replaceTrack(track);
-      } catch (e) {
-        debugPrint('[Mesh] replaceAudioTrack failed: $e');
-      }
+    for (final entry in _audioSenders.entries.toList()) {
+      await _serial(entry.key, () async {
+        if (!identical(_audioSenders[entry.key], entry.value)) return;
+        await entry.value.replaceTrack(track);
+      });
     }
   }
 
   /// Swaps the outgoing camera track on every connection (camera on/off,
   /// camera flip, or audio→video upgrade).
   Future<void> replaceVideoTrack(MediaStreamTrack? track) async {
-    final local = ref.read(callMediaServiceProvider).localStream;
     final callId = _callId;
+    if (callId == null) return;
     for (final peer in state.peers.values.toList()) {
-      final uid = peer.remoteUserId;
-      try {
-        if (track != null && _needsVideoUpgradeOffer.remove(uid) && local != null) {
-          _videoSenders[uid] = await peer.connection.addTrack(track, local);
-          if (callId != null) await _sendOffer(callId, peer);
-        } else if (_videoSenders.containsKey(uid)) {
-          await _videoSenders[uid]!.replaceTrack(track);
-        } else if (track != null) {
-          final transceivers = await peer.connection.getTransceivers();
-          final videoTx = transceivers
-              .where((t) => t.receiver.track?.kind == 'video' || t.sender.track?.kind == 'video')
-              .firstOrNull;
-          if (videoTx != null) {
-            _videoSenders[uid] = videoTx.sender;
-            await videoTx.sender.replaceTrack(track);
-          } else if (local != null) {
-            _videoSenders[uid] = await peer.connection.addTrack(track, local);
-            if (callId != null) await _sendOffer(callId, peer);
-          }
-        }
-        if (track != null && callId != null) {
-          _requestKeyframe(callId, uid);
-        }
-      } catch (e) {
-        debugPrint('[Mesh] replaceVideoTrack($uid) failed: $e');
-      }
+      await _serial(peer.remoteUserId, () async {
+        if (_isLive(callId, peer)) await _replaceVideoTrackFor(callId, peer, track);
+      });
     }
     unawaited(_applyBitrateCaps());
+  }
+
+  Future<void> _replaceVideoTrackFor(String callId, PeerState peer, MediaStreamTrack? track) async {
+    final local = ref.read(callMediaServiceProvider).localStream;
+    final uid = peer.remoteUserId;
+    try {
+      if (track != null && _needsVideoUpgradeOffer.remove(uid) && local != null) {
+        _videoSenders[uid] = await peer.connection.addTrack(track, local);
+        await _sendOffer(callId, peer);
+      } else if (_videoSenders.containsKey(uid)) {
+        await _videoSenders[uid]!.replaceTrack(track);
+      } else if (track != null) {
+        final transceivers = await peer.connection.getTransceivers();
+        final videoTx = transceivers
+            .where((t) => t.receiver.track?.kind == 'video' || t.sender.track?.kind == 'video')
+            .firstOrNull;
+        if (videoTx != null) {
+          _videoSenders[uid] = videoTx.sender;
+          await videoTx.sender.replaceTrack(track);
+        } else if (local != null) {
+          _videoSenders[uid] = await peer.connection.addTrack(track, local);
+          await _sendOffer(callId, peer);
+        }
+      }
+      if (track != null) {
+        _requestKeyframe(callId, uid);
+      }
+    } catch (e) {
+      debugPrint('[Mesh] replaceVideoTrack($uid) failed: $e');
+    }
   }
 
   /// Tunes per-peer video bitrate, 30fps smoothness (`MAINTAIN_FRAMERATE`), and
@@ -738,7 +855,7 @@ class WebRTCConnectionManager extends Notifier<WebRTCMeshState> {
     if (_cappedFor == CallQuality.fair) cap = (cap * 0.65).round();
     final targetFps = _cappedFor == CallQuality.poor ? 20 : 30;
 
-    for (final sender in _audioSenders.values) {
+    for (final sender in _audioSenders.values.toList()) {
       try {
         final params = sender.parameters;
         final encodings = params.encodings;
@@ -752,7 +869,7 @@ class WebRTCConnectionManager extends Notifier<WebRTCMeshState> {
       } catch (_) {}
     }
 
-    for (final sender in _videoSenders.values) {
+    for (final sender in _videoSenders.values.toList()) {
       try {
         final params = sender.parameters;
         params.degradationPreference = RTCDegradationPreference.MAINTAIN_FRAMERATE;
@@ -820,7 +937,38 @@ class WebRTCConnectionManager extends Notifier<WebRTCMeshState> {
 
   static num? _num(Object? v) => v is num ? v : num.tryParse('$v');
 
+  /// How long closing a connection waits for the operation already running on
+  /// it (normally a few milliseconds) before closing anyway, so hang-up never
+  /// hangs on a slow network call.
+  static const Duration _closeWait = Duration(seconds: 3);
+
   Future<void> removePeer(String uid) async {
+    final peer = state.peers[uid];
+    if (peer != null) {
+      // Out of the state first: queued and running operations see the peer
+      // is gone and stop at their next step.
+      final next = Map<String, PeerState>.from(state.peers)..remove(uid);
+      state = WebRTCMeshState(peers: next);
+    }
+    _disconnectTimers.remove(uid)?.cancel();
+    _candidateFlushTimers.remove(uid)?.cancel();
+    // Never close a connection while a description is being set on it: the
+    // native track callbacks would use disposed objects and abort the app.
+    final pending = _peerOps[uid];
+    if (pending != null) {
+      try {
+        await pending.timeout(_closeWait);
+      } catch (_) {}
+    }
+    _forgetPeer(uid);
+    await _disposeFrameCrypto(uid);
+    if (peer == null) return;
+    await _closeQuietly(peer.connection, peer.renderer);
+    unawaited(_applyBitrateCaps());
+  }
+
+  /// Drops everything kept about [uid]'s connection.
+  void _forgetPeer(String uid) {
     _disconnectTimers.remove(uid)?.cancel();
     _candidateFlushTimers.remove(uid)?.cancel();
     _outgoingCandidates.remove(uid);
@@ -835,22 +983,6 @@ class WebRTCConnectionManager extends Notifier<WebRTCMeshState> {
     _needsVideoUpgradeOffer.remove(uid);
     _pendingCandidates.remove(uid);
     _offeredE2ee.remove(uid);
-    await _disposeFrameCrypto(uid);
-    final peer = state.peers[uid];
-    if (peer == null) return;
-    final next = Map<String, PeerState>.from(state.peers)..remove(uid);
-    state = WebRTCMeshState(peers: next);
-    try {
-      peer.renderer.onFirstFrameRendered = null;
-      peer.renderer.onResize = null;
-      peer.renderer.srcObject = null;
-      await peer.renderer.dispose();
-    } catch (_) {}
-    try {
-      await peer.connection.close();
-      await peer.connection.dispose();
-    } catch (_) {}
-    _applyBitrateCaps();
   }
 
   // ---------------------------------------------------------------------------
@@ -866,8 +998,11 @@ class WebRTCConnectionManager extends Notifier<WebRTCMeshState> {
     if (!_frameCryptoSupported) return null;
     try {
       final e2ee = ref.read(e2eEncryptionServiceProvider);
-      final mine = await e2ee.getMyPublicKey();
-      final theirs = await e2ee.getRecipientPublicKey(remoteUserId);
+      // Runs inside the peer's queue: a slow key lookup must not hold up the
+      // call, it just means this call goes without frame encryption.
+      const limit = Duration(seconds: 4);
+      final mine = await e2ee.getMyPublicKey().timeout(limit);
+      final theirs = await e2ee.getRecipientPublicKey(remoteUserId).timeout(limit);
       if (mine == null || theirs == null || theirs.isEmpty) return null;
       return {
         'v': 1,
@@ -977,21 +1112,30 @@ class WebRTCConnectionManager extends Notifier<WebRTCMeshState> {
   }
 
   Future<void> leaveMesh() async {
+    // Stop new work first: no more signals, stats, ICE restarts or offers for
+    // this call reach a connection while it is closing.
+    _stopCallActivity();
     final ids = state.peers.keys.toList();
-    for (final id in ids) {
-      await removePeer(id);
-    }
+    await Future.wait(ids.map(removePeer));
     _teardown();
     state = const WebRTCMeshState();
   }
 
-  void _teardown() {
+  void _stopCallActivity() {
     _statsTimer?.cancel();
     _statsTimer = null;
-    _cappedFor = CallQuality.unknown;
     _signalSub?.cancel();
     _signalSub = null;
     _callId = null;
+    for (final t in _disconnectTimers.values) {
+      t.cancel();
+    }
+    _disconnectTimers.clear();
+  }
+
+  void _teardown() {
+    _stopCallActivity();
+    _cappedFor = CallQuality.unknown;
     for (final t in _disconnectTimers.values) {
       t.cancel();
     }
@@ -1009,22 +1153,16 @@ class WebRTCConnectionManager extends Notifier<WebRTCMeshState> {
     _needsVideoUpgradeOffer.clear();
     _lastPliSent.clear();
     _iceRestartRetries.clear();
+    _lastRx.clear();
+    _lastRestart.clear();
+    _offeredE2ee.clear();
 
-    // Safely cleanup all open renderers and peer connections
-    for (final peer in state.peers.values) {
-      try {
-        peer.renderer.onFirstFrameRendered = null;
-        peer.renderer.onResize = null;
-        peer.renderer.srcObject = null;
-        peer.renderer.dispose();
-      } catch (_) {}
-      try {
-        peer.connection.close();
-        peer.connection.dispose();
-      } catch (_) {}
+    // Provider disposed mid-call: close whatever is still open.
+    for (final peer in state.peers.values.toList()) {
+      unawaited(_closeQuietly(peer.connection, peer.renderer));
     }
     for (final uid in _cryptors.keys.toList()) {
-      _disposeFrameCrypto(uid);
+      unawaited(_disposeFrameCrypto(uid));
     }
   }
 }

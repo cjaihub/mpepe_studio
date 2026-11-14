@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter/foundation.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_webrtc/flutter_webrtc.dart';
 
@@ -380,6 +381,23 @@ class CallMediaService extends Notifier<CallMediaState> {
   /// Returns the screen video track so the WebRTC mesh can replace the outgoing track.
   Future<MediaStreamTrack?> startScreenShare() async {
     if (state.isScreenSharing) return state.screenStream?.getVideoTracks().firstOrNull;
+    // Android 14+ only allows screen capture while a foreground service of
+    // type mediaProjection runs; without it the plugin throws a
+    // SecurityException on the main thread and the whole app stops. Same
+    // order as Live Studio: consent, then the service, then capture.
+    if (_isAndroid) {
+      try {
+        final granted = await Helper.requestCapturePermission();
+        if (!granted) return null;
+        await _screenCaptureService.invokeMethod<bool>('start');
+        // The service reaches startForeground on its own main-thread turn.
+        await Future<void>.delayed(const Duration(milliseconds: 300));
+      } catch (e) {
+        debugPrint('[CallMedia] screen capture service failed: $e');
+        await _stopScreenCaptureService();
+        return null;
+      }
+    }
     try {
       final stream = await navigator.mediaDevices.getDisplayMedia({
         'video': {
@@ -390,7 +408,10 @@ class CallMediaService extends Notifier<CallMediaState> {
         'audio': false,
       });
       final track = stream.getVideoTracks().firstOrNull;
-      if (track == null) return null;
+      if (track == null) {
+        await _stopScreenCaptureService();
+        return null;
+      }
 
       track.onEnded = () {
         debugPrint('[CallMedia] screen sharing ended by system');
@@ -405,7 +426,22 @@ class CallMediaService extends Notifier<CallMediaState> {
       return track;
     } catch (e) {
       debugPrint('[CallMedia] startScreenShare failed: $e');
+      await _stopScreenCaptureService();
       return null;
+    }
+  }
+
+  static bool get _isAndroid => !kIsWeb && defaultTargetPlatform == TargetPlatform.android;
+
+  /// MainActivity.kt → LiveScreenCaptureService (shared with Live Studio).
+  static const MethodChannel _screenCaptureService = MethodChannel('com.oneova.app/live_screen_capture');
+
+  Future<void> _stopScreenCaptureService() async {
+    if (!_isAndroid) return;
+    try {
+      await _screenCaptureService.invokeMethod<bool>('stop');
+    } catch (e) {
+      debugPrint('[CallMedia] stop screen capture service: $e');
     }
   }
 
@@ -422,6 +458,7 @@ class CallMediaService extends Notifier<CallMediaState> {
       try {
         await stream.dispose();
       } catch (_) {}
+      await _stopScreenCaptureService();
     }
 
     state = state.copyWith(
@@ -456,6 +493,7 @@ class CallMediaService extends Notifier<CallMediaState> {
       try {
         await screen.dispose();
       } catch (_) {}
+      await _stopScreenCaptureService();
     }
     if (stream == null) return;
     for (final t in stream.getTracks()) {
