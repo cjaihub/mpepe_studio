@@ -5,6 +5,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../shared/theme/app_theme.dart';
 import '../../social_hub/biz_commerce/checkout_screen.dart' show formatMoney;
+import '../data/currencies.dart' show deviceCurrency;
 import '../data/shop3d_repository.dart';
 import '../models/shop_models.dart';
 import 'business_data.dart';
@@ -54,13 +55,13 @@ class _BusinessInsightsScreenState extends ConsumerState<BusinessInsightsScreen>
     // Main currency = the one with the most sales in the period.
     final byCurrency = <String, num>{};
     for (final o in paid) {
-      final c = '${o['currency'] ?? 'usd'}';
+      final c = '${o['currency'] ?? deviceCurrency()}';
       byCurrency[c] = (byCurrency[c] ?? 0) + orderItems(o);
     }
     final currency = byCurrency.isEmpty
-        ? (products.isNotEmpty ? products.first.currency : 'usd')
+        ? (products.isNotEmpty ? products.first.currency : deviceCurrency())
         : (byCurrency.entries.toList()..sort((a, b) => b.value.compareTo(a.value))).first.key;
-    bool cur(Map<String, dynamic> o) => '${o['currency'] ?? 'usd'}' == currency;
+    bool cur(Map<String, dynamic> o) => '${o['currency'] ?? deviceCurrency()}' == currency;
     final revenue = paid.where(cur).fold<num>(0, (a, o) => a + orderItems(o));
     final prevRevenue = prevPaid.where(cur).fold<num>(0, (a, o) => a + orderItems(o));
     final change = prevRevenue > 0 ? (revenue - prevRevenue) / prevRevenue * 100 : null;

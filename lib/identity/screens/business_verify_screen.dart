@@ -4,6 +4,7 @@ import 'package:file_picker/file_picker.dart';
 import 'package:firebase_storage/firebase_storage.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:flutter_animate/flutter_animate.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:image_picker/image_picker.dart';
@@ -13,7 +14,9 @@ import '../../social_hub/money/money_widgets.dart';
 import '../id_guide.dart';
 import '../id_photo_check.dart';
 import '../identity_service.dart';
+import '../widgets/id_country_picker.dart';
 import '../widgets/oneova_verified_badge.dart';
+import '../../backend/user_service.dart' show currentUserProfileProvider;
 import 'id_share_sheet.dart';
 
 /// Verified Business (`/id/business`). The checklist comes from the server for
@@ -38,16 +41,6 @@ class _BusinessVerifyScreenState extends ConsumerState<BusinessVerifyScreen> {
     'nonprofit': 'Non-profit',
     'public_body': 'Public body',
   };
-  static const _countries = {
-    'KE': 'Kenya', 'UG': 'Uganda', 'TZ': 'Tanzania', 'RW': 'Rwanda', 'ET': 'Ethiopia', 'NG': 'Nigeria', 'GH': 'Ghana',
-    'ZA': 'South Africa', 'EG': 'Egypt', 'MA': 'Morocco', 'SN': 'Senegal', 'CI': 'Côte d’Ivoire', 'CM': 'Cameroon',
-    'US': 'United States', 'CA': 'Canada', 'MX': 'Mexico', 'BR': 'Brazil', 'GB': 'United Kingdom', 'IE': 'Ireland',
-    'FR': 'France', 'DE': 'Germany', 'ES': 'Spain', 'IT': 'Italy', 'NL': 'Netherlands', 'SE': 'Sweden', 'PL': 'Poland',
-    'TR': 'Türkiye', 'AE': 'United Arab Emirates', 'SA': 'Saudi Arabia', 'QA': 'Qatar', 'IN': 'India', 'PK': 'Pakistan',
-    'BD': 'Bangladesh', 'CN': 'China', 'JP': 'Japan', 'KR': 'South Korea', 'ID': 'Indonesia', 'PH': 'Philippines',
-    'VN': 'Vietnam', 'MY': 'Malaysia', 'SG': 'Singapore', 'AU': 'Australia', 'NZ': 'New Zealand',
-  };
-
   String _country = '';
   String _type = 'company';
   bool _busy = false;
@@ -68,8 +61,10 @@ class _BusinessVerifyScreenState extends ConsumerState<BusinessVerifyScreen> {
   @override
   void initState() {
     super.initState();
-    final cc = WidgetsBinding.instance.platformDispatcher.locale.countryCode?.toUpperCase();
-    _country = _countries.containsKey(cc) ? cc! : 'KE';
+    _country = guessHomeCountry(
+      verifiedCountry: ref.read(identityProvider).kyc.country,
+      profileLocation: ref.read(currentUserProfileProvider).value?.location,
+    );
   }
 
   @override
@@ -187,6 +182,7 @@ class _BusinessVerifyScreenState extends ConsumerState<BusinessVerifyScreen> {
       'documents_missing': _req?.documents.where((d) => d['required'] == true && !_uploaded.containsKey(d['key'])).map((d) => d['label']).toList(),
       ..._photoFacts,
     });
+    final bizAsync = ref.watch(businessIdentityProvider);
     final showForm = _restart || b.status == 'none' || b.status == 'collecting';
     return MoneyScaffold(
       title: 'Verified Business',
@@ -194,28 +190,68 @@ class _BusinessVerifyScreenState extends ConsumerState<BusinessVerifyScreen> {
       body: ListView(
         padding: const EdgeInsets.fromLTRB(0, 16, 0, 40),
         children: [
-          if (!id.verified) _needPersonal(),
-          if (!showForm) _status(b) else ...[
-            _intro(),
-            if (_req == null) _choose() else ..._form(_req!),
+          _Steps(current: id.verified ? 2 : 1),
+          const SizedBox(height: 14),
+          if (bizAsync.isLoading && !bizAsync.hasValue)
+            const _SkeletonCard()
+          else if (!showForm)
+            _status(b)
+          else ...[
+            _stepOne(id.verified),
+            const SizedBox(height: 12),
+            if (!id.verified)
+              _stepTwoLocked()
+            else ...[
+              _intro(),
+              if (_req == null) _choose() else ..._form(_req!),
+            ],
           ],
         ],
       ),
     );
   }
 
-  Widget _needPersonal() => Padding(
-        padding: const EdgeInsets.only(bottom: 16),
-        child: MoneyCard(
-          child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-            Text('First, verify yourself', style: TextStyle(fontWeight: FontWeight.w800, color: context.textPrimary)),
-            const SizedBox(height: 4),
-            Text('A business is verified through its owner. It takes about 2 minutes.', style: TextStyle(fontSize: 12, color: context.textSecondary)),
-            const SizedBox(height: 10),
+  Widget _stepOne(bool done) => MoneyCard(
+        child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+          Row(children: [
+            Icon(done ? Icons.check_circle_rounded : Icons.badge_outlined, color: AppColors.brandBlue),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                Text(done ? 'You’re ID verified' : 'Verify yourself', style: TextStyle(fontWeight: FontWeight.w800, color: context.textPrimary)),
+                const SizedBox(height: 2),
+                Text(done ? 'Your business check will use your verified identity.' : 'A business is verified through its owner. About 2 minutes.',
+                    style: TextStyle(fontSize: 12, height: 1.35, color: context.textSecondary)),
+              ]),
+            ),
+          ]),
+          if (!done) ...[
+            const SizedBox(height: 12),
             FilledButton(
-              onPressed: () => context.push('/wallet/verify'),
-              style: FilledButton.styleFrom(foregroundColor: Colors.white, backgroundColor: AppColors.brandBlue),
+              onPressed: () {
+                HapticFeedback.lightImpact();
+                context.push('/wallet/verify');
+              },
+              style: FilledButton.styleFrom(foregroundColor: Colors.white, backgroundColor: AppColors.brandBlue, minimumSize: const Size.fromHeight(48)),
               child: const Text('Verify my identity'),
+            ),
+          ],
+        ]),
+      );
+
+  Widget _stepTwoLocked() => Opacity(
+        opacity: 0.55,
+        child: MoneyCard(
+          child: Row(children: [
+            Icon(Icons.lock_outline_rounded, color: context.textMuted),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                Text('Next · Your business', style: TextStyle(fontWeight: FontWeight.w700, color: context.textPrimary)),
+                const SizedBox(height: 2),
+                Text('Country, business type and documents. Opens when step 1 is done.',
+                    style: TextStyle(fontSize: 12, height: 1.35, color: context.textSecondary)),
+              ]),
             ),
           ]),
         ),
@@ -231,15 +267,7 @@ class _BusinessVerifyScreenState extends ConsumerState<BusinessVerifyScreen> {
 
   Widget _choose() => MoneyCard(
         child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-          DropdownButtonFormField<String>(
-            initialValue: _country,
-            isExpanded: true,
-            decoration: const InputDecoration(labelText: 'Country of registration'),
-            items: (_countries.entries.toList()..sort((a, b) => a.value.compareTo(b.value)))
-                .map((e) => DropdownMenuItem(value: e.key, child: Text(e.value)))
-                .toList(),
-            onChanged: (v) => setState(() => _country = v ?? _country),
-          ),
+          IdCountryField(value: _country, onChanged: (v) => setState(() => _country = v)),
           const SizedBox(height: 14),
           Text('Business type', style: TextStyle(fontWeight: FontWeight.w700, color: context.textPrimary)),
           const SizedBox(height: 6),
@@ -247,14 +275,7 @@ class _BusinessVerifyScreenState extends ConsumerState<BusinessVerifyScreen> {
             spacing: 8,
             runSpacing: 6,
             children: _types.entries
-                .map((t) => ChoiceChip(
-                      label: Text(t.value),
-                      selected: _type == t.key,
-                      selectedColor: AppColors.brandBlue.withValues(alpha: 0.22),
-                    checkmarkColor: AppColors.brandBlue,
-                    labelStyle: TextStyle(color: context.textPrimary, fontWeight: FontWeight.w600),
-                      onSelected: (_) => setState(() => _type = t.key),
-                    ))
+                .map((t) => IdChoicePill(label: t.value, selected: _type == t.key, onTap: () => setState(() => _type = t.key)))
                 .toList(),
           ),
           const SizedBox(height: 16),
@@ -282,7 +303,7 @@ class _BusinessVerifyScreenState extends ConsumerState<BusinessVerifyScreen> {
             const Icon(Icons.account_balance_outlined, color: AppColors.brandBlue),
             const SizedBox(width: 12),
             Expanded(
-              child: Text('${_countries[_country] ?? _country} · ${_types[_type]}\nUsually checked against ${r.registry}.',
+              child: Text('${kIdCountries[_country] ?? _country} · ${_types[_type]}\nUsually checked against ${r.registry}.',
                   style: TextStyle(fontSize: 12, height: 1.4, color: context.textSecondary)),
             ),
             TextButton(onPressed: () => setState(() => _req = null), child: const Text('Change')),
@@ -368,7 +389,7 @@ class _BusinessVerifyScreenState extends ConsumerState<BusinessVerifyScreen> {
     final owners = ref.watch(businessOwnersProvider).value ?? const [];
     final (title, body) = switch (b.status) {
       'verified' => (b.level >= 2 ? 'Verified Business' : 'Registered business', 'The badge shows on your profile and your store. Renew by ${b.expiresAt != null ? MaterialLocalizations.of(context).formatMediumDate(b.expiresAt!) : 'next year'}.'),
-      'review' => ('Being checked', 'Our team is reviewing your documents — usually within 2 working days.'),
+      'review' => ('In review', 'In review · usually within 2 working days. We’ll notify you.'),
       'expired' => ('Renewal needed', b.rejectReason ?? 'Upload fresh documents to keep the badge.'),
       _ => ('Needs another try', b.rejectReason ?? 'Check the documents and try again.'),
     };
@@ -425,5 +446,58 @@ class _BusinessVerifyScreenState extends ConsumerState<BusinessVerifyScreen> {
             )),
       ],
     ]);
+  }
+}
+
+/// "Step 1 · You — Step 2 · Your business" progress.
+class _Steps extends StatelessWidget {
+  const _Steps({required this.current});
+  final int current;
+
+  @override
+  Widget build(BuildContext context) {
+    Widget step(int n, String label) {
+      final done = current > n;
+      final on = current == n;
+      return Expanded(
+        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          AnimatedContainer(
+            duration: const Duration(milliseconds: 300),
+            height: 4,
+            decoration: BoxDecoration(
+              color: done || on ? AppColors.brandBlue : context.border,
+              borderRadius: BorderRadius.circular(2),
+            ),
+          ),
+          const SizedBox(height: 6),
+          Text(done ? 'Step $n · $label ✓' : 'Step $n · $label',
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(fontSize: 12, fontWeight: on ? FontWeight.w800 : FontWeight.w500, color: on ? context.textPrimary : context.textSecondary)),
+        ]),
+      );
+    }
+
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 16),
+      child: Row(children: [step(1, 'You'), const SizedBox(width: 10), step(2, 'Your business')]),
+    );
+  }
+}
+
+class _SkeletonCard extends StatelessWidget {
+  const _SkeletonCard();
+
+  @override
+  Widget build(BuildContext context) {
+    Widget bar(double w, double h) => Container(
+          width: w,
+          height: h,
+          margin: const EdgeInsets.only(bottom: 10),
+          decoration: BoxDecoration(color: context.surfaceMid, borderRadius: BorderRadius.circular(6)),
+        );
+    return MoneyCard(
+      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [bar(160, 14), bar(double.infinity, 10), bar(220, 10), bar(double.infinity, 40)]),
+    ).animate(onPlay: (c) => c.repeat()).shimmer(duration: 1200.ms, color: Colors.white10);
   }
 }

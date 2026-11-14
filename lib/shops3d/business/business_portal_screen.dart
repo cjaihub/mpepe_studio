@@ -6,6 +6,7 @@ import 'package:go_router/go_router.dart';
 import '../../identity/widgets/oneova_verified_badge.dart';
 import '../../shared/theme/app_theme.dart';
 import '../../social_hub/biz_commerce/checkout_screen.dart' show formatMoney;
+import '../data/currencies.dart' show deviceCurrency;
 import '../data/shop3d_repository.dart';
 import '../models/shop_models.dart';
 import '../widgets/live_commerce.dart' show showLiveDealEditor;
@@ -31,7 +32,7 @@ class BusinessPortalScreen extends ConsumerWidget {
         ]),
       ),
       body: shopAsync.when(
-        loading: () => const Center(child: CircularProgressIndicator(color: AppColors.brandBlue)),
+        loading: () => const _Skeleton(),
         error: (_, _) => _Empty(
           icon: Icons.wifi_off_rounded,
           title: 'Couldn’t open your business',
@@ -64,7 +65,7 @@ class _Portal extends ConsumerWidget {
       for (final o in orders)
         if (paidStatuses.contains(o['status']) && (orderTime(o)?.isAfter(DateTime(now.year, now.month, now.day)) ?? false)) o,
     ];
-    final currency = products.isNotEmpty ? products.first.currency : (orders.isNotEmpty ? '${orders.first['currency']}' : 'usd');
+    final currency = products.isNotEmpty ? products.first.currency : (orders.isNotEmpty ? '${orders.first['currency']}' : deviceCurrency());
     final salesToday = today.fold<num>(0, (a, o) => a + orderItems(o));
     final toPrepare = orders.where((o) => toPrepareStatuses.contains(o['status'])).length;
     final low = lowStock(products, shop.settings.lowStockAt).length;
@@ -76,6 +77,8 @@ class _Portal extends ConsumerWidget {
       children: [
         _ShopHeader(shop: shop),
         const SizedBox(height: 16),
+        _SetupChecklist(shop: shop, products: products.length, orders: orders.where((o) => paidStatuses.contains(o['status'])).length),
+        if (products.isNotEmpty || orders.isNotEmpty)
         GridView.count(
           crossAxisCount: 2,
           shrinkWrap: true,
@@ -110,11 +113,11 @@ class _Portal extends ConsumerWidget {
           height: 92,
           child: ListView(scrollDirection: Axis.horizontal, children: [
             _Quick(icon: Icons.sensors_rounded, label: 'Go live', color: AppColors.brandPink, onTap: () => context.push('/live/setup?mode=studio')),
-            _Quick(icon: Icons.add_box_outlined, label: 'Add product', onTap: () => context.push('/shops/product/new')),
-            _Quick(icon: Icons.collections_bookmark_outlined, label: '3D models', onTap: () => context.push('/shops/models')),
-            _Quick(icon: Icons.local_fire_department_rounded, label: 'Live deal', onTap: () => showLiveDealEditor(context, ref, shop)),
-            _Quick(icon: Icons.view_in_ar_rounded, label: 'My stage', onTap: () => context.push('/shops/${shop.id}/stage')),
-            _Quick(icon: Icons.share_outlined, label: 'Store page', onTap: () => context.push('/shops/${shop.id}')),
+            _Quick(icon: Icons.add_box_rounded, label: 'Add product', color: const Color(0xFF3D8BFF), onTap: () => context.push('/shops/product/new')),
+            _Quick(icon: Icons.collections_bookmark_outlined, label: '3D models', color: const Color(0xFF22B8A6), onTap: () => context.push('/shops/models')),
+            _Quick(icon: Icons.local_fire_department_rounded, label: 'Live deal', color: const Color(0xFFFF8A3D), onTap: () => showLiveDealEditor(context, ref, shop)),
+            _Quick(icon: Icons.view_in_ar_rounded, label: 'My stage', color: const Color(0xFF8B6CFF), onTap: () => context.push('/shops/${shop.id}/stage')),
+            _Quick(icon: Icons.storefront_rounded, label: 'Store page', color: const Color(0xFF4FA3FF), onTap: () => context.push('/shops/${shop.id}')),
           ]),
         ),
         const SizedBox(height: 18),
@@ -252,8 +255,16 @@ class _Quick extends StatelessWidget {
               Container(
                 width: 54,
                 height: 54,
-                decoration: BoxDecoration(color: color.withValues(alpha: 0.12), borderRadius: BorderRadius.circular(AppRadius.lg)),
-                child: Icon(icon, color: color),
+                decoration: BoxDecoration(
+                  borderRadius: BorderRadius.circular(AppRadius.lg),
+                  gradient: LinearGradient(
+                    begin: Alignment.topLeft,
+                    end: Alignment.bottomRight,
+                    colors: [color, Color.lerp(color, Colors.black, 0.25)!],
+                  ),
+                  boxShadow: [BoxShadow(color: color.withValues(alpha: 0.35), blurRadius: 12, offset: const Offset(0, 4))],
+                ),
+                child: Icon(icon, color: Colors.white),
               ),
               const SizedBox(height: 6),
               Text(label, maxLines: 1, overflow: TextOverflow.ellipsis, style: AppTypography.caption(context.textPrimary)),
@@ -328,4 +339,91 @@ class _Empty extends StatelessWidget {
           ]),
         ),
       );
+}
+
+/// First-run steps with progress; hides itself once everything is done.
+class _SetupChecklist extends StatelessWidget {
+  const _SetupChecklist({required this.shop, required this.products, required this.orders});
+  final Shop3D shop;
+  final int products;
+  final int orders;
+
+  @override
+  Widget build(BuildContext context) {
+    final st = shop.settings;
+    final steps = <(String, String, bool, VoidCallback)>[
+      ('Add your first product', 'Photos, price and a 3D model', products > 0, () => context.push('/shops/product/new')),
+      ('Set shipping & policies', 'Pickup, delivery and returns', st.returnsPolicy.isNotEmpty || st.contact.isNotEmpty || st.countries.isNotEmpty,
+          () => context.push('/business/settings')),
+      ('Open your shop', 'Show your stage to buyers', shop.status == ShopStatus.open, () => context.push('/shops/setup')),
+      ('Get verified', 'The verified business badge builds trust', shop.verified, () => context.push('/id/business')),
+      ('Go live and make a sale', 'Sell live from your stage', orders > 0, () => context.push('/live/setup?mode=studio')),
+    ];
+    final done = steps.where((s) => s.$3).length;
+    if (done == steps.length) return const SizedBox.shrink();
+    return Container(
+      margin: const EdgeInsets.only(bottom: 16),
+      padding: const EdgeInsets.fromLTRB(14, 14, 14, 6),
+      decoration: BoxDecoration(
+        color: context.surface,
+        borderRadius: BorderRadius.circular(AppRadius.lg),
+        border: Border.all(color: AppColors.brandBlue.withValues(alpha: 0.35)),
+      ),
+      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        Row(children: [
+          Expanded(child: Text('Get your shop ready', style: AppTypography.title3(context.textPrimary))),
+          Text('$done of ${steps.length}', style: AppTypography.small(AppColors.brandBlue).copyWith(fontWeight: FontWeight.w800)),
+        ]),
+        const SizedBox(height: 8),
+        ClipRRect(
+          borderRadius: BorderRadius.circular(4),
+          child: LinearProgressIndicator(
+            value: done / steps.length,
+            minHeight: 6,
+            backgroundColor: context.surfaceMid,
+            valueColor: const AlwaysStoppedAnimation(AppColors.brandPink),
+          ),
+        ),
+        const SizedBox(height: 6),
+        for (final (title, sub, ok, go) in steps)
+          ListTile(
+            contentPadding: EdgeInsets.zero,
+            dense: true,
+            leading: Icon(ok ? Icons.check_circle_rounded : Icons.radio_button_unchecked_rounded,
+                color: ok ? AppColors.brandBlue : context.textMuted),
+            title: Text(title,
+                style: AppTypography.callout(ok ? context.textMuted : context.textPrimary)
+                    .copyWith(decoration: ok ? TextDecoration.lineThrough : null)),
+            subtitle: ok ? null : Text(sub, style: AppTypography.caption(context.textSecondary)),
+            trailing: ok ? null : Icon(Icons.chevron_right_rounded, color: context.textMuted),
+            onTap: ok
+                ? null
+                : () {
+                    HapticFeedback.selectionClick();
+                    go();
+                  },
+          ),
+      ]),
+    );
+  }
+}
+
+/// Placeholder blocks while the business loads.
+class _Skeleton extends StatelessWidget {
+  const _Skeleton();
+
+  @override
+  Widget build(BuildContext context) {
+    Widget block(double h) => Container(
+          height: h,
+          margin: const EdgeInsets.only(bottom: 12),
+          decoration: BoxDecoration(color: context.surfaceMid, borderRadius: BorderRadius.circular(AppRadius.lg)),
+        );
+    return ListView(padding: const EdgeInsets.all(16), physics: const NeverScrollableScrollPhysics(), children: [
+      block(82),
+      block(220),
+      Row(children: [Expanded(child: block(80)), const SizedBox(width: 10), Expanded(child: block(80))]),
+      block(140),
+    ]);
+  }
 }

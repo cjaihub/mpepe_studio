@@ -239,7 +239,7 @@ class _OneovaProfileSidebarDrawerState extends ConsumerState<OneovaProfileSideba
         Expanded(
           child: _QuickAction(
             icon: Icons.chat_bubble_outline_rounded,
-            label: 'Messages',
+            label: 'Chats',
             onTap: () => _go('/hub/messages'),
           ),
         ),
@@ -693,14 +693,20 @@ class _QuickAction extends StatelessWidget {
                   ],
                 ),
                 const SizedBox(height: 4),
-                Text(
-                  label,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: GoogleFonts.inter(
-                    color: primary ? AppColors.brandWhite : context.textPrimary,
-                    fontSize: 10,
-                    fontWeight: FontWeight.w600,
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 3),
+                  child: FittedBox(
+                    fit: BoxFit.scaleDown,
+                    child: Text(
+                      label,
+                      maxLines: 1,
+                      softWrap: false,
+                      style: GoogleFonts.inter(
+                        color: primary ? AppColors.brandWhite : context.textPrimary,
+                        fontSize: 10,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
                   ),
                 ),
               ],

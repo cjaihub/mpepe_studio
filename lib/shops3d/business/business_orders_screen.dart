@@ -5,6 +5,7 @@ import 'package:go_router/go_router.dart';
 
 import '../../shared/theme/app_theme.dart';
 import '../../social_hub/biz_commerce/checkout_screen.dart' show formatMoney;
+import '../data/currencies.dart' show deviceCurrency;
 import '../data/shop3d_repository.dart';
 import 'business_data.dart';
 
@@ -145,7 +146,7 @@ class _OrderCard extends StatelessWidget {
               ),
               const SizedBox(width: 8),
               Column(crossAxisAlignment: CrossAxisAlignment.end, children: [
-                Text(formatMoney((o['totalAmount'] as num?) ?? 0, '${o['currency'] ?? 'usd'}'),
+                Text(formatMoney((o['totalAmount'] as num?) ?? 0, '${o['currency'] ?? deviceCurrency()}'),
                     style: AppTypography.callout(context.textPrimary)),
                 if (t != null)
                   Text('${t.day}/${t.month} ${t.hour.toString().padLeft(2, '0')}:${t.minute.toString().padLeft(2, '0')}',

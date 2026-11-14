@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../shared/theme/app_theme.dart';
+import '../data/currencies.dart' show deviceCurrency;
 import '../data/shop3d_repository.dart';
 import '../models/shop_models.dart';
 import 'business_data.dart';
@@ -271,7 +272,7 @@ class _CodesTab extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final codes = ref.watch(myCodesProvider).value ?? const <DiscountCode>[];
     final products = ref.watch(myCatalogProvider).value ?? const <ShopProduct>[];
-    final currency = products.isNotEmpty ? products.first.currency : 'usd';
+    final currency = products.isNotEmpty ? products.first.currency : deviceCurrency();
     return Scaffold(
       backgroundColor: context.bg,
       floatingActionButton: FloatingActionButton.extended(

@@ -6,6 +6,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
 
 import '../../shared/theme/app_theme.dart';
+import '../../backend/pay/oneova_pay_service.dart' show PayAccount;
 
 /// World currencies for the shops.
 ///
@@ -54,8 +55,12 @@ final fxRatesProvider = StreamProvider<FxRates>((ref) {
   });
 });
 
-/// The currency of the phone's region (e.g. TZS in Tanzania), lower case.
+/// The seller's currency, lower case: the Oneova Pay account currency
+/// (from the payout profile / verified ID), else the phone's region
+/// (e.g. TZS in Tanzania).
 String deviceCurrency() {
+  final account = PayAccount.currency;
+  if (account != null && account.length == 3) return account.toLowerCase();
   try {
     final code = NumberFormat.simpleCurrency(locale: Platform.localeName).currencyName;
     if (code != null && code.length == 3) return code.toLowerCase();

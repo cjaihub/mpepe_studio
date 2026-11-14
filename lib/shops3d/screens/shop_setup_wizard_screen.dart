@@ -9,6 +9,7 @@ import 'package:image_picker/image_picker.dart';
 import 'package:latlong2/latlong.dart';
 
 import '../../backend/finance/commerce_service.dart';
+import '../../backend/pay/oneova_pay_service.dart';
 import '../../shared/location/geo_services.dart';
 import '../../shared/theme/app_theme.dart';
 import '../../social_hub/biz_commerce/checkout_screen.dart' show formatMoney;
@@ -31,6 +32,13 @@ class ShopSetupWizardScreen extends ConsumerStatefulWidget {
 }
 
 class _ShopSetupWizardScreenState extends ConsumerState<ShopSetupWizardScreen> {
+  @override
+  void initState() {
+    super.initState();
+    // Learn the account's currency early so new products default to it.
+    ref.read(oneovaPayServiceProvider).options().ignore();
+  }
+
   static const _steps = ['Identity', 'Stage', 'Products', 'Open'];
 
   final _name = TextEditingController();

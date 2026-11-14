@@ -9,6 +9,7 @@ import 'package:share_plus/share_plus.dart';
 import '../../auth/services/oneova_biometrics_service.dart';
 import '../../shared/theme/app_theme.dart';
 import '../identity_service.dart';
+import '../widgets/id_country_picker.dart' show IdChoicePill;
 
 /// Pick what to reveal and for how long → a QR code anyone can check at
 /// oneova.web.app/verify. Approving a share asks for biometrics.
@@ -102,15 +103,9 @@ class _IdShareSheetState extends ConsumerState<IdShareSheet> {
         const SizedBox(height: 6),
         Wrap(
           spacing: 8,
+          runSpacing: 8,
           children: _durations.entries
-              .map((d) => ChoiceChip(
-                    label: Text(d.value),
-                    selected: _minutes == d.key,
-                    selectedColor: AppColors.brandBlue.withValues(alpha: 0.22),
-                    checkmarkColor: AppColors.brandBlue,
-                    labelStyle: TextStyle(color: context.textPrimary, fontWeight: FontWeight.w600),
-                    onSelected: (_) => setState(() => _minutes = d.key),
-                  ))
+              .map((d) => IdChoicePill(label: d.value, selected: _minutes == d.key, onTap: () => setState(() => _minutes = d.key)))
               .toList(),
         ),
         const SizedBox(height: 18),

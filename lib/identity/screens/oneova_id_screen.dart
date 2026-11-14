@@ -117,7 +117,7 @@ class _OneovaIdScreenState extends ConsumerState<OneovaIdScreen> {
     final k = id.kyc;
     final (title, sub, cta) = switch (k.status) {
       'verified' => ('ID verified', 'Verified${k.verifiedName != null ? ' as ${k.verifiedName}' : ''}${k.country != null ? ' · ${k.country}' : ''}', null),
-      'review' => ('Being checked', 'A person on our team is reviewing it — usually within a day.', null),
+      'review' => ('In review', 'In review · usually within a day. We’ll notify you.', null),
       'rejected' => ('Needs another try', k.lastError ?? 'We couldn’t confirm your ID. Try again with clear photos.', 'Try again'),
       'collecting' => ('Almost there', 'Finish adding your photos.', 'Continue'),
       _ => ('Verify once, use everywhere', 'A photo of your ID and a selfie. Takes about 2 minutes.', 'Verify my identity'),
@@ -162,7 +162,7 @@ class _OneovaIdScreenState extends ConsumerState<OneovaIdScreen> {
   Widget _businessCard(BusinessIdentity b) {
     final (title, sub) = switch (b.status) {
       'verified' => (b.level >= 2 ? 'Verified Business' : 'Registered business', '${b.legalName} · ${b.country}'),
-      'review' => ('Being checked', '${b.legalName} — documents are with our team.'),
+      'review' => ('In review', '${b.legalName} · usually within 2 working days.'),
       'rejected' => ('Needs another try', b.rejectReason ?? 'Check the documents and try again.'),
       'expired' => ('Renew verification', b.rejectReason ?? 'Upload fresh documents to keep the badge.'),
       'collecting' => ('In progress', 'Finish your business check.'),
@@ -180,6 +180,7 @@ class _OneovaIdScreenState extends ConsumerState<OneovaIdScreen> {
     Future<void> answer(bool yes) async {
       try {
         await svc.respondOwner('${inv['bizUid']}', yes);
+        HapticFeedback.mediumImpact();
       } catch (e) {
         if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(identityError(e))));
       }
