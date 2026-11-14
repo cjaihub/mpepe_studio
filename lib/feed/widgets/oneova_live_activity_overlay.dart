@@ -468,7 +468,13 @@ class _OneovaLiveActivityOverlayState extends ConsumerState<OneovaLiveActivityOv
                         alignment: Alignment.bottomLeft,
                         child: IgnorePointer(
                           ignoring: widget.immersive,
-                          child: _buildFloatingMidpointStream(),
+                          // Newest stays at the bottom; older bubbles slide out
+                          // of the top (already faded) instead of overflowing.
+                          child: SingleChildScrollView(
+                            reverse: true,
+                            physics: const NeverScrollableScrollPhysics(),
+                            child: _buildFloatingMidpointStream(),
+                          ),
                         ),
                       ),
                     ),

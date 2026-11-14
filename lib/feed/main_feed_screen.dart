@@ -1081,8 +1081,11 @@ class _ShortVideoFeedScreenState extends ConsumerState<ShortVideoFeedScreen>
     );
   }
 
+  /// Scales down instead of overflowing on narrow phones (360dp).
   Widget _buildFeedTabs() {
-    return Row(
+    return FittedBox(
+      fit: BoxFit.scaleDown,
+      child: Row(
       mainAxisSize: MainAxisSize.min,
       children: [
         _buildTopTabItem(
@@ -1120,6 +1123,7 @@ class _ShortVideoFeedScreenState extends ConsumerState<ShortVideoFeedScreen>
           icon: Icons.storefront_rounded,
         ),
       ],
+      ),
     );
   }
 
@@ -1155,7 +1159,9 @@ class _ShortVideoFeedScreenState extends ConsumerState<ShortVideoFeedScreen>
           mainAxisAlignment: MainAxisAlignment.spaceBetween,
           children: [
             _buildSearchButton(),
-            _buildFeedTabs(),
+            const SizedBox(width: 8),
+            Expanded(child: Center(child: _buildFeedTabs())),
+            const SizedBox(width: 8),
             const _RingingBell(),
           ],
         ),
@@ -1277,7 +1283,49 @@ class _ShortVideoFeedScreenState extends ConsumerState<ShortVideoFeedScreen>
     );
   }
 
+  /// Playback toggles stay folded into one chip until the viewer opens them.
+  bool _playbackOpen = false;
+
   Widget _buildReelControlDock() {
+    final anyOn = _isAutoScrollEnabled || _isLoopModeEnabled;
+    return AnimatedSize(
+      duration: const Duration(milliseconds: 220),
+      curve: Curves.easeOutCubic,
+      child: _playbackOpen
+          ? Row(mainAxisSize: MainAxisSize.min, children: [
+              Flexible(child: _buildReelControlDockFull()),
+              const SizedBox(width: 4),
+              GestureDetector(
+                onTap: () {
+                  HapticFeedback.selectionClick();
+                  setState(() => _playbackOpen = false);
+                },
+                child: Icon(Icons.close_rounded, size: 18, color: _palette.fgSoft),
+              ),
+            ])
+          : GestureDetector(
+              onTap: () {
+                HapticFeedback.selectionClick();
+                setState(() => _playbackOpen = true);
+              },
+              child: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+                decoration: BoxDecoration(
+                  color: _palette.glass,
+                  borderRadius: BorderRadius.circular(AppRadius.full),
+                  border: Border.all(color: _palette.glassBorder, width: 1.0),
+                ),
+                child: Row(mainAxisSize: MainAxisSize.min, children: [
+                  Icon(Icons.tune_rounded, size: 13, color: anyOn ? AppColors.brandPink : _palette.fgSoft),
+                  const SizedBox(width: 4),
+                  Text('Playback', style: GoogleFonts.inter(fontSize: 10, fontWeight: FontWeight.w700, color: _palette.fgSoft)),
+                ]),
+              ),
+            ),
+    );
+  }
+
+  Widget _buildReelControlDockFull() {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
       decoration: BoxDecoration(
@@ -2845,7 +2893,7 @@ class _ShortVideoItemState extends ConsumerState<_ShortVideoItem> with TickerPro
           ),
 
           // ── Caption (tap to expand) ─────────────────────────
-          if (widget.content.description.isNotEmpty) ...[
+          if (widget.content.description.replaceAll(RegExp(r'(^|\s)#[\w\u00C0-\uFFFF]+'), '').trim().isNotEmpty) ...[
             const SizedBox(height: 7),
             GestureDetector(
               behavior: HitTestBehavior.opaque,
@@ -2855,7 +2903,9 @@ class _ShortVideoItemState extends ConsumerState<_ShortVideoItem> with TickerPro
                 curve: Curves.easeOutCubic,
                 alignment: Alignment.topLeft,
                 child: Text(
-                  widget.content.description,
+                  widget.content.hashtags.isEmpty
+                      ? widget.content.description
+                      : widget.content.description.replaceAll(RegExp(r'(^|\s)#[\w\u00C0-\uFFFF]+'), '').replaceAll(RegExp(r'\s{2,}'), ' ').trim(),
                   style: GoogleFonts.inter(
                     color: p.fg,
                     fontSize: 13,
@@ -2918,21 +2968,6 @@ class _ShortVideoItemState extends ConsumerState<_ShortVideoItem> with TickerPro
             onTap: _openSound,
           ),
           const SizedBox(height: 8),
-
-          // ── Quick Suggestion Chips (Oneova quick commenting) ──
-          SingleChildScrollView(
-            scrollDirection: Axis.horizontal,
-            child: Row(
-              children: [
-                _buildQuickCommentChip('🔥 Fire!', currentUid),
-                _buildQuickCommentChip('😂 So true', currentUid),
-                _buildQuickCommentChip('❤️ Love this', currentUid),
-                _buildQuickCommentChip('👏 Incredible', currentUid),
-                _buildQuickCommentChip('🙌 10/10', currentUid),
-              ],
-            ),
-          ),
-          const SizedBox(height: 6),
 
           // ── Add comment bar (tap mic = live transcription, hold = voice comment) ──
           ReelCommentBar(
@@ -3020,67 +3055,6 @@ class _ShortVideoItemState extends ConsumerState<_ShortVideoItem> with TickerPro
       child: Padding(
         padding: const EdgeInsets.symmetric(horizontal: 2.0),
         child: Text(emoji, style: const TextStyle(fontSize: 16)),
-      ),
-    );
-  }
-
-  Widget _buildQuickCommentChip(String text, String currentUid) {
-    return Padding(
-      padding: const EdgeInsets.only(right: 6.0),
-      child: GestureDetector(
-        behavior: HitTestBehavior.opaque,
-        onTap: () {
-          AuthInteractionGate.requireAuth(
-            context,
-            actionTitle: 'comment on reels',
-            onAuthenticated: () async {
-              HapticFeedback.lightImpact();
-              try {
-                final newComment = Comment(
-                  id: '',
-                  postId: widget.content.id,
-                  authorId: currentUid,
-                  content: text,
-                  createdAt: DateTime.now(),
-                );
-                await ref.read(commentServiceProvider).addComment(
-                  newComment,
-                  isCreator: widget.content.authorId == currentUid,
-                );
-                if (!mounted) return;
-                ScaffoldMessenger.of(context).showSnackBar(
-                  SnackBar(
-                    content: Text('Commented: "$text"'),
-                    duration: const Duration(milliseconds: 1400),
-                    behavior: SnackBarBehavior.floating,
-                  ),
-                );
-              } catch (e) {
-                if (!mounted) return;
-                ScaffoldMessenger.of(context).showSnackBar(
-                  SnackBar(content: Text('Could not post comment: $e')),
-                );
-              }
-            },
-          );
-        },
-        child: Container(
-          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-          decoration: BoxDecoration(
-            color: _p.glass,
-            borderRadius: BorderRadius.circular(AppRadius.full),
-            border: Border.all(color: _p.glassBorder, width: 1.0),
-          ),
-          child: Text(
-            text,
-            style: GoogleFonts.inter(
-              color: Colors.white,
-              fontSize: 11,
-              fontWeight: FontWeight.w600,
-              shadows: _p.textShadow,
-            ),
-          ),
-        ),
       ),
     );
   }
