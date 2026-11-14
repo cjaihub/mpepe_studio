@@ -51,17 +51,26 @@ class Shop3DRepository {
     if (after != null) q = q.startAfterDocument(after);
     final snap = await q.get();
     final shops = snap.docs.map(Shop3D.fromDoc).where((s) => s.name.isNotEmpty).toList();
-    return (shops, snap.docs.isEmpty ? null : snap.docs.last);
+    // A short page is the last one; no extra empty fetch.
+    return (shops, snap.docs.length < feedPageSize ? null : snap.docs.last);
   }
 
   /// Fetches specific open shops (used to put live sellers first in the feed).
   Future<List<Shop3D>> shopsByIds(Iterable<String> ids) async {
     final list = ids.toSet().take(10).toList();
     if (list.isEmpty) return const [];
-    final docs = await Future.wait(list.map((id) => _shops.doc(id).get()));
+    // Most live hosts have no shop, and rules refuse reading a missing or
+    // closed shop, so each read fails on its own instead of sinking the rest.
+    final docs = await Future.wait(list.map((id) async {
+      try {
+        return await _shops.doc(id).get();
+      } catch (_) {
+        return null;
+      }
+    }));
     return [
       for (final d in docs)
-        if (d.exists) Shop3D.fromDoc(d),
+        if (d != null && d.exists) Shop3D.fromDoc(d),
     ].where((s) => s.status == ShopStatus.open && s.name.isNotEmpty).toList();
   }
 

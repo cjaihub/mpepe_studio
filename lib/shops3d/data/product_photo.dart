@@ -3,13 +3,19 @@ import 'dart:io';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/painting.dart';
 import 'package:image/image.dart' as img;
+import 'package:oneova_media_engine/oneova_media_engine.dart';
 import 'package:path_provider/path_provider.dart';
 
 import '../../create/studio/services/studio_cutout.dart';
 
 /// Product photo preparation, all on the phone:
-/// background removed (the Studio's subject cut-out), the product placed on a
+/// background removed (ML Kit subject segmentation), the product placed on a
 /// clean white studio background, saved as a JPEG no wider than 2048 px.
+///
+/// Only the subject model is trusted for products. Its fallback (the selfie
+/// model, made for people) finds nothing in a photo of a shoe or a bag and
+/// would leave an all-white picture, so that result is thrown away, and so is
+/// any mask that covers almost nothing or almost everything.
 class ProductPhoto {
   ProductPhoto._();
 
@@ -20,7 +26,12 @@ class ProductPhoto {
     var cleaned = false;
     if (removeBackground) {
       try {
-        final cut = await StudioCutout.cutout(original.path);
+        final dir = await getTemporaryDirectory();
+        final (cut, _, _, method) = await OneovaMediaEngine.cutout(
+          original.path,
+          out: '${dir.path}/product_cut_${DateTime.now().microsecondsSinceEpoch}.png',
+        );
+        if (method != 'subject' || !await compute(isUsableCutout, cut)) throw StateError('no clear subject');
         source = await StudioCutout.compose(
           originalPath: original.path,
           cutoutPath: cut,
@@ -58,4 +69,32 @@ bool _toJpeg((String, String) io) {
   } catch (_) {
     return false;
   }
+}
+
+/// True when the cut-out kept a real subject: between 2% and 97% of the
+/// pixels are solid (checked on a sample grid, fast on big photos).
+@visibleForTesting
+bool isUsableCutout(String pngPath) {
+  try {
+    final image = img.decodePng(File(pngPath).readAsBytesSync());
+    if (image == null || !image.hasAlpha) return false;
+    return cutoutCoverageOk(image);
+  } catch (_) {
+    return false;
+  }
+}
+
+@visibleForTesting
+bool cutoutCoverageOk(img.Image image) {
+  final step = (image.width > image.height ? image.width : image.height) ~/ 160 + 1;
+  var solid = 0, total = 0;
+  for (var y = 0; y < image.height; y += step) {
+    for (var x = 0; x < image.width; x += step) {
+      total++;
+      if (image.getPixel(x, y).a > 128) solid++;
+    }
+  }
+  if (total == 0) return false;
+  final share = solid / total;
+  return share >= 0.02 && share <= 0.97;
 }

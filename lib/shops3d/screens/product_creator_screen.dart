@@ -203,7 +203,8 @@ class _ProductCreatorScreenState extends ConsumerState<ProductCreatorScreen> {
       if (!mounted) return;
       setState(() => _modelId = r.id);
       if (!r.started) {
-        _say('Photos saved. Link a 3D provider to build the model.', state: AgentState.failed, action: ('Link', () => context.push('/shops/models')));
+        _say('Photos saved. The 3D builder is switching on; build it later from My 3D models.',
+            state: AgentState.failed, action: ('My 3D models', () => context.push('/shops/models')));
       }
     } on StateError catch (e) {
       _say(e.message, state: AgentState.failed);

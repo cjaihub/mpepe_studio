@@ -1,143 +1,76 @@
 /**
- * Photo → 3D engines.
+ * Photo → 3D engine: Oneova's own GPU model server only.
  *
- * A seller can link their own provider account (their key is encrypted and
- * kept server-side in `model3d_keys/{uid}`, which no client can read), or
- * Oneova's built-in engine is used when the platform key exists
- * (optional secret MESHY_API_KEY). With neither, generation is off and the
- * app says so; uploads and the private library keep working.
+ * Oneova does not use third-party 3D services (Meshy-style SaaS) and sellers
+ * don't link outside accounts. Generation runs on open-source models (TRELLIS,
+ * TripoSR; MIT) that Oneova hosts on Cloud Run GPU in its own project — see
+ * packages/three_d_model_server on the AI 3D branch. Until that server is
+ * deployed, generation is off: photos are kept and the model starts with
+ * "Build now" once it is on. Uploads and the private library keep working.
  *
- * Secrets (both optional, see optionalSecrets.ts):
- *   MODEL3D_VAULT_KEY  32 random bytes, base64 (`openssl rand -base64 32`);
- *                      needed before sellers can link their own account
- *   MESHY_API_KEY      Oneova's own engine key (built-in generation)
+ * Configuration (either one; neither means "off"):
+ *   env MODEL3D_SERVER_URL or optional secret MODEL3D_SERVER_URL
+ *     https://ova3d-model-trellis-….run.app
+ * The server must allow only the functions' service account to invoke it
+ * (Cloud Run IAM) and set OVA3D_ALLOWED_BUCKET to the app's bucket.
  */
-import { getFirestore, FieldValue } from 'firebase-admin/firestore';
+import { getFirestore } from 'firebase-admin/firestore';
 import { HttpsError } from 'firebase-functions/v2/https';
-import { decryptWith, encryptWith } from '../gmailUser';
+import { GoogleAuth } from 'google-auth-library';
 import { optionalSecret } from '../optionalSecrets';
+import { buildEngineRequest, engineErrorMessage, readEngineResult, validEngineUrl } from './engineLogic';
 
-export type EngineId = 'meshy';
-export const ENGINES: Record<EngineId, { label: string; keyHint: string }> = {
-  meshy: { label: 'Meshy', keyHint: 'msy_…' },
-};
+export type EngineId = 'oneova';
+export const ENGINE_LABEL = 'Oneova 3D builder';
 
-export interface Engine { id: EngineId; key: string; owner: 'user' | 'oneova' }
+export interface Engine { id: EngineId; url: string; owner: 'oneova' }
 
-const db = () => getFirestore();
-const keysRef = (uid: string) => db().collection('model3d_keys').doc(uid);
-const statusRef = (uid: string, engine: EngineId) => db().doc(`users/${uid}/model_providers/${engine}`);
+/** Thrown with a message that is safe to show to the seller. */
+export class EngineError extends Error {}
 
-async function vaultKey(): Promise<Buffer> {
-  const k = await optionalSecret('MODEL3D_VAULT_KEY');
-  const buf = k ? Buffer.from(k, 'base64') : Buffer.alloc(0);
-  if (buf.length !== 32) throw new HttpsError('failed-precondition', 'Linking your own 3D provider is not switched on yet.');
-  return buf;
+/** Oneova's own engine when it is configured, else null (generation off). */
+export async function engineFor(_uid?: string): Promise<Engine | null> {
+  const raw = process.env.MODEL3D_SERVER_URL || (await optionalSecret('MODEL3D_SERVER_URL'));
+  const url = validEngineUrl(raw);
+  return url ? { id: 'oneova', url, owner: 'oneova' } : null;
 }
 
-async function meshy(key: string, method: 'GET' | 'POST', path: string, body?: unknown): Promise<any> {
-  const res = await fetch(`https://api.meshy.ai${path}`, {
-    method,
-    headers: { Authorization: `Bearer ${key}`, ...(body ? { 'Content-Type': 'application/json' } : {}) },
-    body: body ? JSON.stringify(body) : undefined,
-    signal: AbortSignal.timeout(30_000),
-  });
-  const text = await res.text();
-  let json: any = null;
-  try { json = text ? JSON.parse(text) : null; } catch { /* not JSON */ }
-  if (!res.ok) {
-    const err = new Error(String(json?.message ?? `The 3D engine answered ${res.status}.`)) as Error & { status?: number };
-    err.status = res.status;
-    throw err;
-  }
-  return json;
-}
-
-/** Saves a seller's own provider key after checking it works. */
-export async function linkProvider(uid: string, engine: EngineId, apiKey: string): Promise<void> {
-  const key = apiKey.trim();
-  if (key.length < 12 || key.length > 200 || /\s/.test(key)) throw new HttpsError('invalid-argument', 'That key doesn’t look right.');
-  const vault = await vaultKey();
-  try {
-    await meshy(key, 'GET', '/openapi/v1/image-to-3d?page_size=1');
-  } catch (e: any) {
-    if (e?.status === 401 || e?.status === 403) throw new HttpsError('permission-denied', `${ENGINES[engine].label} did not accept this key.`);
-    throw new HttpsError('unavailable', `${ENGINES[engine].label} can’t be reached right now. Try again in a minute.`);
-  }
-  await keysRef(uid).set({ [engine]: encryptWith(vault, key, uid), updatedAt: FieldValue.serverTimestamp() }, { merge: true });
-  await statusRef(uid, engine).set({
-    engine, label: ENGINES[engine].label, linked: true, keyEnd: key.slice(-4), linkedAt: FieldValue.serverTimestamp(),
-  });
-}
-
-export async function unlinkProvider(uid: string, engine: EngineId): Promise<void> {
-  await keysRef(uid).set({ [engine]: FieldValue.delete() }, { merge: true });
-  await statusRef(uid, engine).delete();
-}
-
-/** The seller's own engine if linked, else Oneova's, else null (generation off). */
-export async function engineFor(uid: string): Promise<Engine | null> {
-  const blob = (await keysRef(uid).get()).get('meshy') as string | undefined;
-  if (blob) {
-    try {
-      return { id: 'meshy', key: decryptWith(await vaultKey(), blob, uid), owner: 'user' };
-    } catch {
-      /* unreadable key: fall through to the built-in engine */
-    }
-  }
-  const platform = await optionalSecret('MESHY_API_KEY');
-  return platform ? { id: 'meshy', key: platform, owner: 'oneova' } : null;
-}
-
-/** The same engine a job started with (jobs outlive one function call). */
-export async function engineOf(uid: string, owner: 'user' | 'oneova'): Promise<Engine | null> {
-  const e = await engineFor(uid);
-  if (e && e.owner === owner) return e;
-  if (owner === 'oneova') {
-    const platform = await optionalSecret('MESHY_API_KEY');
-    return platform ? { id: 'meshy', key: platform, owner: 'oneova' } : null;
-  }
-  return null;
-}
-
-export interface EngineTask { taskId: string; multi: boolean }
+const auth = new GoogleAuth();
 
 /**
- * Starts a generation. One photo uses image-to-3D; two to four (front first)
- * use multi-image, which is what keeps the sides and the texture true.
+ * Runs image → 3D on the GPU server and waits for it (the model server
+ * answers when the GLB is written). Returns the storage path of the GLB.
  */
-export async function submitGeneration(engine: Engine, imageUrls: string[]): Promise<EngineTask> {
-  const common = { should_texture: true, enable_pbr: true, should_remesh: true, topology: 'triangle', target_polycount: 100_000, target_formats: ['glb'] };
-  if (imageUrls.length > 1) {
-    const r = await meshy(engine.key, 'POST', '/openapi/v1/multi-image-to-3d', { ...common, image_urls: imageUrls.slice(0, 4) });
-    return { taskId: String(r.result), multi: true };
+export async function runGeneration(engine: Engine, bucket: string, photoPaths: string[], outputPrefix: string, timeoutMs: number): Promise<string> {
+  const body = buildEngineRequest(bucket, photoPaths, outputPrefix);
+  let data: unknown;
+  try {
+    // Cloud Run IAM: an ID token for the service URL, minted for the functions' service account.
+    const client = await auth.getIdTokenClient(engine.url);
+    const res = await client.request({ url: `${engine.url}/v1/tasks`, method: 'POST', data: body, timeout: timeoutMs });
+    data = res.data;
+  } catch (e: any) {
+    const status = Number(e?.response?.status ?? e?.status) || undefined;
+    throw new EngineError(engineErrorMessage(status));
   }
-  const r = await meshy(engine.key, 'POST', '/openapi/v1/image-to-3d', { ...common, image_url: imageUrls[0] });
-  return { taskId: String(r.result), multi: false };
+  try {
+    return readEngineResult(data, outputPrefix);
+  } catch (e: any) {
+    throw new EngineError(String(e?.message ?? 'The 3D builder finished without a model.'));
+  }
 }
 
-export interface EngineStatus {
-  state: 'working' | 'done' | 'failed';
-  /** 0..1 */
-  progress: number;
-  glbUrl?: string;
-  thumbnailUrl?: string;
-  error?: string;
+// ── Old seller-linked provider keys (removed) ───────────────────────────
+
+/** Linking outside 3D accounts is no longer offered. */
+export async function linkProvider(): Promise<never> {
+  throw new HttpsError('failed-precondition', 'Oneova builds 3D models on its own servers, so there is nothing to link.');
 }
 
-export async function pollGeneration(engine: Engine, task: EngineTask): Promise<EngineStatus> {
-  const t = await meshy(engine.key, 'GET', `/openapi/v1/${task.multi ? 'multi-image-to-3d' : 'image-to-3d'}/${encodeURIComponent(task.taskId)}`);
-  const progress = Math.min(1, Math.max(0, Number(t?.progress ?? 0) / 100));
-  switch (String(t?.status)) {
-    case 'SUCCEEDED': {
-      const glbUrl = t?.model_urls?.glb;
-      if (typeof glbUrl !== 'string' || !glbUrl.startsWith('https://')) return { state: 'failed', progress, error: 'The engine finished without a model.' };
-      return { state: 'done', progress: 1, glbUrl, thumbnailUrl: typeof t.thumbnail_url === 'string' ? t.thumbnail_url : undefined };
-    }
-    case 'FAILED':
-    case 'CANCELED':
-      return { state: 'failed', progress, error: String(t?.task_error?.message || 'The engine could not build this model.').slice(0, 200) };
-    default:
-      return { state: 'working', progress };
-  }
+/** Removes any key a seller linked in an earlier version (kept so they can clear it). */
+export async function unlinkProvider(uid: string): Promise<void> {
+  const db = getFirestore();
+  await db.collection('model3d_keys').doc(uid).delete();
+  const links = await db.collection(`users/${uid}/model_providers`).get();
+  await Promise.all(links.docs.map((d) => d.ref.delete()));
 }

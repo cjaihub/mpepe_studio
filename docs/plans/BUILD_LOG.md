@@ -148,5 +148,55 @@ Design: `docs/payments/platform/` (architecture, security model, schema and API,
   reel. Clients can't read `transcripts/default` yet, so the overlay's own fallback track is still built
   from the caption.
 
+## Stage I: 3D and shops
+Audit 2026-11-14 (photo → 3D, product background removal, AI 3D, live shop stage, `/shops` feed).
+
+What was broken:
+1. Photo → 3D called **Meshy** (third-party 3D SaaS, against the self-hosted rule), with the platform key
+   `MESHY_API_KEY` or a seller's own linked Meshy key. The library screen asked sellers to paste a Meshy key.
+2. The self-hosted 3D service (`packages/three_d_service`, GPU `packages/three_d_model_server` with TRELLIS /
+   TripoSR, `infra/three_d.tf`) exists only on the unmerged `claude/oneova-3d-shops-ai` branch. That branch
+   is based on the older marketplace branch: a straight merge would delete about 12k lines of shops work
+   that is on this branch. Its model server has not run on a GPU yet.
+3. Product background removal fell back to the **selfie (people) model** when the subject model wasn't
+   ready. On a shoe or a bag that finds nothing, so the seller got an all-white photo marked "cleaned".
+   No check that the cut-out kept anything. iOS has no cut-out at all (keeps the photo as taken).
+4. Photo upload progress for 3D jumped once per photo; jobs whose worker died waited 40 min to fail.
+5. `/shops` feed: live sellers first never worked once any live host had no open shop (one denied
+   read failed the whole batch, silently). Paging could stall on a page with nothing new.
+6. Live shop stage drew everything full-bleed over the video; the live title wasn't shown while watching.
+
+Plan and status:
+- ✅ I1. Photo → 3D runs only on Oneova's own GPU model server (`functions/src/models3d/providers.ts`,
+  pure parts in `engineLogic.ts` with node tests). Same wire contract as `three_d_model_server`
+  (`POST /v1/tasks`, `image_to_3d`, `gs://` inputs, GLB written into the model's own folder). Called
+  with a Cloud Run ID token (only `.run.app` https URLs accepted). The worker waits for the GPU (8 min
+  cap), shows a steady progress estimate, then optimizes as before. Off until `MODEL3D_SERVER_URL`
+  (env or optional secret) is set: photos are kept, the library says "switching on", "Build now" later.
+- ✅ I2. Seller key linking retired: `model3dLinkProvider` answers that nothing needs linking;
+  `model3dUnlinkProvider` clears a key saved by an older version. App: Meshy sheet removed, one quiet
+  status line instead (`model3dBuilderProvider`).
+- ✅ I3. Background removal: products accept only the subject model, and only when 2–97% of the photo is
+  kept (`isUsableCutout`, tests in `test/shops3d/product_photo_test.dart`). Otherwise the photo is kept as
+  taken and the 3D photo sheet says which angle kept its background.
+- ✅ I4. Byte-level upload progress for 3D photos; stuck jobs fail after 20 min (the worker keeps the job
+  fresh while the GPU works); sweep every 5 min.
+- ✅ I5. Live shop stage in the framed design (`shop_stage_view.dart`: `StageFrameBackdrop`, `StageFrame`):
+  what's on above the frame (back, shop avatar with pink live ring, live title, shop + badge, LIVE,
+  viewers, Follow), then the live video, 3D product, rail (love, gifts, save, share, cart), chat, deal,
+  shelf and product card inside a 25 px frame. Widget tests in `test/shops3d/shop_stage_frame_test.dart`.
+- ✅ I6. `/shops` feed uses the same frame and backdrop (empty and error states too); live-first fixed
+  (each shop read fails on its own); short page ends paging; "Couldn't load more shops · Retry".
+- ⛔ I7. Deploy the changed functions (`model3dGenerate`, `model3dResume`, `model3dWorker`, `model3dSweep`,
+  `model3dEngineStatus`, `model3dLinkProvider`, `model3dUnlinkProvider`): waiting for the user's OK.
+  Then remove the `MESHY_API_KEY` secret and decide whether to delete old `model3d_keys` docs (user data).
+- ⛔ I8. Switch photo → 3D on: needs the user's go-ahead for GPU cost. Build and deploy
+  `three_d_model_server` (TripoSR on Cloud Run GPU L4 first, scale to zero; TRELLIS later), IAM-only
+  invoker = functions service account, `OVA3D_ALLOWED_BUCKET` = the app bucket, then set
+  `MODEL3D_SERVER_URL`. Bring the full 3D Intelligence Service (editor, versions, product AI) over from
+  `claude/oneova-3d-shops-ai` by porting, not merging.
+- ⏳ I9. Check on a phone: product photos with a plain and a busy background, a live shop with deals,
+  gifts and chat, light and dark mode. iOS cut-out (Vision `VNGenerateForegroundInstanceMaskRequest`).
+
 ## Session notes
 - 2026-11-14: Deployed `firestore.rules`, `reelTranslate`, `studioTranslate`, `kycSubmit`, and the six `payDevice*` functions (`payDeviceChallenge`, `payDeviceRegister`, `payDeviceTrust`, `payDeviceVerify`, `payDeviceList`, `payDeviceRevoke`) to `mpepe-2b4bd`. Released build 1.0.0 (37) to Play internal testing with Framed Reels + one-tap full-screen mode, Wallet tab on the bottom bar (`OneovaPayHomeScreen`), AI Lab entry in Chats + My Wallet chip in Ova Assistant, and sensitive-topic personalisation controls.

@@ -22,7 +22,7 @@ enum ModelStatus {
   ready,
   failed,
 
-  /// Photos are saved; waiting for a linked or built-in 3D engine.
+  /// Photos are saved; waiting for Oneova's 3D builder to be switched on.
   needsEngine;
 
   static ModelStatus parse(Object? v) => switch (v) {
@@ -90,7 +90,7 @@ class Model3DAsset {
   final String? productId;
   final String? error;
 
-  /// 'user' (their linked provider) or 'oneova' (built-in).
+  /// Who built it: 'oneova' (Oneova's own 3D builder). Older models may say 'user'.
   final String? engineOwner;
   final DateTime? createdAt;
 
@@ -130,15 +130,6 @@ class Model3DAsset {
       createdAt: created is Timestamp ? created.toDate() : null,
     );
   }
-}
-
-/// A 3D provider account the seller linked (the key itself never leaves the server).
-@immutable
-class ModelProviderLink {
-  const ModelProviderLink({required this.engine, required this.label, required this.keyEnd});
-  final String engine;
-  final String label;
-  final String keyEnd;
 }
 
 /// URLs a product gets when a library model is put on it.
@@ -185,15 +176,6 @@ class Model3DRepository {
     return _lib(uid).doc(id).snapshots().map((d) => d.exists ? Model3DAsset.fromDoc(d) : null);
   }
 
-  Stream<List<ModelProviderLink>> watchProviders() {
-    final uid = _auth.currentUser?.uid;
-    if (uid == null) return Stream.value(const []);
-    return _db.collection('users').doc(uid).collection('model_providers').snapshots().map((s) => [
-          for (final d in s.docs)
-            ModelProviderLink(engine: d.id, label: '${d.data()['label'] ?? d.id}', keyEnd: '${d.data()['keyEnd'] ?? ''}'),
-        ]);
-  }
-
   /// Uploads a 3D file into the private library and starts optimizing it.
   /// Returns the new model id; progress is then followed with [watchModel].
   Future<String> addFile(File file, {String? name, String? productId, void Function(double)? onProgress}) async {
@@ -211,7 +193,7 @@ class Model3DRepository {
     if (onProgress != null) {
       task.snapshotEvents.listen((s) {
         if (s.totalBytes > 0) onProgress(s.bytesTransferred / s.totalBytes);
-      });
+      }, onError: (_) {});
     }
     await task;
     final base = original.contains('.') ? original.substring(0, original.lastIndexOf('.')) : original;
@@ -220,7 +202,7 @@ class Model3DRepository {
   }
 
   /// Sends one to four photos (front first) to be built into a 3D model.
-  /// Returns the id and whether an engine is available to build it now.
+  /// Returns the id and whether Oneova's 3D builder started on it now.
   Future<({String id, bool started})> generateFromPhotos(
     List<File> photos, {
     required String name,
@@ -231,8 +213,13 @@ class Model3DRepository {
     if (photos.isEmpty || photos.length > 4) throw StateError('Add one to four photos.');
     final id = newId();
     for (var i = 0; i < photos.length; i++) {
-      await _storage.ref('users/$uid/models3d/$id/photos/$i.jpg').putFile(photos[i], SettableMetadata(contentType: 'image/jpeg'));
-      onProgress?.call((i + 1) / photos.length);
+      final task = _storage.ref('users/$uid/models3d/$id/photos/$i.jpg').putFile(photos[i], SettableMetadata(contentType: 'image/jpeg'));
+      if (onProgress != null) {
+        task.snapshotEvents.listen((s) {
+          if (s.totalBytes > 0) onProgress((i + s.bytesTransferred / s.totalBytes) / photos.length);
+        }, onError: (_) {});
+      }
+      await task;
     }
     final r = await _call('model3dGenerate', {'modelId': id, 'photoCount': photos.length, 'name': name, 'productId': ?productId});
     return (id: id, started: r['status'] == 'queued');
@@ -253,14 +240,10 @@ class Model3DRepository {
 
   Future<void> delete(String id) => _call('model3dDelete', {'modelId': id});
 
-  Future<void> linkProvider(String engine, String apiKey) => _call('model3dLinkProvider', {'engine': engine, 'apiKey': apiKey});
-
-  Future<void> unlinkProvider(String engine) => _call('model3dUnlinkProvider', {'engine': engine});
-
-  /// Whether photo → 3D can run, and with whose engine ('user' / 'oneova').
-  Future<({bool available, String? owner})> engineStatus() async {
+  /// Whether Oneova's own 3D builder is on (photo → 3D can start now).
+  Future<bool> builderAvailable() async {
     final r = await _call('model3dEngineStatus', const {});
-    return (available: r['available'] == true, owner: r['owner'] as String?);
+    return r['available'] == true;
   }
 
   Future<Map<String, dynamic>> _call(String name, Map<String, dynamic> data) async {
@@ -283,9 +266,14 @@ final model3dProvider = StreamProvider.autoDispose.family<Model3DAsset?, String>
   (ref, id) => ref.watch(model3dRepositoryProvider).watchModel(id),
 );
 
-final modelProvidersProvider = StreamProvider.autoDispose<List<ModelProviderLink>>(
-  (ref) => ref.watch(model3dRepositoryProvider).watchProviders(),
-);
+/// Whether photo → 3D can start now (null while checking or offline).
+final model3dBuilderProvider = FutureProvider.autoDispose<bool?>((ref) async {
+  try {
+    return await ref.watch(model3dRepositoryProvider).builderAvailable();
+  } catch (_) {
+    return null;
+  }
+});
 
 String formatBytes(int b) {
   if (b >= 1024 * 1024) return '${(b / 1024 / 1024).toStringAsFixed(b >= 10 * 1024 * 1024 ? 0 : 1)} MB';

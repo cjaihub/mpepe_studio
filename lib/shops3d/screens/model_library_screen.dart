@@ -74,7 +74,7 @@ class _ModelLibraryScreenState extends ConsumerState<ModelLibraryScreen> {
       });
       _toast(r.started
           ? 'Building your 3D model. We’ll notify you when it’s ready.'
-          : 'Photos saved. Link a 3D provider below to build the model.');
+          : 'Photos saved. The 3D builder is switching on; tap the model later to build it.');
     } on StateError catch (e) {
       _toast(e.message);
     } catch (_) {
@@ -143,7 +143,6 @@ class _ModelLibraryScreenState extends ConsumerState<ModelLibraryScreen> {
   @override
   Widget build(BuildContext context) {
     final models = ref.watch(modelLibraryProvider);
-    final providers = ref.watch(modelProvidersProvider).value ?? const [];
     final picking = widget.pickForProductId != null;
     return Scaffold(
       backgroundColor: context.bg,
@@ -181,7 +180,7 @@ class _ModelLibraryScreenState extends ConsumerState<ModelLibraryScreen> {
             LinearProgressIndicator(value: _upload! > 0 ? _upload : null, minHeight: 3, color: AppColors.brandBlue, backgroundColor: context.surfaceMid),
           ],
           const SizedBox(height: 12),
-          _ProviderTile(links: providers),
+          const _BuilderRow(),
           const SizedBox(height: 16),
           models.when(
             loading: () => const Padding(
@@ -300,7 +299,7 @@ class _ModelRow extends StatelessWidget {
             if (m.ready)
               const Icon(Icons.check_circle_rounded, size: 16, color: AppColors.brandBlue)
             else if (m.status == ModelStatus.needsEngine)
-              Icon(Icons.link_rounded, size: 16, color: context.textMuted)
+              Icon(Icons.schedule_rounded, size: 16, color: context.textMuted)
             else if (failed)
               const Icon(Icons.error_outline_rounded, size: 16, color: AppColors.brandPink),
           ]),
@@ -421,115 +420,23 @@ class _Chip extends StatelessWidget {
       );
 }
 
-/// The seller's own 3D provider account: link, or unlink (with confirmation).
-class _ProviderTile extends ConsumerWidget {
-  const _ProviderTile({required this.links});
-  final List<ModelProviderLink> links;
+/// One quiet line: whether Oneova's own 3D builder can start a photo → 3D now.
+class _BuilderRow extends ConsumerWidget {
+  const _BuilderRow();
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final link = links.isEmpty ? null : links.first;
-    return Container(
-      padding: const EdgeInsets.fromLTRB(12, 10, 8, 10),
-      decoration: AppDecorations.card(context),
-      child: Row(children: [
-        Icon(Icons.hub_outlined, size: 20, color: link == null ? context.textMuted : AppColors.brandBlue),
-        const SizedBox(width: 10),
-        Expanded(
-          child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-            Text(link == null ? '3D provider' : '${link.label} linked', style: AppTypography.callout(context.textPrimary)),
-            Text(
-              link == null
-                  ? 'Link your own account to build models from photos with your credits.'
-                  : 'Key ending ${link.keyEnd} · used for your photo → 3D builds',
-              style: AppTypography.caption(context.textSecondary),
-            ),
-          ]),
-        ),
-        TextButton(
-          onPressed: () => link == null ? _link(context, ref) : _unlink(context, ref, link),
-          child: Text(link == null ? 'Link' : 'Unlink'),
-        ),
-      ]),
-    );
-  }
-
-  Future<void> _unlink(BuildContext context, WidgetRef ref, ModelProviderLink link) async {
-    final ok = await showDialog<bool>(
-      context: context,
-      builder: (c) => AlertDialog(
-        title: Text('Unlink ${link.label}?'),
-        content: const Text('Models being built with this account will stop. Your finished models stay.'),
-        actions: [
-          TextButton(onPressed: () => Navigator.pop(c, false), child: const Text('Cancel')),
-          TextButton(onPressed: () => Navigator.pop(c, true), child: const Text('Unlink', style: TextStyle(color: AppColors.brandPink))),
-        ],
-      ),
-    );
-    if (ok == true) await ref.read(model3dRepositoryProvider).unlinkProvider(link.engine);
-  }
-
-  Future<void> _link(BuildContext context, WidgetRef ref) {
-    final key = TextEditingController();
-    var busy = false;
-    String? error;
-    return showModalBottomSheet<void>(
-      context: context,
-      isScrollControlled: true,
-      backgroundColor: context.surface,
-      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(AppRadius.xl))),
-      builder: (sheet) => StatefulBuilder(
-        builder: (sheet, set) => Padding(
-          padding: EdgeInsets.fromLTRB(16, 16, 16, 16 + MediaQuery.viewInsetsOf(sheet).bottom),
-          child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-            Text('Link your Meshy account', style: AppTypography.title3(sheet.textPrimary)),
-            const SizedBox(height: 4),
-            Text(
-              'Paste an API key from your Meshy account. Oneova checks it, encrypts it and keeps it on the server; it is never shown again or sent to another phone.',
-              style: AppTypography.caption(sheet.textSecondary),
-            ),
-            const SizedBox(height: 12),
-            TextField(
-              controller: key,
-              obscureText: true,
-              autocorrect: false,
-              enableSuggestions: false,
-              decoration: InputDecoration(
-                isDense: true,
-                labelText: 'API key',
-                errorText: error,
-                contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-                border: OutlineInputBorder(borderRadius: BorderRadius.circular(AppRadius.sm)),
-              ),
-            ),
-            const SizedBox(height: 12),
-            FilledButton(
-              style: FilledButton.styleFrom(backgroundColor: AppColors.brandBlue, foregroundColor: Colors.white, minimumSize: const Size(0, 40)),
-              onPressed: busy
-                  ? null
-                  : () async {
-                      set(() {
-                        busy = true;
-                        error = null;
-                      });
-                      try {
-                        await ref.read(model3dRepositoryProvider).linkProvider('meshy', key.text);
-                        if (sheet.mounted) Navigator.pop(sheet);
-                      } on StateError catch (e) {
-                        set(() {
-                          busy = false;
-                          error = e.message;
-                        });
-                      }
-                    },
-              child: busy
-                  ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
-                  : const Text('Check and link'),
-            ),
-          ]),
-        ),
-      ),
-    );
+    final on = ref.watch(model3dBuilderProvider).value;
+    final (icon, color, text) = switch (on) {
+      true => (Icons.bolt_rounded, AppColors.brandBlue, 'Photo → 3D is on. Built on Oneova’s own servers; your photos stay private.'),
+      false => (Icons.schedule_rounded, context.textMuted, 'Photo → 3D is switching on soon. Photos you add now are saved and built later.'),
+      null => (Icons.cloud_off_rounded, context.textMuted, 'Checking the 3D builder…'),
+    };
+    return Row(children: [
+      Icon(icon, size: 14, color: color),
+      const SizedBox(width: 6),
+      Expanded(child: Text(text, style: AppTypography.caption(context.textSecondary))),
+    ]);
   }
 }
 
@@ -565,6 +472,7 @@ class _PhotoSheet extends StatefulWidget {
 
 class _PhotoSheetState extends State<_PhotoSheet> {
   late final List<File?> _shots = [widget.front, null, null, null];
+  final _kept = <int>{};
   int? _busy;
 
   Future<void> _take(int i, ImageSource source) async {
@@ -575,6 +483,7 @@ class _PhotoSheetState extends State<_PhotoSheet> {
     if (!mounted) return;
     setState(() {
       _shots[i] = r.file;
+      r.cleaned ? _kept.remove(i) : _kept.add(i);
       _busy = null;
     });
   }
@@ -650,6 +559,13 @@ class _PhotoSheetState extends State<_PhotoSheet> {
               ),
             ],
           ]),
+          if (_kept.isNotEmpty) ...[
+            const SizedBox(height: 8),
+            Text(
+              '${_kept.map((i) => _angles[i].$1).join(', ')}: background kept (no clear product found). A plain surface works best.',
+              style: AppTypography.caption(context.textSecondary),
+            ),
+          ],
           const SizedBox(height: 14),
           FilledButton(
             style: FilledButton.styleFrom(backgroundColor: AppColors.brandBlue, foregroundColor: Colors.white, minimumSize: const Size(0, 40)),

@@ -54,7 +54,9 @@ class _ShopsFeedScreenState extends ConsumerState<ShopsFeedScreen> {
     try {
       final live = await ref.read(shop3dRepositoryProvider).shopsByIds(liveIds);
       _add(live);
-    } catch (_) {/* live-first is a bonus; the page load below reports errors */}
+    } catch (_) {
+      /* live-first is a bonus; the page load below reports errors */
+    }
     await _more();
   }
 
@@ -71,15 +73,30 @@ class _ShopsFeedScreenState extends ConsumerState<ShopsFeedScreen> {
       _error = null;
     });
     try {
-      final (page, last) = await ref.read(shop3dRepositoryProvider).shopsPage(after: _cursor);
-      if (!mounted) return;
-      setState(() {
-        _add(page);
-        _cursor = last ?? _cursor;
-        _done = last == null;
-      });
+      // Skips pages that add nothing new (all already shown, or unnamed), so
+      // the feed never stalls on its last card while more shops exist.
+      for (var tries = 0; tries < 4; tries++) {
+        final before = _shops.length;
+        final (page, last) = await ref.read(shop3dRepositoryProvider).shopsPage(after: _cursor);
+        if (!mounted) return;
+        setState(() {
+          _add(page);
+          _cursor = last ?? _cursor;
+          _done = last == null;
+        });
+        if (_done || _shops.length > before) break;
+      }
     } catch (e) {
-      if (mounted) setState(() => _error = e);
+      if (!mounted) return;
+      setState(() => _error = e);
+      if (_shops.isNotEmpty) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: const Text("Couldn't load more shops."),
+            action: SnackBarAction(label: 'Retry', onPressed: _more),
+          ),
+        );
+      }
     } finally {
       if (mounted) setState(() => _loading = false);
     }
@@ -149,7 +166,16 @@ class _ShopsFeedScreenState extends ConsumerState<ShopsFeedScreen> {
       );
     }
 
-    return Scaffold(backgroundColor: context.bg, body: body);
+    return Scaffold(
+      backgroundColor: context.bg,
+      body: Stack(
+        fit: StackFit.expand,
+        children: [
+          StageFrameBackdrop(dark: context.isDark),
+          body,
+        ],
+      ),
+    );
   }
 }
 
@@ -227,24 +253,30 @@ class ShopStageScreen extends ConsumerWidget {
     void close() => context.canPop() ? context.pop() : context.go('/shops');
     return Scaffold(
       backgroundColor: context.bg,
-      body: shop.when(
-        loading: () => const Center(child: CircularProgressIndicator(color: AppColors.brandBlue, strokeWidth: 2)),
-        error: (_, _) => _Empty(
-          icon: Icons.storefront_outlined,
-          title: 'This shop is unavailable',
-          text: 'It may be closed right now.',
-          action: ('Browse 3D Shops', () => context.go('/shops')),
-          onClose: close,
-        ),
-        data: (s) => s == null
-            ? _Empty(
-                icon: Icons.storefront_outlined,
-                title: 'This shop is unavailable',
-                text: 'It may be closed right now.',
-                action: ('Browse 3D Shops', () => context.go('/shops')),
-                onClose: close,
-              )
-            : ShopStageView(shop: s, live: live[s.ownerId], onClose: close),
+      body: Stack(
+        fit: StackFit.expand,
+        children: [
+          StageFrameBackdrop(dark: context.isDark),
+          shop.when(
+            loading: () => const Center(child: CircularProgressIndicator(color: AppColors.brandBlue, strokeWidth: 2)),
+            error: (_, _) => _Empty(
+              icon: Icons.storefront_outlined,
+              title: 'This shop is unavailable',
+              text: 'It may be closed right now.',
+              action: ('Browse 3D Shops', () => context.go('/shops')),
+              onClose: close,
+            ),
+            data: (s) => s == null
+                ? _Empty(
+                    icon: Icons.storefront_outlined,
+                    title: 'This shop is unavailable',
+                    text: 'It may be closed right now.',
+                    action: ('Browse 3D Shops', () => context.go('/shops')),
+                    onClose: close,
+                  )
+                : ShopStageView(shop: s, live: live[s.ownerId], onClose: close),
+          ),
+        ],
       ),
     );
   }

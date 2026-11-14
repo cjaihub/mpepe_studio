@@ -25,20 +25,18 @@ import 'texture_picker.dart';
 /// Public link for a storefront.
 String shopShareUrl(String shopId) => 'https://oneova.web.app/shops/$shopId';
 
-String productRoute(ShopProduct p, ProductVariant? v) =>
-    '/shops/p/${p.id}${v == null ? '' : '?variant=${Uri.encodeQueryComponent(v.id)}'}';
+String productRoute(ShopProduct p, ProductVariant? v) => '/shops/p/${p.id}${v == null ? '' : '?variant=${Uri.encodeQueryComponent(v.id)}'}';
 
 String checkoutRoute(ShopProduct p, ProductVariant? v, {Map<String, String> custom = const {}}) {
-  final q = <String, String>{
-    if (v != null) 'variant': v.id,
-    if (custom.isNotEmpty) 'custom': encodeCustomization(custom),
-  };
+  final q = <String, String>{if (v != null) 'variant': v.id, if (custom.isNotEmpty) 'custom': encodeCustomization(custom)};
   return Uri(path: '/biz/checkout/${p.id}', queryParameters: q.isEmpty ? null : q).toString();
 }
 
-/// One full-screen shop stage: seller header, live status, the product on a
-/// lit platform (3D when the seller uploaded a model), a product switcher and
-/// the floating commerce card.
+/// One shop stage in the framed design (same as framed Reels): what's on at
+/// the top (live title, shop, LIVE badge, viewers), then a rounded screen frame
+/// holding the seller's live video, the product on a lit platform (3D when the
+/// seller has a model), the action rail, chat, product switcher and the
+/// commerce card.
 class ShopStageView extends ConsumerStatefulWidget {
   const ShopStageView({
     super.key,
@@ -118,10 +116,12 @@ class _ShopStageViewState extends ConsumerState<ShopStageView> {
         if (p != null) {
           ScaffoldMessenger.of(context)
             ..hideCurrentSnackBar()
-            ..showSnackBar(SnackBar(
-              content: Text('Now showing: ${p.name}'),
-              action: SnackBarAction(label: 'View', onPressed: () => setState(() => _productId = null)),
-            ));
+            ..showSnackBar(
+              SnackBar(
+                content: Text('Now showing: ${p.name}'),
+                action: SnackBarAction(label: 'View', onPressed: () => setState(() => _productId = null)),
+              ),
+            );
         }
       } else if (mounted) {
         setState(() {});
@@ -160,10 +160,12 @@ class _ShopStageViewState extends ConsumerState<ShopStageView> {
     try {
       await ref.read(shop3dRepositoryProvider).addToCart(p, v);
       ref.read(shop3dRepositoryProvider).trackEvent(widget.shop.id, 'cart', productId: p.id);
-      messenger.showSnackBar(SnackBar(
-        content: Text('${p.name} added to your cart'),
-        action: SnackBarAction(label: 'View', onPressed: () => showShopCartSheet(context)),
-      ));
+      messenger.showSnackBar(
+        SnackBar(
+          content: Text('${p.name} added to your cart'),
+          action: SnackBarAction(label: 'View', onPressed: () => showShopCartSheet(context)),
+        ),
+      );
     } on StateError catch (e) {
       messenger.showSnackBar(SnackBar(content: Text(e.message)));
     }
@@ -178,35 +180,42 @@ class _ShopStageViewState extends ConsumerState<ShopStageView> {
       shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(AppRadius.xl))),
       builder: (sheet) {
         Widget tile(IconData icon, String label, VoidCallback onTap) => ListTile(
-              leading: Icon(icon, color: sheet.textPrimary),
-              title: Text(label, style: AppTypography.callout(sheet.textPrimary)),
-              onTap: () {
-                Navigator.pop(sheet);
-                onTap();
-              },
-            );
+          leading: Icon(icon, color: sheet.textPrimary),
+          title: Text(label, style: AppTypography.callout(sheet.textPrimary)),
+          onTap: () {
+            Navigator.pop(sheet);
+            onTap();
+          },
+        );
         return SafeArea(
-          child: Column(mainAxisSize: MainAxisSize.min, children: [
-            const SizedBox(height: 8),
-            if (live != null) tile(Icons.sensors_rounded, 'Open the full live room', () => context.push('/live/viewer/${live.streamId}')),
-            if (p.has3d) tile(Icons.view_in_ar_rounded, 'Explore in 3D', () => context.push(productRoute(p, _variantOf(p)))),
-            if (!_isOwner) tile(Icons.auto_awesome_rounded, 'Ask Ova about this product', () => ProductPreviewScreen.open(context, widget.shop, p)),
-            if (_isOwner) tile(Icons.forum_outlined, 'Shopper questions', () => showSellerChatsSheet(context, widget.shop)),
-            if (widget.shop.hasPickup) tile(Icons.near_me_outlined, 'Find the shop', () => showShopMapSheet(context, widget.shop)),
-            tile(Icons.storefront_outlined, 'Visit store', () => context.push('/shops/${widget.shop.id}')),
-            tile(Icons.bookmarks_outlined, 'Saved products', () => context.push('/shops/saved')),
-            if (_isOwner) tile(Icons.local_fire_department_rounded, 'Live deal', () => showLiveDealEditor(context, ref, widget.shop)),
-            if (_isOwner && p.has3d)
-              tile(Icons.texture_rounded, 'Show a texture on air', () async {
-                final t = await showTexturePicker(context);
-                if (t == null) return;
-                await ref.read(shop3dRepositoryProvider).setStageTexture(p.id, ProductTexture(material: '', texture: t));
-              }),
-            if (_isOwner && widget.shop.stageTexture != null)
-              tile(Icons.format_color_reset_rounded, 'Back to the original look',
-                  () => ref.read(shop3dRepositoryProvider).setStageTexture(p.id, null)),
-            const SizedBox(height: 8),
-          ]),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const SizedBox(height: 8),
+              if (live != null) tile(Icons.sensors_rounded, 'Open the full live room', () => context.push('/live/viewer/${live.streamId}')),
+              if (p.has3d) tile(Icons.view_in_ar_rounded, 'Explore in 3D', () => context.push(productRoute(p, _variantOf(p)))),
+              if (!_isOwner)
+                tile(Icons.auto_awesome_rounded, 'Ask Ova about this product', () => ProductPreviewScreen.open(context, widget.shop, p)),
+              if (_isOwner) tile(Icons.forum_outlined, 'Shopper questions', () => showSellerChatsSheet(context, widget.shop)),
+              if (widget.shop.hasPickup) tile(Icons.near_me_outlined, 'Find the shop', () => showShopMapSheet(context, widget.shop)),
+              tile(Icons.storefront_outlined, 'Visit store', () => context.push('/shops/${widget.shop.id}')),
+              tile(Icons.bookmarks_outlined, 'Saved products', () => context.push('/shops/saved')),
+              if (_isOwner) tile(Icons.local_fire_department_rounded, 'Live deal', () => showLiveDealEditor(context, ref, widget.shop)),
+              if (_isOwner && p.has3d)
+                tile(Icons.texture_rounded, 'Show a texture on air', () async {
+                  final t = await showTexturePicker(context);
+                  if (t == null) return;
+                  await ref.read(shop3dRepositoryProvider).setStageTexture(p.id, ProductTexture(material: '', texture: t));
+                }),
+              if (_isOwner && widget.shop.stageTexture != null)
+                tile(
+                  Icons.format_color_reset_rounded,
+                  'Back to the original look',
+                  () => ref.read(shop3dRepositoryProvider).setStageTexture(p.id, null),
+                ),
+              const SizedBox(height: 8),
+            ],
+          ),
         );
       },
     );
@@ -234,8 +243,15 @@ class _ShopStageViewState extends ConsumerState<ShopStageView> {
         final current = await ref.read(stageShowRepositoryProvider).watchShow(widget.shop.id).first;
         if (current.streamId == streamId) return;
         await ref.read(stageShowRepositoryProvider).present(widget.shop.id, {
-          'streamId': streamId, 'activeId': null, 'cam': null, 'camProductId': null,
-          'animation': null, 'spin': null, 'spotlight': null, 'view': null, 'viewAt': 0,
+          'streamId': streamId,
+          'activeId': null,
+          'cam': null,
+          'camProductId': null,
+          'animation': null,
+          'spin': null,
+          'spotlight': null,
+          'view': null,
+          'viewAt': 0,
         });
       });
     }
@@ -243,92 +259,191 @@ class _ShopStageViewState extends ConsumerState<ShopStageView> {
         ? AsyncValue.data(widget.productsOverride!)
         : ref.watch(shopProductsProvider(widget.shop.ownerId));
 
+    final appDark = context.isDark;
+    final stage = Stack(
+      fit: StackFit.expand,
+      children: [
+        StageBackdropLayer(style: style),
+        if (widget.live != null && widget.active && !widget.preview)
+          Positioned.fill(
+            child: SellerLiveLayer(streamId: widget.live!.streamId, hostId: widget.shop.ownerId, style: style),
+          ),
+        Column(
+          children: [
+            if (widget.live != null && !widget.active)
+              Padding(
+                padding: const EdgeInsets.only(top: 10),
+                child: _LiveBanner(
+                  live: widget.live!,
+                  style: style,
+                  preview: widget.preview,
+                ).animate().fadeIn(duration: 250.ms).slideY(begin: -0.1, end: 0),
+              ),
+            if (widget.shop.liveDeal?.active ?? false)
+              Padding(
+                padding: const EdgeInsets.only(top: 8),
+                child: LiveDealCard(
+                  deal: widget.shop.liveDeal!,
+                  style: style,
+                ).animate().fadeIn(duration: 300.ms).scale(begin: const Offset(0.96, 0.96)),
+              ),
+            Expanded(
+              child: productsAsync.when(
+                loading: () => Center(child: CircularProgressIndicator(color: style.accent, strokeWidth: 2)),
+                error: (_, _) =>
+                    _Message(style: style, icon: Icons.wifi_off_rounded, text: "Couldn't load this showroom. Check your connection."),
+                data: (products) {
+                  final p = _current(products);
+                  if (p == null) {
+                    return _Message(
+                      style: style,
+                      icon: Icons.inventory_2_outlined,
+                      text: 'This shop is still setting up its showroom.',
+                      action: widget.preview ? null : ('Visit store', () => context.push('/shops/${widget.shop.id}')),
+                    );
+                  }
+                  _countView(p);
+                  return _Stage(
+                    key: ValueKey(widget.shop.id),
+                    shop: widget.shop,
+                    products: products,
+                    product: p,
+                    variant: _variantOf(p),
+                    style: style,
+                    active: widget.active,
+                    preview: widget.preview,
+                    isOwner: _isOwner,
+                    show: liveNow ? _show : StageShow.empty,
+                    canPresent: canPresent,
+                    explore: _explore,
+                    controller: _controller,
+                    onExplore: (v) => setState(() => _explore = v),
+                    onCamera: (pose) => ref.read(stageShowRepositoryProvider).present(widget.shop.id, {
+                      'cam': pose.toMap(),
+                      'camProductId': p.id,
+                      'spin': false,
+                    }),
+                    onPreview: (x) => ProductPreviewScreen.open(context, widget.shop, x),
+                    onPick: (x) {
+                      if (canPresent) return _putOnAir(x);
+                      // Watching a live: a card opens the full preview; the live keeps running behind it.
+                      if (liveNow) return ProductPreviewScreen.open(context, widget.shop, x).ignore();
+                      setState(() => _productId = x.id);
+                    },
+                    onVariant: (v) => setState(() => _variants[p.id] = v),
+                    onShare: _share,
+                    live: widget.live,
+                    onMore: () => _more(p),
+                    onAddToCart: () => _addToCart(p, _variantOf(p)),
+                  );
+                },
+              ),
+            ),
+          ],
+        ),
+      ],
+    );
+
     return AnnotatedRegion<SystemUiOverlayStyle>(
-      value: style.dark ? SystemUiOverlayStyle.light : SystemUiOverlayStyle.dark,
+      value: appDark ? SystemUiOverlayStyle.light : SystemUiOverlayStyle.dark,
       child: Stack(
         fit: StackFit.expand,
         children: [
-          StageBackdropLayer(style: style),
-          if (widget.live != null && widget.active && !widget.preview)
-            Positioned.fill(
-              child: SellerLiveLayer(streamId: widget.live!.streamId, hostId: widget.shop.ownerId, style: style),
-            ),
+          StageFrameBackdrop(dark: appDark),
           SafeArea(
             child: Column(
               children: [
-                _TopBar(shop: widget.shop, live: widget.live, style: style, onClose: widget.onClose, preview: widget.preview),
-                if (widget.live != null && !widget.active)
-                  _LiveBanner(live: widget.live!, style: style, preview: widget.preview)
-                      .animate()
-                      .fadeIn(duration: 250.ms)
-                      .slideY(begin: -0.1, end: 0),
-                if (widget.shop.liveDeal?.active ?? false)
-                  Padding(
-                    padding: const EdgeInsets.only(top: 2, bottom: 4),
-                    child: LiveDealCard(deal: widget.shop.liveDeal!, style: style)
-                        .animate()
-                        .fadeIn(duration: 300.ms)
-                        .scale(begin: const Offset(0.96, 0.96)),
-                  ),
+                _TopBar(shop: widget.shop, live: widget.live, onClose: widget.onClose, preview: widget.preview),
                 Expanded(
-                  child: productsAsync.when(
-                    loading: () => Center(child: CircularProgressIndicator(color: style.accent, strokeWidth: 2)),
-                    error: (_, _) => _Message(
-                      style: style,
-                      icon: Icons.wifi_off_rounded,
-                      text: "Couldn't load this showroom. Check your connection.",
-                    ),
-                    data: (products) {
-                      final p = _current(products);
-                      if (p == null) {
-                        return _Message(
-                          style: style,
-                          icon: Icons.inventory_2_outlined,
-                          text: 'This shop is still setting up its showroom.',
-                          action: widget.preview ? null : ('Visit store', () => context.push('/shops/${widget.shop.id}')),
-                        );
-                      }
-                      _countView(p);
-                      return _Stage(
-                        key: ValueKey(widget.shop.id),
-                        shop: widget.shop,
-                        products: products,
-                        product: p,
-                        variant: _variantOf(p),
-                        style: style,
-                        active: widget.active,
-                        preview: widget.preview,
-                        isOwner: _isOwner,
-                        show: liveNow ? _show : StageShow.empty,
-                        canPresent: canPresent,
-                        explore: _explore,
-                        controller: _controller,
-                        onExplore: (v) => setState(() => _explore = v),
-                        onCamera: (pose) => ref.read(stageShowRepositoryProvider).present(widget.shop.id, {
-                          'cam': pose.toMap(),
-                          'camProductId': p.id,
-                          'spin': false,
-                        }),
-                        onPreview: (x) => ProductPreviewScreen.open(context, widget.shop, x),
-                        onPick: (x) {
-                          if (canPresent) return _putOnAir(x);
-                          // Watching a live: a card opens the full preview; the live keeps running behind it.
-                          if (liveNow) return ProductPreviewScreen.open(context, widget.shop, x).ignore();
-                          setState(() => _productId = x.id);
-                        },
-                        onVariant: (v) => setState(() => _variants[p.id] = v),
-                        onShare: _share,
-                        live: widget.live,
-                        onMore: () => _more(p),
-                        onAddToCart: () => _addToCart(p, _variantOf(p)),
-                      );
-                    },
+                  child: Padding(
+                    padding: const EdgeInsets.fromLTRB(8, 0, 8, 6),
+                    child: StageFrame(dark: appDark, child: stage),
                   ),
                 ),
               ],
             ),
           ),
         ],
+      ),
+    );
+  }
+}
+
+/// The page behind the frame: quiet surface with a soft blue-to-pink glow,
+/// the same as framed Reels.
+class StageFrameBackdrop extends StatelessWidget {
+  const StageFrameBackdrop({super.key, required this.dark});
+  final bool dark;
+
+  @override
+  Widget build(BuildContext context) {
+    final base = dark ? AppColors.darkBackground : AppColors.lightSurface;
+    return IgnorePointer(
+      child: DecoratedBox(
+        decoration: BoxDecoration(
+          color: base,
+          gradient: RadialGradient(
+            center: const Alignment(0, 0.35),
+            radius: 1.1,
+            colors: [
+              AppColors.brandBlue.withValues(alpha: dark ? 0.20 : 0.08),
+              AppColors.brandPink.withValues(alpha: dark ? 0.06 : 0.04),
+              base,
+            ],
+            stops: const [0, 0.45, 1],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// The screen frame: 25 px corners, hairline border, soft brand shadow.
+class StageFrame extends StatelessWidget {
+  const StageFrame({super.key, required this.dark, required this.child});
+  final bool dark;
+  final Widget child;
+
+  static const radius = 25.0;
+
+  @override
+  Widget build(BuildContext context) {
+    return RepaintBoundary(
+      child: DecoratedBox(
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(radius),
+          boxShadow: [
+            BoxShadow(
+              color: AppColors.brandBlue.withValues(alpha: dark ? 0.22 : 0.14),
+              blurRadius: 24,
+              spreadRadius: -6,
+              offset: const Offset(0, 8),
+            ),
+            BoxShadow(
+              color: AppColors.brandPink.withValues(alpha: dark ? 0.12 : 0.08),
+              blurRadius: 16,
+              spreadRadius: -8,
+              offset: const Offset(0, 4),
+            ),
+          ],
+        ),
+        child: ClipRRect(
+          borderRadius: BorderRadius.circular(radius),
+          child: Stack(
+            fit: StackFit.expand,
+            children: [
+              child,
+              IgnorePointer(
+                child: DecoratedBox(
+                  decoration: BoxDecoration(
+                    borderRadius: BorderRadius.circular(radius),
+                    border: Border.all(color: dark ? Colors.white.withValues(alpha: 0.12) : Colors.black.withValues(alpha: 0.08)),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
       ),
     );
   }
@@ -398,7 +513,8 @@ class _Stage extends StatelessWidget {
   Widget build(BuildContext context) {
     final railRight = shop.stage.card == CardPlacement.right;
     final width = MediaQuery.sizeOf(context).width;
-    final cardWidth = width >= 600 ? 380.0 : width - 24;
+    // The frame is inset 8 px on each side; the card keeps 12 px inside it.
+    final cardWidth = width >= 600 ? 380.0 : width - 40;
 
     void open() {
       if (preview) return;
@@ -411,9 +527,7 @@ class _Stage extends StatelessWidget {
     // Presenters and viewers who chose to explore turn the model themselves.
     final handsOn = onLive && (canPresent || explore);
     final following = onLive && !handsOn;
-    final shelf = onLive && show.shelf.isNotEmpty
-        ? [for (final id in show.shelf) ...products.where((x) => x.id == id)]
-        : products;
+    final shelf = onLive && show.shelf.isNotEmpty ? [for (final id in show.shelf) ...products.where((x) => x.id == id)] : products;
     final rail = EngagementRail(
       shop: shop,
       product: product,
@@ -490,11 +604,11 @@ class _Stage extends StatelessWidget {
                     onTap: !onLive
                         ? open
                         : (canPresent || !product.has3d
-                            ? null
-                            : () {
-                                HapticFeedback.selectionClick();
-                                onExplore(!explore);
-                              }),
+                              ? null
+                              : () {
+                                  HapticFeedback.selectionClick();
+                                  onExplore(!explore);
+                                }),
                     child: GlassPanel(
                       style: style,
                       radius: AppRadius.full,
@@ -503,23 +617,25 @@ class _Stage extends StatelessWidget {
                         mainAxisSize: MainAxisSize.min,
                         children: [
                           Icon(
-                              !product.has3d
-                                  ? Icons.photo_library_outlined
-                                  : (onLive && explore ? Icons.podcasts_rounded : Icons.threesixty_rounded),
-                              size: 14,
-                              color: style.accent),
+                            !product.has3d
+                                ? Icons.photo_library_outlined
+                                : (onLive && explore ? Icons.podcasts_rounded : Icons.threesixty_rounded),
+                            size: 14,
+                            color: style.accent,
+                          ),
                           const SizedBox(width: 6),
                           Text(
-                              !product.has3d
-                                  ? 'Tap for details'
-                                  : !onLive
-                                      ? 'Tap to explore in 3D'
-                                      : canPresent
-                                          ? 'Everyone sees how you turn it'
-                                          : explore
-                                              ? 'Exploring · back to presenter'
-                                              : 'Following the presenter · explore yourself',
-                              style: AppTypography.caption(style.fg).copyWith(fontWeight: FontWeight.w600)),
+                            !product.has3d
+                                ? 'Tap for details'
+                                : !onLive
+                                ? 'Tap to explore in 3D'
+                                : canPresent
+                                ? 'Everyone sees how you turn it'
+                                : explore
+                                ? 'Exploring · back to presenter'
+                                : 'Following the presenter · explore yourself',
+                            style: AppTypography.caption(style.fg).copyWith(fontWeight: FontWeight.w600),
+                          ),
                         ],
                       ),
                     ),
@@ -605,110 +721,127 @@ class _Stage extends StatelessWidget {
   }
 }
 
+/// What's on, above the frame: the live's title (or the shop's line), the
+/// shop with its badge, LIVE and viewers, then Follow and Close.
 class _TopBar extends StatelessWidget {
-  const _TopBar({required this.shop, required this.live, required this.style, required this.onClose, required this.preview});
+  const _TopBar({required this.shop, required this.live, required this.onClose, required this.preview});
   final Shop3D shop;
   final ShopLive? live;
-  final StageStyle style;
   final VoidCallback? onClose;
   final bool preview;
 
   @override
   Widget build(BuildContext context) {
+    final live = this.live;
+    final title = live != null
+        ? (live.title.trim().isNotEmpty ? live.title.trim() : '${shop.name} is live')
+        : (shop.tagline.trim().isNotEmpty ? shop.tagline.trim() : '${shop.name} showroom');
     return Padding(
-      padding: const EdgeInsets.fromLTRB(12, 6, 12, 6),
-      child: Row(
-        children: [
-          Flexible(
-            child: GestureDetector(
-              onTap: preview ? null : () => context.push('/shops/${shop.id}'),
-              child: GlassPanel(
-                style: style,
-                radius: AppRadius.full,
-                padding: const EdgeInsets.fromLTRB(4, 4, 12, 4),
-                child: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    ClipOval(
-                      child: SizedBox(
-                        width: 34,
-                        height: 34,
-                        child: shop.avatarUrl.startsWith('http')
-                            ? StageImage(url: shop.avatarUrl, style: style, cacheWidth: 120)
-                            : ColoredBox(
-                                color: style.accent,
-                                child: Center(
+      padding: const EdgeInsets.fromLTRB(8, 4, 8, 8),
+      child: SizedBox(
+        height: 44,
+        child: Row(
+          children: [
+            if (onClose != null) ...[
+              _CircleButton(icon: Icons.arrow_back_rounded, tooltip: 'Back', onTap: onClose!),
+              const SizedBox(width: 8),
+            ],
+            Expanded(
+              child: Semantics(
+                button: !preview,
+                label: 'Visit ${shop.name}',
+                child: GestureDetector(
+                  behavior: HitTestBehavior.opaque,
+                  onTap: preview ? null : () => context.push('/shops/${shop.id}'),
+                  child: Row(
+                    children: [
+                      _ShopAvatar(shop: shop, live: live != null),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            Text(
+                              title,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: AppTypography.sectionTitle(context.textPrimary),
+                            ),
+                            const SizedBox(height: 1),
+                            Row(
+                              children: [
+                                Flexible(
                                   child: Text(
-                                    shop.name.isEmpty ? '?' : shop.name.characters.first.toUpperCase(),
-                                    style: AppTypography.title3(Colors.white),
-                                  ),
-                                ),
-                              ),
-                      ),
-                    ),
-                    const SizedBox(width: 8),
-                    Flexible(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          Row(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              Flexible(
-                                child: Text(shop.name,
+                                    shop.name,
                                     maxLines: 1,
                                     overflow: TextOverflow.ellipsis,
-                                    style: AppTypography.sectionTitle(style.fg)),
-                              ),
-                              if (shop.verified) ...[
-                                const SizedBox(width: 4),
-                                OneovaVerifiedBadge(kind: VerifiedKind.business, level: shop.verifiedLevel, size: 14),
+                                    style: AppTypography.caption(context.textSecondary),
+                                  ),
+                                ),
+                                if (shop.verified) ...[
+                                  const SizedBox(width: 3),
+                                  OneovaVerifiedBadge(kind: VerifiedKind.business, level: shop.verifiedLevel, size: 12),
+                                ],
+                                if (live != null) ...[
+                                  const SizedBox(width: 6),
+                                  const StagePill(label: 'LIVE', color: AppColors.brandPink, icon: Icons.circle),
+                                  const SizedBox(width: 5),
+                                  Icon(Icons.visibility_outlined, size: 12, color: context.textSecondary),
+                                  const SizedBox(width: 2),
+                                  Text(_compact(live.viewerCount), style: AppTypography.micro(context.textSecondary)),
+                                ],
                               ],
-                            ],
-                          ),
-                          Text(
-                            shop.tagline.isNotEmpty ? shop.tagline : (live != null ? 'Live now' : 'Open now'),
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            style: AppTypography.caption(style.fgSecondary),
-                          ),
-                        ],
+                            ),
+                          ],
+                        ),
                       ),
-                    ),
-                  ],
+                    ],
+                  ),
                 ),
               ),
             ),
-          ),
-          const SizedBox(width: 8),
-          if (live != null) ...[
-            const StagePill(label: 'LIVE', color: AppColors.brandPink, icon: Icons.circle),
-            const SizedBox(width: 6),
-            GlassPanel(
-              style: style,
-              radius: AppRadius.full,
-              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-              child: Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Icon(Icons.visibility_outlined, size: 12, color: style.fg),
-                  const SizedBox(width: 4),
-                  Text(_compact(live!.viewerCount), style: AppTypography.micro(style.fg).copyWith(letterSpacing: 0.2)),
-                ],
-              ),
-            ),
+            if (!preview) ...[const SizedBox(width: 8), _FollowChip(sellerId: shop.ownerId)],
           ],
-          const Spacer(),
-          if (!preview) _FollowChip(sellerId: shop.ownerId, style: style),
-          if (onClose != null) ...[
-            const SizedBox(width: 6),
-            _CircleButton(style: style, icon: Icons.close_rounded, tooltip: 'Close', onTap: onClose!),
-          ],
-        ],
+        ),
       ),
     );
   }
+}
+
+/// Shop picture with a pink ring while the seller is live.
+class _ShopAvatar extends StatelessWidget {
+  const _ShopAvatar({required this.shop, required this.live});
+  final Shop3D shop;
+  final bool live;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: 38,
+      height: 38,
+      padding: const EdgeInsets.all(2),
+      decoration: BoxDecoration(
+        shape: BoxShape.circle,
+        border: Border.all(color: live ? AppColors.brandPink : context.border, width: 1.5),
+      ),
+      child: ClipOval(
+        child: shop.avatarUrl.startsWith('http')
+            ? Image.network(shop.avatarUrl, fit: BoxFit.cover, cacheWidth: 120, errorBuilder: (_, _, _) => _initial(context))
+            : _initial(context),
+      ),
+    );
+  }
+
+  Widget _initial(BuildContext context) => ColoredBox(
+    color: AppColors.brandBlue,
+    child: Center(
+      child: Text(
+        shop.name.isEmpty ? '?' : shop.name.characters.first.toUpperCase(),
+        style: AppTypography.callout(Colors.white).copyWith(fontWeight: FontWeight.w700),
+      ),
+    ),
+  );
 }
 
 class _LiveBanner extends StatelessWidget {
@@ -763,9 +896,8 @@ class _LiveBanner extends StatelessWidget {
 
 /// Follow the seller from the stage header.
 class _FollowChip extends ConsumerWidget {
-  const _FollowChip({required this.sellerId, required this.style});
+  const _FollowChip({required this.sellerId});
   final String sellerId;
-  final StageStyle style;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -785,12 +917,14 @@ class _FollowChip extends ConsumerWidget {
             duration: const Duration(milliseconds: 180),
             padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
             decoration: BoxDecoration(
-              color: following ? style.glass : AppColors.brandPink,
+              color: following ? Colors.transparent : AppColors.brandBlue,
               borderRadius: BorderRadius.circular(AppRadius.full),
-              border: Border.all(color: following ? style.hairline : AppColors.brandPink),
+              border: Border.all(color: following ? context.border : AppColors.brandBlue),
             ),
-            child: Text(following ? 'Following' : 'Follow',
-                style: AppTypography.small(following ? style.fg : Colors.white).copyWith(fontWeight: FontWeight.w800)),
+            child: Text(
+              following ? 'Following' : 'Follow',
+              style: AppTypography.small(following ? context.textPrimary : Colors.white).copyWith(fontWeight: FontWeight.w700),
+            ),
           ),
         );
       },
@@ -799,8 +933,7 @@ class _FollowChip extends ConsumerWidget {
 }
 
 class _CircleButton extends StatelessWidget {
-  const _CircleButton({required this.style, required this.icon, required this.tooltip, this.onTap});
-  final StageStyle style;
+  const _CircleButton({required this.icon, required this.tooltip, this.onTap});
   final IconData icon;
   final String tooltip;
   final VoidCallback? onTap;
@@ -809,18 +942,26 @@ class _CircleButton extends StatelessWidget {
   Widget build(BuildContext context) {
     return Tooltip(
       message: tooltip,
-      child: GestureDetector(
-        onTap: onTap == null
-            ? null
-            : () {
-                HapticFeedback.lightImpact();
-                onTap!();
-              },
-        child: GlassPanel(
-          style: style,
-          radius: AppRadius.full,
-          padding: const EdgeInsets.all(9),
-          child: Icon(icon, size: 19, color: style.fg),
+      child: Semantics(
+        button: true,
+        label: tooltip,
+        child: GestureDetector(
+          onTap: onTap == null
+              ? null
+              : () {
+                  HapticFeedback.lightImpact();
+                  onTap!();
+                },
+          child: Container(
+            width: 40,
+            height: 40,
+            decoration: BoxDecoration(
+              shape: BoxShape.circle,
+              color: context.isDark ? Colors.white.withValues(alpha: 0.06) : Colors.black.withValues(alpha: 0.04),
+              border: Border.all(color: context.border),
+            ),
+            child: Icon(icon, size: 20, color: context.textPrimary),
+          ),
         ),
       ),
     );

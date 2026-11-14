@@ -11,12 +11,13 @@
  *                                      product
  *
  *   model3dCreate         an uploaded file (GLB, GLTF, OBJ, STL) → library
- *   model3dGenerate       1–4 product photos → 3D (linked or built-in engine)
+ *   model3dGenerate       1–4 product photos → 3D on Oneova's own GPU server
  *   model3dWorker         converts, optimizes for phones / tablets / AR, hosts
- *   model3dSweep          follows running generations, fails stuck jobs
+ *   model3dSweep          fails jobs whose worker stopped
  *   model3dAttach         puts a ready model on one of the owner's products
  *   model3dDelete         removes a model and its files
- *   model3dLinkProvider / model3dUnlinkProvider   the owner's own engine key
+ *   model3dLinkProvider / model3dUnlinkProvider   retired (no outside 3D
+ *                         services); unlink clears a key from an old version
  *
  * Work continues when the app is closed; the owner gets a notification when
  * the model is ready.
@@ -30,14 +31,17 @@ import { getFirestore, FieldValue, Timestamp } from 'firebase-admin/firestore';
 import { getStorage, getDownloadURL } from 'firebase-admin/storage';
 import { detectFormat, MAX_SOURCE_BYTES, ModelError, ModelFormat } from './convert';
 import { optimizeModel } from './optimize';
-import { ENGINES, EngineId, engineFor, engineOf, linkProvider, pollGeneration, submitGeneration, unlinkProvider } from './providers';
+import { estimatedProgress } from './engineLogic';
+import { ENGINE_LABEL, EngineError, engineFor, linkProvider, runGeneration, unlinkProvider } from './providers';
 
 const db = () => getFirestore();
 const bucket = () => getStorage().bucket();
 
 const MAX_MODELS = 200;
 const MAX_RUNNING = 3;
-const STUCK_MS = 40 * 60_000;
+const STUCK_MS = 20 * 60_000;
+/** The worker runs for up to 540 s; the GPU call gets most of it. */
+const ENGINE_TIMEOUT_MS = 480_000;
 
 function uidOf(req: CallableRequest): string {
   const id = req.auth?.uid;
@@ -150,7 +154,7 @@ export const model3dGenerate = onCall(async (req) => {
     // Kept in the library so it can start the moment an engine is available.
     await libRef(uid, id).set({
       ...base, status: 'needs_engine', progress: 0,
-      stage: 'Photos saved. Link a 3D provider to build this model.',
+      stage: 'Photos saved. The 3D builder is switching on; tap Build now later.',
       steps: [{ at: Date.now(), text: 'Photos saved' }],
     });
     await jobRef(id).set({ uid, kind: 'generate', status: 'needs_engine', active: false, photoPaths, productId, createdAt: FieldValue.serverTimestamp(), updatedAt: FieldValue.serverTimestamp() });
@@ -177,7 +181,7 @@ export const model3dResume = onCall(async (req) => {
     throw new HttpsError('failed-precondition', 'This model is already being prepared.');
   }
   const engine = await engineFor(uid);
-  if (!engine) throw new HttpsError('failed-precondition', 'Link a 3D provider first.');
+  if (!engine) throw new HttpsError('failed-precondition', 'The 3D builder isn’t switched on yet. Your photos are saved.');
   await guardQuota(uid);
   await report(uid, id, 'queued', 'Waiting to start', 0.02, { engine: engine.id, engineOwner: engine.owner, error: FieldValue.delete() });
   await job.ref.update({ status: 'queued', active: true, engineOwner: engine.owner, error: FieldValue.delete(), updatedAt: FieldValue.serverTimestamp() });
@@ -207,26 +211,22 @@ export const model3dDelete = onCall(async (req) => {
   return { ok: true };
 });
 
+/** Retired: Oneova doesn't use outside 3D services. Kept so old app builds get a clear answer. */
 export const model3dLinkProvider = onCall(async (req) => {
-  const uid = uidOf(req);
-  const engine = String(req.data?.engine ?? '') as EngineId;
-  if (!(engine in ENGINES)) throw new HttpsError('invalid-argument', 'Unknown provider.');
-  await linkProvider(uid, engine, String(req.data?.apiKey ?? ''));
-  return { ok: true };
+  uidOf(req);
+  return linkProvider();
 });
 
+/** Clears a provider key a seller linked in an earlier version. */
 export const model3dUnlinkProvider = onCall(async (req) => {
-  const uid = uidOf(req);
-  const engine = String(req.data?.engine ?? '') as EngineId;
-  if (!(engine in ENGINES)) throw new HttpsError('invalid-argument', 'Unknown provider.');
-  await unlinkProvider(uid, engine);
+  await unlinkProvider(uidOf(req));
   return { ok: true };
 });
 
-/** Whether photo → 3D can run for this seller, and with whose engine. */
+/** Whether photo → 3D can run right now. */
 export const model3dEngineStatus = onCall(async (req) => {
   const engine = await engineFor(uidOf(req));
-  return { available: engine !== null, owner: engine?.owner ?? null, engine: engine?.id ?? null };
+  return { available: engine !== null, owner: engine?.owner ?? null, engine: engine?.id ?? null, label: ENGINE_LABEL };
 });
 
 // ── Publishing to a product ─────────────────────────────────────────────
@@ -258,22 +258,14 @@ async function publish(uid: string, id: string, productId: string, productExists
 
 async function process(id: string, job: FirebaseFirestore.DocumentData) {
   const uid = String(job.uid);
-  let bytes: Buffer;
-  let format: ModelFormat;
-  if (job.remoteGlbUrl) {
-    await report(uid, id, 'optimizing', 'Collecting the finished model', 0.72);
-    const res = await fetch(String(job.remoteGlbUrl), { signal: AbortSignal.timeout(120_000) });
-    if (!res.ok) throw new ModelError('The finished model could not be collected. Try again.');
-    bytes = Buffer.from(await res.arrayBuffer());
-    format = 'glb';
-    // Keep the engine's original in the private library too.
-    await bucket().file(`${root(uid, id)}/source/generated.glb`).save(bytes, { contentType: 'model/gltf-binary', resumable: false });
-  } else {
-    await report(uid, id, 'converting', 'Reading your 3D file', 0.1);
-    [bytes] = await bucket().file(String(job.sourcePath)).download();
-    format = job.format as ModelFormat;
-  }
-  await report(uid, id, 'optimizing', 'Optimizing for phones, tablets and AR', job.remoteGlbUrl ? 0.8 : 0.35);
+  const generated = job.kind === 'generate';
+  const sourcePath = String(job.sourcePath ?? '');
+  // Only files inside this model's own folder (the GPU server writes to source/engine/).
+  if (!sourcePath.startsWith(`${root(uid, id)}/source/`)) throw new ModelError('The model file is missing. Try again.');
+  await report(uid, id, generated ? 'optimizing' : 'converting', generated ? 'Collecting the finished model' : 'Reading your 3D file', generated ? 0.72 : 0.1);
+  const [bytes] = await bucket().file(sourcePath).download();
+  const format = (generated ? 'glb' : job.format) as ModelFormat;
+  await report(uid, id, 'optimizing', 'Optimizing for phones, tablets and AR', generated ? 0.8 : 0.35);
   const out = await optimizeModel(bytes, format);
   await report(uid, id, 'optimizing', 'Hosting the optimized files', 0.92);
   const files: Record<string, { path: string; bytes: number; url: string }> = {};
@@ -305,25 +297,39 @@ async function process(id: string, job: FirebaseFirestore.DocumentData) {
 
 async function startGeneration(id: string, job: FirebaseFirestore.DocumentData) {
   const uid = String(job.uid);
-  const engine = await engineOf(uid, job.engineOwner === 'user' ? 'user' : 'oneova');
+  const engine = await engineFor(uid);
   if (!engine) {
     await jobRef(id).set({ status: 'needs_engine', active: false, updatedAt: FieldValue.serverTimestamp() }, { merge: true });
-    await report(uid, id, 'needs_engine', 'Link a 3D provider to build this model.', 0);
+    await report(uid, id, 'needs_engine', 'Photos saved. The 3D builder is switching on; tap Build now later.', 0);
     return;
   }
-  await report(uid, id, 'generating', 'Sending your photos to the 3D engine', 0.06);
-  const urls = await Promise.all((job.photoPaths as string[]).map((p) => getDownloadURL(bucket().file(p))));
-  let task;
+  await jobRef(id).set({ status: 'generating', generatingSince: FieldValue.serverTimestamp(), updatedAt: FieldValue.serverTimestamp() }, { merge: true });
+  await report(uid, id, 'generating', 'Sending your photos to the 3D builder', 0.06);
+  // The GPU server gives no live progress, so the owner sees a steady estimate.
+  const started = Date.now();
+  let lastStage = '';
+  const ticker = setInterval(() => {
+    const p = estimatedProgress(Date.now() - started);
+    const first = p.stage !== lastStage;
+    lastStage = p.stage;
+    libRef(uid, id).set({
+      status: 'generating', stage: p.stage, progress: p.progress, updatedAt: FieldValue.serverTimestamp(),
+      ...(first ? { steps: FieldValue.arrayUnion({ at: Date.now(), text: p.stage }) } : {}),
+    }, { merge: true }).catch(() => undefined);
+    jobRef(id).set({ updatedAt: FieldValue.serverTimestamp() }, { merge: true }).catch(() => undefined);
+  }, 15_000);
+  let glbPath: string;
   try {
-    task = await submitGeneration(engine, urls);
+    glbPath = await runGeneration(engine, bucket().name, job.photoPaths as string[], `${root(uid, id)}/source/engine`, ENGINE_TIMEOUT_MS);
   } catch (e: any) {
-    const msg = e?.status === 402 ? `Your ${ENGINES[engine.id].label} account is out of credits.`
-      : e?.status === 401 || e?.status === 403 ? `${ENGINES[engine.id].label} no longer accepts the linked key. Link it again.`
-      : 'The 3D engine did not accept these photos. Try clearer photos on a plain background.';
-    throw new ModelError(msg);
+    throw new ModelError(e instanceof EngineError ? e.message : 'The 3D builder could not build this model. Try again.');
+  } finally {
+    clearInterval(ticker);
   }
-  await jobRef(id).set({ status: 'generating', task, generatingSince: FieldValue.serverTimestamp(), updatedAt: FieldValue.serverTimestamp() }, { merge: true });
-  await report(uid, id, 'generating', 'Building the shape from your photos', 0.1);
+  const [exists] = await bucket().file(glbPath).exists();
+  if (!exists) throw new ModelError('The 3D builder finished without a model. Try clearer photos.');
+  // Hands over to a fresh worker run (full time budget for optimizing).
+  await jobRef(id).set({ status: 'process', sourcePath: glbPath, format: 'glb', updatedAt: FieldValue.serverTimestamp() }, { merge: true });
 }
 
 export const model3dWorker = onDocumentWritten(
@@ -344,41 +350,12 @@ export const model3dWorker = onDocumentWritten(
   },
 );
 
-const STAGES: Array<[number, string]> = [
-  [0.25, 'Building the shape from your photos'],
-  [0.6, 'Refining edges and details'],
-  [0.9, 'Painting the texture from your photos'],
-  [1.01, 'Finishing the model'],
-];
-
-/** Follows running generations and fails jobs that stopped moving. */
-export const model3dSweep = onSchedule({ schedule: 'every 1 minutes', timeoutSeconds: 55 }, async () => {
-  const running = await db().collection('model3d_jobs').where('status', '==', 'generating').limit(40).get();
-  await Promise.all(running.docs.map(async (doc) => {
-    const job = doc.data();
-    const uid = String(job.uid);
-    try {
-      const engine = await engineOf(uid, job.engineOwner === 'user' ? 'user' : 'oneova');
-      if (!engine) return fail(uid, doc.id, 'The linked 3D provider was removed before the model finished.');
-      const s = await pollGeneration(engine, job.task);
-      if (s.state === 'failed') return fail(uid, doc.id, s.error ?? 'The engine could not build this model.');
-      if (s.state === 'done') {
-        // Hands over to the worker (it has the memory for optimizing).
-        await doc.ref.update({ status: 'process', remoteGlbUrl: s.glbUrl, updatedAt: FieldValue.serverTimestamp() });
-        return;
-      }
-      const since = (job.generatingSince as Timestamp | undefined)?.toMillis() ?? Date.now();
-      if (Date.now() - since > STUCK_MS) return fail(uid, doc.id, 'This model took too long. Try again with clearer photos.');
-      const stage = STAGES.find(([limit]) => s.progress < limit)![1];
-      await libRef(uid, doc.id).set({ status: 'generating', stage, progress: 0.1 + s.progress * 0.6, updatedAt: FieldValue.serverTimestamp() }, { merge: true });
-    } catch (e: any) {
-      logger.warn('model3d poll failed', doc.id, e?.message ?? e);
-    }
-  }));
-  // Jobs whose worker died (out of memory, timeout) would otherwise spin forever.
+/** Fails jobs whose worker stopped (timeout, out of memory) so nothing spins forever. */
+export const model3dSweep = onSchedule({ schedule: 'every 5 minutes', timeoutSeconds: 55 }, async () => {
   const stuck = await db().collection('model3d_jobs').where('active', '==', true)
-    .where('updatedAt', '<', Timestamp.fromMillis(Date.now() - STUCK_MS)).limit(20).get();
-  await Promise.all(stuck.docs
-    .filter((d) => d.get('status') !== 'generating')
-    .map((d) => fail(String(d.get('uid')), d.id, 'This model could not be prepared. Try a smaller file.')));
+    .where('updatedAt', '<', Timestamp.fromMillis(Date.now() - STUCK_MS)).limit(40).get();
+  await Promise.all(stuck.docs.map((d) => fail(
+    String(d.get('uid')), d.id,
+    d.get('kind') === 'generate' ? 'This model took too long. Try again with fewer or clearer photos.' : 'This model could not be prepared. Try a smaller file.',
+  )));
 });
