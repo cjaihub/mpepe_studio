@@ -230,12 +230,13 @@ class MoneyService {
   }
 
   /// Sends the check for review once the photos are uploaded.
-  Future<void> submitKyc({
+  Future<Map<String, dynamic>> submitKyc({
     required String sessionId,
     required String fullName,
     required String country,
     required String documentType,
     Map<String, String> countrySignals = const {},
+    Map<String, Object>? liveness,
   }) =>
       _call('kycSubmit', {
         'sessionId': sessionId,
@@ -243,7 +244,11 @@ class MoneyService {
         'country': country,
         'documentType': documentType,
         'countrySignals': countrySignals,
+        'liveness': ?liveness,
       });
+
+  /// Lets another of my own accounts verify with my ID (one ID, one person).
+  Future<void> linkKycAccount(String username) => _call('kycLinkAccount', {'username': username});
 
   Future<String> refreshKyc() async {
     final r = await _call('kycRefresh');

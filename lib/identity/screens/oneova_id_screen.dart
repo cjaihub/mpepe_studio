@@ -1,3 +1,4 @@
+import 'package:cloud_functions/cloud_functions.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -24,6 +25,35 @@ class OneovaIdScreen extends ConsumerStatefulWidget {
 }
 
 class _OneovaIdScreenState extends ConsumerState<OneovaIdScreen> {
+  /// One ID, one person: the verified owner can let up to 3 of their own other
+  /// accounts verify with the same ID.
+  Future<void> _linkAccount() async {
+    final ctrl = TextEditingController();
+    final handle = await showDialog<String>(
+      context: context,
+      builder: (c) => AlertDialog(
+        title: const Text('Link another account'),
+        content: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [
+          const Text('Each ID belongs to one person. To verify another account you own (up to 3) with your ID, enter its @username.'),
+          const SizedBox(height: 10),
+          TextField(controller: ctrl, autofocus: true, decoration: const InputDecoration(isDense: true, prefixText: '@', hintText: 'username')),
+        ]),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(c), child: const Text('Cancel')),
+          TextButton(onPressed: () => Navigator.pop(c, ctrl.text.trim()), child: const Text('Link')),
+        ],
+      ),
+    );
+    ctrl.dispose();
+    if (handle == null || handle.isEmpty || !mounted) return;
+    try {
+      await FirebaseFunctions.instance.httpsCallable('kycLinkAccount').call({'username': handle});
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('@$handle can now verify with your ID.')));
+    } on FirebaseFunctionsException catch (e) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.message ?? 'Couldn’t link that account.')));
+    }
+  }
+
   bool? _saved;
   bool _saving = false;
   final _vault = IdentityVault();
@@ -94,6 +124,11 @@ class _OneovaIdScreenState extends ConsumerState<OneovaIdScreen> {
           MoneyCard(
             onTap: () => context.push('/id/devices'),
             child: _row(Icons.phonelink_lock_rounded, 'Payment phones', 'Phones that can approve payments with your fingerprint or face'),
+          ),
+          const SizedBox(height: 10),
+          MoneyCard(
+            onTap: _linkAccount,
+            child: _row(Icons.link_rounded, 'Linked accounts', 'Let your other Oneova account verify with your ID'),
           ),
           const SizedBox(height: 10),
           MoneyCard(

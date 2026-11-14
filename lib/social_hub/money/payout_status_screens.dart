@@ -16,6 +16,8 @@ import '../../shared/theme/app_theme.dart';
 import 'money_widgets.dart';
 import '../../identity/id_guide.dart';
 import '../../identity/id_photo_check.dart';
+import '../../identity/liveness/live_face_check_screen.dart';
+import 'package:local_auth/local_auth.dart';
 import '../../identity/widgets/id_country_picker.dart';
 import '../../shared/location/country_detector.dart';
 import '../../shared/widgets/compact/compact.dart';
@@ -43,6 +45,7 @@ class _KycScreenState extends ConsumerState<KycScreen> {
   File? _front;
   File? _back;
   File? _selfie;
+  LivenessResult? _live;
   final _photoFacts = <String, Object?>{};
 
   static const _docTypes = {'id_card': 'National ID', 'passport': 'Passport', 'driving_license': 'Driving licence'};
@@ -74,9 +77,32 @@ class _KycScreenState extends ConsumerState<KycScreen> {
 
   Future<void> _shoot(String which) async {
     HapticFeedback.selectionClick();
+    // The selfie is a live face check (mesh, guide, random actions), never a gallery photo.
+    if (which == 'selfie') {
+      final r = await LiveFaceCheckScreen.open(context);
+      if (r == null || !mounted) return;
+      setState(() {
+        _live = r;
+        _selfie = r.selfie;
+      });
+      return;
+    }
+    // ID photos: camera or a photo/scan already on the device.
+    final source = await showModalBottomSheet<ImageSource>(
+      context: context,
+      backgroundColor: context.bg,
+      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(AppRadius.xl))),
+      builder: (c) => SafeArea(
+        child: Column(mainAxisSize: MainAxisSize.min, children: [
+          ListTile(leading: const Icon(Icons.photo_camera_outlined), title: const Text('Take a photo'), onTap: () => Navigator.pop(c, ImageSource.camera)),
+          ListTile(leading: const Icon(Icons.upload_file_rounded), title: const Text('Upload from device'), onTap: () => Navigator.pop(c, ImageSource.gallery)),
+        ]),
+      ),
+    );
+    if (source == null || !mounted) return;
     final x = await ImagePicker().pickImage(
-      source: ImageSource.camera,
-      preferredCameraDevice: which == 'selfie' ? CameraDevice.front : CameraDevice.rear,
+      source: source,
+      preferredCameraDevice: CameraDevice.rear,
       imageQuality: 85,
       maxWidth: 1800,
     );
@@ -99,6 +125,15 @@ class _KycScreenState extends ConsumerState<KycScreen> {
     HapticFeedback.mediumImpact();
     setState(() => _busy = true);
     try {
+      // Confirm on the phone with fingerprint or face (never leaves the phone).
+      var biometric = false;
+      try {
+        final auth = LocalAuthentication();
+        if (await auth.isDeviceSupported()) {
+          biometric = await auth.authenticate(localizedReason: 'Confirm it’s you to send your ID for checking', biometricOnly: true);
+          if (!biometric) return;
+        }
+      } catch (_) {}
       final svc = ref.read(moneyServiceProvider);
       final s = await svc.startKyc();
       if (s == null) return; // already in review or verified
@@ -108,8 +143,27 @@ class _KycScreenState extends ConsumerState<KycScreen> {
         store.ref('${s.path}/id_front.jpg').putFile(_front!, meta),
         store.ref('${s.path}/selfie.jpg').putFile(_selfie!, meta),
         if (_back != null) store.ref('${s.path}/id_back.jpg').putFile(_back!, meta),
+        if (_live?.left != null) store.ref('${s.path}/live_left.jpg').putFile(_live!.left!, meta),
+        if (_live?.right != null) store.ref('${s.path}/live_right.jpg').putFile(_live!.right!, meta),
       ]);
-      await svc.submitKyc(sessionId: s.sessionId, fullName: _name.text.trim(), country: _country, documentType: _docType, countrySignals: _detected?.signals ?? const {});
+      final res = await svc.submitKyc(
+        sessionId: s.sessionId,
+        fullName: _name.text.trim(),
+        country: _country,
+        documentType: _docType,
+        countrySignals: _detected?.signals ?? const {},
+        liveness: _live?.toMap(biometric: biometric),
+      );
+      if (res['duplicate'] == true && mounted) {
+        await showDialog<void>(
+          context: context,
+          builder: (c) => AlertDialog(
+            title: const Text('This ID is already in use'),
+            content: Text('${res['message'] ?? 'This ID is already verified on another Oneova account.'}'),
+            actions: [TextButton(onPressed: () => Navigator.pop(c), child: const Text('OK'))],
+          ),
+        );
+      }
       if (mounted) setState(() => _capturing = false);
     } catch (e) {
       if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(moneyError(e))));
@@ -327,7 +381,7 @@ class _KycScreenState extends ConsumerState<KycScreen> {
             const SizedBox(width: 10),
             _shot('back', 'ID back\n(if any)', Icons.flip_rounded, _back),
             const SizedBox(width: 10),
-            _shot('selfie', 'Selfie', Icons.face_retouching_natural_rounded, _selfie),
+            _shot('selfie', _live != null ? 'Live check ✓' : 'Live face\ncheck', Icons.face_retouching_natural_rounded, _selfie),
           ]),
           const SizedBox(height: 20),
           PrimaryButton(

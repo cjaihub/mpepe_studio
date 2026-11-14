@@ -23,6 +23,8 @@ import { getStorage } from 'firebase-admin/storage';
 import { generateVertexContent } from '../vertexAi';
 import { onPersonalRejected, onPersonalSubmitted, onPersonalVerified } from '../identity/personal';
 import { cleanCountrySignals, countryMismatch } from './kycSignals';
+import { claimId, idHash, lookupId, normalizeIdNumber } from './kycIdentity';
+import { optionalSecret } from '../optionalSecrets';
 
 const db = () => getFirestore();
 const DOC_TYPES = ['passport', 'id_card', 'driving_license'];
@@ -48,19 +50,22 @@ export const kycStart = onCall(async (req) => {
 });
 
 /** Reads the ID and compares the faces for the reviewer. Best effort. */
-async function aiPreCheck(path: string, hasBack: boolean): Promise<Record<string, unknown> | null> {
+async function aiPreCheck(path: string, hasBack: boolean, live: string[] = []): Promise<Record<string, unknown> | null> {
   try {
     const bucket = getStorage().bucket();
     const load = async (name: string) => (await bucket.file(`${path}/${name}`).download())[0].toString('base64');
     const [front, selfie, back] = await Promise.all([load('id_front.jpg'), load('selfie.jpg'), hasBack ? load('id_back.jpg') : Promise.resolve(null)]);
+    const liveFrames = await Promise.all(live.map(load));
     const res = await generateVertexContent({
       contents: [{
         role: 'user',
         parts: [
-          { text: 'Image 1 is the front of an identity document. Image 2 is a selfie.' + (back ? ' Image 3 is the back of the document.' : '') },
+          { text: 'Image 1 is the front of an identity document. Image 2 is a selfie from a live camera check.' + (back ? ' Image 3 is the back of the document.' : '') +
+              (liveFrames.length ? ` The last ${liveFrames.length} images are frames from the same live check with the head turned.` : '') },
           { inlineData: { mimeType: 'image/jpeg', data: front } },
           { inlineData: { mimeType: 'image/jpeg', data: selfie } },
           ...(back ? [{ inlineData: { mimeType: 'image/jpeg', data: back } }] : []),
+          ...liveFrames.map((d) => ({ inlineData: { mimeType: 'image/jpeg', data: d } })),
         ],
       }],
       config: {
@@ -68,11 +73,14 @@ async function aiPreCheck(path: string, hasBack: boolean): Promise<Record<string
           'You help a human reviewer check identity documents. Reply ONLY with JSON: ' +
           '{"documentType":"passport|id_card|driving_license|other|unreadable","fullName":"name as printed or empty",' +
           '"country":"ISO-3166 alpha-2 of the issuing country or empty","expired":true|false|null,' +
-          '"faceMatch":"likely|unlikely|unclear","readable":true|false,"concerns":["short notes, e.g. screen photo, cropped, edited"]}. ' +
-          'Never guess a name you cannot read.',
+          '"documentNumber":"the document number exactly as printed or empty",' +
+          '"faceMatch":"likely|unlikely|unclear","liveness":"real|spoof_suspected|unclear",' +
+          '"readable":true|false,"concerns":["short notes, e.g. screen photo, printed photo, mask, cropped, edited, different people"]}. ' +
+          'liveness: are the selfie and turned-head frames a real 3D person (not a photo of a screen, a print or a mask) and the same person? ' +
+          'Never guess a name or number you cannot read.',
         responseMimeType: 'application/json',
         temperature: 0,
-        maxOutputTokens: 400,
+        maxOutputTokens: 500,
         thinkingConfig: { thinkingBudget: 0 },
       },
     });
@@ -101,16 +109,48 @@ export const kycSubmit = onCall({ timeoutSeconds: 120, memory: '512MiB' }, async
     bucket.file(`${path}/id_front.jpg`).exists(), bucket.file(`${path}/selfie.jpg`).exists(), bucket.file(`${path}/id_back.jpg`).exists(),
   ]);
   if (!front || !selfie) throw new HttpsError('failed-precondition', 'Add a photo of your ID and a selfie.');
+  const [[left], [right]] = await Promise.all([bucket.file(`${path}/live_left.jpg`).exists(), bucket.file(`${path}/live_right.jpg`).exists()]);
+  const live = [...(left ? ['live_left.jpg'] : []), ...(right ? ['live_right.jpg'] : [])];
+
+  // What the phone's live check saw (a hint for the reviewer; the AI and the
+  // reviewer check the frames themselves).
+  const lv = req.data?.liveness;
+  const liveness = lv && typeof lv === 'object' ? {
+    passed: lv.passed === true,
+    actions: Array.isArray(lv.actions) ? lv.actions.filter((a: unknown) => typeof a === 'string' && /^[a-z_]{2,20}$/.test(a)).slice(0, 6) : [],
+    ms: typeof lv.ms === 'number' && lv.ms > 0 && lv.ms < 600000 ? Math.round(lv.ms) : null,
+    biometric: lv.biometric === true,
+  } : null;
 
   const countrySignals = cleanCountrySignals(req.data?.countrySignals);
   await db().doc(`kyc/${uid}`).set({
     status: 'review', documentType, country, submittedName: fullName, hasBack: back,
     countrySignals, countryMismatch: countryMismatch(country, countrySignals),
+    liveness, liveFrames: live.length,
     submittedAt: FieldValue.serverTimestamp(), updatedAt: FieldValue.serverTimestamp(),
   }, { merge: true });
   await onPersonalSubmitted(uid);
-  const ai = await aiPreCheck(path, back);
-  if (ai) await db().doc(`kyc/${uid}`).set({ aiCheck: ai, aiCheckedAt: FieldValue.serverTimestamp() }, { merge: true });
+  const ai = await aiPreCheck(path, back, live);
+  if (ai) {
+    // One ID, one person: keep only a keyed hash of the number, never the number.
+    const number = normalizeIdNumber(ai.documentNumber);
+    delete ai.documentNumber;
+    let identity: Record<string, unknown> = {};
+    const pepper = number ? await optionalSecret('KYC_ID_PEPPER') : null;
+    if (number && pepper) {
+      const hash = idHash(pepper, country, documentType, number);
+      const found = await lookupId(hash, uid);
+      identity = {
+        idHash: hash,
+        idStatus: found.status,
+        duplicateOf: found.status === 'duplicate' ? found.primaryUid ?? null : null,
+      };
+    }
+    await db().doc(`kyc/${uid}`).set({ aiCheck: ai, aiCheckedAt: FieldValue.serverTimestamp(), ...identity }, { merge: true });
+    if (identity.idStatus === 'duplicate') {
+      return { status: 'review', duplicate: true, message: 'This ID is already verified on another Oneova account. Sign in there and link this account (Oneova ID → Linked accounts), then try again.' };
+    }
+  }
   return { status: 'review' };
 });
 
@@ -131,6 +171,8 @@ export const kycReview = onCall(async (req) => {
   if (req.data?.approve === true) {
     const name = String(req.data?.verifiedName ?? k.submittedName ?? '').trim().slice(0, 120);
     if (name.length < 3) throw new HttpsError('invalid-argument', 'Enter the name exactly as on the ID.');
+    // One ID, one person: a duplicate can't be approved unless the owner linked this account.
+    if (typeof k.idHash === 'string') await claimId(k.idHash, uid);
     await db().doc(`kyc/${uid}`).set({
       status: 'verified', verifiedName: name, country: String(req.data?.country ?? k.country), documentType: k.documentType,
       reviewedBy: admin, verifiedAt: FieldValue.serverTimestamp(), updatedAt: FieldValue.serverTimestamp(),

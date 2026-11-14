@@ -156,7 +156,7 @@ service firebase.storage {
     match /kyc/{uid}/{sessionId}/{fileName} {
       allow read: if false;
       allow create, update: if isOwner(uid)
-        && fileName in ['id_front.jpg', 'id_back.jpg', 'selfie.jpg']
+        && fileName in ['id_front.jpg', 'id_back.jpg', 'selfie.jpg', 'live_left.jpg', 'live_right.jpg']
         && request.resource.contentType == 'image/jpeg'
         && request.resource.size < 10 * 1024 * 1024;
       allow delete: if false;
