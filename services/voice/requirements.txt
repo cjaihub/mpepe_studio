@@ -1,0 +1,12 @@
+# Pinned at V0 after the listening test; versions below are the starting point.
+fastapi==0.115.6
+uvicorn[standard]==0.34.0
+pydantic==2.10.4
+google-auth==2.37.0
+google-cloud-storage==2.19.0
+numpy==1.26.4
+librosa==0.10.2.post1
+soundfile==0.12.1
+chatterbox-tts==0.1.4
+# OpenVoice v2 tone-colour converter (MIT). Pin to a commit at V0.
+git+https://github.com/myshell-ai/OpenVoice.git

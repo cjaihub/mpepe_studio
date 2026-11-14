@@ -8,7 +8,7 @@
   },
   "scripts": {
     "build": "tsc",
-    "test": "node --test \"lib/looks/__tests__/**/*.test.js\" \"lib/guard/__tests__/**/*.test.js\" \"lib/__tests__/**/*.test.js\" \"lib/creator/__tests__/**/*.test.js\" \"lib/payments/__tests__/**/*.test.js\" \"lib/coins/__tests__/**/*.test.js\" \"lib/pay/__tests__/**/*.test.js\" \"lib/ledger/__tests__/**/*.test.js\"",
+    "test": "node --test \"lib/looks/__tests__/**/*.test.js\" \"lib/guard/__tests__/**/*.test.js\" \"lib/__tests__/**/*.test.js\" \"lib/creator/__tests__/**/*.test.js\" \"lib/payments/__tests__/**/*.test.js\" \"lib/coins/__tests__/**/*.test.js\" \"lib/pay/__tests__/**/*.test.js\" \"lib/ledger/__tests__/**/*.test.js\" \"lib/voice/__tests__/**/*.test.js\"",
     "test:pay": "tsc && node --test \"lib/creator/__tests__/**/*.test.js\" \"lib/payments/__tests__/**/*.test.js\" \"lib/coins/__tests__/**/*.test.js\" \"lib/pay/__tests__/**/*.test.js\" \"lib/ledger/__tests__/**/*.test.js\" \"lib/__tests__/storeLogic.test.js\" \"lib/__tests__/variant_logic.test.js\"",
     "test:gmail": "node --test \"lib/__tests__/gmail_token_crypto.test.js\"",
     "test:looks": "node --test \"lib/looks/__tests__/**/*.test.js\"",

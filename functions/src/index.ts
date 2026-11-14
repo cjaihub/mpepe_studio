@@ -297,6 +297,7 @@ export { remixOnCreate, remixOnDelete } from './remix';
 export { walletSync, payoutOptions, payoutBanks, savePayoutMethod, deletePayoutMethod, requestWithdrawal, cancelWithdrawal, reviewWithdrawal, flutterwaveWebhook, paystackWebhook } from './creator/payouts';
 export { kycStart, kycSubmit, kycRefresh, kycReview } from './creator/kyc';
 export { kycLinkAccount } from './creator/kycIdentity';
+export { voiceStatus, voiceEnrollStart, voiceEnrollFinish, voiceDisable, voiceSpeakOwn, voiceConvertOwn, voiceStreamToken } from './voice/voice';
 export * from './identity';
 export { verifySubscriptionPurchase, playBillingNotifications } from './creator/planSubscriptions';
 export { insightsOnView, insightsOnLike, insightsOnUnlike, insightsOnShare, insightsOnComment, insightsOnFollow, insightsOnEarning, recordWatchTime } from './creator/insights';

@@ -2063,6 +2063,11 @@ service cloud.firestore {
       allow write: if false;
     }
     // pay_ledger: server only (falls to "deny everything else").
+    // My voice (functions/src/voice/voice.ts): the owner sees their status; only Functions write.
+    match /voice_profiles/{uid} {
+      allow read: if isSignedIn() && request.auth.uid == uid;
+      allow write: if false;
+    }
     // pay_devices, pay_device_challenges: server only (functions/src/pay/devices.ts).
     // Device public keys, trust and cool-downs are never readable or writable by clients.
 

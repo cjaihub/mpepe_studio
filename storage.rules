@@ -153,6 +153,20 @@ service firebase.storage {
     }
     // Identity check photos (Oneova Pay KYC): the owner uploads JPEGs once;
     // nobody reads them from the app (only the server / review team).
+    // My voice recordings: the owner uploads short clips and the consent line;
+    // nobody reads them back from the app (only the voice server and Functions).
+    match /voice_profiles/{uid}/clips/{fileName} {
+      allow read, delete: if false;
+      allow create, update: if isOwner(uid)
+        && fileName.matches('clip_[0-9]{1,2}[.]m4a')
+        && request.resource.contentType.matches('audio/.*')
+        && request.resource.size < 8 * 1024 * 1024;
+    }
+    match /voice_profiles/{uid}/consent.m4a {
+      allow read, delete: if false;
+      allow create, update: if isOwner(uid) && request.resource.contentType.matches('audio/.*') && request.resource.size < 4 * 1024 * 1024;
+    }
+
     match /kyc/{uid}/{sessionId}/{fileName} {
       allow read: if false;
       allow create, update: if isOwner(uid)
