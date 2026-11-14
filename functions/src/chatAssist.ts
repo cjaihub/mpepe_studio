@@ -12,6 +12,7 @@ import { getStorage } from 'firebase-admin/storage';
 import { Modality } from '@google/genai';
 import { generateVertexContent, vertexAi } from './vertexAi';
 import { limit } from './guard/protect';
+import { ownVoicePcm } from './voice/voice';
 
 const MODEL = 'gemini-2.5-flash';
 const TTS_MODEL = process.env.GEMINI_TTS_MODEL || 'gemini-2.5-flash-preview-tts';
@@ -129,7 +130,7 @@ async function generateJson(system: string, user: string, maxTokens: number): Pr
   }
 }
 
-export const chatAssist = onCall({ timeoutSeconds: 60, memory: '512MiB' }, async (request) => {
+export const chatAssist = onCall({ timeoutSeconds: 180, memory: '512MiB' }, async (request) => {
   if (!request.auth) throw new HttpsError('unauthenticated', 'Sign in to use AI in chat.');
   await limit(request.auth.uid, 'chat_assist', 120, 10 * 60000);
   const data = (request.data ?? {}) as Record<string, unknown>;
@@ -206,6 +207,8 @@ export const chatAssist = onCall({ timeoutSeconds: 60, memory: '512MiB' }, async
 
         let synthBase64 = '';
         let synthMime = '';
+        let presetPcm: { pcm: Buffer; sr: number } | null = null;
+        let ownVoice = false;
         if (translatedText && !same) {
           try {
             const ttsRes = await vertexAi().models.generateContent({
@@ -235,7 +238,8 @@ export const chatAssist = onCall({ timeoutSeconds: 60, memory: '512MiB' }, async
               if (!outMime || outMime.includes('l16') || outMime.includes('pcm')) {
                 const rateMatch = outMime.match(/rate=(\d+)/);
                 const sr = rateMatch ? Math.max(8000, Math.min(48000, Number(rateMatch[1]))) : 24000;
-                synthBase64 = pcm16MonoToWavBase64(Buffer.from(inline.data, 'base64'), sr);
+                presetPcm = { pcm: Buffer.from(inline.data, 'base64'), sr };
+                synthBase64 = pcm16MonoToWavBase64(presetPcm.pcm, sr);
                 synthMime = 'audio/wav';
               } else {
                 synthBase64 = inline.data;
@@ -244,6 +248,15 @@ export const chatAssist = onCall({ timeoutSeconds: 60, memory: '512MiB' }, async
             }
           } catch (ttsErr: any) {
             console.warn('chatAssist translateVoice TTS fallback to client:', ttsErr?.message ?? ttsErr);
+          }
+          // My own note: say it in MY OWN voice (never someone else's).
+          if (senderUid && senderUid === request.auth.uid) {
+            const own = await ownVoicePcm(senderUid, translatedText, target, presetPcm);
+            if (own && own.length > 0) {
+              synthBase64 = pcm16MonoToWavBase64(own, 24000);
+              synthMime = 'audio/wav';
+              ownVoice = true;
+            }
           }
         }
 
@@ -256,6 +269,7 @@ export const chatAssist = onCall({ timeoutSeconds: 60, memory: '512MiB' }, async
           pitch,
           rate,
           ...(synthBase64 ? { audioBase64: synthBase64, audioMimeType: synthMime } : {}),
+          ownVoice,
         };
       }
       case 'translate': {

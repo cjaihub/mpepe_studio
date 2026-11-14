@@ -1,6 +1,16 @@
 # Self-hosted voice cloning for translated calls and voice notes
 
-Status: plan, not built (step G4 of `docs/architecture/translated_calls.md`). Rules:
+Status (2026-11-14): code built for V0 to V5, **off until the GPU is approved and deployed**.
+- V0: licences checked (Chatterbox MIT, archived Aug 2026 so pinned; OpenVoice MIT; weights URL confirmed).
+  The listening test runs on the GPU.
+- V1: `services/voice`.
+- V2: `lib/voice/my_voice_wizard_screen.dart` and `functions/src/voice/voice.ts`. The user asked to keep the
+  minute of recordings under the profile, so the clips are kept (not deleted after 24 h) and deleted on
+  "Turn off".
+- V3: your own voice notes in another language.
+- V4: calls in your own voice, with a preset-voice fallback.
+- V5: OpenVoice conversion for languages Chatterbox lacks.
+Plan (step G4 of `docs/architecture/translated_calls.md`). Rules:
 `.agents/rules/oneova_build_vision.md` (security first). Same infrastructure idea as self-hosted 3D
 (`packages/three_d_model_server`, Cloud Run GPU, IAM only).
 
@@ -40,7 +50,8 @@ allows commercial use, and ideally a built-in watermark.
 - The phone uploads it to a private, owner-only Storage path.
 - The GPU server makes a **speaker embedding** (a voice fingerprint). The embedding is stored encrypted,
   keyed to your account (`voice_profiles/{uid}`, server-only).
-- The raw recording is deleted after 24 h. The consent clip is kept as proof of consent.
+- The minute of recordings is kept under the profile (owner-upload-only storage), so the voice can be
+  rebuilt or improved later. The consent clip is kept as proof of consent.
 - Turning it off deletes the embedding and the consent clip, and the feature stops at once.
 
 ### 3.2 Voice notes (first, easiest)

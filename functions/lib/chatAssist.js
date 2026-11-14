@@ -15,6 +15,7 @@ const storage_1 = require("firebase-admin/storage");
 const genai_1 = require("@google/genai");
 const vertexAi_1 = require("./vertexAi");
 const protect_1 = require("./guard/protect");
+const voice_1 = require("./voice/voice");
 const MODEL = 'gemini-2.5-flash';
 const TTS_MODEL = process.env.GEMINI_TTS_MODEL || 'gemini-2.5-flash-preview-tts';
 const MAX_TEXT = 4000;
@@ -132,7 +133,7 @@ async function generateJson(system, user, maxTokens) {
         return JSON.parse(m[0]);
     }
 }
-exports.chatAssist = (0, https_1.onCall)({ timeoutSeconds: 60, memory: '512MiB' }, async (request) => {
+exports.chatAssist = (0, https_1.onCall)({ timeoutSeconds: 180, memory: '512MiB' }, async (request) => {
     var _a, _b, _c, _d, _e;
     var _f, _g, _h, _j, _k, _l;
     if (!request.auth)
@@ -205,6 +206,8 @@ exports.chatAssist = (0, https_1.onCall)({ timeoutSeconds: 60, memory: '512MiB' 
                 const style = cleanText(vp === null || vp === void 0 ? void 0 : vp.style, 80) || 'natural conversational tone';
                 let synthBase64 = '';
                 let synthMime = '';
+                let presetPcm = null;
+                let ownVoice = false;
                 if (translatedText && !same) {
                     try {
                         const ttsRes = await (0, vertexAi_1.vertexAi)().models.generateContent({
@@ -234,7 +237,8 @@ exports.chatAssist = (0, https_1.onCall)({ timeoutSeconds: 60, memory: '512MiB' 
                             if (!outMime || outMime.includes('l16') || outMime.includes('pcm')) {
                                 const rateMatch = outMime.match(/rate=(\d+)/);
                                 const sr = rateMatch ? Math.max(8000, Math.min(48000, Number(rateMatch[1]))) : 24000;
-                                synthBase64 = pcm16MonoToWavBase64(Buffer.from(inline.data, 'base64'), sr);
+                                presetPcm = { pcm: Buffer.from(inline.data, 'base64'), sr };
+                                synthBase64 = pcm16MonoToWavBase64(presetPcm.pcm, sr);
                                 synthMime = 'audio/wav';
                             }
                             else {
@@ -246,11 +250,20 @@ exports.chatAssist = (0, https_1.onCall)({ timeoutSeconds: 60, memory: '512MiB' 
                     catch (ttsErr) {
                         console.warn('chatAssist translateVoice TTS fallback to client:', (_k = ttsErr === null || ttsErr === void 0 ? void 0 : ttsErr.message) !== null && _k !== void 0 ? _k : ttsErr);
                     }
+                    // My own note: say it in MY OWN voice (never someone else's).
+                    if (senderUid && senderUid === request.auth.uid) {
+                        const own = await (0, voice_1.ownVoicePcm)(senderUid, translatedText, target, presetPcm);
+                        if (own && own.length > 0) {
+                            synthBase64 = pcm16MonoToWavBase64(own, 24000);
+                            synthMime = 'audio/wav';
+                            ownVoice = true;
+                        }
+                    }
                 }
-                return Object.assign({ transcript: transcriptText, translated: translatedText, source: sourceLang, same,
+                return Object.assign(Object.assign({ transcript: transcriptText, translated: translatedText, source: sourceLang, same,
                     voiceName,
                     pitch,
-                    rate }, (synthBase64 ? { audioBase64: synthBase64, audioMimeType: synthMime } : {}));
+                    rate }, (synthBase64 ? { audioBase64: synthBase64, audioMimeType: synthMime } : {})), { ownVoice });
             }
             case 'translate': {
                 const texts = (Array.isArray(data.texts) ? data.texts : [data.text])

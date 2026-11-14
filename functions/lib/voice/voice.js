@@ -1,6 +1,8 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.voiceStreamToken = exports.voiceConvertOwn = exports.voiceSpeakOwn = exports.voiceDisable = exports.voiceEnrollFinish = exports.voiceEnrollStart = exports.voiceStatus = void 0;
+exports.ownVoicePcm = ownVoicePcm;
+exports.splitForSpeak = splitForSpeak;
 /**
  * "My voice": the person's own voice for translated voice notes and calls,
  * built on Oneova's own GPU server (services/voice). Plan and safety rules:
@@ -146,6 +148,53 @@ exports.voiceConvertOwn = (0, https_1.onCall)({ timeoutSeconds: 120 }, async (re
     const pcm = await callServer('/v1/convert', 'POST', { uid, sr, audio }, true);
     return { audioBase64: Buffer.from(pcm).toString('base64'), sampleRate: 24000, aiVoice: true };
 });
+/**
+ * For voice notes: [text] in [uid]'s OWN voice, or null when My voice isn't
+ * set up / switched on. Clone languages are spoken directly; others take the
+ * preset-voice speech ([preset]) and convert it into the person's voice.
+ * Callers must only pass the signed-in caller's own uid.
+ */
+async function ownVoicePcm(uid, text, language, preset) {
+    if (!(await serverUrl()))
+        return null;
+    const p = (await profileRef(uid).get()).data();
+    if ((p === null || p === void 0 ? void 0 : p.status) !== 'ready')
+        return null;
+    try {
+        if ((0, voiceLogic_1.engineFor)(language) === 'clone') {
+            const parts = [];
+            for (const chunk of splitForSpeak(text)) {
+                parts.push(Buffer.from(await callServer('/v1/speak', 'POST', { uid, text: chunk, language }, true)));
+            }
+            return parts.length ? Buffer.concat(parts) : null;
+        }
+        if (!preset || preset.pcm.length > 3 * 1024 * 1024)
+            return null;
+        return Buffer.from(await callServer('/v1/convert', 'POST', { uid, sr: preset.sr, audio: preset.pcm.toString('base64') }, true));
+    }
+    catch (_a) {
+        return null; // fall back to the preset voice
+    }
+}
+/** Sentence-sized chunks of at most MAX_SPEAK_CHARS. */
+function splitForSpeak(text) {
+    const out = [];
+    let cur = '';
+    for (const s of text.replace(/\s+/g, ' ').trim().split(/(?<=[.!?。！？؟])\s+/)) {
+        if ((cur + ' ' + s).trim().length > voiceLogic_1.MAX_SPEAK_CHARS && cur) {
+            out.push(cur.trim());
+            cur = '';
+        }
+        cur = (cur + ' ' + s).trim();
+        while (cur.length > voiceLogic_1.MAX_SPEAK_CHARS) {
+            out.push(cur.slice(0, voiceLogic_1.MAX_SPEAK_CHARS));
+            cur = cur.slice(voiceLogic_1.MAX_SPEAK_CHARS);
+        }
+    }
+    if (cur)
+        out.push(cur);
+    return out.slice(0, 8);
+}
 exports.voiceStreamToken = (0, https_1.onCall)(async (req) => {
     var _a;
     var _b;

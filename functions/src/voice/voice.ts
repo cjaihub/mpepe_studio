@@ -139,6 +139,50 @@ export const voiceConvertOwn = onCall({ timeoutSeconds: 120 }, async (req) => {
   return { audioBase64: Buffer.from(pcm).toString('base64'), sampleRate: 24000, aiVoice: true };
 });
 
+/**
+ * For voice notes: [text] in [uid]'s OWN voice, or null when My voice isn't
+ * set up / switched on. Clone languages are spoken directly; others take the
+ * preset-voice speech ([preset]) and convert it into the person's voice.
+ * Callers must only pass the signed-in caller's own uid.
+ */
+export async function ownVoicePcm(uid: string, text: string, language: string, preset: { pcm: Buffer; sr: number } | null): Promise<Buffer | null> {
+  if (!(await serverUrl())) return null;
+  const p = (await profileRef(uid).get()).data();
+  if (p?.status !== 'ready') return null;
+  try {
+    if (engineFor(language) === 'clone') {
+      const parts: Buffer[] = [];
+      for (const chunk of splitForSpeak(text)) {
+        parts.push(Buffer.from(await callServer('/v1/speak', 'POST', { uid, text: chunk, language }, true)));
+      }
+      return parts.length ? Buffer.concat(parts) : null;
+    }
+    if (!preset || preset.pcm.length > 3 * 1024 * 1024) return null;
+    return Buffer.from(await callServer('/v1/convert', 'POST', { uid, sr: preset.sr, audio: preset.pcm.toString('base64') }, true));
+  } catch {
+    return null; // fall back to the preset voice
+  }
+}
+
+/** Sentence-sized chunks of at most MAX_SPEAK_CHARS. */
+export function splitForSpeak(text: string): string[] {
+  const out: string[] = [];
+  let cur = '';
+  for (const s of text.replace(/\s+/g, ' ').trim().split(/(?<=[.!?。！？؟])\s+/)) {
+    if ((cur + ' ' + s).trim().length > MAX_SPEAK_CHARS && cur) {
+      out.push(cur.trim());
+      cur = '';
+    }
+    cur = (cur + ' ' + s).trim();
+    while (cur.length > MAX_SPEAK_CHARS) {
+      out.push(cur.slice(0, MAX_SPEAK_CHARS));
+      cur = cur.slice(MAX_SPEAK_CHARS);
+    }
+  }
+  if (cur) out.push(cur);
+  return out.slice(0, 8);
+}
+
 export const voiceStreamToken = onCall(async (req) => {
   const uid = me(req);
   const callId = String(req.data?.callId ?? '');

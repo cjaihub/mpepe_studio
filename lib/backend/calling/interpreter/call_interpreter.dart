@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:typed_data' show BytesBuilder;
 
 import 'package:firebase_ai/firebase_ai.dart';
 import 'package:firebase_remote_config/firebase_remote_config.dart';
@@ -12,7 +13,9 @@ import '../../../shared/language/language_detector.dart';
 import '../providers/active_call_controller.dart';
 import '../providers/call_media_service.dart';
 import '../providers/webrtc_connection_manager.dart';
+import '../../../voice/my_voice_service.dart' show speaksDirectly;
 import 'interpreter_protocol.dart';
+import 'own_voice_stream.dart';
 
 /// One caption line on the call screen.
 class InterpCaption {
@@ -115,6 +118,13 @@ class CallInterpreter extends Notifier<CallInterpreterState> {
   final Map<String, StringBuffer> _heard = {}; // original words per session
   final Map<String, StringBuffer> _said = {}; // translated words per session
   bool _playerReady = false;
+
+  // My voice: translated words come back in my own voice from Oneova's voice
+  // server (own_voice_stream.dart). Null → Vertex's preset voice (the fallback).
+  OwnVoiceStream? _own;
+  final Set<String> _textModeLangs = {}; // Live answers in text; my voice speaks it
+  final Map<String, StringBuffer> _phrase = {};
+  final Map<String, BytesBuilder> _toConvert = {};
 
   WebRTCConnectionManager get _mesh => ref.read(webrtcConnectionManagerProvider.notifier);
 
@@ -248,6 +258,14 @@ class CallInterpreter extends Notifier<CallInterpreterState> {
       // The call stops sending my original voice; the interpreter takes the mic.
       await _mesh.replaceAudioTrack(null);
       await ref.read(callMediaServiceProvider.notifier).releaseMicForInterpreter();
+      final callId = ref.read(activeCallControllerProvider).call?.id;
+      if (callId != null) {
+        _own = await OwnVoiceStream.open(
+          callId: callId,
+          onAudio: (lang, pcm) => unawaited(_sendTo(lang, InterpProtocol.frameAudio(pcm))),
+          onBroken: () => unawaited(_ownVoiceLost()),
+        );
+      }
       await _reconcile();
       if (!await _startMic()) throw StateError('mic');
       for (final uid in _mesh.dataReadyPeers) {
@@ -308,12 +326,19 @@ class CallInterpreter extends Notifier<CallInterpreterState> {
           systemInstruction: Content.system(InterpProtocol.interpreterPrompt(LanguageDetector.nameOf(lang))),
           liveGenerationConfig: LiveGenerationConfig(
             speechConfig: SpeechConfig(voiceName: state.voice),
-            responseModalities: [ResponseModalities.audio],
+            // With My voice on, Live gives the translated text and my own voice speaks it.
+            responseModalities: [_own != null && speaksDirectly(lang) ? ResponseModalities.text : ResponseModalities.audio],
             inputAudioTranscription: AudioTranscriptionConfig(),
             outputAudioTranscription: AudioTranscriptionConfig(),
           ),
         );
-        return await live.connect();
+        final session = await live.connect();
+        if (_own != null && speaksDirectly(lang)) {
+          _textModeLangs.add(lang);
+        } else {
+          _textModeLangs.remove(lang);
+        }
+        return session;
       } catch (e) {
         debugPrint('[Interpreter] $model → $lang failed: $e');
       }
@@ -327,9 +352,32 @@ class CallInterpreter extends Notifier<CallInterpreterState> {
         final msg = r.message;
         if (msg is! LiveServerContent) continue;
         for (final part in msg.modelTurn?.parts ?? const <Part>[]) {
-          if (part is InlineDataPart && part.mimeType.startsWith('audio')) {
-            await _sendTo(lang, InterpProtocol.frameAudio(part.bytes));
+          if (part is TextPart && _textModeLangs.contains(lang)) {
+            // Say each finished sentence in my own voice as soon as it's ready.
+            _said[lang]?.write(part.text);
+            final buf = _phrase.putIfAbsent(lang, StringBuffer.new)..write(part.text);
+            final t = buf.toString();
+            final cut = t.lastIndexOf(RegExp(r'[.!?。！？؟]\s'));
+            if (cut > 0) {
+              _own?.say(t.substring(0, cut + 1).trim(), lang);
+              buf
+                ..clear()
+                ..write(t.substring(cut + 1));
+            }
+          } else if (part is InlineDataPart && part.mimeType.startsWith('audio')) {
+            if (_own != null) {
+              // Another language: convert the whole turn into my voice.
+              _toConvert.putIfAbsent(lang, BytesBuilder.new).add(part.bytes);
+            } else {
+              await _sendTo(lang, InterpProtocol.frameAudio(part.bytes));
+            }
           }
+        }
+        if (msg.turnComplete == true) {
+          final rest = _phrase.remove(lang)?.toString().trim() ?? '';
+          if (rest.isNotEmpty) _own?.say(rest, lang);
+          final audio = _toConvert.remove(lang)?.takeBytes();
+          if (audio != null && audio.isNotEmpty) _own?.convert(audio, lang);
         }
         final heard = msg.inputTranscription?.text;
         if (heard != null && heard.isNotEmpty) _heard[lang]?.write(heard);
@@ -398,9 +446,33 @@ class CallInterpreter extends Notifier<CallInterpreterState> {
     }
   }
 
+  /// The voice server went away mid-call: back to the preset voice at once.
+  Future<void> _ownVoiceLost() async {
+    _own = null;
+    _phrase.clear();
+    _toConvert.clear();
+    if (!state.active) return;
+    for (final s in _sessions.values) {
+      unawaited(s.close().catchError((_) {}));
+    }
+    _sessions.clear();
+    _textModeLangs.clear();
+    try {
+      await _reconcile();
+    } catch (e) {
+      debugPrint('[Interpreter] fallback: $e');
+    }
+  }
+
   Future<void> _stopSpeaking({required bool restoreMic}) async {
     await _mic?.cancel();
     _mic = null;
+    final own = _own;
+    _own = null;
+    _textModeLangs.clear();
+    _phrase.clear();
+    _toConvert.clear();
+    unawaited(own?.close());
     try {
       await _recorder.stop();
     } catch (_) {}

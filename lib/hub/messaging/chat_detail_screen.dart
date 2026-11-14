@@ -1,5 +1,8 @@
+import 'dart:math' as math;
+
 import 'package:flutter/material.dart';
 import '../../shared/navigation/oneova_nav.dart';
+import '../../voice/language_pick_sheet.dart';
 import '../../inbox/calling/call_launcher.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -667,7 +670,7 @@ class _ChatDetailScreenState extends ConsumerState<ChatDetailScreen> with Single
       );
     } else if (message.mediaType == 'audio' && message.mediaUrl != null) {
       final resolvedUrl = message.mediaUrl!;
-      return GestureDetector(
+      final player = GestureDetector(
         onLongPress: () => _openMediaStudio(message),
         child: InteractiveVoiceNotePlayer(
           audioUrl: resolvedUrl,
@@ -684,6 +687,23 @@ class _ChatDetailScreenState extends ConsumerState<ChatDetailScreen> with Single
           ),
         ),
       );
+      if (!isMe) return player;
+      // My own note: send it again in another language, in my own voice.
+      return Column(crossAxisAlignment: CrossAxisAlignment.end, mainAxisSize: MainAxisSize.min, children: [
+        player,
+        InkWell(
+          onTap: () => _sendVoiceInLanguage(message, resolvedUrl),
+          child: Padding(
+            padding: const EdgeInsets.only(top: 4),
+            child: Row(mainAxisSize: MainAxisSize.min, children: [
+              Icon(Icons.translate_rounded, size: 12, color: AppColors.brandWhite.withValues(alpha: 0.85)),
+              const SizedBox(width: 4),
+              Text('Send in another language',
+                  style: GoogleFonts.inter(fontSize: 10.5, fontWeight: FontWeight.w600, color: AppColors.brandWhite.withValues(alpha: 0.85))),
+            ]),
+          ),
+        ),
+      ]);
     }
     return const SizedBox.shrink();
   }
@@ -1205,6 +1225,38 @@ class _ChatDetailScreenState extends ConsumerState<ChatDetailScreen> with Single
     if (currentUserId != null) {
       (_messagingRepo ?? (mounted ? ref.read(messagingRepositoryProvider) : null))
           ?.setRecordingStatus(widget.chatId, currentUserId, false);
+    }
+  }
+
+  /// Translates my own voice note into a language I pick and sends it, spoken
+  /// in my own voice when My voice is set up (otherwise a matching voice).
+  Future<void> _sendVoiceInLanguage(MessageModel message, String audioPath) async {
+    final lang = await pickLanguage(context, title: 'Send this voice note in…');
+    if (lang == null || !mounted) return;
+    final me = FirebaseAuth.instance.currentUser?.uid;
+    if (me == null) return;
+    ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Translating your voice note…')));
+    try {
+      final r = await ref.read(chatAssistServiceProvider).translateVoiceNote(
+            cacheKey: '${message.id}_send',
+            audioPathOrUrl: audioPath,
+            senderUid: me,
+            target: lang,
+          );
+      final path = r.localAudioPath;
+      if (r.same || path == null || !File(path).existsSync()) {
+        if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('It’s already in that language.')));
+        return;
+      }
+      final bytes = await File(path).length();
+      final secs = math.max(1, ((bytes - 44) / 48000).round()); // 24 kHz mono 16-bit WAV
+      final dur = '${secs ~/ 60}:${(secs % 60).toString().padLeft(2, '0')}';
+      final stamp = DateTime.now().millisecondsSinceEpoch;
+      await _uploadFileAndSend(File(path), 'audio', 'voice_note_${lang}_$stamp.wav', voiceDuration: dur);
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e is ChatAssistException ? e.message : 'Couldn’t translate it right now.')));
+      }
     }
   }
 

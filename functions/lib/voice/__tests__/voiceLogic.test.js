@@ -51,4 +51,13 @@ const voiceLogic_1 = require("../voiceLogic");
     assert.equal((0, voiceLogic_1.engineFor)('sw-KE'), 'clone');
     assert.equal((0, voiceLogic_1.engineFor)('yo'), 'convert');
 });
+const voice_1 = require("../voice");
+(0, node_test_1.test)('long translations are split into sentence chunks the voice server accepts', () => {
+    const text = Array.from({ length: 30 }, (_, i) => `Sentence number ${i} is here.`).join(' ');
+    const parts = (0, voice_1.splitForSpeak)(text);
+    assert.ok(parts.length > 1);
+    assert.ok(parts.every((p) => p.length <= 400));
+    assert.equal(parts.join(' ').split(' ').length, text.split(' ').length);
+    assert.deepEqual((0, voice_1.splitForSpeak)('Hi.'), ['Hi.']);
+});
 //# sourceMappingURL=voiceLogic.test.js.map
