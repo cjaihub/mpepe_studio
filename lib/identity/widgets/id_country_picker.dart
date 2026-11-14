@@ -45,6 +45,17 @@ const _dialToCountry = <String, String>{
   '+243': 'CD', '+260': 'ZM', '+263': 'ZW', '+265': 'MW', '+258': 'MZ', '+44': 'GB', '+91': 'IN', '+971': 'AE', '+966': 'SA',
 };
 
+/// Country for an international phone number (+254… → KE), or null.
+String? countryFromPhone(String phone) {
+  for (final len in [4, 3]) {
+    if (phone.length > len) {
+      final hit = _dialToCountry[phone.substring(0, len)];
+      if (hit != null) return hit;
+    }
+  }
+  return null;
+}
+
 /// Best guess of where the person is: verified ID country, then phone number,
 /// then profile location text, then the phone's region, then Kenya.
 String guessHomeCountry({String? verifiedCountry, String? profileLocation}) {

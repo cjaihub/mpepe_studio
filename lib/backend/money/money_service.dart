@@ -230,8 +230,20 @@ class MoneyService {
   }
 
   /// Sends the check for review once the photos are uploaded.
-  Future<void> submitKyc({required String sessionId, required String fullName, required String country, required String documentType}) =>
-      _call('kycSubmit', {'sessionId': sessionId, 'fullName': fullName, 'country': country, 'documentType': documentType});
+  Future<void> submitKyc({
+    required String sessionId,
+    required String fullName,
+    required String country,
+    required String documentType,
+    Map<String, String> countrySignals = const {},
+  }) =>
+      _call('kycSubmit', {
+        'sessionId': sessionId,
+        'fullName': fullName,
+        'country': country,
+        'documentType': documentType,
+        'countrySignals': countrySignals,
+      });
 
   Future<String> refreshKyc() async {
     final r = await _call('kycRefresh');

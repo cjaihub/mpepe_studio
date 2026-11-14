@@ -150,6 +150,8 @@ class MainActivity : FlutterFragmentActivity() {
 
         // Payment device key: hardware-backed, biometric-gated signing (DeviceKeyChannel.kt).
         DeviceKeyChannel(this, flutterEngine.dartExecutor.binaryMessenger)
+        // KYC country detector: SIM, network and on-device geocoder (CountrySignalsChannel.kt).
+        CountrySignalsChannel(applicationContext, flutterEngine.dartExecutor.binaryMessenger)
 
         // Live Studio "Share to table": mediaProjection foreground service.
         MethodChannel(flutterEngine.dartExecutor.binaryMessenger, "com.oneova.app/live_screen_capture").setMethodCallHandler { call, result ->

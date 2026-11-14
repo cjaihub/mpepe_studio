@@ -16,6 +16,9 @@ import '../../shared/theme/app_theme.dart';
 import 'money_widgets.dart';
 import '../../identity/id_guide.dart';
 import '../../identity/id_photo_check.dart';
+import '../../identity/widgets/id_country_picker.dart';
+import '../../shared/location/country_detector.dart';
+import '../../shared/widgets/compact/compact.dart';
 
 /// Identity check before payouts (`/wallet/verify`): your ID and a selfie,
 /// uploaded to a private folder only Oneova's review team can open, then
@@ -33,6 +36,9 @@ class _KycScreenState extends ConsumerState<KycScreen> {
   bool _capturing = false;
   final _name = TextEditingController();
   String _country = '';
+  bool _countryTouched = false;
+  bool _detecting = false;
+  CountryDetection? _detected;
   String _docType = 'id_card';
   File? _front;
   File? _back;
@@ -44,8 +50,20 @@ class _KycScreenState extends ConsumerState<KycScreen> {
   @override
   void initState() {
     super.initState();
-    final locale = WidgetsBinding.instance.platformDispatcher.locale.countryCode;
-    _country = (locale ?? '').toUpperCase();
+    _country = guessHomeCountry();
+    _detect(ask: false);
+  }
+
+  /// Fills the country from where the phone is (location only if allowed).
+  Future<void> _detect({required bool ask}) async {
+    setState(() => _detecting = true);
+    final d = await CountryDetector.detect(askLocation: ask);
+    if (!mounted) return;
+    setState(() {
+      _detecting = false;
+      _detected = d;
+      if (!_countryTouched && d.code != null) _country = d.code!;
+    });
   }
 
   @override
@@ -91,7 +109,7 @@ class _KycScreenState extends ConsumerState<KycScreen> {
         store.ref('${s.path}/selfie.jpg').putFile(_selfie!, meta),
         if (_back != null) store.ref('${s.path}/id_back.jpg').putFile(_back!, meta),
       ]);
-      await svc.submitKyc(sessionId: s.sessionId, fullName: _name.text.trim(), country: _country, documentType: _docType);
+      await svc.submitKyc(sessionId: s.sessionId, fullName: _name.text.trim(), country: _country, documentType: _docType, countrySignals: _detected?.signals ?? const {});
       if (mounted) setState(() => _capturing = false);
     } catch (e) {
       if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(moneyError(e))));
@@ -196,6 +214,42 @@ class _KycScreenState extends ConsumerState<KycScreen> {
         ),
       );
 
+  /// "Detected from your location" with a way to use location, and a calm
+  /// note when the ID country differs from where the phone is.
+  Widget _countryHint() {
+    final d = _detected;
+    final detectedName = d?.code == null ? null : kIdCountries[d!.code];
+    final differs = d?.code != null && d!.code != _country;
+    return Padding(
+      padding: const EdgeInsets.only(top: 6),
+      child: Row(children: [
+        Icon(_detecting ? Icons.my_location_rounded : Icons.place_outlined, size: 14, color: context.textMuted),
+        const SizedBox(width: 6),
+        Expanded(
+          child: Text(
+            _detecting
+                ? 'Finding your country…'
+                : detectedName == null
+                    ? 'Pick the country on your ID.'
+                    : differs
+                        ? 'You seem to be in $detectedName. That’s fine if your ID is from somewhere else.'
+                        : 'Detected $detectedName ${d!.sourceLabel}.',
+            style: TextStyle(fontSize: 11.5, color: context.textSecondary),
+          ),
+        ),
+        if (!_detecting && d?.source != CountrySource.location)
+          TextButton(
+            style: TextButton.styleFrom(visualDensity: VisualDensity.compact, padding: const EdgeInsets.symmetric(horizontal: 8)),
+            onPressed: () {
+              _countryTouched = false;
+              _detect(ask: true);
+            },
+            child: const Text('Use my location', style: TextStyle(fontSize: 12)),
+          ),
+      ]),
+    );
+  }
+
   Widget _shot(String which, String label, IconData icon, File? file) => Expanded(
         child: GestureDetector(
           onTap: _busy ? null : () => _shoot(which),
@@ -232,31 +286,37 @@ class _KycScreenState extends ConsumerState<KycScreen> {
           TextField(
             controller: _name,
             textCapitalization: TextCapitalization.words,
+            autofillHints: const [AutofillHints.name],
+            textInputAction: TextInputAction.done,
             onChanged: (_) => setState(() {}),
-            decoration: InputDecoration(hintText: 'Full name', border: OutlineInputBorder(borderRadius: BorderRadius.circular(AppRadius.sm))),
+            decoration: InputDecoration(
+              isDense: true,
+              hintText: 'Full name',
+              prefixIcon: const Icon(Icons.person_outline_rounded, size: 20),
+              contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+              border: OutlineInputBorder(borderRadius: BorderRadius.circular(AppRadius.sm)),
+            ),
           ),
-          const SizedBox(height: 14),
-          Row(children: [
-            Expanded(
-              child: DropdownButtonFormField<String>(
-                initialValue: _docType,
-                decoration: InputDecoration(labelText: 'ID type', border: OutlineInputBorder(borderRadius: BorderRadius.circular(AppRadius.sm))),
-                items: [for (final e in _docTypes.entries) DropdownMenuItem(value: e.key, child: Text(e.value))],
-                onChanged: (v) => setState(() => _docType = v ?? 'id_card'),
+          const CompactSectionHeader('ID type'),
+          Wrap(spacing: 8, runSpacing: 8, children: [
+            for (final e in _docTypes.entries)
+              CompactChip(
+                label: e.value,
+                icon: switch (e.key) { 'passport' => Icons.menu_book_rounded, 'driving_license' => Icons.directions_car_rounded, _ => Icons.badge_outlined },
+                selected: _docType == e.key,
+                onTap: () => setState(() => _docType = e.key),
               ),
-            ),
-            const SizedBox(width: 10),
-            SizedBox(
-              width: 110,
-              child: TextFormField(
-                initialValue: _country,
-                maxLength: 2,
-                textCapitalization: TextCapitalization.characters,
-                onChanged: (v) => setState(() => _country = v.trim().toUpperCase()),
-                decoration: InputDecoration(labelText: 'Country', counterText: '', hintText: 'KE', border: OutlineInputBorder(borderRadius: BorderRadius.circular(AppRadius.sm))),
-              ),
-            ),
           ]),
+          const SizedBox(height: 14),
+          IdCountryField(
+            value: _country,
+            label: 'Country that issued your ID',
+            onChanged: (v) => setState(() {
+              _country = v;
+              _countryTouched = true;
+            }),
+          ),
+          _countryHint(),
           const SizedBox(height: 18),
           Text('Photos', style: TextStyle(fontSize: 13, fontWeight: FontWeight.w700, color: context.textPrimary)),
           const SizedBox(height: 4),

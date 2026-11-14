@@ -22,6 +22,7 @@ import { getFirestore, FieldValue } from 'firebase-admin/firestore';
 import { getStorage } from 'firebase-admin/storage';
 import { generateVertexContent } from '../vertexAi';
 import { onPersonalRejected, onPersonalSubmitted, onPersonalVerified } from '../identity/personal';
+import { cleanCountrySignals, countryMismatch } from './kycSignals';
 
 const db = () => getFirestore();
 const DOC_TYPES = ['passport', 'id_card', 'driving_license'];
@@ -101,8 +102,10 @@ export const kycSubmit = onCall({ timeoutSeconds: 120, memory: '512MiB' }, async
   ]);
   if (!front || !selfie) throw new HttpsError('failed-precondition', 'Add a photo of your ID and a selfie.');
 
+  const countrySignals = cleanCountrySignals(req.data?.countrySignals);
   await db().doc(`kyc/${uid}`).set({
     status: 'review', documentType, country, submittedName: fullName, hasBack: back,
+    countrySignals, countryMismatch: countryMismatch(country, countrySignals),
     submittedAt: FieldValue.serverTimestamp(), updatedAt: FieldValue.serverTimestamp(),
   }, { merge: true });
   await onPersonalSubmitted(uid);

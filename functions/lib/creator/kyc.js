@@ -58,6 +58,7 @@ const firestore_1 = require("firebase-admin/firestore");
 const storage_1 = require("firebase-admin/storage");
 const vertexAi_1 = require("../vertexAi");
 const personal_1 = require("../identity/personal");
+const kycSignals_1 = require("./kycSignals");
 const db = () => (0, firestore_1.getFirestore)();
 const DOC_TYPES = ['passport', 'id_card', 'driving_license'];
 function me(req) {
@@ -119,17 +120,17 @@ async function aiPreCheck(path, hasBack) {
     }
 }
 exports.kycSubmit = (0, https_1.onCall)({ timeoutSeconds: 120, memory: '512MiB' }, async (req) => {
-    var _a, _b, _c, _d;
-    var _e, _f;
+    var _a, _b, _c, _d, _e;
+    var _f, _g;
     const uid = me(req);
     const current = (await db().doc(`kyc/${uid}`).get()).data();
-    const sessionId = String((_e = (_a = req.data) === null || _a === void 0 ? void 0 : _a.sessionId) !== null && _e !== void 0 ? _e : '');
+    const sessionId = String((_f = (_a = req.data) === null || _a === void 0 ? void 0 : _a.sessionId) !== null && _f !== void 0 ? _f : '');
     if (!current || current.status !== 'collecting' || current.sessionId !== sessionId) {
         throw new https_1.HttpsError('failed-precondition', 'Start the identity check again.');
     }
     const documentType = DOC_TYPES.includes(String((_b = req.data) === null || _b === void 0 ? void 0 : _b.documentType)) ? String(req.data.documentType) : null;
     const country = typeof ((_c = req.data) === null || _c === void 0 ? void 0 : _c.country) === 'string' && /^[A-Za-z]{2}$/.test(req.data.country) ? req.data.country.toUpperCase() : null;
-    const fullName = String((_f = (_d = req.data) === null || _d === void 0 ? void 0 : _d.fullName) !== null && _f !== void 0 ? _f : '').trim().replace(/\s+/g, ' ').slice(0, 120);
+    const fullName = String((_g = (_d = req.data) === null || _d === void 0 ? void 0 : _d.fullName) !== null && _g !== void 0 ? _g : '').trim().replace(/\s+/g, ' ').slice(0, 120);
     if (!documentType || !country || fullName.length < 3)
         throw new https_1.HttpsError('invalid-argument', 'Fill in your name, country and ID type.');
     const path = `kyc/${uid}/${sessionId}`;
@@ -139,8 +140,10 @@ exports.kycSubmit = (0, https_1.onCall)({ timeoutSeconds: 120, memory: '512MiB' 
     ]);
     if (!front || !selfie)
         throw new https_1.HttpsError('failed-precondition', 'Add a photo of your ID and a selfie.');
+    const countrySignals = (0, kycSignals_1.cleanCountrySignals)((_e = req.data) === null || _e === void 0 ? void 0 : _e.countrySignals);
     await db().doc(`kyc/${uid}`).set({
         status: 'review', documentType, country, submittedName: fullName, hasBack: back,
+        countrySignals, countryMismatch: (0, kycSignals_1.countryMismatch)(country, countrySignals),
         submittedAt: firestore_1.FieldValue.serverTimestamp(), updatedAt: firestore_1.FieldValue.serverTimestamp(),
     }, { merge: true });
     await (0, personal_1.onPersonalSubmitted)(uid);
