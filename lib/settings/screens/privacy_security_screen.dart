@@ -717,6 +717,14 @@ class _PrivacySecurityScreenState extends ConsumerState<PrivacySecurityScreen> {
                 [
                   _buildActionTile(
                     context,
+                    Icons.auto_awesome_rounded,
+                    'Personalisation',
+                    'What your feed learned about your tastes',
+                    true,
+                    () => context.push('/settings/personalization'),
+                  ),
+                  _buildActionTile(
+                    context,
                     Icons.cloud_download_rounded,
                     'Download Your Data',
                     'Request GDPR-compliant archive of all your content and messages',

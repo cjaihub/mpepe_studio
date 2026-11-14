@@ -137,6 +137,7 @@ import '../social_hub/live/studio_v2/shell/live_studio_v2_screen.dart';
 import '../social_hub/live/studio_v2/gaming/gaming_lives_screen.dart';
 import '../feed/providers/oneova_focus_mode_provider.dart';
 import '../wishes/feedback_sheet.dart';
+import '../settings/screens/personalization_screen.dart';
 
 export '../backend/social/services/video_playback_manager.dart'
     show mainFeedRouteObserver, homeBranchRouteObserver;
@@ -901,6 +902,11 @@ final routerProvider = Provider<GoRouter>((ref) {
         path: '/settings/privacy',
         redirect: _requireAuth,
         builder: (context, state) => const PrivacySecurityScreen(),
+      ),
+      GoRoute(
+        path: '/settings/personalization',
+        redirect: _requireAuth,
+        builder: (context, state) => const PersonalizationScreen(),
       ),
       GoRoute(
         path: '/settings/follow-requests',

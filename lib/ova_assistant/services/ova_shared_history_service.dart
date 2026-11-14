@@ -5,6 +5,8 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import '../../backend/recommendation/algorithm/online_feature_store.dart';
+import '../../backend/recommendation/ova_taste_learner.dart';
 
 /// Workspaces available in the Ova Main Interface drawer & composer.
 enum OvaWorkspaceId {
@@ -414,6 +416,11 @@ class OvaSharedHistoryNotifier extends Notifier<OvaSharedHistoryState> {
     final q = query.trim();
     final r = response.trim();
     if (q.isEmpty && r.isEmpty) return threadId ?? newThreadId();
+
+    // Quietly learns this person's tastes for their own feed (Settings → Privacy → Personalisation).
+    OvaTasteLearner.instance
+      ..attach(ref.read(onlineFeatureStoreProvider))
+      ..observe(q, r);
 
     final effectiveThreadId =
         (threadId != null && threadId.trim().isNotEmpty) ? threadId.trim() : newThreadId(source.name);

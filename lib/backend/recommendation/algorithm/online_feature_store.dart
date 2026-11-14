@@ -24,7 +24,32 @@ class OnlineFeatureStore {
   // Maximum topics kept in active affinity cache
   static const int _maxTopics = 50;
 
+  /// People who turned personalisation off: their profile isn't loaded or saved.
+  final Set<String> _optedOut = {};
+
   OnlineFeatureStore(this._firestore);
+
+  bool isOptedOut(String userId) => _optedOut.contains(userId);
+
+  /// Settings → Privacy → Personalisation.
+  void setOptedOut(String userId, bool optedOut) {
+    if (optedOut) {
+      _optedOut.add(userId);
+      _sessionProfiles.remove(userId);
+    } else {
+      _optedOut.remove(userId);
+    }
+  }
+
+  /// Drops one learned topic from the live profile.
+  void forgetTopic(String userId, String topic) {
+    final p = _sessionProfiles[userId];
+    if (p == null) return;
+    _sessionProfiles[userId] = p.copyWith(topicAffinities: Map<String, double>.from(p.topicAffinities)..remove(topic));
+  }
+
+  /// Starts the live profile from scratch.
+  void resetProfile(String userId) => _sessionProfiles.remove(userId);
 
   /// Retrieves or initializes the active in-session profile for a user
   UserAffinityProfile getProfile(String userId) {
@@ -199,6 +224,11 @@ class OnlineFeatureStore {
       final doc = await _firestore.collection('users').doc(userId).collection('algorithmic_state').doc('current').get();
       if (doc.exists && doc.data() != null) {
         final data = doc.data()!;
+        if (data['personalizationEnabled'] == false) {
+          setOptedOut(userId, true);
+          return;
+        }
+        _optedOut.remove(userId);
         final rawTopics = (data['topicAffinities'] as Map<String, dynamic>?) ?? {};
         final rawAuthors = (data['authorAffinities'] as Map<String, dynamic>?) ?? {};
 
@@ -219,7 +249,7 @@ class OnlineFeatureStore {
   /// Flushes user affinity profile to Firestore for cross-session continuity
   Future<void> flushProfile(String userId) async {
     final profile = _sessionProfiles[userId];
-    if (profile == null) return;
+    if (profile == null || _optedOut.contains(userId)) return;
 
     try {
       await _firestore.collection('users').doc(userId).collection('algorithmic_state').doc('current').set({

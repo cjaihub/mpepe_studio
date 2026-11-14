@@ -47,6 +47,7 @@ We engineer our privacy practices to comply with leading African and global data
 | **7. Connected OAuth Channels** | Encrypted OAuth access/refresh tokens and basic channel IDs when you link TikTok, YouTube, Instagram, or Meta | Execute 1-tap cross-platform video publishing strictly at your command | **Explicit Consent** (revocable anytime) |
 | **8. Optional Device Permissions** | Camera, Microphone, Photo Library, Contacts (cryptographically hashed), Coarse/Precise Location (for optional Biz delivery or geo-tags) | Operate capture, voice chat, friend discovery, or local commerce **only when enabled by you** | **Explicit Consent** (revocable in OS or app settings) |
 | **9. AI Lab & Ova Assistant Inputs** | Prompts, voice commands, captions, or media frames you actively submit to AI tools | Generate the color grade, cutout, caption, or assistant action you requested | **Performance of Contract** / **Consent** |
+| **10. Feed personalisation (on by default)** | What you watch, like, skip, follow and search, plus short interest topics (for example "cooking" or "afrobeats") picked out of your Ova chats on your behalf. The chats themselves are not kept for this, and topics about health, religion, politics, sexuality, ethnicity, money or crime are never learned | Show you Reels, Live and Shops that fit your tastes. Private to your account (only you and Oneova's ranking system can read it), never sold, never shared, never used to train shared AI models. Turn it off, see what was learned, remove topics or reset it any time in Settings → Privacy → Personalisation | **Legitimate Interests** (personalised service), with the right to object |
 
 ### Strict Exclusions — Data We NEVER Collect
 1. **Never Mobile-Money PINs or Card CVVs:** We never request, see, or store your M-Pesa PIN, MTN MoMo PIN, Airtel/Orange PIN, bank password, or raw payment card CVV. All payment authentication happens inside regulated PCI-DSS / central-bank-licensed gateways.
@@ -120,7 +121,7 @@ We extend strong data rights to **every Oneova user worldwide**:
 3. **Right to Rectification:** Update or correct inaccurate account details anytime.
 4. **Right to Erasure (Account & Data Deletion):** Permanently delete individual items or your entire account in-app or via `https://oneova.app/deletion`.
 5. **Right to Withdraw Consent:** Revoke Camera, Microphone, Location, Contacts, Connected Channels, or marketing notifications at any time without penalty.
-6. **Right to Object / Restrict Automated Profiling:** Reset feed recommendations or opt out of personalized promotional targeting in Settings.
+6. **Right to Object / Restrict Automated Profiling:** Turn off feed personalisation, remove learned topics or reset them in Settings → Privacy → Personalisation, and opt out of personalized promotional targeting in Settings.
 7. **Right to Lodge a Regulatory Complaint:** You may contact our DPO at **`dpo@oneova.app`** (free response within **21 days**, and always within statutory 30-day limits) or contact your national supervisory authority:
    - **Kenya:** Office of the Data Protection Commissioner (`odpc.go.ke`)
    - **Nigeria:** Nigeria Data Protection Commission (`ndpc.gov.ng`)
