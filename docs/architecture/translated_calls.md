@@ -44,6 +44,7 @@ mic ──record (PCM 16 kHz, one capture)──► Vertex Live (Gemini native a
   key in the app. App Check is enforced for it.
 
 ### G4. In the speaker's own voice
+> Plan for self-hosted cloning on Oneova's own GPU: `docs/architecture/voice_cloning_selfhosted.md`.
 - Vertex Live speaks with a choice of natural preset voices. We pick the one closest to the speaker
   (pitch and tone from a short sample). That's available now.
 - **The exact same voice** (voice cloning) isn't offered by the Live models. Google's cloned-voice option,
