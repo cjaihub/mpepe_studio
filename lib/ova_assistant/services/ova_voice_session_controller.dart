@@ -23,6 +23,8 @@ import '../widgets/ova_fluid_voice_orb.dart';
 import 'ova_chat_controller.dart';
 import 'ova_llm_client.dart';
 import 'ova_local_intents.dart';
+import 'ova_account_context.dart';
+import 'ova_geo_tools.dart';
 import 'ova_memory_tools.dart';
 import 'ova_shared_history_service.dart';
 import 'ova_task_center.dart';
@@ -153,9 +155,11 @@ abstract class OvaVoiceSessionBaseNotifier extends Notifier<OvaVoiceSessionState
   bool _ttsReady = false;
   bool _disposed = false;
   String? _activeThreadId;
-  /// When the session was closed; reopening within [_resumeWindow] carries on.
-  DateTime? _closedAt;
-  static const Duration _resumeWindow = Duration(minutes: 30);
+  /// A question Ova asked that the user hasn't answered yet. Kept while Ova
+  /// sleeps, asked again when the user comes back.
+  String? _pendingQuestion;
+  /// No speech for a while: Ova stops listening and waits to be called.
+  Timer? _silenceTimer;
   /// The task for the turn being answered (so it isn't reported as background work).
   String? _currentTaskId;
   OvaWorkspaceId _workspace = OvaWorkspaceId.personal;
@@ -255,15 +259,11 @@ abstract class OvaVoiceSessionBaseNotifier extends Notifier<OvaVoiceSessionState
     _invocation = invocation;
     _permissionContext = permissionContext;
     OneovaAiGateway.resetCooldown();
-    // Carry on where we left off if the session was closed recently.
-    final closed = _closedAt;
-    _closedAt = null;
-    final resuming = closed != null && DateTime.now().difference(closed) < _resumeWindow && _voiceHistory.isNotEmpty;
-    if (closed != null && !resuming) {
-      _voiceHistory.clear();
-      _activeThreadId = null;
-      state = state.copyWith(assistantReply: '', userTranscript: '');
-    }
+    // Carry on where we left off, with no time limit: in memory, or from the
+    // conversation saved to the account (after an app restart).
+    if (_voiceHistory.isEmpty) _restoreLastVoiceThread();
+    final resuming = _voiceHistory.isNotEmpty;
+    unawaited(OvaAccountContext.instance.warm());
     _activeThreadId ??= ref
         .read(ovaSharedHistoryProvider.notifier)
         .newThreadId(isOverlaySurface ? 'overlay_voice' : 'main_voice');
@@ -277,7 +277,9 @@ abstract class OvaVoiceSessionBaseNotifier extends Notifier<OvaVoiceSessionState
       phase: OvaVoicePhase.listening,
       isMicMuted: false,
       clearError: true,
-      assistantReply: resuming
+      assistantReply: _pendingQuestion != null
+          ? 'Welcome back. Before you left I asked: $_pendingQuestion'
+          : resuming
           ? (lastAsk.isNotEmpty ? 'Welcome back. We were on “${lastAsk.length > 60 ? '${lastAsk.substring(0, 60)}…' : lastAsk}”. Carry on.' : 'Welcome back. Carry on.')
           : state.assistantReply.isEmpty
               ? 'Hi, I\'m listening. Ask anything or give me a task.'
@@ -287,7 +289,49 @@ abstract class OvaVoiceSessionBaseNotifier extends Notifier<OvaVoiceSessionState
     await _ensureTts();
     if (_disposed || state.isPaused || state.phase == OvaVoicePhase.idle) return;
 
+    // Ova asked something before the user left: ask it again, then listen.
+    if (_pendingQuestion != null) {
+      await _announce('Welcome back. Before you left I asked: $_pendingQuestion');
+      return;
+    }
     await _beginListeningInternal();
+  }
+
+  /// Loads the latest voice conversation saved to the account.
+  void _restoreLastVoiceThread() {
+    try {
+      final turns = ref.read(ovaSharedHistoryProvider).turns; // newest first
+      final latest = turns.where((t) => t.source == OvaOriginSource.voice).firstOrNull;
+      if (latest == null) return;
+      final thread = [for (final t in turns) if (t.threadId == latest.threadId) t].take(8).toList().reversed;
+      for (final t in thread) {
+        if (t.query.isNotEmpty) _voiceHistory.add({'role': 'user', 'content': t.query});
+        if (t.response.isNotEmpty) _voiceHistory.add({'role': 'assistant', 'content': t.response});
+      }
+      _activeThreadId = latest.threadId;
+      final last = latest.response.trim();
+      if (last.endsWith('?')) _pendingQuestion = last;
+    } catch (e) {
+      debugPrint('[OvaVoiceSession] restore: $e');
+    }
+  }
+
+  /// Restarts the quiet timer: a pending question waits 45 s, otherwise 90 s,
+  /// then Ova stops listening (mic off) and waits to be called.
+  void _armSilence() {
+    _silenceTimer?.cancel();
+    if (_disposed) return;
+    _silenceTimer = Timer(Duration(seconds: _pendingQuestion != null ? 45 : 90), () {
+      if (_disposed || state.phase != OvaVoicePhase.listening || state.isPaused) return;
+      state = state.copyWith(
+        phase: OvaVoicePhase.paused,
+        amplitude: 0.0,
+        assistantReply: _pendingQuestion != null
+            ? 'I’ll wait for your answer. Tap the mic or call me when you’re back.'
+            : 'I’m resting. Tap the mic or call me when you need me.',
+      );
+      unawaited(_stopHardware());
+    });
   }
 
   Future<void> _beginListeningInternal() async {
@@ -318,6 +362,7 @@ abstract class OvaVoiceSessionBaseNotifier extends Notifier<OvaVoiceSessionState
 
     if (_disposed || state.isPaused || state.phase == OvaVoicePhase.idle) return;
     state = state.copyWith(phase: OvaVoicePhase.listening, clearError: true);
+    _armSilence();
     if (_speechReady) {
       await _listenPass();
     } else {
@@ -503,6 +548,7 @@ abstract class OvaVoiceSessionBaseNotifier extends Notifier<OvaVoiceSessionState
           final words = result.recognizedWords.trim();
           if (words.isNotEmpty) {
             state = state.copyWith(userTranscript: words);
+            _armSilence();
           }
           if (result.finalResult && words.isNotEmpty) {
             submitSpokenUtterance(words);
@@ -526,6 +572,8 @@ abstract class OvaVoiceSessionBaseNotifier extends Notifier<OvaVoiceSessionState
     if (text.isEmpty || _disposed) return;
 
     _usingCloud = false;
+    _silenceTimer?.cancel();
+    _pendingQuestion = null;
     await _speech.stop(this);
     await _cloud?.cancel();
 
@@ -596,7 +644,7 @@ abstract class OvaVoiceSessionBaseNotifier extends Notifier<OvaVoiceSessionState
 
       // 3. Full Ova Agent reasoning + tool execution loop via OvaLlmClient
       if (spokenReply.isEmpty) {
-        await OvaMemoryTools.instance.warm();
+        await Future.wait([OvaMemoryTools.instance.warm(), OvaAccountContext.instance.warm()]);
         _voiceHistory.add({'role': 'user', 'content': text});
         if (_voiceHistory.length > 16) {
           _voiceHistory.removeRange(0, _voiceHistory.length - 16);
@@ -745,6 +793,8 @@ abstract class OvaVoiceSessionBaseNotifier extends Notifier<OvaVoiceSessionState
 
     if (_disposed) return;
 
+    final trimmed = spokenReply.trim();
+    _pendingQuestion = trimmed.endsWith('?') ? trimmed : null;
     state = state.copyWith(
       phase: state.audioEnabled ? OvaVoicePhase.speaking : OvaVoicePhase.listening,
       assistantReply: spokenReply,
@@ -771,7 +821,9 @@ abstract class OvaVoiceSessionBaseNotifier extends Notifier<OvaVoiceSessionState
     HapticFeedback.selectionClick();
     if (state.isPaused) {
       state = state.copyWith(phase: OvaVoicePhase.listening, amplitude: 0.0);
-      if (!state.isMicMuted) {
+      if (_pendingQuestion != null) {
+        await _announce('Welcome back. Before you left I asked: $_pendingQuestion');
+      } else if (!state.isMicMuted) {
         await _beginListeningInternal();
       }
     } else {
@@ -861,10 +913,9 @@ abstract class OvaVoiceSessionBaseNotifier extends Notifier<OvaVoiceSessionState
   }
 
   /// Ends the voice session and releases mic + TTS. The conversation is kept
-  /// for [_resumeWindow], so reopening carries on where it stopped.
+  /// (and saved to the account), so reopening carries on where it stopped.
   Future<void> endSession() async {
     HapticFeedback.mediumImpact();
-    _closedAt = DateTime.now();
     if (!_disposed) {
       state = state.copyWith(
         phase: OvaVoicePhase.idle,
@@ -892,6 +943,9 @@ abstract class OvaVoiceSessionBaseNotifier extends Notifier<OvaVoiceSessionState
     final locale = WidgetsBinding.instance.platformDispatcher.locale;
     return 'Now: ${days[now.weekday - 1]} $hh:$mm local time (UTC${now.timeZoneOffset.isNegative ? '-' : '+'}${now.timeZoneOffset.inHours.abs()}). '
         'Phone language: ${locale.toLanguageTag()}.\n'
+        '${OvaAccountContext.instance.contextLine()}\n'
+        '${OvaMemoryTools.instance.contextLine()}\n'
+        '${OvaGeoTools.instance.contextLine()}\n'
         'Background work (answer progress questions from this):\n${ref.read(ovaTaskCenterProvider).progressContext(exceptId: taskId)}';
   }
 
@@ -940,6 +994,7 @@ abstract class OvaVoiceSessionBaseNotifier extends Notifier<OvaVoiceSessionState
   }
 
   Future<void> _stopHardware() async {
+    _silenceTimer?.cancel();
     _usingCloud = false;
     await _speech.cancel(this);
     await _cloud?.cancel();

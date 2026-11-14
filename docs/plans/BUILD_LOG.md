@@ -20,6 +20,11 @@ Status: ✅ done · 🔨 in progress · ⏳ next · ⛔ blocked (says why)
   currency and time zone (one tap to confirm or change).
 - 🔨 F2. Ova voice now gets the local time, day and phone language every turn and replies in the
   language spoken. City and country (coarse, with location on) still to add.
+- ✅ F5. Ova Live has no time limit: it carries on in memory, or reloads the last voice conversation
+  saved to the account after a restart. It knows the account (name, handle, verified, audience, account
+  type, ID-check status; never balances or documents), recent activity and reminders, and location
+  when allowed. When the user goes quiet it sleeps (mic off) after 90 s, or 45 s if it asked a question,
+  and asks the question again when called back.
 - ✅ F4. Ova Live carries on where it stopped (conversation kept 30 min after closing), answers "what's
   happening / progress / is it done" instantly from the task centre, knows all background work each
   turn, and says when background work finishes mid-session. Dictation: Vertex first (fastest, no key in
