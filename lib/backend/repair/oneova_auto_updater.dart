@@ -68,16 +68,7 @@ class OneOvaAutoUpdater {
       final snapshot = await docRef.get();
 
       if (!snapshot.exists || snapshot.data() == null) {
-        // Initialize default server document if missing
-        await docRef.set({
-          'latestVersion': '1.0.0',
-          'latestBuildNumber': 1,
-          'channel': updateChannel,
-          'downloadUrl': 'https://oneova.app/download/latest.apk',
-          'releaseNotes': 'First stable release with Ova and automatic account checks.',
-          'isMandatory': false,
-          'updatedAt': FieldValue.serverTimestamp(),
-        }, SetOptions(merge: true));
+        // The app never writes this document (admin only), so nobody can plant a fake update.
 
         return AppUpdateInfo(
           hasUpdate: false,
@@ -95,7 +86,14 @@ class OneOvaAutoUpdater {
       final serverVersion = (data['latestVersion'] as String?) ?? currentVersion;
       final serverBuild = (data['latestBuildNumber'] as num?)?.toInt() ?? currentBuildNumber;
       final notes = (data['releaseNotes'] as String?) ?? 'Performance optimizations & AI repairs.';
-      final url = (data['downloadUrl'] as String?) ?? 'https://oneova.app/download/latest.apk';
+      // Only official places are ever offered as a download (a planted link
+      // would otherwise send everyone to a fake APK).
+      final rawUrl = (data['downloadUrl'] as String?) ?? '';
+      final host = Uri.tryParse(rawUrl)?.host ?? '';
+      const trusted = {'play.google.com', 'oneova.app', 'www.oneova.app', 'oneova.web.app'};
+      final url = rawUrl.startsWith('https://') && trusted.contains(host)
+          ? rawUrl
+          : 'https://play.google.com/store/apps/details?id=com.oneova.app';
       final isMandatory = (data['isMandatory'] as bool?) ?? false;
 
       // Compare versions

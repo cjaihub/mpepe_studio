@@ -31,6 +31,7 @@
 import { onCall, HttpsError, CallableRequest } from 'firebase-functions/v2/https';
 import { getAuth } from 'firebase-admin/auth';
 import { getFirestore, FieldValue } from 'firebase-admin/firestore';
+import { limit } from './guard/protect';
 
 const PROOF_WINDOW_MS = 15 * 60 * 1000; // proofs older than this don't count
 const FRESH_TOKEN_MS = 10 * 60 * 1000; // token must come from a recent sign-in
@@ -162,19 +163,19 @@ export const revokeTrustedDevice = onCall({ enforceAppCheck: true }, async (requ
  * Login screen account lookup without public phone numbers: returns only
  * what the sign-in header shows. Replaces the client query on users.phoneNumber.
  */
+/**
+ * Was open to anyone (no sign-in) and returned the uid, name, username and
+ * photo for any phone number: a ready-made tool to find who owns a number.
+ * Not used by the app. Now: signed in, 5 lookups an hour, and only whether an
+ * account exists.
+ */
 export const lookupAccountByPhone = onCall({ enforceAppCheck: true }, async (request) => {
+  const auth = requireUser(request);
+  await limit(auth.uid, 'phone_lookup', 5, 3600_000);
   const phone = String((request.data as { phone?: unknown })?.phone ?? '');
   if (!/^\+[1-9]\d{6,14}$/.test(phone)) throw new HttpsError('invalid-argument', 'Bad number.');
   const snap = await getFirestore().collection('users').where('phoneNumber', '==', phone).limit(1).get();
-  if (snap.empty) return { found: false };
-  const d = snap.docs[0].data();
-  return {
-    found: true,
-    uid: snap.docs[0].id,
-    displayName: d.displayName ?? null,
-    username: d.username ?? null,
-    photoUrl: d.photoUrl ?? d.avatarUrl ?? null,
-  };
+  return { found: !snap.empty };
 });
 
 /** One-off, admin only: strip legacy password hashes from every profile. */

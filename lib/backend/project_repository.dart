@@ -1,3 +1,4 @@
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -132,11 +133,13 @@ class ProjectRepository {
 
   Future<String> addProject(StudioProject project) async {
     try {
+      // Every new project belongs to the person who made it (Firestore rules).
+      final json = {...project.toJson(), 'ownerId': project.toJson()['ownerId'] ?? FirebaseAuth.instance.currentUser?.uid};
       if (project.id.isEmpty) {
-        final docRef = await _firestore.collection('studio_projects').add(project.toJson());
+        final docRef = await _firestore.collection('studio_projects').add(json);
         return docRef.id;
       } else {
-        await _firestore.collection('studio_projects').doc(project.id).set(project.toJson());
+        await _firestore.collection('studio_projects').doc(project.id).set(json);
         return project.id;
       }
     } catch (e) {

@@ -1641,13 +1641,20 @@ service cloud.firestore {
 
     // ─── Studio projects (shared workspace, no owner field) ──────────────────
     match /studio_projects/{projectId} {
-      allow read, create, update: if isSignedIn();
-      allow delete: if isSignedIn() && (!('createdBy' in resource.data) || ownsData(resource.data) || isAdmin());
+      // Owner only. Older projects saved without an owner stay shared as before.
+      function legacyShared() { return resource.data.get('ownerId', null) == null && resource.data.get('createdBy', null) == null; }
+      function owner() { return resource.data.get('ownerId', '') == request.auth.uid || resource.data.get('createdBy', '') == request.auth.uid; }
+      allow read, update: if isSignedIn() && (owner() || legacyShared() || isAdmin());
+      allow create: if isSignedIn() && request.resource.data.get('ownerId', '') == request.auth.uid;
+      allow delete: if isSignedIn() && (owner() || isAdmin());
     }
 
     // ─── Calendar events ─────────────────────────────────────────────────────
     match /events/{eventId} {
-      allow read, create: if isSignedIn();
+      // Your own calendar events (older ones without a creator stay shared).
+      allow read: if isSignedIn() &&
+        (resource.data.get('createdBy', null) == null || resource.data.createdBy == request.auth.uid || isAdmin());
+      allow create: if isSignedIn() && request.resource.data.get('createdBy', request.auth.uid) == request.auth.uid;
       allow update, delete: if isSignedIn() &&
         (!('createdBy' in resource.data) || resource.data.createdBy == request.auth.uid || isAdmin());
     }
@@ -1715,18 +1722,27 @@ service cloud.firestore {
     }
     // Clients may seed a missing config doc and write the health ping;
     // changing existing config is admin-only.
+    // Config (app_version, …) is admin-only: a client-created app_version could
+    // send everyone to a fake download. Clients only write the health ping.
     match /system_config/{docId} {
       allow read: if true;
-      allow create: if isSignedIn();
-      allow update: if (isSignedIn() && docId == 'health_ping') || isAdmin();
+      allow create, update: if (isSignedIn() && docId == 'health_ping') || isAdmin();
       allow delete: if isAdmin();
     }
 
     // ─── Device pairing / remote desktop / multicam ──────────────────────────
+    // Pairing codes: only the computer's own agent account creates or changes
+    // its code; a code can be looked up for 10 minutes; each phone writes only
+    // its own reply (doc id = its uid), which the agent checks.
     match /desktop_pairing/{pin} {
-      allow read, write: if isSignedIn();
-      match /{sub=**} {
-        allow read, write: if isSignedIn();
+      function agentOf() { return get(/databases/$(database)/documents/desktop_pairing/$(pin)).data.get('agent_uid', ''); }
+      allow read: if isSignedIn() && resource.data.get('created_at', request.time) > request.time - duration.value(10, 'm');
+      allow create: if isSignedIn() && request.resource.data.get('agent_uid', '') == request.auth.uid;
+      allow update, delete: if isSignedIn() && resource.data.get('agent_uid', '') == request.auth.uid;
+      match /responses/{responderId} {
+        allow create, update: if isSignedIn() && responderId == request.auth.uid;
+        allow read: if isSignedIn() && (responderId == request.auth.uid || agentOf() == request.auth.uid);
+        allow delete: if isSignedIn() && agentOf() == request.auth.uid;
       }
     }
     match /trusted_device_codes/{code} {

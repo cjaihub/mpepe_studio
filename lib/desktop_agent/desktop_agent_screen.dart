@@ -547,7 +547,9 @@ class _DesktopAgentScreenState extends ConsumerState<DesktopAgentScreen> {
 
           final key = CryptoUtils.deriveKeyFromPin(pin, salt);
           final decryptedUid = CryptoUtils.decryptPayload(encryptedUid, key);
-          if (decryptedUid != null && decryptedUid.isNotEmpty) {
+          // The reply is stored under the replying account's id (Firestore
+          // rules), so a reply can only pair the account that sent it.
+          if (decryptedUid != null && decryptedUid.isNotEmpty && decryptedUid == doc.id) {
             pairingService.setDerivedKey(key);
             await pairingService.persistPairing(decryptedUid, key);
             await _pairingSubscription?.cancel();

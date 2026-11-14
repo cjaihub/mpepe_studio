@@ -34,6 +34,7 @@ exports.scrubLegacyPasswordHashes = exports.lookupAccountByPhone = exports.revok
 const https_1 = require("firebase-functions/v2/https");
 const auth_1 = require("firebase-admin/auth");
 const firestore_1 = require("firebase-admin/firestore");
+const protect_1 = require("./guard/protect");
 const PROOF_WINDOW_MS = 15 * 60 * 1000; // proofs older than this don't count
 const FRESH_TOKEN_MS = 10 * 60 * 1000; // token must come from a recent sign-in
 const MAX_SESSIONS = 5;
@@ -156,23 +157,22 @@ exports.revokeTrustedDevice = (0, https_1.onCall)({ enforceAppCheck: true }, asy
  * Login screen account lookup without public phone numbers: returns only
  * what the sign-in header shows. Replaces the client query on users.phoneNumber.
  */
+/**
+ * Was open to anyone (no sign-in) and returned the uid, name, username and
+ * photo for any phone number: a ready-made tool to find who owns a number.
+ * Not used by the app. Now: signed in, 5 lookups an hour, and only whether an
+ * account exists.
+ */
 exports.lookupAccountByPhone = (0, https_1.onCall)({ enforceAppCheck: true }, async (request) => {
     var _a;
-    var _b, _c, _d, _e, _f;
+    var _b;
+    const auth = requireUser(request);
+    await (0, protect_1.limit)(auth.uid, 'phone_lookup', 5, 3600000);
     const phone = String((_b = (_a = request.data) === null || _a === void 0 ? void 0 : _a.phone) !== null && _b !== void 0 ? _b : '');
     if (!/^\+[1-9]\d{6,14}$/.test(phone))
         throw new https_1.HttpsError('invalid-argument', 'Bad number.');
     const snap = await (0, firestore_1.getFirestore)().collection('users').where('phoneNumber', '==', phone).limit(1).get();
-    if (snap.empty)
-        return { found: false };
-    const d = snap.docs[0].data();
-    return {
-        found: true,
-        uid: snap.docs[0].id,
-        displayName: (_c = d.displayName) !== null && _c !== void 0 ? _c : null,
-        username: (_d = d.username) !== null && _d !== void 0 ? _d : null,
-        photoUrl: (_f = (_e = d.photoUrl) !== null && _e !== void 0 ? _e : d.avatarUrl) !== null && _f !== void 0 ? _f : null,
-    };
+    return { found: !snap.empty };
 });
 /** One-off, admin only: strip legacy password hashes from every profile. */
 exports.scrubLegacyPasswordHashes = (0, https_1.onCall)(async (request) => {
