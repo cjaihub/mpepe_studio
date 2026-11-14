@@ -10,6 +10,15 @@ import '../../security/e2e_encryption_service.dart';
 import '../services/call_ice_config.dart';
 import 'call_media_service.dart';
 
+/// A message from another person in the call over the call's data channel
+/// (DTLS-encrypted end to end between the two phones; no server reads it).
+class CallDataMessage {
+  final String from;
+  final String? text;
+  final Uint8List? bytes;
+  const CallDataMessage(this.from, {this.text, this.bytes});
+}
+
 /// Link quality of one peer, shown as a small badge in the call UI.
 enum PeerLinkState { connecting, connected, reconnecting, failed }
 
@@ -110,6 +119,11 @@ class WebRTCConnectionManager extends Notifier<WebRTCMeshState> {
   final Map<String, Timer> _candidateFlushTimers = {};
   final Map<String, RTCRtpSender> _audioSenders = {};
   final Map<String, RTCRtpSender> _videoSenders = {};
+  // One negotiated data channel per peer (interpreter audio, captions).
+  final Map<String, RTCDataChannel> _dataChannels = {};
+  final Set<String> _dataOpen = {};
+  final StreamController<CallDataMessage> _dataIn = StreamController.broadcast();
+  final StreamController<String> _dataOpened = StreamController.broadcast();
   final Map<String, MediaStream> _remoteStreams = {};
   final Map<String, MediaStreamTrack> _remoteVideoTracks = {};
   final Set<String> _needsVideoUpgradeOffer = {};
@@ -323,6 +337,22 @@ class WebRTCConnectionManager extends Notifier<WebRTCMeshState> {
       final pc = created;
       // Hung up while the connection was opening: `finally` closes it.
       if (_callId != callId) return null;
+
+      // Negotiated on both sides with the same id, so it's in the first
+      // offer/answer with no extra signalling. Older app versions simply
+      // don't open it, and the features that need it stay off.
+      try {
+        final dc = await pc.createDataChannel(
+          'oneova-x',
+          RTCDataChannelInit()
+            ..negotiated = true
+            ..id = 7
+            ..ordered = true,
+        );
+        _bindDataChannel(remoteUserId, dc);
+      } catch (e) {
+        debugPrint('[Mesh] data channel for $remoteUserId: $e');
+      }
 
       // Unified Plan: ONLY the offerer pre-creates SendRecv transceivers before
       // SDP exchange. The answerer must call setRemoteDescription(offer) first
@@ -967,8 +997,75 @@ class WebRTCConnectionManager extends Notifier<WebRTCMeshState> {
     unawaited(_applyBitrateCaps());
   }
 
+  void _bindDataChannel(String uid, RTCDataChannel dc) {
+    _dataChannels[uid] = dc;
+    dc.onDataChannelState = (s) {
+      if (!identical(_dataChannels[uid], dc)) return;
+      if (s == RTCDataChannelState.RTCDataChannelOpen) {
+        _dataOpen.add(uid);
+        _dataOpened.add(uid);
+      } else if (s == RTCDataChannelState.RTCDataChannelClosed || s == RTCDataChannelState.RTCDataChannelClosing) {
+        _dataOpen.remove(uid);
+      }
+    };
+    dc.onMessage = (m) {
+      if (!identical(_dataChannels[uid], dc)) return;
+      _dataIn.add(m.isBinary ? CallDataMessage(uid, bytes: m.binary) : CallDataMessage(uid, text: m.text));
+    };
+  }
+
+  /// Messages from people in the call.
+  Stream<CallDataMessage> get dataMessages => _dataIn.stream;
+
+  /// A person's data channel just opened (say hello: your language, etc.).
+  Stream<String> get dataChannelOpened => _dataOpened.stream;
+
+  Set<String> get dataReadyPeers => Set.unmodifiable(_dataOpen);
+
+  /// Sends to one person. Returns false if their channel isn't open.
+  bool sendData(String uid, {String? text, Uint8List? bytes}) {
+    final dc = _dataChannels[uid];
+    if (dc == null || !_dataOpen.contains(uid)) return false;
+    try {
+      unawaited(dc.send(bytes != null ? RTCDataChannelMessage.fromBinary(bytes) : RTCDataChannelMessage(text ?? '')).catchError((_) {}));
+      return true;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  /// Bytes waiting to go out to [uid]; used to drop audio instead of building delay.
+  Future<int> bufferedAmount(String uid) async {
+    try {
+      return _dataChannels[uid]?.bufferedAmount ?? 0;
+    } catch (_) {
+      return 0;
+    }
+  }
+
+  /// Mutes or unmutes what we hear from [uid] (interpreter mode plays the
+  /// translation instead of their original voice).
+  Future<void> setRemoteAudioEnabled(String uid, bool enabled) async {
+    await _serial(uid, () async {
+      final tracks = _remoteStreams[uid]?.getAudioTracks() ?? const <MediaStreamTrack>[];
+      for (final t in tracks) {
+        t.enabled = enabled;
+      }
+    });
+  }
+
+  void _closeData(String uid) {
+    _dataOpen.remove(uid);
+    final dc = _dataChannels.remove(uid);
+    if (dc == null) return;
+    dc.onMessage = null;
+    dc.onDataChannelState = null;
+    unawaited(dc.close().catchError((_) {}));
+  }
+
   /// Drops everything kept about [uid]'s connection.
   void _forgetPeer(String uid) {
+    _closeData(uid);
     _disconnectTimers.remove(uid)?.cancel();
     _candidateFlushTimers.remove(uid)?.cancel();
     _outgoingCandidates.remove(uid);
@@ -1135,6 +1232,9 @@ class WebRTCConnectionManager extends Notifier<WebRTCMeshState> {
 
   void _teardown() {
     _stopCallActivity();
+    for (final uid in _dataChannels.keys.toList()) {
+      _closeData(uid);
+    }
     _cappedFor = CallQuality.unknown;
     for (final t in _disconnectTimers.values) {
       t.cancel();

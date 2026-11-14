@@ -19,6 +19,7 @@ import '../../../backend/calling/providers/webrtc_connection_manager.dart';
 import '../../../backend/calling/services/call_pip_service.dart';
 import '../../../backend/calling/services/call_share_service.dart';
 import '../../../shared/theme/app_theme.dart';
+import '../widgets/call_interpreter_ui.dart';
 import '../widgets/call_invite_sheet.dart';
 import '../widgets/call_panel_sheet.dart';
 import '../widgets/call_share_sheet.dart';
@@ -313,6 +314,7 @@ class _ActiveCallScreenState extends ConsumerState<ActiveCallScreen> {
                 if (_soundToast != null) _soundToastView(_soundToast!),
                 if (s.phase == CallPhase.connected && mesh.worstQuality == CallQuality.poor)
                   _weakLinkBanner(media),
+                if (s.phase == CallPhase.connected || s.phase == CallPhase.reconnecting) const CallCaptionsOverlay(),
                 Align(
                   alignment: Alignment.bottomCenter,
                   child: AnimatedSlide(
@@ -1239,6 +1241,8 @@ class _ActiveCallScreenState extends ConsumerState<ActiveCallScreen> {
                         );
                   },
                 ),
+              if (s.call != null && (s.phase == CallPhase.connected || s.phase == CallPhase.reconnecting))
+                CallTranslateButton(fg: fg),
               if (s.call != null && (s.phase == CallPhase.connected || s.phase == CallPhase.reconnecting))
                 IconButton(
                   tooltip: 'Effects, sounds, music and people',

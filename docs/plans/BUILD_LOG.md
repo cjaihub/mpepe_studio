@@ -116,8 +116,17 @@ Design: `docs/payments/platform/` (architecture, security model, schema and API,
   an all-chats switch in Settings → Chat.
 - ⏳ G2. Calls: live translated captions over the call's encrypted data channel (check mic sharing on
   real phones first).
-- ⏳ G3. Interpreter mode: speech to speech through Vertex Live, sent over the data channel and played
-  with `flutter_pcm_sound`.
+- 🔨 G3. Live translated calls: built, not tried on phones yet.
+  - Each call connection has a negotiated, encrypted data channel (`webrtc_connection_manager.dart`).
+  - Phones swap their language (Settings → Language, else the phone's). When languages differ,
+    translation starts by itself. The speaker's phone takes the mic from the call and streams it to
+    Vertex Live (one session per listener language, at most two). The translated voice and captions go
+    to each listener over the data channel. The listener mutes the original and plays the translation;
+    same-language listeners get the original voice the same way.
+  - Top-bar translate button: turn off for this call, pick the translated voice (4 preset voices).
+    Two-line captions above the controls.
+  - Code: `lib/backend/calling/interpreter/`, `lib/inbox/calling/widgets/call_interpreter_ui.dart`.
+  - Left: test on two phones (echo, delay, group calls). Turn on App Check enforcement for Vertex.
 - ⏳ G4. Speaker's own voice: closest preset voice now; exact voice cloning needs Google approval and
   each speaker's consent. 🤝
 

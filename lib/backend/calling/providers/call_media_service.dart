@@ -300,6 +300,42 @@ class CallMediaService extends Notifier<CallMediaState> {
     }
   }
 
+  /// Interpreter mode takes the microphone for itself: the call's mic track is
+  /// stopped (callers send null on every connection first).
+  Future<void> releaseMicForInterpreter() async {
+    final stream = state.localStream;
+    if (stream == null) return;
+    for (final old in List<MediaStreamTrack>.from(stream.getAudioTracks())) {
+      try {
+        await stream.removeTrack(old);
+        await old.stop();
+      } catch (_) {}
+    }
+    state = state.copyWith(localStream: stream, streamRevision: state.streamRevision + 1);
+  }
+
+  /// Gives the microphone back to the call after interpreter mode. Returns the
+  /// new track to put on every connection.
+  Future<MediaStreamTrack?> restoreMicAfterInterpreter() async {
+    final stream = state.localStream;
+    if (stream == null) return null;
+    try {
+      final fresh = await navigator.mediaDevices.getUserMedia({
+        'audio': _audioConstraints(enhanced: state.isVoiceEnhanced),
+        'video': false,
+      });
+      final track = fresh.getAudioTracks().firstOrNull;
+      if (track == null) return null;
+      track.enabled = !state.isAudioMuted;
+      await stream.addTrack(track);
+      state = state.copyWith(localStream: stream, streamRevision: state.streamRevision + 1);
+      return track;
+    } catch (e) {
+      debugPrint('[CallMedia] restore mic failed: $e');
+      return null;
+    }
+  }
+
   Future<void> refreshOutputs() async {
     try {
       final devices = await Helper.audiooutputs;
