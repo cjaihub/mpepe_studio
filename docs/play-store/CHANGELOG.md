@@ -1,6 +1,15 @@
 # Oneova release notes
 
-## 1.0.0 (41) — 2026-11-14 · Internal Testing Release
+## 1.0.0 (42) — 2026-11-16 · Internal Testing Release
+
+**Reels deep-link comment highlights, persistent status bar, timeline stretch and color grading improvements**
+- **Reels comment deep linking**: notifications now deep-link directly into the exact comment with animated highlight border and auto-scrolled thread.
+- **Persistent status/stories bar**: stays visible across reel scrolls and cleanly hides only when entering full-screen mode.
+- **Full-screen comment input**: comment bar stays accessible in full-screen mode.
+- **Studio timeline stretch & snap**: magnetic alignment to playhead, beat markers, and clip edges with a visual snap guide.
+- **Advanced color grading & correction**: 18 correction sliders, 3-way color wheels, curves, and 1-tap AI color balance presets.
+- **Photo studio enhancements**: interactive crop aspect ratio controls, perspective sliders, and accurate local before/after compare view.
+- **Notification shield**: 1-tap option to block distracting notifications from other apps.
 
 Builds 39 and 40 were never published (two uploads collided), so 41 carries everything since 38.
 
