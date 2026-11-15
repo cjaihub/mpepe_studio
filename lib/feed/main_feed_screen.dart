@@ -275,10 +275,10 @@ class _ShortVideoFeedScreenState extends ConsumerState<ShortVideoFeedScreen>
     if (existingPageIdx >= 0 && existingPageIdx != _currentPage) {
       _safeJumpToPage(existingPageIdx);
       _onPageChanged(existingPageIdx);
-    } else if (target != null) {
-      final feedIdx = _feed.indexWhere((c) => c.id == target!.id);
+    } else {
+      final feedIdx = _feed.indexWhere((c) => c.id == target?.id);
       if (feedIdx >= 0) _warmAround(feedIdx);
-      ref.read(videoPlaybackManagerProvider).ensureCurrentPlaying(target.id);
+      if (target != null) ref.read(videoPlaybackManagerProvider).ensureCurrentPlaying(target.id);
     }
 
     if (highlight && target != null) {
@@ -2347,6 +2347,7 @@ class _ShortVideoItemState extends ConsumerState<_ShortVideoItem> with TickerPro
     } catch (_) {}
   }
 
+  // ignore: unused_element
   void _triggerDoubleTapLike(Offset position) {
     final uid = FirebaseAuth.instance.currentUser?.uid ?? '';
     AuthInteractionGate.requireAuth(
