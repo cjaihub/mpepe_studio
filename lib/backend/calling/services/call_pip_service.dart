@@ -11,6 +11,7 @@ class CallPipService {
   static bool? _last;
   static bool? _lastProximity;
   static bool? _lastRingback;
+  static bool? _lastWakeScreen;
   static bool _listening = false;
 
   /// True while the activity is in system PiP.
@@ -46,5 +47,11 @@ class CallPipService {
     if (!_android || _lastRingback == enabled) return;
     _lastRingback = enabled;
     _channel.invokeMethod<void>('ringback', {'enabled': enabled}).catchError((_) {});
+  }
+
+  static void setWakeScreen(bool enabled) {
+    if (!_android || _lastWakeScreen == enabled) return;
+    _lastWakeScreen = enabled;
+    _channel.invokeMethod<void>('setWakeScreen', {'enabled': enabled}).catchError((_) {});
   }
 }

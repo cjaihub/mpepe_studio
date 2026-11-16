@@ -38,6 +38,10 @@ class PeerState {
   /// from both users' Oneova Shield identity keys, on top of DTLS-SRTP.
   final bool frameEncrypted;
   final CallQuality quality;
+  final int? rttMs;
+  final double? packetLossPct;
+  final bool usingRelay;
+  final bool isSpeaking;
 
   const PeerState({
     required this.remoteUserId,
@@ -49,6 +53,10 @@ class PeerState {
     this.videoRevision = 0,
     this.frameEncrypted = false,
     this.quality = CallQuality.unknown,
+    this.rttMs,
+    this.packetLossPct,
+    this.usingRelay = false,
+    this.isSpeaking = false,
   });
 
   bool get isConnected => link == PeerLinkState.connected;
@@ -59,6 +67,10 @@ class PeerState {
     int? videoRevision,
     bool? frameEncrypted,
     CallQuality? quality,
+    int? rttMs,
+    double? packetLossPct,
+    bool? usingRelay,
+    bool? isSpeaking,
   }) =>
       PeerState(
         remoteUserId: remoteUserId,
@@ -70,6 +82,10 @@ class PeerState {
         videoRevision: videoRevision ?? this.videoRevision,
         frameEncrypted: frameEncrypted ?? this.frameEncrypted,
         quality: quality ?? this.quality,
+        rttMs: rttMs ?? this.rttMs,
+        packetLossPct: packetLossPct ?? this.packetLossPct,
+        usingRelay: usingRelay ?? this.usingRelay,
+        isSpeaking: isSpeaking ?? this.isSpeaking,
       );
 }
 
@@ -141,7 +157,14 @@ class WebRTCConnectionManager extends Notifier<WebRTCMeshState> {
   // Frame encryption (insertable streams) per remote peer.
   final Map<String, KeyProvider> _keyProviders = {};
   final Map<String, List<FrameCryptor>> _cryptors = {};
+  final Map<String, Set<String>> _attachedTxSenders = {};
+  final Map<String, Set<String>> _attachedRxReceivers = {};
+  final Set<String> _e2eeActivePeers = {};
+  final Map<String, String> _safetyNumbers = {};
   final Set<String> _offeredE2ee = {};
+
+  /// Human-verifiable 20-digit Oneova Shield safety number for [uid], if available.
+  String? safetyNumberFor(String uid) => _safetyNumbers[uid];
 
   /// One queue of WebRTC work per remote peer.
   ///
@@ -333,7 +356,9 @@ class WebRTCConnectionManager extends Notifier<WebRTCMeshState> {
         _patch(remoteUserId, (p) => p.copyWith(videoRevision: p.videoRevision + 1));
       };
 
-      created = await createPeerConnection(CallIceConfig.configuration());
+      final iceConfig = await CallIceConfig.configurationAsync();
+      if (_callId != callId) return null;
+      created = await createPeerConnection(iceConfig);
       final pc = created;
       // Hung up while the connection was opening: `finally` closes it.
       if (_callId != callId) return null;
@@ -398,7 +423,12 @@ class WebRTCConnectionManager extends Notifier<WebRTCMeshState> {
         final stream = event.streams.isNotEmpty ? event.streams.first : _remoteStreams[remoteUserId];
         if (event.track.kind == 'video') {
           _remoteVideoTracks[remoteUserId] = event.track;
-          unawaited(_serial(remoteUserId, () => _bindRemoteVideo(remoteUserId, renderer, stream, event.track)));
+          unawaited(_serial(remoteUserId, () async {
+            if (_e2eeActivePeers.contains(remoteUserId)) {
+              await _syncFrameCryptors(callId, remoteUserId);
+            }
+            await _bindRemoteVideo(remoteUserId, renderer, stream, event.track);
+          }));
           event.track.onUnMute = () {
             final latestStream = _remoteStreams[remoteUserId] ?? stream;
             unawaited(_serial(remoteUserId, () => _bindRemoteVideo(remoteUserId, renderer, latestStream, event.track)));
@@ -406,9 +436,14 @@ class WebRTCConnectionManager extends Notifier<WebRTCMeshState> {
           event.track.onEnded = () {
             _patch(remoteUserId, (p) => p.copyWith(hasRemoteVideo: false, videoRevision: p.videoRevision + 1));
           };
-        } else if (stream != null && _remoteVideoTracks[remoteUserId] != null && renderer.srcObject == null) {
-          final videoTrack = _remoteVideoTracks[remoteUserId]!;
-          unawaited(_serial(remoteUserId, () => _bindRemoteVideo(remoteUserId, renderer, stream, videoTrack)));
+        } else {
+          if (_e2eeActivePeers.contains(remoteUserId)) {
+            unawaited(_serial(remoteUserId, () => _syncFrameCryptors(callId, remoteUserId)));
+          }
+          if (stream != null && _remoteVideoTracks[remoteUserId] != null && renderer.srcObject == null) {
+            final videoTrack = _remoteVideoTracks[remoteUserId]!;
+            unawaited(_serial(remoteUserId, () => _bindRemoteVideo(remoteUserId, renderer, stream, videoTrack)));
+          }
         }
       };
 
@@ -814,6 +849,8 @@ class WebRTCConnectionManager extends Notifier<WebRTCMeshState> {
   Future<void> restartAll() async {
     final callId = _callId;
     if (callId == null) return;
+    _iceRestartRetries.clear();
+    _lastRestart.clear();
     for (final peer in state.peers.values.toList()) {
       _patch(peer.remoteUserId, (p) => p.copyWith(link: PeerLinkState.reconnecting));
       await _requestIceRound(callId, peer);
@@ -823,10 +860,14 @@ class WebRTCConnectionManager extends Notifier<WebRTCMeshState> {
   /// Hot-swaps the outgoing microphone track on every connection (e.g. toggling
   /// Studio Voice Clean DSP) without dropping or renegotiating the call.
   Future<void> replaceAudioTrack(MediaStreamTrack? track) async {
+    final callId = _callId;
     for (final entry in _audioSenders.entries.toList()) {
       await _serial(entry.key, () async {
         if (!identical(_audioSenders[entry.key], entry.value)) return;
         await entry.value.replaceTrack(track);
+        if (track != null && callId != null && _e2eeActivePeers.contains(entry.key)) {
+          await _syncFrameCryptors(callId, entry.key);
+        }
       });
     }
   }
@@ -850,9 +891,15 @@ class WebRTCConnectionManager extends Notifier<WebRTCMeshState> {
     try {
       if (track != null && _needsVideoUpgradeOffer.remove(uid) && local != null) {
         _videoSenders[uid] = await peer.connection.addTrack(track, local);
+        if (_e2eeActivePeers.contains(uid)) {
+          await _syncFrameCryptors(callId, uid);
+        }
         await _sendOffer(callId, peer);
       } else if (_videoSenders.containsKey(uid)) {
         await _videoSenders[uid]!.replaceTrack(track);
+        if (track != null && _e2eeActivePeers.contains(uid)) {
+          await _syncFrameCryptors(callId, uid);
+        }
       } else if (track != null) {
         final transceivers = await peer.connection.getTransceivers();
         final videoTx = transceivers
@@ -861,8 +908,14 @@ class WebRTCConnectionManager extends Notifier<WebRTCMeshState> {
         if (videoTx != null) {
           _videoSenders[uid] = videoTx.sender;
           await videoTx.sender.replaceTrack(track);
+          if (_e2eeActivePeers.contains(uid)) {
+            await _syncFrameCryptors(callId, uid);
+          }
         } else if (local != null) {
           _videoSenders[uid] = await peer.connection.addTrack(track, local);
+          if (_e2eeActivePeers.contains(uid)) {
+            await _syncFrameCryptors(callId, uid);
+          }
           await _sendOffer(callId, peer);
         }
       }
@@ -934,14 +987,27 @@ class WebRTCConnectionManager extends Notifier<WebRTCMeshState> {
         num? rtt;
         num lost = 0;
         num received = 0;
+        double? audioLevel;
+        String? activeLocalCandId;
+        final localCandidateTypes = <String, String>{};
         for (final r in reports) {
           final v = r.values;
-          if (r.type == 'candidate-pair' && ('${v['nominated']}' == 'true' || v['state'] == 'succeeded')) {
+          if (r.type == 'local-candidate') {
+            final ctype = v['candidateType'];
+            if (ctype is String) localCandidateTypes[r.id] = ctype;
+          } else if (r.type == 'candidate-pair' && ('${v['nominated']}' == 'true' || v['state'] == 'succeeded')) {
             final x = _num(v['currentRoundTripTime']);
             if (x != null && x > 0) rtt = x;
+            final lid = v['localCandidateId'];
+            if (lid is String && lid.isNotEmpty) activeLocalCandId = lid;
           } else if (r.type == 'inbound-rtp') {
             lost += _num(v['packetsLost']) ?? 0;
             received += _num(v['packetsReceived']) ?? 0;
+            final kind = v['kind'] ?? v['mediaType'];
+            if (kind == 'audio') {
+              final lvl = _num(v['audioLevel'])?.toDouble();
+              if (lvl != null) audioLevel = lvl;
+            }
           }
         }
         final prev = _lastRx[uid];
@@ -957,7 +1023,30 @@ class WebRTCConnectionManager extends Notifier<WebRTCMeshState> {
             : (rtt != null && rtt > 0.3) || loss > 0.03
                 ? CallQuality.fair
                 : CallQuality.good;
-        if (q != state.peers[uid]?.quality) _patch(uid, (p) => p.copyWith(quality: q));
+        final nextRttMs = rtt != null ? (rtt * 1000).round() : peer.rttMs;
+        final nextLossPct = double.parse((loss * 100).toStringAsFixed(1));
+        final nextRelay = activeLocalCandId != null
+            ? localCandidateTypes[activeLocalCandId] == 'relay'
+            : peer.usingRelay;
+        final nextSpeaking = (audioLevel ?? 0) > 0.04;
+        final currentPeer = state.peers[uid];
+        if (currentPeer != null &&
+            (q != currentPeer.quality ||
+                nextRttMs != currentPeer.rttMs ||
+                nextLossPct != currentPeer.packetLossPct ||
+                nextRelay != currentPeer.usingRelay ||
+                nextSpeaking != currentPeer.isSpeaking)) {
+          _patch(
+            uid,
+            (p) => p.copyWith(
+              quality: q,
+              rttMs: nextRttMs,
+              packetLossPct: nextLossPct,
+              usingRelay: nextRelay,
+              isSpeaking: nextSpeaking,
+            ),
+          );
+        }
       } catch (_) {
         // Stats are best effort.
       }
@@ -1120,15 +1209,43 @@ class WebRTCConnectionManager extends Notifier<WebRTCMeshState> {
     return offer['me'] == mine['peer'] && offer['peer'] == mine['me'];
   }
 
-  /// Attaches AES-GCM frame cryptors to every active sender and receiver of the
-  /// connection to [uid], matched by media kind rather than raw transceiver
-  /// index. Returns whether encryption is on.
+  /// Decides whether sender and/or receiver [FrameCryptor]s can safely attach to
+  /// a transceiver without dereferencing a null native `MediaStreamTrack` inside
+  /// Android `libjingle_peerconnection_so.so` (`SIGSEGV` if `track == null`).
+  @visibleForTesting
+  static ({bool attachSender, bool attachReceiver, String kindKey}) planTransceiverCryptor({
+    required bool stopped,
+    required String? senderTrackKind,
+    required String? receiverTrackKind,
+    required bool senderAlreadyAttached,
+    required bool receiverAlreadyAttached,
+    required int index,
+    required Set<String> seenKinds,
+  }) {
+    if (stopped) {
+      return (attachSender: false, attachReceiver: false, kindKey: 'm$index');
+    }
+    final rawKind = receiverTrackKind ?? senderTrackKind ?? 'm$index';
+    final kindKey = seenKinds.add(rawKind) ? rawKind : '$rawKind$index';
+    return (
+      attachSender: senderTrackKind != null && !senderAlreadyAttached,
+      attachReceiver: receiverTrackKind != null && !receiverAlreadyAttached,
+      kindKey: kindKey,
+    );
+  }
+
+  /// Derives the shared call frame key, creates a [KeyProvider], and attaches
+  /// AES-GCM frame cryptors to all transceivers that currently hold active
+  /// tracks. Returns whether encryption is on.
   Future<bool> _enableFrameCrypto(String callId, String uid) async {
     final pc = state.peers[uid]?.connection;
     if (pc == null) return false;
-    if (_cryptors.containsKey(uid)) return true;
+    if (_e2eeActivePeers.contains(uid)) {
+      return _syncFrameCryptors(callId, uid);
+    }
     try {
       final e2ee = ref.read(e2eEncryptionServiceProvider);
+      final myKey = await e2ee.getMyPublicKey();
       final peerKey = await e2ee.getRecipientPublicKey(uid);
       if (peerKey == null) return false;
       final key = await e2ee.deriveCallFrameKey(peerKey, callId);
@@ -1142,46 +1259,17 @@ class WebRTCConnectionManager extends Notifier<WebRTCMeshState> {
       ));
       await provider.setSharedKey(key: key);
 
-      final cryptors = <FrameCryptor>[];
-      final transceivers = await pc.getTransceivers();
-      final seenKinds = <String>{};
-      for (var i = 0; i < transceivers.length; i++) {
-        final t = transceivers[i];
-        if (t.stoped) continue;
-        final rawKind = t.receiver.track?.kind ?? t.sender.track?.kind ?? 'm$i';
-        final kindKey = seenKinds.add(rawKind) ? rawKind : '$rawKind$i';
-        final tx = await frameCryptorFactory.createFrameCryptorForRtpSender(
-          participantId: '$uid#tx#$kindKey',
-          sender: t.sender,
-          algorithm: Algorithm.kAesGcm,
-          keyProvider: provider,
-        );
-        final rx = await frameCryptorFactory.createFrameCryptorForRtpReceiver(
-          participantId: '$uid#rx#$kindKey',
-          receiver: t.receiver,
-          algorithm: Algorithm.kAesGcm,
-          keyProvider: provider,
-        );
-        tx.onFrameCryptorStateChanged = (id, s) {
-          if (s != FrameCryptorState.FrameCryptorStateOk && s != FrameCryptorState.FrameCryptorStateNew) {
-            debugPrint('[Mesh] frame cryptor $id: $s');
-          }
-        };
-        rx.onFrameCryptorStateChanged = (id, s) {
-          if (s == FrameCryptorState.FrameCryptorStateDecryptionFailed && rawKind == 'video') {
-            _requestKeyframe(callId, uid);
-          } else if (s != FrameCryptorState.FrameCryptorStateOk && s != FrameCryptorState.FrameCryptorStateNew) {
-            debugPrint('[Mesh] frame cryptor $id: $s');
-          }
-        };
-        for (final c in [tx, rx]) {
-          await c.setKeyIndex(0);
-          await c.setEnabled(true);
-          cryptors.add(c);
-        }
-      }
       _keyProviders[uid] = provider;
-      _cryptors[uid] = cryptors;
+      _e2eeActivePeers.add(uid);
+      if (myKey != null && myKey.isNotEmpty) {
+        _safetyNumbers[uid] = e2ee.generateSafetyNumber(myKey, peerKey);
+      }
+
+      final synced = await _syncFrameCryptors(callId, uid);
+      if (!synced) {
+        await _disposeFrameCrypto(uid);
+        return false;
+      }
       _patch(uid, (p) => p.copyWith(frameEncrypted: true));
       return true;
     } catch (e) {
@@ -1191,7 +1279,87 @@ class WebRTCConnectionManager extends Notifier<WebRTCMeshState> {
     }
   }
 
+  /// Idempotently attaches AES-GCM cryptors to any sender or receiver whose
+  /// native `track` is now non-null and not yet wrapped. Safe to call after
+  /// initial SDP negotiation and after mid-call `replaceTrack` / `onTrack`.
+  Future<bool> _syncFrameCryptors(String callId, String uid) async {
+    if (_callId != callId || !_e2eeActivePeers.contains(uid)) return false;
+    final pc = state.peers[uid]?.connection;
+    final provider = _keyProviders[uid];
+    if (pc == null || provider == null) return false;
+    try {
+      final cryptors = _cryptors.putIfAbsent(uid, () => []);
+      final attachedSenders = _attachedTxSenders.putIfAbsent(uid, () => {});
+      final attachedReceivers = _attachedRxReceivers.putIfAbsent(uid, () => {});
+      final transceivers = await pc.getTransceivers();
+      final seenKinds = <String>{};
+      for (var i = 0; i < transceivers.length; i++) {
+        final t = transceivers[i];
+        final senderId = t.sender.senderId;
+        final receiverId = t.receiver.receiverId;
+        final senderKind = t.sender.track?.kind;
+        final receiverKind = t.receiver.track?.kind;
+        final plan = planTransceiverCryptor(
+          stopped: t.stoped,
+          senderTrackKind: senderKind,
+          receiverTrackKind: receiverKind,
+          senderAlreadyAttached: attachedSenders.contains(senderId),
+          receiverAlreadyAttached: attachedReceivers.contains(receiverId),
+          index: i,
+          seenKinds: seenKinds,
+        );
+        final rawKind = receiverKind ?? senderKind ?? 'm$i';
+
+        if (plan.attachSender) {
+          final tx = await frameCryptorFactory.createFrameCryptorForRtpSender(
+            participantId: '$uid#tx#${plan.kindKey}',
+            sender: t.sender,
+            algorithm: Algorithm.kAesGcm,
+            keyProvider: provider,
+          );
+          tx.onFrameCryptorStateChanged = (id, s) {
+            if (s != FrameCryptorState.FrameCryptorStateOk && s != FrameCryptorState.FrameCryptorStateNew) {
+              debugPrint('[Mesh] frame cryptor $id: $s');
+            }
+          };
+          await tx.setKeyIndex(0);
+          await tx.setEnabled(true);
+          cryptors.add(tx);
+          attachedSenders.add(senderId);
+        }
+
+        if (plan.attachReceiver) {
+          final rx = await frameCryptorFactory.createFrameCryptorForRtpReceiver(
+            participantId: '$uid#rx#${plan.kindKey}',
+            receiver: t.receiver,
+            algorithm: Algorithm.kAesGcm,
+            keyProvider: provider,
+          );
+          rx.onFrameCryptorStateChanged = (id, s) {
+            if (s == FrameCryptorState.FrameCryptorStateDecryptionFailed && rawKind == 'video') {
+              _requestKeyframe(callId, uid);
+            } else if (s != FrameCryptorState.FrameCryptorStateOk && s != FrameCryptorState.FrameCryptorStateNew) {
+              debugPrint('[Mesh] frame cryptor $id: $s');
+            }
+          };
+          await rx.setKeyIndex(0);
+          await rx.setEnabled(true);
+          cryptors.add(rx);
+          attachedReceivers.add(receiverId);
+        }
+      }
+      return true;
+    } catch (e) {
+      debugPrint('[Mesh] sync frame cryptors failed for $uid: $e');
+      return false;
+    }
+  }
+
   Future<void> _disposeFrameCrypto(String uid) async {
+    _e2eeActivePeers.remove(uid);
+    _attachedTxSenders.remove(uid);
+    _attachedRxReceivers.remove(uid);
+    _safetyNumbers.remove(uid);
     for (final c in _cryptors.remove(uid) ?? const <FrameCryptor>[]) {
       try {
         await c.dispose();
@@ -1256,6 +1424,10 @@ class WebRTCConnectionManager extends Notifier<WebRTCMeshState> {
     _lastRx.clear();
     _lastRestart.clear();
     _offeredE2ee.clear();
+    _e2eeActivePeers.clear();
+    _attachedTxSenders.clear();
+    _attachedRxReceivers.clear();
+    _safetyNumbers.clear();
 
     // Provider disposed mid-call: close whatever is still open.
     for (final peer in state.peers.values.toList()) {

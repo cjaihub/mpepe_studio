@@ -234,6 +234,10 @@ Future<bool> handleCallPushInBackground(RemoteMessage message) async {
     await CallKitService.showMissed(p);
     return true;
   }
+  final existing = await CallKitService.activeCalls();
+  if (existing.any((c) => c.id == p.id || c.extra?['callId'] == p.extra?['callId'])) {
+    return true;
+  }
   await CallKitService.showIncoming(p);
   await _ackDelivered(data['callId'] as String);
   return true;

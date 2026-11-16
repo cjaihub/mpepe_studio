@@ -61,6 +61,30 @@ class CallSignalingService {
     }
   }
 
+  /// Returns true if either [a] or [b] has blocked the other in `relationships`.
+  Future<bool> isBlockedPair(String a, String b) async {
+    if (a.isEmpty || b.isEmpty || a == b) return false;
+    try {
+      final docs = await Future.wait([
+        _firestore.collection('relationships').doc('${a}_$b').get(),
+        _firestore.collection('relationships').doc('${b}_$a').get(),
+      ]).timeout(const Duration(seconds: 3));
+      for (final d in docs) {
+        if (d.exists && d.data()?['status'] == 'blocked') return true;
+      }
+    } catch (e) {
+      debugPrint('[CallSignaling] block check skipped: $e');
+    }
+    return false;
+  }
+
+  Future<void> _ensureNoneBlocked(String me, List<String> targets) async {
+    final checks = await Future.wait(targets.map((t) => isBlockedPair(me, t)));
+    if (checks.any((blocked) => blocked)) {
+      throw StateError('Unable to call this person.');
+    }
+  }
+
   /// Places a call. Writing the ringing participant docs is what triggers the
   /// server push (see functions/src/calls.ts).
   Future<CallModel> createCall({
@@ -68,11 +92,13 @@ class CallSignalingService {
     required bool isVideo,
     String? chatId,
     String? title,
+    bool audioMuted = false,
   }) async {
     final me = currentUserId;
     if (me.isEmpty) throw StateError('Not signed in');
     final targets = targetUserIds.where((id) => id.isNotEmpty && id != me).toSet().toList();
     if (targets.isEmpty) throw ArgumentError('No one to call');
+    await _ensureNoneBlocked(me, targets);
 
     final self = await resolveUser(me);
     final resolved = await Future.wait(targets.map(resolveUser));
@@ -101,6 +127,7 @@ class CallSignalingService {
           status: ParticipantStatus.joined,
           name: self.name,
           avatar: self.avatar,
+          isAudioMuted: audioMuted,
           isVideoMuted: !isVideo,
         ).toMap(),
         'userId': me,
@@ -121,10 +148,12 @@ class CallSignalingService {
 
   /// Rings more people into an existing call (turns it into a group call).
   Future<void> addParticipants(String callId, List<String> userIds) async {
+    final me = currentUserId;
     final snap = await callRef(callId).get();
     final existing = List<String>.from((snap.data()?['participantIds'] ?? const []) as List);
     final fresh = userIds.where((u) => u.isNotEmpty && !existing.contains(u)).toSet().toList();
     if (fresh.isEmpty) return;
+    if (me.isNotEmpty) await _ensureNoneBlocked(me, fresh);
     final resolved = await Future.wait(fresh.map(resolveUser));
     final batch = _firestore.batch();
     batch.update(callRef(callId), {
@@ -156,13 +185,13 @@ class CallSignalingService {
   /// Accepts on this device. Other devices of the same user stop ringing
   /// because the server sends a `call_cancel` push when the status leaves
   /// `ringing`.
-  Future<void> acceptCall(String callId, {required bool videoOn}) async {
+  Future<void> acceptCall(String callId, {required bool videoOn, bool audioMuted = false}) async {
     final me = currentUserId;
     await _participantRef(callId, me).set({
       'status': ParticipantStatus.joined.name,
       'joinedAt': FieldValue.serverTimestamp(),
       'isVideoMuted': !videoOn,
-      'isAudioMuted': false,
+      'isAudioMuted': audioMuted,
       'updatedAt': FieldValue.serverTimestamp(),
     }, SetOptions(merge: true));
     await _firestore.runTransaction((tx) async {
@@ -362,6 +391,10 @@ class CallSignalingService {
         }
         final pDoc = await doc.reference.collection('participants').doc(uid).get();
         if (pDoc.exists && CallParticipant.fromFirestore(pDoc).status == ParticipantStatus.ringing) {
+          if (await isBlockedPair(uid, call.hostId)) {
+            await declineCall(call.id);
+            continue;
+          }
           calls.add(call);
         }
       }

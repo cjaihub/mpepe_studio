@@ -196,6 +196,15 @@ class MainActivity : FlutterFragmentActivity() {
                     } catch (_: Exception) {}
                 }
                 result.success(null)
+            } else if (call.method == "setWakeScreen") {
+                val enabled = call.argument<Boolean>("enabled") ?: false
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O_MR1) {
+                    try {
+                        setShowWhenLocked(enabled)
+                        setTurnScreenOn(enabled)
+                    } catch (_: Exception) {}
+                }
+                result.success(null)
             } else {
                 result.notImplemented()
             }

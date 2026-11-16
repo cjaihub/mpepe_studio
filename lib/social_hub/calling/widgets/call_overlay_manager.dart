@@ -17,6 +17,7 @@ import '../../../backend/calling/providers/call_media_service.dart';
 import '../../../backend/calling/providers/call_room_controller.dart';
 import '../../../backend/calling/providers/call_signaling_service.dart';
 import '../../../backend/calling/providers/webrtc_connection_manager.dart';
+import '../../../backend/calling/services/call_ice_config.dart';
 import '../../../backend/calling/services/call_pip_service.dart';
 import '../../../backend/calling/services/callkit_service.dart';
 import '../../../backend/notifications/providers/push_notification_service.dart';
@@ -35,6 +36,16 @@ class CallOverlayManager extends ConsumerStatefulWidget {
   final Widget child;
 
   const CallOverlayManager({super.key, required this.child});
+
+  /// True when an accepted/incoming call arrived while `/splash` was still on
+  /// screen; consumed once `/splash` hands off to `/hub/home`.
+  static bool pendingOpenCall = false;
+
+  static bool consumePendingOpenCall() {
+    final v = pendingOpenCall;
+    pendingOpenCall = false;
+    return v;
+  }
 
   @override
   ConsumerState<CallOverlayManager> createState() => _CallOverlayManagerState();
@@ -89,6 +100,7 @@ class _CallOverlayManagerState extends ConsumerState<CallOverlayManager> {
     );
     if (_bootstrappedUid == user.uid) return;
     _bootstrappedUid = user.uid;
+    unawaited(CallIceConfig.warmUp());
     // Accepted on the lock screen while the app was killed: connect first,
     // before any permission prompt or token work can delay the caller.
     await _resumeAcceptedNativeCall();
@@ -101,15 +113,23 @@ class _CallOverlayManagerState extends ConsumerState<CallOverlayManager> {
     await CallKitService.registerVoipToken();
   }
 
-  /// The user accepted on the lock screen before Flutter was running.
+  /// The user accepted on the lock screen before Flutter was running, or a
+  /// stale CallKit entry lingered after an earlier crash.
   Future<void> _resumeAcceptedNativeCall() async {
     final calls = await CallKitService.activeCalls();
     for (final c in calls) {
       final callId = c.extra?['callId'] as String?;
-      if (callId != null && c.isAccepted) {
+      if (callId == null) continue;
+      if (c.isAccepted) {
         await ref.read(activeCallControllerProvider.notifier).acceptById(callId);
-        _openScreen();
+        if (ref.read(activeCallControllerProvider).isLive) {
+          _openScreen();
+        }
         return;
+      }
+      final existing = await ref.read(callSignalingServiceProvider).getCall(callId).catchError((_) => null);
+      if (existing == null || existing.isFinished) {
+        await CallKitService.end(c.id);
       }
     }
   }
@@ -125,7 +145,13 @@ class _CallOverlayManagerState extends ConsumerState<CallOverlayManager> {
 
   void _openScreen() {
     if (!mounted) return;
-    openCallScreen(ref.read(routerProvider));
+    final router = ref.read(routerProvider);
+    final loc = router.routerDelegate.currentConfiguration.uri.path;
+    if (loc == '/splash' || loc.isEmpty || loc == '/') {
+      CallOverlayManager.pendingOpenCall = true;
+      return;
+    }
+    openCallScreen(router);
   }
 
   Future<void> _onCallKitEvent(CallEvent? event) async {

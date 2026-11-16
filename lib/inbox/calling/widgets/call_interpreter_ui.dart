@@ -100,14 +100,14 @@ class _InterpreterSheet extends ConsumerWidget {
           const SizedBox(height: 12),
           CompactGroup(children: [
             CompactRow(
-              icon: Icons.graphic_eq_rounded,
-              title: 'Ask Ova Live in this call',
-              subtitle: 'Open Vertex Live voice assistant alongside your call',
+              icon: Icons.chat_bubble_outline_rounded,
+              title: 'Ask Ova alongside this call',
+              subtitle: 'Open Ova assistant in text so your call mic stays uninterrupted',
               onTap: () {
                 Navigator.of(context).pop();
                 OvaAssistantSheet.show(
                   context,
-                  autoStartVoice: true,
+                  autoStartVoice: false,
                 );
               },
             ),

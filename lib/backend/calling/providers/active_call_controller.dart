@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:connectivity_plus/connectivity_plus.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/foundation.dart';
@@ -12,6 +13,7 @@ import 'package:wakelock_plus/wakelock_plus.dart';
 
 import '../models/call_model.dart';
 import '../models/call_participant.dart';
+import '../services/call_ice_config.dart';
 import '../services/call_pip_service.dart';
 import '../services/callkit_service.dart';
 import '../../social/services/video_playback_manager.dart';
@@ -125,6 +127,39 @@ class ActiveCallController extends Notifier<ActiveCallState> {
   Timer? _reconnectWatchdog;
   List<ConnectivityResult>? _lastNet;
   bool _finishing = false;
+  bool _nativeConnectedMarked = false;
+
+  @visibleForTesting
+  static bool shouldRestartOnConnectivityChange(
+    List<ConnectivityResult> previous,
+    List<ConnectivityResult> next,
+  ) {
+    final nextActive = next.where((r) => r != ConnectivityResult.none).toSet();
+    if (nextActive.isEmpty) return false;
+    final prevActive = previous.where((r) => r != ConnectivityResult.none).toSet();
+    if (prevActive.isEmpty) return true;
+    return !setEquals(prevActive, nextActive);
+  }
+
+  Future<({bool allowMic, bool noiseCancellation})> _readCallSettings() async {
+    final uid = _me;
+    if (uid.isEmpty) return (allowMic: true, noiseCancellation: true);
+    try {
+      final doc = await FirebaseFirestore.instance
+          .collection('user_settings')
+          .doc(uid)
+          .get()
+          .timeout(const Duration(milliseconds: 500));
+      final calls = doc.data()?['calls'];
+      if (calls is Map) {
+        return (
+          allowMic: calls['allowMic'] as bool? ?? true,
+          noiseCancellation: calls['noiseCancellation'] as bool? ?? true,
+        );
+      }
+    } catch (_) {}
+    return (allowMic: true, noiseCancellation: true);
+  }
 
   CallSignalingService get _signaling => ref.read(callSignalingServiceProvider);
   CallMediaService get _media => ref.read(callMediaServiceProvider.notifier);
@@ -187,14 +222,26 @@ class ActiveCallController extends Notifier<ActiveCallState> {
     }
     _resetTimer?.cancel();
     _finishing = false;
+    _nativeConnectedMarked = false;
     state = const ActiveCallState(phase: CallPhase.outgoing);
     ref.read(videoPlaybackManagerProvider).setCallActive(true);
+    unawaited(CallIceConfig.warmUp());
+    late ({bool allowMic, bool noiseCancellation}) callPrefs;
     try {
-      await _askBluetooth();
-      await _media.initializeMedia(video: isVideo);
+      final setup = await Future.wait([
+        _askBluetooth(),
+        _readCallSettings(),
+      ]);
+      callPrefs = setup[1] as ({bool allowMic, bool noiseCancellation});
+      await _media.initializeMedia(
+        video: isVideo,
+        voiceEnhanced: callPrefs.noiseCancellation,
+        startMuted: !callPrefs.allowMic,
+      );
     } catch (e) {
       ref.read(videoPlaybackManagerProvider).setCallActive(false);
       state = const ActiveCallState();
+      if (e is StateError) rethrow;
       throw StateError('Allow microphone${isVideo ? ' and camera' : ''} access to call.');
     }
     try {
@@ -203,6 +250,7 @@ class ActiveCallController extends Notifier<ActiveCallState> {
         isVideo: isVideo,
         chatId: chatId,
         title: title,
+        audioMuted: !callPrefs.allowMic,
       );
       state = state.copyWith(call: call, phase: CallPhase.outgoing);
       _mesh.attach(call.id);
@@ -215,6 +263,7 @@ class ActiveCallController extends Notifier<ActiveCallState> {
       unawaited(CallKitService.startOngoing(_paramsFor(call)));
       return call;
     } catch (e) {
+      ref.read(videoPlaybackManagerProvider).setCallActive(false);
       await _media.disposeMedia();
       state = const ActiveCallState();
       rethrow;
@@ -254,6 +303,10 @@ class ActiveCallController extends Notifier<ActiveCallState> {
   /// the app is open). Rings natively too, or auto-replies busy.
   Future<void> presentIncoming(CallModel call) async {
     if (state.call?.id == call.id) return;
+    if (await _signaling.isBlockedPair(_me, call.hostId)) {
+      unawaited(_signaling.declineCall(call.id).catchError((_) {}));
+      return;
+    }
     if (state.isBusy) {
       await _signaling.markBusy(call.id);
       return;
@@ -314,7 +367,9 @@ class ActiveCallController extends Notifier<ActiveCallState> {
     if (call == null) return;
     _resetTimer?.cancel();
     _finishing = false;
+    _nativeConnectedMarked = false;
     ref.read(videoPlaybackManagerProvider).setCallActive(true);
+    unawaited(CallIceConfig.warmUp());
     if (state.call?.id != call.id) {
       state = ActiveCallState(phase: CallPhase.connecting, call: call);
       _watch(call.id);
@@ -334,9 +389,18 @@ class ActiveCallController extends Notifier<ActiveCallState> {
         await CallKitService.end(params.id);
       }
     }
+    late ({bool allowMic, bool noiseCancellation}) callPrefs;
     try {
-      await _askBluetooth();
-      await _media.initializeMedia(video: call.isVideo);
+      final setup = await Future.wait([
+        _askBluetooth(),
+        _readCallSettings(),
+      ]);
+      callPrefs = setup[1] as ({bool allowMic, bool noiseCancellation});
+      await _media.initializeMedia(
+        video: call.isVideo,
+        voiceEnhanced: callPrefs.noiseCancellation,
+        startMuted: !callPrefs.allowMic,
+      );
     } catch (e) {
       state = state.copyWith(errorMessage: 'Allow microphone${call.isVideo ? ' and camera' : ''} access to answer.');
       await decline();
@@ -350,12 +414,12 @@ class ActiveCallController extends Notifier<ActiveCallState> {
         // 1:1 fast path: start WebRTC offer + ICE exchange with the host in
         // parallel with Firestore accept signaling to shave 400–900ms off setup.
         await Future.wait([
-          _signaling.acceptCall(call.id, videoOn: call.isVideo),
+          _signaling.acceptCall(call.id, videoOn: call.isVideo, audioMuted: !callPrefs.allowMic),
           _mesh.connectTo(call.hostId, offerer: true),
         ]);
       } else {
         final results = await Future.wait([
-          _signaling.acceptCall(call.id, videoOn: call.isVideo),
+          _signaling.acceptCall(call.id, videoOn: call.isVideo, audioMuted: !callPrefs.allowMic),
           _signaling.fetchParticipants(call.id),
         ]);
         final current = results[1] as List<CallParticipant>;
@@ -367,7 +431,10 @@ class ActiveCallController extends Notifier<ActiveCallState> {
           for (final id in ids) _mesh.connectTo(id, offerer: true),
         ]);
       }
-      await CallKitService.setConnected(params.id);
+      if (!_nativeConnectedMarked) {
+        _nativeConnectedMarked = true;
+        await CallKitService.setConnected(params.id);
+      }
     } catch (e) {
       debugPrint('[Call] accept failed: $e');
       state = state.copyWith(errorMessage: 'Could not connect the call.');
@@ -653,6 +720,11 @@ class ActiveCallController extends Notifier<ActiveCallState> {
       _ringTimer?.cancel();
       _connectWatchdog?.cancel();
       _reconnectWatchdog?.cancel();
+      final call = state.call;
+      if (!_nativeConnectedMarked && call != null) {
+        _nativeConnectedMarked = true;
+        unawaited(CallKitService.setConnected(_paramsFor(call).id));
+      }
       if (state.phase != CallPhase.connected) {
         state = state.copyWith(
           phase: CallPhase.connected,
@@ -672,7 +744,6 @@ class ActiveCallController extends Notifier<ActiveCallState> {
       final previous = _lastNet;
       _lastNet = result;
       if (previous == null) return;
-      final hadNet = previous.any((r) => r != ConnectivityResult.none);
       final hasNet = result.any((r) => r != ConnectivityResult.none);
       if (!hasNet) {
         if (state.phase == CallPhase.connected) {
@@ -681,10 +752,10 @@ class ActiveCallController extends Notifier<ActiveCallState> {
         }
         return;
       }
-      // Only restart WebRTC if connection was genuinely severed and re-established
-      if (!hadNet && hasNet) {
+      // Restart WebRTC ICE across both offline→online and Wi-Fi↔cellular handovers.
+      if (shouldRestartOnConnectivityChange(previous, result)) {
         _netDebounce?.cancel();
-        _netDebounce = Timer(const Duration(milliseconds: 1000), () => _mesh.restartAll());
+        _netDebounce = Timer(const Duration(milliseconds: 700), () => _mesh.restartAll());
       }
     });
   }
@@ -695,7 +766,12 @@ class ActiveCallController extends Notifier<ActiveCallState> {
     if (kIsWeb || defaultTargetPlatform != TargetPlatform.android) return;
     try {
       final status = await Permission.bluetoothConnect.status;
-      if (status.isDenied) await Permission.bluetoothConnect.request();
+      if (status.isDenied) {
+        final after = await Permission.bluetoothConnect.request();
+        if (after.isGranted && ref.read(callMediaServiceProvider).localStream != null) {
+          unawaited(_media.refreshOutputs());
+        }
+      }
     } catch (_) {}
   }
 
@@ -707,12 +783,15 @@ class ActiveCallController extends Notifier<ActiveCallState> {
   void _syncDevice() {
     final media = ref.read(callMediaServiceProvider);
     final busy = state.isBusy;
-    final wake = busy && media.isVideoOn;
+    final wake = busy && (media.isVideoOn || media.isScreenSharingActive);
     if (_wakelockOn != wake) {
       _wakelockOn = wake;
       (wake ? WakelockPlus.enable() : WakelockPlus.disable()).catchError((_) {});
     }
-    CallPipService.setProximity(busy && media.localStream != null && !media.isVideoOn && media.audioRoute == AudioRoute.earpiece);
+    CallPipService.setWakeScreen(state.phase == CallPhase.incoming || busy);
+    CallPipService.setProximity(
+      busy && media.localStream != null && !media.isVideoOn && !media.isScreenSharingActive && media.audioRoute == AudioRoute.earpiece,
+    );
     CallPipService.setRingback(state.phase == CallPhase.outgoing && state.call != null);
     final inCall = state.phase == CallPhase.connected || state.phase == CallPhase.reconnecting;
     final mesh = ref.read(webrtcConnectionManagerProvider);
@@ -720,12 +799,13 @@ class ActiveCallController extends Notifier<ActiveCallState> {
           (p) => p.status == ParticipantStatus.joined && !p.isVideoMuted,
         ) ||
         mesh.peers.values.any((p) => p.hasRemoteVideo);
-    CallPipService.setAutoEnter(inCall && (media.isVideoOn || remoteVideo));
+    CallPipService.setAutoEnter(inCall && (media.isVideoOn || remoteVideo) && !media.isScreenSharingActive);
   }
 
   Future<void> _finish(CallEndReason reason, {bool remote = false, bool silent = false}) async {
     if (_finishing) return;
     _finishing = true;
+    _nativeConnectedMarked = false;
     final call = state.call;
     _ringTimer?.cancel();
     _netDebounce?.cancel();

@@ -179,10 +179,25 @@ async function sendVoip(uid, tokens, payload) {
     return delivered;
 }
 // ───────────────────────── Triggers ─────────────────────────
+async function isBlockedPair(a, b) {
+    if (!a || !b || a === b)
+        return false;
+    try {
+        const [d1, d2] = await Promise.all([
+            db().collection('relationships').doc(`${a}_${b}`).get(),
+            db().collection('relationships').doc(`${b}_${a}`).get(),
+        ]);
+        return d1.get('status') === 'blocked' || d2.get('status') === 'blocked';
+    }
+    catch (e) {
+        logger.warn('isBlockedPair check skipped', e);
+        return false;
+    }
+}
 /** Rings a participant (and stops the ringing on their other devices). */
 exports.onCallParticipantWritten = (0, firestore_1.onDocumentWritten)({ document: 'calls/{callId}/participants/{uid}', secrets: [apnsKey, apnsKeyId, apnsTeamId] }, async (event) => {
-    var _a, _b;
-    var _c, _d, _e;
+    var _a, _b, _c, _d, _e;
+    var _f, _g, _h, _j;
     const { callId, uid } = event.params;
     const before = (_a = event.data) === null || _a === void 0 ? void 0 : _a.before.data();
     const after = (_b = event.data) === null || _b === void 0 ? void 0 : _b.after.data();
@@ -195,6 +210,13 @@ exports.onCallParticipantWritten = (0, firestore_1.onDocumentWritten)({ document
     if (startedRinging) {
         if (call.status && FINAL.includes(call.status))
             return;
+        const startedMs = (_f = (_d = (_c = call.startedAt) === null || _c === void 0 ? void 0 : _c.toMillis) === null || _d === void 0 ? void 0 : _d.call(_c)) !== null && _f !== void 0 ? _f : Date.now();
+        if (Date.now() - startedMs > RING_MS + 15000)
+            return;
+        if (call.hostId && (await isBlockedPair(uid, call.hostId))) {
+            await ((_e = event.data) === null || _e === void 0 ? void 0 : _e.after.ref.set({ status: 'declined', updatedAt: firestore_2.FieldValue.serverTimestamp() }, { merge: true }).catch(() => undefined));
+            return;
+        }
         const t = await tokensFor(uid);
         const data = callData(callId, call, 'incoming_call');
         const voipSent = await sendVoip(uid, t.voip, {
@@ -204,7 +226,7 @@ exports.onCallParticipantWritten = (0, firestore_1.onDocumentWritten)({ document
             handle: call.isVideo ? 'Video call' : 'Voice call',
             isVideo: call.isVideo === true,
             avatar: data.callerAvatar,
-            extra: { callId, isVideo: call.isVideo === true, isGroup: call.isGroup === true, hostId: (_c = call.hostId) !== null && _c !== void 0 ? _c : '' },
+            extra: { callId, isVideo: call.isVideo === true, isGroup: call.isGroup === true, hostId: (_g = call.hostId) !== null && _g !== void 0 ? _g : '' },
         });
         await sendFcm(uid, t.android, data);
         if (!voipSent) {
@@ -223,13 +245,13 @@ exports.onCallParticipantWritten = (0, firestore_1.onDocumentWritten)({ document
         if (reason === 'missed') {
             await db().collection('notifications').add({
                 userId: uid,
-                actorId: (_d = call.hostId) !== null && _d !== void 0 ? _d : null,
+                actorId: (_h = call.hostId) !== null && _h !== void 0 ? _h : null,
                 category: 'missedCall',
                 priority: 'high',
                 title: 'Missed call',
                 body: `${call.callerName || 'Someone'} tried to ${call.isVideo ? 'video ' : ''}call you`,
                 groupId: `call_${callId}`,
-                payload: { callId, hostId: (_e = call.hostId) !== null && _e !== void 0 ? _e : '' },
+                payload: { callId, hostId: (_j = call.hostId) !== null && _j !== void 0 ? _j : '' },
                 isRead: false,
                 createdAt: firestore_2.FieldValue.serverTimestamp(),
             });

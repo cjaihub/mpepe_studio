@@ -295,21 +295,60 @@ class _CallControlButtonState extends State<CallControlButton> {
 class CallEncryptedChip extends StatelessWidget {
   final bool onDark;
   final bool frameEncrypted;
-  const CallEncryptedChip({super.key, this.onDark = false, this.frameEncrypted = false});
+  final VoidCallback? onTap;
+  const CallEncryptedChip({
+    super.key,
+    this.onDark = false,
+    this.frameEncrypted = false,
+    this.onTap,
+  });
 
   @override
   Widget build(BuildContext context) {
-    final fg = onDark ? AppColors.brandWhite.withValues(alpha: 0.8) : context.textSecondary;
-    return Row(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        Icon(Icons.lock_rounded, size: 11, color: fg),
-        const SizedBox(width: 4),
-        Text(
-          frameEncrypted ? 'End-to-end encrypted' : 'Encrypted in transit',
-          style: GoogleFonts.inter(fontSize: 10.5, fontWeight: FontWeight.w500, color: fg),
+    final fg = onDark ? AppColors.brandWhite.withValues(alpha: 0.85) : context.textSecondary;
+    final row = Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(
+            frameEncrypted ? Icons.verified_user_rounded : Icons.lock_rounded,
+            size: 11.5,
+            color: frameEncrypted ? AppColors.brandBlue : fg,
+          ),
+          const SizedBox(width: 4),
+          Text(
+            frameEncrypted ? 'End-to-end encrypted' : 'Encrypted in transit',
+            style: GoogleFonts.inter(fontSize: 10.5, fontWeight: FontWeight.w600, color: fg),
+          ),
+          if (onTap != null) ...[
+            const SizedBox(width: 2),
+            Icon(Icons.chevron_right_rounded, size: 12, color: fg.withValues(alpha: 0.75)),
+          ],
+        ],
+      ),
+    );
+    if (onTap == null) return row;
+    return Semantics(
+      button: true,
+      label: frameEncrypted ? 'View Oneova Shield safety number and call encryption' : 'View call security details',
+      child: GestureDetector(
+        onTap: () {
+          HapticFeedback.selectionClick();
+          onTap!();
+        },
+        child: Container(
+          decoration: BoxDecoration(
+            color: onDark ? AppColors.brandBlack.withValues(alpha: 0.32) : context.surfaceMid,
+            borderRadius: BorderRadius.circular(AppRadius.full),
+            border: Border.all(
+              color: onDark ? AppColors.brandWhite.withValues(alpha: 0.14) : context.border,
+              width: 1,
+            ),
+          ),
+          child: row,
         ),
-      ],
+      ),
     );
   }
 }

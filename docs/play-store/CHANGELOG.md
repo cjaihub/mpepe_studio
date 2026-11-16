@@ -1,5 +1,13 @@
 # Oneova release notes
 
+## 1.0.0 (47) — 2026-11-16 · Internal Testing Release
+
+**Zero-crash E2EE Voice & Video Calls, TURN Relay, Safety Numbers, and Screen Share upgrades**
+- **Fixed native Android call crash**: safely attaches AES-GCM frame encryption only when tracks are active and upgrades seamlessly when turning camera or screen share on mid-call.
+- **TURN relay & network handover**: calls now pre-warm short-lived relay credentials (`getIceServers`) and automatically renegotiate ICE when switching between Wi-Fi and mobile data.
+- **Audio routing & Telecom polish**: fixed Android Bluetooth/wired headset selection, synced call connected state for callers and callees, fixed cold-start lock-screen call acceptance from splash, and honored `Settings → Calls` mic & noise cancellation defaults.
+- **Screen share & privacy**: screen sharing now works smoothly even with camera off, blocked accounts can no longer ring your phone, and tapping the encryption badge opens your 20-digit Oneova Shield Safety Number and live connection metrics.
+
 ## 1.0.0 (43) — 2026-11-16 · Internal Testing Release
 
 **Ring-only notifications (no screen pop-ups), muted sources & backend AI notification memory, and Rotoscope Live Maps with Start Directions**

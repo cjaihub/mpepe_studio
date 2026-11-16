@@ -178,6 +178,20 @@ async function sendVoip(uid: string, tokens: string[], payload: object): Promise
 
 // ───────────────────────── Triggers ─────────────────────────
 
+async function isBlockedPair(a: string, b: string): Promise<boolean> {
+  if (!a || !b || a === b) return false;
+  try {
+    const [d1, d2] = await Promise.all([
+      db().collection('relationships').doc(`${a}_${b}`).get(),
+      db().collection('relationships').doc(`${b}_${a}`).get(),
+    ]);
+    return d1.get('status') === 'blocked' || d2.get('status') === 'blocked';
+  } catch (e) {
+    logger.warn('isBlockedPair check skipped', e);
+    return false;
+  }
+}
+
 /** Rings a participant (and stops the ringing on their other devices). */
 export const onCallParticipantWritten = onDocumentWritten(
   { document: 'calls/{callId}/participants/{uid}', secrets: [apnsKey, apnsKeyId, apnsTeamId] },
@@ -194,6 +208,14 @@ export const onCallParticipantWritten = onDocumentWritten(
 
     if (startedRinging) {
       if (call.status && FINAL.includes(call.status)) return;
+      const startedMs = call.startedAt?.toMillis?.() ?? Date.now();
+      if (Date.now() - startedMs > RING_MS + 15_000) return;
+      if (call.hostId && (await isBlockedPair(uid, call.hostId))) {
+        await event.data?.after.ref
+          .set({ status: 'declined', updatedAt: FieldValue.serverTimestamp() }, { merge: true })
+          .catch(() => undefined);
+        return;
+      }
       const t = await tokensFor(uid);
       const data = callData(callId, call, 'incoming_call');
       const voipSent = await sendVoip(uid, t.voip, {

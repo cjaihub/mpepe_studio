@@ -327,6 +327,10 @@ class CallRoomController extends Notifier<CallRoomState> {
     _musicSub = null;
     _seenEvents.clear();
     _loadedMusicUrl = null;
+    if (_lookTrackId != null) {
+      _lookTrackId = null;
+      unawaited(ref.read(callLooksControllerProvider.notifier).detachCameraTrack().catchError((_) {}));
+    }
     final music = _musicPlayer;
     _musicPlayer = null;
     if (music != null) unawaited(music.dispose().catchError((_) {}));

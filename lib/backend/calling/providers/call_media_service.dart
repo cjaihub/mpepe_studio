@@ -130,9 +130,23 @@ class CallMediaService extends Notifier<CallMediaState> {
     };
   }
 
+  /// Maps [AudioRoute] to `flutter_webrtc` Android `AudioDeviceKind.typeName`.
+  @visibleForTesting
+  static String androidAudioDeviceTypeName(AudioRoute route) => switch (route) {
+        AudioRoute.bluetooth => 'bluetooth',
+        AudioRoute.wired => 'wired-headset',
+        AudioRoute.speaker => 'speaker',
+        AudioRoute.earpiece => 'earpiece',
+      };
+
   /// Opens the microphone (and camera for video calls).
-  Future<void> initializeMedia({required bool video}) async {
+  Future<void> initializeMedia({
+    required bool video,
+    bool? voiceEnhanced,
+    bool startMuted = false,
+  }) async {
     if (state.localStream != null) return;
+    final enhanced = voiceEnhanced ?? state.isVoiceEnhanced;
     final got = await MicCoordinator.instance.acquire(
       MicUser.call,
       onPreempted: () async {},
@@ -140,14 +154,20 @@ class CallMediaService extends Notifier<CallMediaState> {
     );
     if (got is MicLease) _micLease = got;
     final stream = await navigator.mediaDevices.getUserMedia({
-      'audio': _audioConstraints(enhanced: state.isVoiceEnhanced),
+      'audio': _audioConstraints(enhanced: enhanced),
       'video': video ? _videoConstraints : false,
     });
+    if (startMuted) {
+      for (final t in stream.getAudioTracks()) {
+        t.enabled = false;
+      }
+    }
     state = state.copyWith(
       localStream: stream,
       isVideoOn: video,
       isFrontCamera: true,
-      isAudioMuted: false,
+      isAudioMuted: startMuted,
+      isVoiceEnhanced: enhanced,
       streamRevision: state.streamRevision + 1,
       audioRoute: video ? AudioRoute.speaker : AudioRoute.earpiece,
     );
@@ -375,9 +395,15 @@ class CallMediaService extends Notifier<CallMediaState> {
         (o) => o.route == route,
         orElse: () => AudioOutputOption(route, deviceId ?? route.name, ''),
       );
+      final targetId = defaultTargetPlatform == TargetPlatform.android
+          ? androidAudioDeviceTypeName(route)
+          : (deviceId ?? option.deviceId);
       switch (route) {
         case AudioRoute.speaker:
           await Helper.setSpeakerphoneOn(true);
+          if (defaultTargetPlatform == TargetPlatform.android) {
+            await Helper.selectAudioOutput('speaker');
+          }
           break;
         case AudioRoute.earpiece:
           await Helper.setSpeakerphoneOn(false);
@@ -386,9 +412,16 @@ class CallMediaService extends Notifier<CallMediaState> {
           }
           break;
         case AudioRoute.bluetooth:
+          if (defaultTargetPlatform == TargetPlatform.android) {
+            await Helper.setSpeakerphoneOnButPreferBluetooth();
+          } else {
+            await Helper.setSpeakerphoneOn(false);
+          }
+          await Helper.selectAudioOutput(targetId);
+          break;
         case AudioRoute.wired:
           await Helper.setSpeakerphoneOn(false);
-          await Helper.selectAudioOutput(deviceId ?? option.deviceId);
+          await Helper.selectAudioOutput(targetId);
           break;
       }
       state = state.copyWith(audioRoute: route);

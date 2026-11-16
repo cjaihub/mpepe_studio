@@ -120,7 +120,7 @@ class _ActiveCallScreenState extends ConsumerState<ActiveCallScreen> {
 
   Future<void> _bindLocal(CallMediaState media) async {
     if (!_localReady) return;
-    final stream = media.localStream;
+    final stream = media.isScreenSharingActive ? media.screenStream : media.localStream;
     final videoTrack = stream?.getVideoTracks().firstOrNull;
     final nextStreamId = stream?.id;
     final nextTrackId = videoTrack?.id;
@@ -151,8 +151,12 @@ class _ActiveCallScreenState extends ConsumerState<ActiveCallScreen> {
     _hideControls = Timer(const Duration(seconds: 5), () {
       if (!mounted || !context.mounted) return;
       final s = ref.read(activeCallControllerProvider);
-      final video = ref.read(callMediaServiceProvider).isVideoOn;
-      if (mounted && s.phase == CallPhase.connected && video) {
+      final media = ref.read(callMediaServiceProvider);
+      final mesh = ref.read(webrtcConnectionManagerProvider);
+      final videoActive = media.isVideoOn ||
+          media.isScreenSharingActive ||
+          mesh.peers.values.any((p) => p.hasRemoteVideo);
+      if (mounted && s.phase == CallPhase.connected && videoActive) {
         setState(() => _controlsVisible = false);
       }
     });
@@ -263,7 +267,7 @@ class _ActiveCallScreenState extends ConsumerState<ActiveCallScreen> {
             s.phase == CallPhase.connecting ||
             s.phase == CallPhase.connected ||
             s.phase == CallPhase.reconnecting) &&
-        (media.isVideoOn || anyRemoteVideo);
+        (media.isVideoOn || media.isScreenSharingActive || anyRemoteVideo);
     final isGroup = s.call?.isGroup ?? false;
     final hasRemoteInStage = joinedRemotes.isNotEmpty || mesh.peers.isNotEmpty;
     final showPipSelf = showVideoStage &&
@@ -312,8 +316,9 @@ class _ActiveCallScreenState extends ConsumerState<ActiveCallScreen> {
                 if (room.music != null && s.isBusy) _musicPill(room.music!, onDark: showVideoStage),
                 if (media.isScreenSharingActive) _screenSharePill(media, onDark: showVideoStage),
                 if (_soundToast != null) _soundToastView(_soundToast!),
-                if (s.phase == CallPhase.connected && mesh.worstQuality == CallQuality.poor)
-                  _weakLinkBanner(media),
+                if (s.phase == CallPhase.reconnecting ||
+                    (s.phase == CallPhase.connected && mesh.worstQuality == CallQuality.poor))
+                  _weakLinkBanner(s, media),
                 if (s.phase == CallPhase.connected || s.phase == CallPhase.reconnecting) const CallCaptionsOverlay(),
                 Align(
                   alignment: Alignment.bottomCenter,
@@ -431,7 +436,7 @@ class _ActiveCallScreenState extends ConsumerState<ActiveCallScreen> {
               ),
               const SizedBox(width: 8),
               Text(
-                'Sharing screen · Camera active',
+                media.isVideoOn ? 'Sharing screen · Camera active' : 'Sharing your screen',
                 style: GoogleFonts.inter(
                   fontSize: 12,
                   fontWeight: FontWeight.w600,
@@ -496,30 +501,42 @@ class _ActiveCallScreenState extends ConsumerState<ActiveCallScreen> {
     );
   }
 
-  /// Shown while the link is poor; on video, offers to drop the camera.
-  Widget _weakLinkBanner(CallMediaState media) {
+  /// Shown while reconnecting or while the link is poor.
+  Widget _weakLinkBanner(ActiveCallState s, CallMediaState media) {
     final controller = ref.read(activeCallControllerProvider.notifier);
+    final reconnecting = s.phase == CallPhase.reconnecting;
     return Positioned(
       left: 0,
       right: 0,
-      top: MediaQuery.paddingOf(context).top + 58,
+      top: MediaQuery.paddingOf(context).top + (media.isScreenSharingActive ? 98 : 58),
       child: Center(
         child: GestureDetector(
-          onTap: media.isVideoOn ? controller.toggleCamera : null,
+          onTap: reconnecting
+              ? () => ref.read(webrtcConnectionManagerProvider.notifier).restartAll()
+              : (media.isVideoOn ? controller.toggleCamera : null),
           child: Container(
             padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
             decoration: BoxDecoration(
-              color: AppColors.brandBlack.withValues(alpha: 0.6),
+              color: AppColors.brandBlack.withValues(alpha: 0.65),
               borderRadius: BorderRadius.circular(AppRadius.full),
               border: Border.all(color: AppColors.brandPink.withValues(alpha: 0.6), width: 1),
             ),
             child: Row(
               mainAxisSize: MainAxisSize.min,
               children: [
-                const Icon(Icons.network_check_rounded, size: 14, color: AppColors.brandPink),
+                if (reconnecting)
+                  const SizedBox(
+                    width: 12,
+                    height: 12,
+                    child: CircularProgressIndicator(strokeWidth: 1.6, color: AppColors.brandPink),
+                  )
+                else
+                  const Icon(Icons.network_check_rounded, size: 14, color: AppColors.brandPink),
                 const SizedBox(width: 6),
                 Text(
-                  media.isVideoOn ? 'Weak connection · tap to turn off video' : 'Weak connection',
+                  reconnecting
+                      ? 'Reconnecting… · Tap to retry'
+                      : (media.isVideoOn ? 'Weak connection · Tap to turn off video' : 'Weak connection'),
                   style: GoogleFonts.inter(fontSize: 11.5, fontWeight: FontWeight.w600, color: AppColors.brandWhite),
                 ),
               ],
@@ -568,7 +585,9 @@ class _ActiveCallScreenState extends ConsumerState<ActiveCallScreen> {
   // ───────────────────────── Stages ─────────────────────────
 
   Widget _audioStage(ActiveCallState s, CallMediaState media, ({String name, String? avatar}) head) {
+    final mesh = ref.watch(webrtcConnectionManagerProvider);
     final ringing = s.phase == CallPhase.outgoing || s.phase == CallPhase.incoming;
+    final anySpeaking = mesh.peers.values.any((p) => p.isSpeaking);
     final isGroup = s.call?.isGroup ?? false;
     final controller = ref.read(activeCallControllerProvider.notifier);
     return DecoratedBox(
@@ -586,7 +605,7 @@ class _ActiveCallScreenState extends ConsumerState<ActiveCallScreen> {
             if (isGroup && s.phase != CallPhase.incoming && s.remoteParticipants.isNotEmpty)
               _groupAvatars(s)
             else
-              RingingAvatar(url: head.avatar, name: head.name, pulsing: ringing),
+              RingingAvatar(url: head.avatar, name: head.name, pulsing: ringing || anySpeaking),
             const SizedBox(height: 20),
             Padding(
               padding: const EdgeInsets.symmetric(horizontal: 32),
@@ -606,7 +625,10 @@ class _ActiveCallScreenState extends ConsumerState<ActiveCallScreen> {
             const SizedBox(height: 6),
             _statusLine(s, color: context.textSecondary),
             const SizedBox(height: 10),
-            CallEncryptedChip(frameEncrypted: ref.watch(webrtcConnectionManagerProvider).allFrameEncrypted),
+            CallEncryptedChip(
+              frameEncrypted: mesh.allFrameEncrypted,
+              onTap: s.isBusy ? _showShieldSheet : null,
+            ),
             if (s.isBusy) ...[
               const SizedBox(height: 12),
               GestureDetector(
@@ -750,7 +772,8 @@ class _ActiveCallScreenState extends ConsumerState<ActiveCallScreen> {
     final remote = s.remoteParticipants.where((p) => p.status == ParticipantStatus.joined).firstOrNull;
     final peer = _primaryPeer(s, mesh, remote);
     final remoteVideoOn = _isRemoteVideoActive(remote, peer);
-    final localMirror = media.isFrontCamera && room.mirrorSelfView;
+    final localVideoActive = media.isVideoOn || media.isScreenSharingActive;
+    final localMirror = media.isFrontCamera && room.mirrorSelfView && !media.isScreenSharingActive;
 
     // Outgoing / connecting before the other person joins: show our live camera
     // right away with a sleek floating recipient badge instead of a dark void.
@@ -760,7 +783,7 @@ class _ActiveCallScreenState extends ConsumerState<ActiveCallScreen> {
         children: [
           _videoOrAvatar(
             renderer: _localReady ? _localRenderer : null,
-            videoOn: media.isVideoOn,
+            videoOn: localVideoActive,
             name: 'You',
             mirror: localMirror,
           ),
@@ -821,12 +844,12 @@ class _ActiveCallScreenState extends ConsumerState<ActiveCallScreen> {
       );
       final localPane = _splitPane(
         renderer: _localReady ? _localRenderer : null,
-        videoOn: media.isVideoOn,
+        videoOn: localVideoActive,
         name: 'You',
         muted: media.isAudioMuted,
         mirror: localMirror,
         isSelf: true,
-        canFlip: media.isVideoOn,
+        canFlip: media.isVideoOn && !media.isScreenSharingActive,
       );
       final top = _swapped ? localPane : remotePane;
       final bottom = _swapped ? remotePane : localPane;
@@ -847,7 +870,7 @@ class _ActiveCallScreenState extends ConsumerState<ActiveCallScreen> {
     );
     final localView = _videoOrAvatar(
       renderer: _localReady ? _localRenderer : null,
-      videoOn: media.isVideoOn,
+      videoOn: localVideoActive,
       name: 'You',
       mirror: localMirror,
     );
@@ -965,9 +988,9 @@ class _ActiveCallScreenState extends ConsumerState<ActiveCallScreen> {
           )
         : _videoOrAvatar(
             renderer: _localReady ? _localRenderer : null,
-            videoOn: media.isVideoOn,
+            videoOn: media.isVideoOn || media.isScreenSharingActive,
             name: 'You',
-            mirror: media.isFrontCamera && room.mirrorSelfView,
+            mirror: media.isFrontCamera && room.mirrorSelfView && !media.isScreenSharingActive,
           );
     return Positioned(
       left: offset.dx.clamp(8.0, size.width - w - 8),
@@ -984,7 +1007,12 @@ class _ActiveCallScreenState extends ConsumerState<ActiveCallScreen> {
           clipBehavior: Clip.antiAlias,
           decoration: BoxDecoration(
             borderRadius: BorderRadius.circular(AppRadius.md),
-            border: Border.all(color: AppColors.brandWhite.withValues(alpha: 0.25), width: 1),
+            border: Border.all(
+              color: media.isScreenSharingActive
+                  ? AppColors.brandPink
+                  : AppColors.brandWhite.withValues(alpha: 0.25),
+              width: 1,
+            ),
             boxShadow: AppShadows.md,
           ),
           child: Stack(
@@ -1004,7 +1032,7 @@ class _ActiveCallScreenState extends ConsumerState<ActiveCallScreen> {
                   child: const Icon(Icons.swap_horiz_rounded, size: 13, color: AppColors.brandWhite),
                 ),
               ),
-              if (!_swapped && media.isVideoOn)
+              if (!_swapped && media.isVideoOn && !media.isScreenSharingActive)
                 Positioned(
                   bottom: 6,
                   right: 6,
@@ -1031,9 +1059,9 @@ class _ActiveCallScreenState extends ConsumerState<ActiveCallScreen> {
   Widget _selfTile(CallMediaState media, CallRoomState room) => _tile(
         name: 'You',
         renderer: _localReady ? _localRenderer : null,
-        videoOn: media.isVideoOn,
+        videoOn: media.isVideoOn || media.isScreenSharingActive,
         muted: media.isAudioMuted,
-        mirror: media.isFrontCamera && room.mirrorSelfView,
+        mirror: media.isFrontCamera && room.mirrorSelfView && !media.isScreenSharingActive,
       );
 
   Widget _remoteTile(CallParticipant p, WebRTCMeshState mesh) {
@@ -1046,6 +1074,7 @@ class _ActiveCallScreenState extends ConsumerState<ActiveCallScreen> {
       muted: p.isAudioMuted,
       ringing: p.status == ParticipantStatus.ringing,
       link: peer?.link,
+      speaking: peer?.isSpeaking ?? false,
     );
   }
 
@@ -1126,42 +1155,49 @@ class _ActiveCallScreenState extends ConsumerState<ActiveCallScreen> {
     bool mirror = false,
     bool ringing = false,
     PeerLinkState? link,
+    bool speaking = false,
   }) {
-    return ClipRRect(
-      borderRadius: BorderRadius.circular(AppRadius.md),
-      child: Stack(
-        fit: StackFit.expand,
-        children: [
-          _videoOrAvatar(renderer: renderer, videoOn: videoOn, name: name, avatar: avatar, mirror: mirror),
-          Positioned(
-            left: 8,
-            bottom: 8,
-            child: Container(
-              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-              decoration: BoxDecoration(
-                color: AppColors.brandBlack.withValues(alpha: 0.5),
-                borderRadius: BorderRadius.circular(AppRadius.full),
-              ),
-              child: Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  if (muted) ...[
-                    const Icon(Icons.mic_off_rounded, size: 12, color: AppColors.brandPink),
-                    const SizedBox(width: 4),
+    return Container(
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(AppRadius.md),
+        border: speaking ? Border.all(color: AppColors.brandBlue, width: 2) : null,
+      ),
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(AppRadius.md),
+        child: Stack(
+          fit: StackFit.expand,
+          children: [
+            _videoOrAvatar(renderer: renderer, videoOn: videoOn, name: name, avatar: avatar, mirror: mirror),
+            Positioned(
+              left: 8,
+              bottom: 8,
+              child: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                decoration: BoxDecoration(
+                  color: AppColors.brandBlack.withValues(alpha: 0.5),
+                  borderRadius: BorderRadius.circular(AppRadius.full),
+                ),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    if (muted) ...[
+                      const Icon(Icons.mic_off_rounded, size: 12, color: AppColors.brandPink),
+                      const SizedBox(width: 4),
+                    ],
+                    Text(
+                      ringing
+                          ? '${name.split(' ').first} · ringing'
+                          : link == PeerLinkState.reconnecting
+                              ? '${name.split(' ').first} · reconnecting'
+                              : name.split(' ').first,
+                      style: GoogleFonts.inter(fontSize: 11, fontWeight: FontWeight.w600, color: AppColors.brandWhite),
+                    ),
                   ],
-                  Text(
-                    ringing
-                        ? '${name.split(' ').first} · ringing'
-                        : link == PeerLinkState.reconnecting
-                            ? '${name.split(' ').first} · reconnecting'
-                            : name.split(' ').first,
-                    style: GoogleFonts.inter(fontSize: 11, fontWeight: FontWeight.w600, color: AppColors.brandWhite),
-                  ),
-                ],
+                ),
               ),
             ),
-          ),
-        ],
+          ],
+        ),
       ),
     ).animate().fadeIn(duration: 250.ms);
   }
@@ -1210,17 +1246,33 @@ class _ActiveCallScreenState extends ConsumerState<ActiveCallScreen> {
               ),
               Expanded(
                 child: onDark
-                    ? Column(
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        children: [
-                          Text(
-                            head.name,
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            style: GoogleFonts.inter(fontSize: 14.5, fontWeight: FontWeight.w700, color: fg),
-                          ),
-                          _statusLine(s, color: AppColors.brandWhite.withValues(alpha: 0.8)),
-                        ],
+                    ? GestureDetector(
+                        onTap: s.isBusy ? _showShieldSheet : null,
+                        child: Column(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            Text(
+                              head.name,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: GoogleFonts.inter(fontSize: 14.5, fontWeight: FontWeight.w700, color: fg),
+                            ),
+                            Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Icon(
+                                  ref.watch(webrtcConnectionManagerProvider).allFrameEncrypted
+                                      ? Icons.verified_user_rounded
+                                      : Icons.lock_rounded,
+                                  size: 11,
+                                  color: AppColors.brandWhite.withValues(alpha: 0.78),
+                                ),
+                                const SizedBox(width: 4),
+                                _statusLine(s, color: AppColors.brandWhite.withValues(alpha: 0.85)),
+                              ],
+                            ),
+                          ],
+                        ),
                       )
                     : const SizedBox.shrink(),
               ),
@@ -1362,7 +1414,7 @@ class _ActiveCallScreenState extends ConsumerState<ActiveCallScreen> {
               onDark: onDark,
               onTap: ended ? null : controller.toggleScreenShare,
             ),
-            if (media.isVideoOn)
+            if (media.isVideoOn && !media.isScreenSharingActive)
               CallControlButton(
                 icon: Icons.flip_camera_ios_rounded,
                 label: 'Flip',
@@ -1378,6 +1430,147 @@ class _ActiveCallScreenState extends ConsumerState<ActiveCallScreen> {
           ],
         ),
       ).animate().fadeIn(duration: 250.ms).slideY(begin: 0.15, end: 0),
+    );
+  }
+
+  void _showShieldSheet() {
+    HapticFeedback.selectionClick();
+    showModalBottomSheet<void>(
+      context: context,
+      backgroundColor: context.surface,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(AppRadius.xl)),
+      ),
+      builder: (ctx) => Consumer(builder: (ctx, ref, _) {
+        final s = ref.watch(activeCallControllerProvider);
+        final mesh = ref.watch(webrtcConnectionManagerProvider);
+        final meshNotifier = ref.read(webrtcConnectionManagerProvider.notifier);
+        final peers = mesh.peers.values.toList();
+        return SafeArea(
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(16, 10, 16, 18),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Center(
+                  child: Container(
+                    width: 36,
+                    height: 4,
+                    decoration: BoxDecoration(color: ctx.border, borderRadius: BorderRadius.circular(2)),
+                  ),
+                ),
+                const SizedBox(height: 14),
+                Row(
+                  children: [
+                    Container(
+                      width: 34,
+                      height: 34,
+                      decoration: BoxDecoration(
+                        color: AppColors.brandBlue.withValues(alpha: 0.12),
+                        shape: BoxShape.circle,
+                      ),
+                      child: Icon(
+                        mesh.allFrameEncrypted ? Icons.verified_user_rounded : Icons.lock_rounded,
+                        color: AppColors.brandBlue,
+                        size: 18,
+                      ),
+                    ),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            mesh.allFrameEncrypted
+                                ? 'Oneova Shield · End-to-End Encrypted'
+                                : 'DTLS-SRTP Transport Encryption',
+                            style: GoogleFonts.inter(fontSize: 14, fontWeight: FontWeight.w700, color: ctx.textPrimary),
+                          ),
+                          Text(
+                            mesh.allFrameEncrypted
+                                ? 'Audio & video frames are encrypted with AES-GCM-256 before leaving this phone.'
+                                : 'Media streams are encrypted in transit between endpoints.',
+                            style: GoogleFonts.inter(fontSize: 11.5, color: ctx.textSecondary),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 14),
+                for (final peer in peers) ...[
+                  Builder(builder: (_) {
+                    final participant = s.participants[peer.remoteUserId];
+                    final name = (participant?.name.isNotEmpty ?? false) ? participant!.name : 'Participant';
+                    final safety = meshNotifier.safetyNumberFor(peer.remoteUserId);
+                    final transport = peer.usingRelay ? 'TURN relay' : 'Direct peer-to-peer';
+                    final statsParts = <String>[
+                      transport,
+                      if (peer.rttMs != null) '${peer.rttMs} ms RTT',
+                      if (peer.packetLossPct != null) '${peer.packetLossPct}% loss',
+                    ];
+                    return Container(
+                      margin: const EdgeInsets.only(bottom: 8),
+                      padding: const EdgeInsets.all(12),
+                      decoration: AppDecorations.card(ctx),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Row(
+                            children: [
+                              Expanded(
+                                child: Text(
+                                  name,
+                                  style: GoogleFonts.inter(
+                                    fontSize: 13,
+                                    fontWeight: FontWeight.w700,
+                                    color: ctx.textPrimary,
+                                  ),
+                                ),
+                              ),
+                              Text(
+                                peer.frameEncrypted ? 'AES-GCM' : 'DTLS',
+                                style: GoogleFonts.inter(
+                                  fontSize: 10.5,
+                                  fontWeight: FontWeight.w700,
+                                  color: peer.frameEncrypted ? AppColors.brandBlue : ctx.textSecondary,
+                                ),
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: 4),
+                          Text(
+                            statsParts.join(' · '),
+                            style: GoogleFonts.inter(fontSize: 11, color: ctx.textSecondary),
+                          ),
+                          if (safety != null) ...[
+                            const SizedBox(height: 6),
+                            Text(
+                              'Safety number: $safety',
+                              style: GoogleFonts.inter(
+                                fontSize: 11,
+                                fontWeight: FontWeight.w600,
+                                letterSpacing: 0.4,
+                                color: ctx.textPrimary,
+                              ),
+                            ),
+                          ],
+                        ],
+                      ),
+                    );
+                  }),
+                ],
+                if (peers.isEmpty)
+                  Text(
+                    'Waiting for peer connection details…',
+                    style: GoogleFonts.inter(fontSize: 12, color: ctx.textSecondary),
+                  ),
+              ],
+            ),
+          ),
+        );
+      }),
     );
   }
 

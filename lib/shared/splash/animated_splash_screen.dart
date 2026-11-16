@@ -5,10 +5,14 @@ import 'package:flutter/foundation.dart' show kIsWeb, kDebugMode;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_animate/flutter_animate.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:google_fonts/google_fonts.dart';
 import '../theme/app_theme.dart';
 import '../../auth/security/login_security.dart';
+import '../../backend/calling/providers/active_call_controller.dart';
+import '../../inbox/calling/screens/active_call_screen.dart';
+import '../../social_hub/calling/widgets/call_overlay_manager.dart';
 
 /// Oneova launch splash: the logo pops in with a heartbeat, broadcast ripples
 /// and floating hearts, then hands off to the feed (which autoplays) in about
@@ -80,8 +84,21 @@ class _AnimatedSplashScreenState extends State<AnimatedSplashScreen> {
     if (_hasNavigated || !mounted) return;
     _hasNavigated = true;
     _watchdogTimer?.cancel();
+    final router = GoRouter.of(context);
+    var shouldOpenCall = CallOverlayManager.consumePendingOpenCall();
+    try {
+      final container = ProviderScope.containerOf(context, listen: false);
+      if (container.read(activeCallControllerProvider).isLive) {
+        shouldOpenCall = true;
+      }
+    } catch (_) {}
     debugPrint('[Splash] Routing to /hub/home (Public Reel/Feed)');
-    context.go('/hub/home');
+    router.go('/hub/home');
+    if (shouldOpenCall) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        openCallScreen(router);
+      });
+    }
   }
 
   void _onTap(TapDownDetails d) {
