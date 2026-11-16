@@ -138,7 +138,7 @@ class _Portal extends ConsumerWidget {
           _Row(icon: Icons.brush_outlined, title: 'Store look', subtitle: 'Name, logo, stage and colors', onTap: () => context.push('/shops/setup')),
           _Row(icon: Icons.local_shipping_outlined, title: 'Shipping & policies', subtitle: 'Pickup, delivery, returns, contact',
               onTap: () => context.push('/business/settings')),
-          _Row(icon: Icons.account_balance_wallet_outlined, title: 'Payouts', subtitle: 'Your balance and payout methods',
+          _Row(icon: Icons.account_balance_wallet_outlined, title: 'Payouts (set up anytime)', subtitle: 'Sales stay safe in your Oneova balance until you add a payout method',
               onTap: () => context.push('/biz/payouts')),
         ]),
       ],

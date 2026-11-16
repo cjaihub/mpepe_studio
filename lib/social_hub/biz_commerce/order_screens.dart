@@ -629,7 +629,7 @@ class _PayoutsScreenState extends ConsumerState<PayoutsScreen> {
                         Text(
                           ready
                               ? 'Money from confirmed orders and deliveries lands in your Oneova balance. Withdraw it any time.'
-                              : 'Verify your identity and add mobile money or a bank account to sell or deliver.',
+                              : 'Your shop can open and accept orders right away — sales stay safe in your Oneova balance until you verify your identity and add a payout method to withdraw.',
                           style: TextStyle(fontSize: 12, color: context.textSecondary),
                         ),
                       ]),

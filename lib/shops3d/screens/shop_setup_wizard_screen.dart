@@ -59,7 +59,6 @@ class _ShopSetupWizardScreenState extends ConsumerState<ShopSetupWizardScreen> {
   ShopStatus _status = ShopStatus.draft;
 
   PayoutStatus? _payouts;
-  String? _payoutsError;
 
   Shop3DRepository get _repo => ref.read(shop3dRepositoryProvider);
 
@@ -140,15 +139,11 @@ class _ShopSetupWizardScreenState extends ConsumerState<ShopSetupWizardScreen> {
   }
 
   Future<void> _checkPayouts() async {
-    setState(() {
-      _payouts = null;
-      _payoutsError = null;
-    });
     try {
       final s = await ref.read(commerceServiceProvider).payoutStatus();
       if (mounted) setState(() => _payouts = s);
     } catch (_) {
-      if (mounted) setState(() => _payoutsError = "Couldn't check payouts.");
+      // Payouts are optional to open; ignore transient status errors.
     }
   }
 
@@ -721,21 +716,13 @@ class _ShopSetupWizardScreenState extends ConsumerState<ShopSetupWizardScreen> {
 
   Widget _openStep(List<ShopProduct> catalog) {
     final sellable = catalog.where((p) => p.sellable).length;
-    final checks = <(String, bool, String?, VoidCallback?)>[
+    final requiredChecks = <(String, bool, String?, VoidCallback?)>[
       ('Shop name', _name.text.trim().isNotEmpty, null, () => setState(() => _step = 0)),
       ('Pickup location', _lat != null, 'Needed to price delivery', () => setState(() => _step = 0)),
       ('At least one product for sale', sellable > 0, '$sellable ready', () => setState(() => _step = 2)),
-      (
-        'Payouts',
-        _payouts?.payoutsEnabled == true,
-        _payoutsError ?? (_payouts == null ? 'Checking…' : (_payouts!.payoutsEnabled ? 'Ready to get paid' : 'Set up to take payments')),
-        () async {
-          await context.push('/biz/payouts');
-          if (mounted) _checkPayouts();
-        },
-      ),
     ];
-    final ready = checks.every((c) => c.$2);
+    final payoutsReady = _payouts?.payoutsEnabled == true;
+    final ready = requiredChecks.every((c) => c.$2);
     final open = _status == ShopStatus.open;
 
     return ListView(
@@ -756,10 +743,10 @@ class _ShopSetupWizardScreenState extends ConsumerState<ShopSetupWizardScreen> {
         const SizedBox(height: 8),
         _card(
           'Ready to open',
-          null,
+          'Payouts are optional to open — you can set them up anytime later.',
           Column(
             children: [
-              for (final c in checks)
+              for (final c in requiredChecks)
                 ListTile(
                   dense: true,
                   contentPadding: EdgeInsets.zero,
@@ -770,11 +757,55 @@ class _ShopSetupWizardScreenState extends ConsumerState<ShopSetupWizardScreen> {
                   subtitle: c.$3 == null ? null : Text(c.$3!, style: AppTypography.caption(context.textSecondary)),
                   trailing: c.$2 ? null : Icon(Icons.chevron_right_rounded, color: context.textMuted),
                 ),
-              if (_payoutsError != null)
-                Align(
-                  alignment: Alignment.centerRight,
-                  child: TextButton(onPressed: _checkPayouts, child: const Text('Check again')),
+              Divider(height: 12, color: context.border),
+              ListTile(
+                dense: true,
+                contentPadding: EdgeInsets.zero,
+                onTap: () async {
+                  await context.push('/biz/payouts');
+                  if (mounted) _checkPayouts();
+                },
+                leading: Icon(
+                  payoutsReady ? Icons.check_circle_rounded : Icons.schedule_rounded,
+                  color: payoutsReady ? AppColors.brandBlue : AppColors.brandPink,
+                  size: 20,
                 ),
+                title: Row(
+                  children: [
+                    Text('Payouts', style: AppTypography.callout(context.textPrimary)),
+                    const SizedBox(width: 8),
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
+                      decoration: BoxDecoration(
+                        color: (payoutsReady ? AppColors.brandBlue : AppColors.brandPink).withValues(alpha: 0.12),
+                        borderRadius: BorderRadius.circular(AppRadius.full),
+                      ),
+                      child: Text(
+                        payoutsReady ? 'Ready' : 'Set up later',
+                        style: AppTypography.caption(payoutsReady ? AppColors.brandBlue : AppColors.brandPink)
+                            .copyWith(fontSize: 10, fontWeight: FontWeight.w700),
+                      ),
+                    ),
+                  ],
+                ),
+                subtitle: Text(
+                  payoutsReady
+                      ? 'Ready to withdraw earnings to your bank or mobile money.'
+                      : 'Optional to open · Sales stay safe in your Oneova balance until you add a payout method.',
+                  style: AppTypography.caption(context.textSecondary),
+                ),
+                trailing: TextButton(
+                  style: TextButton.styleFrom(
+                    visualDensity: VisualDensity.compact,
+                    foregroundColor: AppColors.brandBlue,
+                  ),
+                  onPressed: () async {
+                    await context.push('/biz/payouts');
+                    if (mounted) _checkPayouts();
+                  },
+                  child: Text(payoutsReady ? 'Manage' : 'Set up'),
+                ),
+              ),
             ],
           ),
         ),
