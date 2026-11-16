@@ -167,6 +167,12 @@ class OvaLocalIntents {
     if ((m = RegExp(r'^(?:set\s+)?(?:the\s+)?brightness\s+(?:to\s+)?(\d{1,3})\s*%?$').firstMatch(p)) != null) {
       return OvaLocalIntent('set_brightness', {'percent': int.parse(m!.group(1)!)});
     }
+    if ((m = RegExp(r'^(?:fly(?:\s+me)?\s+to|take me live to|zoom to)\s+(.+)$').firstMatch(p)) != null) {
+      return OvaLocalIntent('fly_to_place', {'destination': _orig(raw, m!.group(1)!)});
+    }
+    if (RegExp(r'^(?:show\s+)?(?:my\s+)?(?:map|location|places?)\s+history$').hasMatch(p)) {
+      return const OvaLocalIntent('map_history', {});
+    }
     if ((m = RegExp(r'^share (?:my )?live location(?:\s+for\s+(\d+)\s*(min|mins|minutes|h|hr|hour|hours))?$').firstMatch(p)) != null) {
       final rawNum = int.tryParse(m!.group(1) ?? '');
       final unit = m.group(2) ?? 'minutes';

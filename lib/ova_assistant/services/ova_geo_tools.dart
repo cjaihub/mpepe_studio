@@ -23,6 +23,8 @@ class OvaGeoTools {
     'get_location',
     'find_nearby',
     'navigate_to',
+    'fly_to_place',
+    'map_history',
     'share_live_location',
     'check_signal',
   };
@@ -34,14 +36,14 @@ class OvaGeoTools {
   List<OvaToolSpec> get specs => [
         OvaToolSpec(
           'get_location',
-          'Find where the user is now. Shows a live map with their position, address, signal, and rotoscope highlighter.',
+          'Find where the user is now and auto-focus on their location. Shows a live map with their position, address, signal, and rotoscope highlighter.',
           properties: {
             'rotoscope': _b('Enable rotoscope contour highlighter on the map (default true)'),
           },
         ),
         OvaToolSpec(
           'find_nearby',
-          'Find real places near the user (restaurants, cafes, ATMs, pharmacies, hospitals, fuel, hotels, Wi-Fi spots, or a name). '
+          'What\'s near me: find real places near the user (restaurants, cafes, ATMs, pharmacies, hospitals, fuel, hotels, Wi-Fi spots, or a name). '
               'Shows them highlighted on a live map with rotoscope target lock, distance, and whether they are open.',
           properties: {
             'what': _s('What to look for, e.g. "coffee", "pharmacy", "ATM", "Java House". Empty for anything useful nearby.'),
@@ -50,9 +52,21 @@ class OvaGeoTools {
           },
         ),
         OvaToolSpec(
+          'fly_to_place',
+          'Fly the live map camera in real time to any place, city, landmark, or address with a smooth 3D-style aerial flight animation and rotoscope target lock.',
+          properties: {
+            'destination': _s('Place, landmark, city, or address to fly to'),
+          },
+          required: ['destination'],
+        ),
+        OvaToolSpec(
+          'map_history',
+          'Show the user\'s saved Map & Location History (places they searched, routed to, or flew to) with 1-tap Fly There and Route actions.',
+        ),
+        OvaToolSpec(
           'navigate_to',
           'Plan a live animated route with turn-by-turn street directions from the user to a place or address, '
-              'with an in-app Start Live Directions button and Google Maps handoff.',
+              'with an in-app Start Live Directions button, Fly Me There, and Google Maps handoff.',
           properties: {
             'destination': _s('Place name or address'),
             'mode': _s('How they travel', ['driving', 'walking', 'cycling']),
@@ -80,6 +94,10 @@ class OvaGeoTools {
         return whereAmI(rotoscope: b('rotoscope', true));
       case 'find_nearby':
         return nearby(s('what'), radiusM: i('radius_m', 1500), rotoscope: b('rotoscope', true));
+      case 'fly_to_place':
+        return flyToPlace(s('destination'));
+      case 'map_history':
+        return showMapHistory();
       case 'navigate_to':
         return navigate(
           s('destination'),
@@ -171,6 +189,115 @@ class OvaGeoTools {
           prompt: 'share text 📍 Live Location ($label): https://maps.google.com/?q=${me.latitude},${me.longitude}',
         ),
         const OvaResultAction(label: "What's nearby", icon: Icons.near_me_rounded, prompt: "what's near me"),
+      ],
+    );
+  }
+
+  Future<OvaToolResult> flyToPlace(String destination) async {
+    if (destination.isEmpty) {
+      return OvaToolResult.fail('Tell me which place, landmark, or city to fly to.');
+    }
+    final (me, _) = await _here();
+    GeoPlace? dest;
+    try {
+      final hits = await _geo.search(destination, near: me, limit: 5);
+      dest = hits.isEmpty ? null : hits.first;
+      if (dest == null && me != null) {
+        final near = await _geo.nearby(me, destination, radiusM: 5000, limit: 1);
+        if (near.isNotEmpty) dest = near.first;
+      }
+    } catch (e) {
+      return OvaToolResult.fail('Could not look up "$destination": $e', icon: Icons.wifi_off_rounded);
+    }
+    if (dest == null) {
+      return OvaToolResult(
+        ok: false,
+        summary: 'I could not find "$destination" on the map.',
+        icon: Icons.wrong_location_rounded,
+      );
+    }
+    OneovaMapHistoryService.instance.record(
+      title: dest.name,
+      subtitle: dest.address,
+      point: dest.point,
+      actionType: 'fly',
+    );
+    final origin = me ?? dest.point;
+    final route = me != null ? await _geo.route(me, dest.point) : null;
+    final signal = await _geo.signal();
+    return OvaToolResult(
+      ok: true,
+      title: '🚁 Flying to ${dest.name}',
+      summary: 'Flying live to ${dest.name}${dest.address != null ? ' (${dest.address})' : ''}.'
+          '${route != null ? ' Route is ${formatDistance(route.distanceM)} (${formatDuration(route.durationS)}).' : ''}',
+      icon: Icons.flight_rounded,
+      map: OvaMapSpec(
+        me: origin,
+        destination: dest,
+        route: route,
+        signal: signal,
+        rotoscopeHighlight: true,
+        flyToTarget: true,
+      ),
+      actions: [
+        OvaResultAction(
+          label: 'Start Live Directions',
+          icon: Icons.navigation_rounded,
+          prompt: 'start navigation to ${dest.name}',
+        ),
+        const OvaResultAction(
+          label: "What's Nearby",
+          icon: Icons.near_me_rounded,
+          prompt: "what's near me",
+        ),
+      ],
+    );
+  }
+
+  Future<OvaToolResult> showMapHistory() async {
+    await OneovaMapHistoryService.instance.warm();
+    final (me, _) = await _here();
+    final items = OneovaMapHistoryService.instance.items;
+    if (items.isEmpty) {
+      return OvaToolResult(
+        ok: true,
+        title: 'Map History Empty',
+        summary: 'No saved places or routes in your Map History yet. Try asking "What\'s near me" or "Fly me to…".',
+        icon: Icons.history_rounded,
+        map: me != null ? OvaMapSpec(me: me, rotoscopeHighlight: true) : null,
+      );
+    }
+    final places = [
+      for (final h in items.take(8))
+        GeoPlace(
+          name: h.title,
+          point: h.point,
+          address: h.subtitle,
+          distanceM: me != null ? _geo.distanceM(me, h.point) : null,
+        ),
+    ];
+    return OvaToolResult(
+      ok: true,
+      title: '${items.length} places in Map History',
+      summary: 'Recent Map History:\n${items.take(8).map((h) => '- ${h.title}${h.subtitle != null ? ' (${h.subtitle})' : ''}').join('\n')}',
+      icon: Icons.history_rounded,
+      map: OvaMapSpec(
+        me: me ?? places.first.point,
+        places: places,
+        rotoscopeHighlight: true,
+      ),
+      items: [
+        for (final h in items.take(8))
+          OvaResultItem(
+            title: h.title,
+            subtitle: h.subtitle,
+            icon: h.actionType == 'fly' ? Icons.flight_rounded : Icons.place_rounded,
+            onTap: OvaResultAction(
+              label: 'Fly There',
+              icon: Icons.flight_rounded,
+              prompt: 'fly me to ${h.title}',
+            ),
+          ),
       ],
     );
   }

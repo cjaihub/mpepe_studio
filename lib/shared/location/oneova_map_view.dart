@@ -9,6 +9,7 @@ import 'package:google_fonts/google_fonts.dart';
 import 'package:latlong2/latlong.dart';
 import 'package:share_plus/share_plus.dart';
 
+import '../../backend/security/oneova_ai_gateway.dart';
 import '../theme/app_theme.dart';
 import 'geo_services.dart';
 
@@ -42,15 +43,16 @@ IconData maneuverIcon(String type, String? modifier) {
   return Icons.straight_rounded;
 }
 
-/// An enhanced OpenStreetMap view used by chat location bubbles, shops, and Ova AI.
+/// An enhanced OpenStreetMap & Satellite view used by chat location bubbles, shops, and Ova AI.
 ///
 /// Features:
+/// - **Auto-Focus on Our Location**: automatically acquires and locks onto the user's real-time GPS position.
+/// - **"Fly Me There" in Real Time**: smooth 3-phase cinematic camera flight (ascend -> cruise -> descend & lock)
+///   with live telemetry HUD and optional Satellite aerial imagery.
 /// - **Rotoscope Contour Highlighter**: high-contrast cyber-contour map shader &
 ///   animated target lock reticle around highlighted places and destinations.
 /// - **Live Animated Route**: flowing directional pulse and travelling beacon along
 ///   the active route polyline.
-/// - **Live Turn-by-Turn Navigation**: in-app navigation HUD with next maneuver banner,
-///   speedometer, live ETA, and full-screen interactive map modal.
 class OneovaMapView extends StatefulWidget {
   /// Fixed position of the user (or of the shared pin) when not tracking.
   final LatLng? me;
@@ -68,6 +70,9 @@ class OneovaMapView extends StatefulWidget {
   final int? highlightIndex;
   final bool rotoscopeHighlight;
   final bool navigating;
+  final bool flyToTargetOnLoad;
+  final LatLng? flyTarget;
+  final String? flyTargetLabel;
   final int? activeStepIndex;
   final ValueChanged<int>? onPlaceTap;
   final ValueChanged<GeoSignal>? onSignal;
@@ -91,6 +96,9 @@ class OneovaMapView extends StatefulWidget {
     this.highlightIndex,
     this.rotoscopeHighlight = false,
     this.navigating = false,
+    this.flyToTargetOnLoad = false,
+    this.flyTarget,
+    this.flyTargetLabel,
     this.activeStepIndex,
     this.onPlaceTap,
     this.onSignal,
@@ -105,9 +113,10 @@ class OneovaMapView extends StatefulWidget {
 }
 
 class _OneovaMapViewState extends State<OneovaMapView>
-    with SingleTickerProviderStateMixin {
+    with TickerProviderStateMixin {
   final _map = MapController();
   late final AnimationController _animCtrl;
+  late final AnimationController _flyCtrl;
   StreamSubscription<Position>? _sub;
   Timer? _signalTimer;
   LatLng? _me;
@@ -116,6 +125,12 @@ class _OneovaMapViewState extends State<OneovaMapView>
   bool _follow = true;
   bool _ready = false;
   late bool _rotoscope;
+  bool _satellite = false;
+  String? _flyingLabel;
+  LatLng? _flyFrom;
+  LatLng? _flyToPoint;
+  double _flyStartZoom = 14.0;
+  double _flyEndZoom = 17.2;
   final List<SignalSample> _trail = [];
 
   @override
@@ -127,7 +142,63 @@ class _OneovaMapViewState extends State<OneovaMapView>
       vsync: this,
       duration: const Duration(milliseconds: 2400),
     )..repeat();
+    _flyCtrl = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 1750),
+    )..addListener(_onFlyTick);
     if (widget.trackUser || widget.navigating) _startTracking();
+    if (_me == null) _autoAcquireLocation();
+  }
+
+  Future<void> _autoAcquireLocation() async {
+    try {
+      final p = await GeoServices.instance.current();
+      if (!mounted) return;
+      final pt = LatLng(p.latitude, p.longitude);
+      setState(() => _me = pt);
+      widget.onMove?.call(pt);
+      if (_ready && _follow && widget.destination == null && widget.places.isEmpty) {
+        _flyTo(pt, targetZoom: 16.5, label: 'Your Location');
+      }
+    } catch (_) {}
+  }
+
+  void _onFlyTick() {
+    if (!_ready || _flyFrom == null || _flyToPoint == null) return;
+    final raw = _flyCtrl.value;
+    final curved = Curves.easeInOutCubic.transform(raw);
+    final lat = _flyFrom!.latitude + (_flyToPoint!.latitude - _flyFrom!.latitude) * curved;
+    final lng = _flyFrom!.longitude + (_flyToPoint!.longitude - _flyFrom!.longitude) * curved;
+
+    // 3-stage cinematic altitude arc: pull back at mid-flight, then zoom into target
+    final distM = GeoServices.instance.distanceM(_flyFrom!, _flyToPoint!);
+    final midDip = distM > 2500 ? 3.2 : (distM > 500 ? 1.6 : 0.6);
+    final arc = math.sin(raw * math.pi);
+    final interpZoom = _flyStartZoom + (_flyEndZoom - _flyStartZoom) * curved - (arc * midDip);
+    _map.move(LatLng(lat, lng), interpZoom.clamp(3.0, 18.5));
+  }
+
+  Future<void> _flyTo(LatLng target, {double targetZoom = 17.2, String? label}) async {
+    if (!_ready) return;
+    HapticFeedback.mediumImpact();
+    _flyFrom = _map.camera.center;
+    _flyToPoint = target;
+    _flyStartZoom = _map.camera.zoom;
+    _flyEndZoom = targetZoom;
+    setState(() {
+      _flyingLabel = label ?? 'Target';
+    });
+    if (label != null && label.isNotEmpty) {
+      OneovaMapHistoryService.instance.record(
+        title: label,
+        point: target,
+        actionType: 'fly',
+      );
+    }
+    await _flyCtrl.forward(from: 0.0);
+    if (mounted) {
+      setState(() => _flyingLabel = null);
+    }
   }
 
   @override
@@ -139,12 +210,17 @@ class _OneovaMapViewState extends State<OneovaMapView>
     if ((widget.trackUser || widget.navigating) && _sub == null) {
       _startTracking();
     }
+    if (widget.flyTarget != null && widget.flyTarget != old.flyTarget && _ready) {
+      _follow = false;
+      _flyTo(widget.flyTarget!, targetZoom: 17.4, label: widget.flyTargetLabel ?? widget.destinationName);
+      return;
+    }
     if (!widget.trackUser && !widget.navigating && widget.me != null && widget.me != old.me) {
       _me = widget.me;
       if (_ready && _follow) _map.move(widget.me!, _map.camera.zoom);
     }
     if (widget.navigating && !old.navigating && _ready && _me != null) {
-      _map.move(_me!, 17.0);
+      _flyTo(_me!, targetZoom: 17.2, label: 'Navigation Start');
     } else if (widget.route != old.route ||
         widget.places.length != old.places.length ||
         widget.highlightIndex != old.highlightIndex) {
@@ -152,7 +228,8 @@ class _OneovaMapViewState extends State<OneovaMapView>
           widget.highlightIndex! >= 0 &&
           widget.highlightIndex! < widget.places.length &&
           _ready) {
-        _map.move(widget.places[widget.highlightIndex!].point, math.max(_map.camera.zoom, 16.0));
+        final place = widget.places[widget.highlightIndex!];
+        _flyTo(place.point, targetZoom: 17.0, label: place.name);
       } else {
         _fit();
       }
@@ -164,6 +241,7 @@ class _OneovaMapViewState extends State<OneovaMapView>
     _sub = GeoServices.instance.track(distanceFilterM: 3).listen((p) {
       if (!mounted) return;
       final pt = LatLng(p.latitude, p.longitude);
+      final wasNull = _me == null;
       setState(() {
         _me = pt;
         _heading = p.heading >= 0 ? p.heading : _heading;
@@ -171,11 +249,13 @@ class _OneovaMapViewState extends State<OneovaMapView>
       });
       widget.onMove?.call(pt);
       widget.onSpeedMps?.call(_speedMps);
-      if (_ready && _follow) {
-        if (widget.navigating) {
+      if (_ready && _follow && !_flyCtrl.isAnimating) {
+        if (wasNull && widget.destination == null && widget.places.isEmpty) {
+          _flyTo(pt, targetZoom: 16.6, label: 'Your Location');
+        } else if (widget.navigating) {
           _map.move(pt, math.max(_map.camera.zoom, 16.8));
         } else if (widget.route == null && widget.places.isEmpty) {
-          _map.move(pt, _map.camera.zoom);
+          _map.move(pt, math.max(_map.camera.zoom, 16.0));
         }
       }
     }, onError: (Object e) => debugPrint('[OneovaMapView] tracking: $e'));
@@ -201,6 +281,7 @@ class _OneovaMapViewState extends State<OneovaMapView>
   @override
   void dispose() {
     _animCtrl.dispose();
+    _flyCtrl.dispose();
     _sub?.cancel();
     _signalTimer?.cancel();
     super.dispose();
@@ -219,7 +300,7 @@ class _OneovaMapViewState extends State<OneovaMapView>
     final pts = _allPoints;
     if (pts.isEmpty) return;
     if (pts.length == 1) {
-      _map.move(pts.first, 16);
+      _map.move(pts.first, 16.5);
       return;
     }
     _map.fitCamera(
@@ -260,6 +341,9 @@ class _OneovaMapViewState extends State<OneovaMapView>
   }
 
   ColorFilter _tileFilter(bool dark) {
+    if (_satellite) {
+      return const ColorFilter.mode(Colors.transparent, BlendMode.dst);
+    }
     if (_rotoscope) {
       // High-contrast Rotoscope Neon Edge / Tactical Dark Matrix
       return const ColorFilter.matrix([
@@ -308,7 +392,7 @@ class _OneovaMapViewState extends State<OneovaMapView>
                   mapController: _map,
                   options: MapOptions(
                     initialCenter: center,
-                    initialZoom: pts.isEmpty ? 2 : 15,
+                    initialZoom: pts.isEmpty ? 2 : 16,
                     backgroundColor: context.surfaceMid,
                     interactionOptions: InteractionOptions(
                       flags: widget.interactive
@@ -317,7 +401,17 @@ class _OneovaMapViewState extends State<OneovaMapView>
                     ),
                     onMapReady: () {
                       _ready = true;
-                      _fit();
+                      if (widget.flyToTargetOnLoad &&
+                          (widget.destination != null || widget.flyTarget != null)) {
+                        final target = widget.flyTarget ?? widget.destination!;
+                        _flyTo(
+                          target,
+                          targetZoom: 17.3,
+                          label: widget.flyTargetLabel ?? widget.destinationName ?? 'Destination',
+                        );
+                      } else {
+                        _fit();
+                      }
                     },
                     onPositionChanged: (camera, hasGesture) {
                       if (hasGesture && _follow) setState(() => _follow = false);
@@ -327,7 +421,9 @@ class _OneovaMapViewState extends State<OneovaMapView>
                     ColorFiltered(
                       colorFilter: _tileFilter(dark),
                       child: TileLayer(
-                        urlTemplate: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
+                        urlTemplate: _satellite
+                            ? 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}'
+                            : 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
                         userAgentPackageName: 'com.oneova.app',
                         maxZoom: 19,
                       ),
@@ -335,26 +431,22 @@ class _OneovaMapViewState extends State<OneovaMapView>
                     if (routePts.length >= 2)
                       PolylineLayer(
                         polylines: [
-                          // Outer rotoscope glow corridor
                           Polyline(
                             points: routePts,
                             strokeWidth: _rotoscope ? 11 : 8,
                             color: (_rotoscope ? AppColors.brandPink : AppColors.brandBlue)
                                 .withValues(alpha: _rotoscope ? 0.28 : 0.20),
                           ),
-                          // Crisp casing
                           Polyline(
                             points: routePts,
                             strokeWidth: 6,
                             color: Colors.white.withValues(alpha: _rotoscope ? 0.55 : 0.9),
                           ),
-                          // Primary route line
                           Polyline(
                             points: routePts,
                             strokeWidth: 4.2,
                             color: AppColors.brandBlue,
                           ),
-                          // Live animated pulse wave traveling from origin to destination
                           if (flowSegment.length >= 2)
                             Polyline(
                               points: flowSegment,
@@ -376,7 +468,6 @@ class _OneovaMapViewState extends State<OneovaMapView>
                       ),
                     MarkerLayer(
                       markers: [
-                        // Step maneuver dots along the route when navigating
                         if (widget.route != null && widget.route!.steps.isNotEmpty)
                           for (var sIdx = 0; sIdx < widget.route!.steps.length; sIdx++)
                             if (widget.navigating || widget.activeStepIndex == sIdx)
@@ -410,7 +501,6 @@ class _OneovaMapViewState extends State<OneovaMapView>
                                       : null,
                                 ),
                               ),
-                        // Rotoscope target lock halo on highlighted place or destination
                         if (highlightedPoint != null && (_rotoscope || widget.highlightIndex != null))
                           Marker(
                             point: highlightedPoint,
@@ -426,7 +516,6 @@ class _OneovaMapViewState extends State<OneovaMapView>
                               ),
                             ),
                           ),
-                        // Travelling live route beacon
                         if (beaconPoint != null && routePts.length >= 2)
                           Marker(
                             point: beaconPoint,
@@ -449,7 +538,6 @@ class _OneovaMapViewState extends State<OneovaMapView>
                               ),
                             ),
                           ),
-                        // Nearby places pins
                         for (var i = 0; i < widget.places.length; i++)
                           Marker(
                             point: widget.places[i].point,
@@ -457,12 +545,15 @@ class _OneovaMapViewState extends State<OneovaMapView>
                             height: widget.highlightIndex == i ? 38 : 30,
                             alignment: Alignment.topCenter,
                             child: GestureDetector(
-                              onTap: widget.onPlaceTap == null
-                                  ? null
-                                  : () {
-                                      HapticFeedback.selectionClick();
-                                      widget.onPlaceTap!(i);
-                                    },
+                              onTap: () {
+                                HapticFeedback.selectionClick();
+                                widget.onPlaceTap?.call(i);
+                                _flyTo(
+                                  widget.places[i].point,
+                                  targetZoom: 17.2,
+                                  label: widget.places[i].name,
+                                );
+                              },
                               child: _PlacePin(
                                 index: i + 1,
                                 highlighted: widget.highlightIndex == i,
@@ -471,38 +562,48 @@ class _OneovaMapViewState extends State<OneovaMapView>
                               ),
                             ),
                           ),
-                        // Destination pin
                         if (widget.destination != null)
                           Marker(
                             point: widget.destination!,
                             width: 36,
                             height: 36,
                             alignment: Alignment.topCenter,
-                            child: const Icon(
-                              Icons.location_on_rounded,
-                              size: 34,
-                              color: AppColors.brandPink,
+                            child: GestureDetector(
+                              onTap: () => _flyTo(
+                                widget.destination!,
+                                targetZoom: 17.4,
+                                label: widget.destinationName ?? 'Destination',
+                              ),
+                              child: const Icon(
+                                Icons.location_on_rounded,
+                                size: 34,
+                                color: AppColors.brandPink,
+                              ),
                             ),
                           ),
-                        // Other people's live location pins
                         for (final e in widget.others.entries)
                           Marker(
                             point: e.value,
                             width: 36,
                             height: 36,
-                            child: _PersonPin(label: e.key),
+                            child: GestureDetector(
+                              onTap: () => _flyTo(e.value, targetZoom: 17.2, label: e.key),
+                              child: _PersonPin(label: e.key),
+                            ),
                           ),
-                        // User's live dot with radar pulse & heading cone
                         if (_me != null)
                           Marker(
                             point: _me!,
                             width: 48,
                             height: 48,
-                            child: _MeDot(
-                              heading: _heading,
-                              live: widget.trackUser || widget.navigating,
-                              pulse: t,
-                              rotoscope: _rotoscope,
+                            child: GestureDetector(
+                              onTap: () => _flyTo(_me!, targetZoom: 17.0, label: 'Your Location'),
+                              child: _MeDot(
+                                heading: _heading,
+                                live: widget.trackUser || widget.navigating,
+                                pulse: t,
+                                rotoscope: _rotoscope,
+                              ),
                             ),
                           ),
                       ],
@@ -510,7 +611,6 @@ class _OneovaMapViewState extends State<OneovaMapView>
                   ],
                 ),
 
-                // Rotoscope Neon Edge Frame Overlay when active
                 if (_rotoscope)
                   Positioned.fill(
                     child: IgnorePointer(
@@ -521,25 +621,55 @@ class _OneovaMapViewState extends State<OneovaMapView>
                             color: AppColors.brandPink.withValues(alpha: 0.55),
                             width: 1.5,
                           ),
-                          gradient: RadialGradient(
-                            radius: 1.15,
-                            colors: [
-                              Colors.transparent,
-                              AppColors.brandBlue.withValues(alpha: 0.14),
-                            ],
-                          ),
                         ),
                       ),
                     ),
                   ),
 
-                // Top-left HUD: Rotoscope Highlighter Toggle & Live Speed
+                // Real-Time "Fly Me There" Telemetry Pill while flying
+                if (_flyingLabel != null)
+                  Positioned(
+                    top: 38,
+                    left: 0,
+                    right: 0,
+                    child: Center(
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 5),
+                        decoration: BoxDecoration(
+                          gradient: const LinearGradient(
+                            colors: [AppColors.brandBlue, AppColors.brandPink],
+                          ),
+                          borderRadius: BorderRadius.circular(AppRadius.full),
+                          boxShadow: const [
+                            BoxShadow(color: Colors.black38, blurRadius: 8),
+                          ],
+                        ),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            const Icon(Icons.flight_takeoff_rounded, size: 13, color: Colors.white),
+                            const SizedBox(width: 6),
+                            Text(
+                              'Flying to $_flyingLabel…',
+                              style: GoogleFonts.inter(
+                                fontSize: 10.5,
+                                fontWeight: FontWeight.w800,
+                                color: Colors.white,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ),
+
+                // Top-left HUD: Rotoscope + Satellite + Fly Me There + Speed
                 if (widget.interactive)
                   Positioned(
                     left: 6,
                     top: 6,
-                    child: Row(
-                      mainAxisSize: MainAxisSize.min,
+                    child: Wrap(
+                      spacing: 5,
                       children: [
                         Material(
                           color: _rotoscope
@@ -561,12 +691,12 @@ class _OneovaMapViewState extends State<OneovaMapView>
                                 children: [
                                   Icon(
                                     Icons.auto_fix_high_rounded,
-                                    size: 13,
+                                    size: 12,
                                     color: _rotoscope ? Colors.white : AppColors.brandPink,
                                   ),
                                   const SizedBox(width: 4),
                                   Text(
-                                    _rotoscope ? 'Rotoscope ON' : 'Rotoscope',
+                                    'Roto',
                                     style: GoogleFonts.inter(
                                       fontSize: 10,
                                       fontWeight: FontWeight.w800,
@@ -578,14 +708,83 @@ class _OneovaMapViewState extends State<OneovaMapView>
                             ),
                           ),
                         ),
-                        if ((widget.trackUser || widget.navigating) && _speedMps > 0.6) ...[
-                          const SizedBox(width: 6),
+                        Material(
+                          color: _satellite
+                              ? AppColors.brandBlue
+                              : context.surface.withValues(alpha: 0.92),
+                          borderRadius: BorderRadius.circular(AppRadius.full),
+                          elevation: 2,
+                          child: InkWell(
+                            borderRadius: BorderRadius.circular(AppRadius.full),
+                            onTap: () {
+                              HapticFeedback.selectionClick();
+                              setState(() => _satellite = !_satellite);
+                            },
+                            child: Padding(
+                              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                              child: Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  Icon(
+                                    Icons.satellite_alt_rounded,
+                                    size: 12,
+                                    color: _satellite ? Colors.white : AppColors.brandBlue,
+                                  ),
+                                  const SizedBox(width: 4),
+                                  Text(
+                                    'Aerial',
+                                    style: GoogleFonts.inter(
+                                      fontSize: 10,
+                                      fontWeight: FontWeight.w800,
+                                      color: _satellite ? Colors.white : context.textPrimary,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ),
+                        ),
+                        if (highlightedPoint != null)
+                          Material(
+                            color: AppColors.brandBlue,
+                            borderRadius: BorderRadius.circular(AppRadius.full),
+                            elevation: 2,
+                            child: InkWell(
+                              borderRadius: BorderRadius.circular(AppRadius.full),
+                              onTap: () {
+                                setState(() => _follow = false);
+                                final name = (widget.highlightIndex != null &&
+                                        widget.highlightIndex! < widget.places.length)
+                                    ? widget.places[widget.highlightIndex!].name
+                                    : (widget.destinationName ?? 'Destination');
+                                _flyTo(highlightedPoint, targetZoom: 17.5, label: name);
+                              },
+                              child: Padding(
+                                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                                child: Row(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    const Icon(Icons.flight_rounded, size: 12, color: Colors.white),
+                                    const SizedBox(width: 3),
+                                    Text(
+                                      'Fly There',
+                                      style: GoogleFonts.inter(
+                                        fontSize: 10,
+                                        fontWeight: FontWeight.w800,
+                                        color: Colors.white,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ),
+                          ),
+                        if ((widget.trackUser || widget.navigating) && _speedMps > 0.6)
                           Container(
                             padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 4),
                             decoration: BoxDecoration(
                               color: Colors.black.withValues(alpha: 0.75),
                               borderRadius: BorderRadius.circular(AppRadius.full),
-                              border: Border.all(color: Colors.white24),
                             ),
                             child: Text(
                               '${(_speedMps * 3.6).round()} km/h',
@@ -596,13 +795,12 @@ class _OneovaMapViewState extends State<OneovaMapView>
                               ),
                             ),
                           ),
-                        ],
                       ],
                     ),
                   ),
 
-                // Top-right HUD: Full-screen Explorer & Recenter
-                if (widget.interactive && pts.isNotEmpty)
+                // Top-right HUD: Auto-Focus Me & Full-Screen Explorer
+                if (widget.interactive)
                   Positioned(
                     right: 6,
                     top: 6,
@@ -644,7 +842,9 @@ class _OneovaMapViewState extends State<OneovaMapView>
                         ),
                         const SizedBox(width: 5),
                         Material(
-                          color: context.surface.withValues(alpha: 0.92),
+                          color: _follow
+                              ? AppColors.brandBlue
+                              : context.surface.withValues(alpha: 0.92),
                           shape: const CircleBorder(),
                           elevation: 2,
                           child: InkWell(
@@ -652,10 +852,10 @@ class _OneovaMapViewState extends State<OneovaMapView>
                             onTap: () {
                               HapticFeedback.selectionClick();
                               setState(() => _follow = true);
-                              if (widget.navigating && _me != null) {
-                                _map.move(_me!, 17);
+                              if (_me != null) {
+                                _flyTo(_me!, targetZoom: 16.8, label: 'Your Location');
                               } else {
-                                _fit();
+                                _autoAcquireLocation();
                               }
                             },
                             child: Padding(
@@ -665,7 +865,7 @@ class _OneovaMapViewState extends State<OneovaMapView>
                                     ? Icons.my_location_rounded
                                     : Icons.location_searching_rounded,
                                 size: 16,
-                                color: AppColors.brandBlue,
+                                color: _follow ? Colors.white : AppColors.brandBlue,
                               ),
                             ),
                           ),
@@ -678,10 +878,10 @@ class _OneovaMapViewState extends State<OneovaMapView>
                   right: 6,
                   bottom: 3,
                   child: Text(
-                    '© OpenStreetMap',
+                    _satellite ? '© Esri World Imagery' : '© Google Maps / OSM',
                     style: GoogleFonts.inter(
                       fontSize: 8.5,
-                      color: _rotoscope || dark ? Colors.white54 : Colors.black54,
+                      color: _rotoscope || _satellite || dark ? Colors.white54 : Colors.black54,
                     ),
                   ),
                 ),
@@ -694,8 +894,6 @@ class _OneovaMapViewState extends State<OneovaMapView>
   }
 }
 
-/// Custom painter that renders an animated Rotoscope target lock / contour scanner
-/// around the highlighted place or destination.
 class _RotoscopeTargetPainter extends CustomPainter {
   final double progress;
   final Color color;
@@ -712,7 +910,6 @@ class _RotoscopeTargetPainter extends CustomPainter {
     final center = Offset(size.width / 2, size.height / 2);
     final maxR = size.width / 2;
 
-    // Expanding sonar wave
     final waveR = 12.0 + (maxR - 12.0) * progress;
     final wavePaint = Paint()
       ..style = PaintingStyle.stroke
@@ -720,7 +917,6 @@ class _RotoscopeTargetPainter extends CustomPainter {
       ..color = color.withValues(alpha: (1.0 - progress) * 0.75);
     canvas.drawCircle(center, waveR, wavePaint);
 
-    // Inner glowing fill
     final glowPaint = Paint()
       ..shader = RadialGradient(
         colors: [
@@ -731,7 +927,6 @@ class _RotoscopeTargetPainter extends CustomPainter {
       ).createShader(Rect.fromCircle(center: center, radius: maxR * 0.78));
     canvas.drawCircle(center, maxR * 0.78, glowPaint);
 
-    // Rotating segmented rotoscope contour ring
     final ringPaint = Paint()
       ..style = PaintingStyle.stroke
       ..strokeWidth = 2.2
@@ -885,8 +1080,8 @@ class _PersonPin extends StatelessWidget {
 }
 
 /// Opens a full-screen interactive Live Map & Turn-by-Turn Navigation modal
-/// with Rotoscope Highlighter, Drive/Walk/Bike switcher, Start Directions,
-/// and WhatsApp-style Live Location sharing controls.
+/// with "What's Near Me" radar, "Fly Me There" real-time flight, Auto-Focus Location,
+/// Map History, and AI Map Concierge.
 Future<void> showOneovaFullMapModal(
   BuildContext context, {
   LatLng? me,
@@ -948,13 +1143,29 @@ class _OneovaFullMapSheetState extends State<_OneovaFullMapSheet> {
   GeoRoute? _route;
   LatLng? _destination;
   String? _destinationName;
+  LatLng? _flyTarget;
+  String? _flyTargetLabel;
   late bool _rotoscope;
   late bool _navigating;
   String _mode = 'driving';
+  String _selectedNearCat = '';
   int? _highlightIndex;
   int _activeStepIndex = 0;
   bool _loadingRoute = false;
   bool _showStepsList = false;
+  bool _showHistory = false;
+  String? _aiAreaInsight;
+  bool _aiLoading = false;
+
+  static const List<(String, String, IconData)> _nearCategories = [
+    ('food', "What's Near Me", Icons.near_me_rounded),
+    ('cafe', 'Coffee & Cafe', Icons.local_cafe_rounded),
+    ('shop', 'Shops & Malls', Icons.shopping_bag_outlined),
+    ('atm', 'ATM & Bank', Icons.account_balance_rounded),
+    ('fuel', 'Fuel Station', Icons.local_gas_station_rounded),
+    ('pharmacy', 'Pharmacy', Icons.local_pharmacy_rounded),
+    ('hotel', 'Hotels', Icons.hotel_rounded),
+  ];
 
   @override
   void initState() {
@@ -967,6 +1178,7 @@ class _OneovaFullMapSheetState extends State<_OneovaFullMapSheet> {
     _rotoscope = widget.rotoscopeInitial;
     _navigating = widget.startNavigatingInitial;
     if (_route != null) _mode = _route!.mode;
+    OneovaMapHistoryService.instance.warm();
     if (_me == null) _resolveMe();
   }
 
@@ -974,7 +1186,14 @@ class _OneovaFullMapSheetState extends State<_OneovaFullMapSheet> {
     try {
       final p = await GeoServices.instance.current();
       if (!mounted) return;
-      setState(() => _me = LatLng(p.latitude, p.longitude));
+      final pt = LatLng(p.latitude, p.longitude);
+      setState(() {
+        _me = pt;
+        if (_destination == null && _places.isEmpty) {
+          _flyTarget = pt;
+          _flyTargetLabel = 'Your Location';
+        }
+      });
     } catch (_) {}
   }
 
@@ -984,7 +1203,80 @@ class _OneovaFullMapSheetState extends State<_OneovaFullMapSheet> {
     super.dispose();
   }
 
-  Future<void> _recalculateRoute({String? mode, LatLng? target, String? name}) async {
+  Future<void> _scanWhatsNearMe(String category) async {
+    HapticFeedback.selectionClick();
+    var me = _me;
+    if (me == null) {
+      try {
+        final p = await GeoServices.instance.current();
+        me = LatLng(p.latitude, p.longitude);
+        _me = me;
+      } catch (_) {
+        return;
+      }
+    }
+    setState(() {
+      _selectedNearCat = category;
+      _loadingRoute = true;
+      _showHistory = false;
+      _showStepsList = false;
+    });
+    try {
+      final hits = await GeoServices.instance.nearby(me, category, radiusM: 2200, limit: 8);
+      if (!mounted) return;
+      setState(() {
+        _places = hits;
+        _highlightIndex = hits.isNotEmpty ? 0 : null;
+        if (hits.isNotEmpty) {
+          _flyTarget = hits.first.point;
+          _flyTargetLabel = hits.first.name;
+        }
+        _loadingRoute = false;
+      });
+    } catch (_) {
+      if (mounted) setState(() => _loadingRoute = false);
+    }
+  }
+
+  Future<void> _askAiAboutMap(String question) async {
+    HapticFeedback.selectionClick();
+    setState(() {
+      _aiLoading = true;
+      _aiAreaInsight = null;
+    });
+    try {
+      final me = _me;
+      final placeNames = _places.take(5).map((p) => '${p.name} (${formatDistance(p.distanceM ?? 0)})').join(', ');
+      final prompt = [
+        'User question on live map: "$question"',
+        if (me != null) 'User GPS: ${me.latitude.toStringAsFixed(4)}, ${me.longitude.toStringAsFixed(4)}',
+        if (_destinationName != null) 'Active destination: $_destinationName',
+        if (placeNames.isNotEmpty) 'Nearby places on map: $placeNames',
+        if (_route != null) 'Active route: ${formatDistance(_route!.distanceM)}, ${formatDuration(_route!.durationS)} by $_mode',
+        'Reply in 2 concise, helpful sentences.',
+      ].join('\n');
+      final ans = await OneovaAiGateway.generate(
+        prompt: prompt,
+        systemInstruction: 'You are Ova AI Map Concierge inside Oneova. Give concise, practical location, route, and local discovery advice.',
+        maxOutputTokens: 120,
+      ).timeout(const Duration(seconds: 8));
+      if (mounted) {
+        setState(() {
+          _aiAreaInsight = ans.trim();
+          _aiLoading = false;
+        });
+      }
+    } catch (_) {
+      if (mounted) {
+        setState(() {
+          _aiAreaInsight = 'Tap any place pin or "What\'s Near Me" chip to fly there in real time and start live directions.';
+          _aiLoading = false;
+        });
+      }
+    }
+  }
+
+  Future<void> _recalculateRoute({String? mode, LatLng? target, String? name, bool fly = false}) async {
     final dest = target ?? _destination;
     final me = _me;
     if (dest == null || me == null) return;
@@ -993,8 +1285,17 @@ class _OneovaFullMapSheetState extends State<_OneovaFullMapSheet> {
       _mode = nextMode;
       _destination = dest;
       if (name != null) _destinationName = name;
+      if (fly) {
+        _flyTarget = dest;
+        _flyTargetLabel = name ?? _destinationName ?? 'Destination';
+      }
       _loadingRoute = true;
     });
+    OneovaMapHistoryService.instance.record(
+      title: name ?? _destinationName ?? 'Route Destination',
+      point: dest,
+      actionType: fly ? 'fly' : 'route',
+    );
     final r = await GeoServices.instance.route(me, dest, mode: nextMode);
     if (!mounted) return;
     setState(() {
@@ -1007,7 +1308,10 @@ class _OneovaFullMapSheetState extends State<_OneovaFullMapSheet> {
   Future<void> _searchPlaces(String query) async {
     final q = query.trim();
     if (q.isEmpty) return;
-    setState(() => _loadingRoute = true);
+    setState(() {
+      _loadingRoute = true;
+      _showHistory = false;
+    });
     try {
       final hits = await GeoServices.instance.search(q, near: _me, limit: 6);
       if (!mounted) return;
@@ -1017,7 +1321,11 @@ class _OneovaFullMapSheetState extends State<_OneovaFullMapSheet> {
         _loadingRoute = false;
       });
       if (hits.isNotEmpty) {
-        await _recalculateRoute(target: hits.first.point, name: hits.first.name);
+        await _recalculateRoute(
+          target: hits.first.point,
+          name: hits.first.name,
+          fly: true,
+        );
       }
     } catch (_) {
       if (mounted) setState(() => _loadingRoute = false);
@@ -1050,6 +1358,7 @@ class _OneovaFullMapSheetState extends State<_OneovaFullMapSheet> {
     final remainingM = (_me != null && _destination != null)
         ? GeoServices.instance.distanceM(_me!, _destination!)
         : _route?.distanceM;
+    final historyItems = OneovaMapHistoryService.instance.items;
 
     return Container(
       height: MediaQuery.of(context).size.height * 0.92,
@@ -1059,9 +1368,9 @@ class _OneovaFullMapSheetState extends State<_OneovaFullMapSheet> {
       ),
       child: Column(
         children: [
-          // Top Header / Search Bar
+          // Top Header / Search Bar + History Button + Share Live
           Padding(
-            padding: const EdgeInsets.fromLTRB(14, 10, 14, 8),
+            padding: const EdgeInsets.fromLTRB(12, 10, 12, 6),
             child: Row(
               children: [
                 IconButton(
@@ -1076,8 +1385,8 @@ class _OneovaFullMapSheetState extends State<_OneovaFullMapSheet> {
                     style: GoogleFonts.inter(fontSize: 13, color: context.textPrimary),
                     decoration: InputDecoration(
                       isDense: true,
-                      hintText: _destinationName ?? 'Search destination or nearby place…',
-                      hintStyle: GoogleFonts.inter(fontSize: 12.5, color: context.textMuted),
+                      hintText: _destinationName ?? 'Search or say "Fly me to…"',
+                      hintStyle: GoogleFonts.inter(fontSize: 12, color: context.textMuted),
                       prefixIcon: const Icon(Icons.search_rounded, size: 18, color: AppColors.brandBlue),
                       filled: true,
                       fillColor: context.surfaceMid,
@@ -1093,9 +1402,25 @@ class _OneovaFullMapSheetState extends State<_OneovaFullMapSheet> {
                     ),
                   ),
                 ),
-                const SizedBox(width: 8),
+                const SizedBox(width: 4),
+                IconButton(
+                  visualDensity: VisualDensity.compact,
+                  tooltip: 'Map & Location History',
+                  onPressed: () {
+                    HapticFeedback.selectionClick();
+                    setState(() {
+                      _showHistory = !_showHistory;
+                      _showStepsList = false;
+                    });
+                  },
+                  icon: Icon(
+                    Icons.history_rounded,
+                    color: _showHistory ? AppColors.brandPink : AppColors.brandBlue,
+                  ),
+                ),
                 if (_me != null)
                   IconButton(
+                    visualDensity: VisualDensity.compact,
                     tooltip: 'Share live / current location',
                     onPressed: () {
                       final pt = _me!;
@@ -1111,11 +1436,118 @@ class _OneovaFullMapSheetState extends State<_OneovaFullMapSheet> {
             ),
           ),
 
+          // "What's Near Me" & AI Map Quick Bar
+          SizedBox(
+            height: 34,
+            child: ListView(
+              scrollDirection: Axis.horizontal,
+              padding: const EdgeInsets.symmetric(horizontal: 14),
+              children: [
+                Padding(
+                  padding: const EdgeInsets.only(right: 6),
+                  child: GestureDetector(
+                    onTap: () => _askAiAboutMap("What's notable around my current location and best route tips?"),
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+                      decoration: BoxDecoration(
+                        gradient: const LinearGradient(
+                          colors: [AppColors.brandBlue, AppColors.brandPink],
+                        ),
+                        borderRadius: BorderRadius.circular(AppRadius.full),
+                      ),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          const Icon(Icons.auto_awesome_rounded, size: 12, color: Colors.white),
+                          const SizedBox(width: 4),
+                          Text(
+                            'AI Area Guide',
+                            style: GoogleFonts.inter(
+                              fontSize: 11,
+                              fontWeight: FontWeight.w800,
+                              color: Colors.white,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
+                for (final (catId, catLabel, catIcon) in _nearCategories)
+                  Padding(
+                    padding: const EdgeInsets.only(right: 6),
+                    child: GestureDetector(
+                      onTap: () => _scanWhatsNearMe(catId),
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+                        decoration: BoxDecoration(
+                          color: _selectedNearCat == catId ? AppColors.brandBlue : context.surfaceMid,
+                          borderRadius: BorderRadius.circular(AppRadius.full),
+                          border: Border.all(
+                            color: _selectedNearCat == catId ? AppColors.brandBlue : context.border,
+                          ),
+                        ),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Icon(
+                              catIcon,
+                              size: 12,
+                              color: _selectedNearCat == catId ? Colors.white : AppColors.brandBlue,
+                            ),
+                            const SizedBox(width: 4),
+                            Text(
+                              catLabel,
+                              style: GoogleFonts.inter(
+                                fontSize: 11,
+                                fontWeight: FontWeight.w700,
+                                color: _selectedNearCat == catId ? Colors.white : context.textPrimary,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 6),
+
+          // AI Concierge Insight Banner (when requested)
+          if (_aiLoading || _aiAreaInsight != null)
+            Container(
+              margin: const EdgeInsets.fromLTRB(14, 0, 14, 6),
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+              decoration: BoxDecoration(
+                color: AppColors.brandBlue.withValues(alpha: 0.10),
+                borderRadius: BorderRadius.circular(AppRadius.sm),
+                border: Border.all(color: AppColors.brandBlue.withValues(alpha: 0.35)),
+              ),
+              child: Row(
+                children: [
+                  const Icon(Icons.auto_awesome_rounded, size: 15, color: AppColors.brandPink),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      _aiLoading ? 'Ova AI is analyzing this area…' : (_aiAreaInsight ?? ''),
+                      style: GoogleFonts.inter(fontSize: 11.5, height: 1.35, color: context.textPrimary),
+                    ),
+                  ),
+                  if (!_aiLoading)
+                    GestureDetector(
+                      onTap: () => setState(() => _aiAreaInsight = null),
+                      child: Icon(Icons.close_rounded, size: 15, color: context.textMuted),
+                    ),
+                ],
+              ),
+            ),
+
           // Live Turn-by-Turn Top Banner when navigating or route active
           if (currentStep != null)
             Container(
-              margin: const EdgeInsets.fromLTRB(14, 0, 14, 8),
-              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+              margin: const EdgeInsets.fromLTRB(14, 0, 14, 6),
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
               decoration: BoxDecoration(
                 gradient: LinearGradient(
                   colors: _navigating
@@ -1129,22 +1561,12 @@ class _OneovaFullMapSheetState extends State<_OneovaFullMapSheet> {
               ),
               child: Row(
                 children: [
-                  Container(
-                    width: 38,
-                    height: 38,
-                    decoration: BoxDecoration(
-                      color: _navigating
-                          ? Colors.white.withValues(alpha: 0.16)
-                          : AppColors.brandBlue.withValues(alpha: 0.12),
-                      borderRadius: BorderRadius.circular(AppRadius.sm),
-                    ),
-                    child: Icon(
-                      maneuverIcon(currentStep.maneuverType, currentStep.modifier),
-                      color: _navigating ? Colors.white : AppColors.brandBlue,
-                      size: 22,
-                    ),
+                  Icon(
+                    maneuverIcon(currentStep.maneuverType, currentStep.modifier),
+                    color: _navigating ? Colors.white : AppColors.brandBlue,
+                    size: 20,
                   ),
-                  const SizedBox(width: 12),
+                  const SizedBox(width: 10),
                   Expanded(
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
@@ -1154,7 +1576,7 @@ class _OneovaFullMapSheetState extends State<_OneovaFullMapSheet> {
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
                           style: GoogleFonts.inter(
-                            fontSize: 13.5,
+                            fontSize: 13,
                             fontWeight: FontWeight.w800,
                             color: _navigating ? Colors.white : context.textPrimary,
                           ),
@@ -1162,7 +1584,7 @@ class _OneovaFullMapSheetState extends State<_OneovaFullMapSheet> {
                         Text(
                           '${formatDistance(currentStep.distanceM)} · Step ${_activeStepIndex + 1} of ${steps.length}',
                           style: GoogleFonts.inter(
-                            fontSize: 11.5,
+                            fontSize: 11,
                             color: _navigating ? Colors.white70 : context.textSecondary,
                           ),
                         ),
@@ -1170,16 +1592,19 @@ class _OneovaFullMapSheetState extends State<_OneovaFullMapSheet> {
                     ),
                   ),
                   TextButton.icon(
-                    onPressed: () => setState(() => _showStepsList = !_showStepsList),
+                    onPressed: () => setState(() {
+                      _showStepsList = !_showStepsList;
+                      _showHistory = false;
+                    }),
                     icon: Icon(
                       _showStepsList ? Icons.map_rounded : Icons.format_list_bulleted_rounded,
-                      size: 16,
+                      size: 15,
                       color: _navigating ? Colors.white : AppColors.brandBlue,
                     ),
                     label: Text(
                       _showStepsList ? 'Map' : 'Steps (${steps.length})',
                       style: GoogleFonts.inter(
-                        fontSize: 11.5,
+                        fontSize: 11,
                         fontWeight: FontWeight.w700,
                         color: _navigating ? Colors.white : AppColors.brandBlue,
                       ),
@@ -1189,7 +1614,7 @@ class _OneovaFullMapSheetState extends State<_OneovaFullMapSheet> {
               ),
             ),
 
-          // Main Map or Turn-by-Turn Steps List
+          // Main Map + History Overlay + Steps Overlay
           Expanded(
             child: Padding(
               padding: const EdgeInsets.symmetric(horizontal: 14),
@@ -1202,6 +1627,8 @@ class _OneovaFullMapSheetState extends State<_OneovaFullMapSheet> {
                       route: _route,
                       destination: _destination,
                       destinationName: _destinationName,
+                      flyTarget: _flyTarget,
+                      flyTargetLabel: _flyTargetLabel,
                       others: widget.others,
                       trackUser: true,
                       sampleSignal: true,
@@ -1216,6 +1643,7 @@ class _OneovaFullMapSheetState extends State<_OneovaFullMapSheet> {
                         _recalculateRoute(
                           target: _places[i].point,
                           name: _places[i].name,
+                          fly: true,
                         );
                       },
                       onMove: (pt) {
@@ -1237,6 +1665,135 @@ class _OneovaFullMapSheetState extends State<_OneovaFullMapSheet> {
                         ),
                       ),
                     ),
+
+                  // Map & Location History Drawer
+                  if (_showHistory)
+                    Positioned.fill(
+                      child: Container(
+                        decoration: BoxDecoration(
+                          color: context.surface.withValues(alpha: 0.97),
+                          borderRadius: BorderRadius.circular(AppRadius.md),
+                          border: Border.all(color: context.border),
+                        ),
+                        child: Column(
+                          children: [
+                            Padding(
+                              padding: const EdgeInsets.fromLTRB(14, 10, 10, 6),
+                              child: Row(
+                                children: [
+                                  const Icon(Icons.history_rounded, size: 17, color: AppColors.brandBlue),
+                                  const SizedBox(width: 8),
+                                  Text(
+                                    'Map & Location History',
+                                    style: GoogleFonts.inter(
+                                      fontSize: 13.5,
+                                      fontWeight: FontWeight.w800,
+                                      color: context.textPrimary,
+                                    ),
+                                  ),
+                                  const Spacer(),
+                                  if (historyItems.isNotEmpty)
+                                    TextButton(
+                                      onPressed: () async {
+                                        await OneovaMapHistoryService.instance.clear();
+                                        if (mounted) setState(() {});
+                                      },
+                                      child: Text(
+                                        'Clear',
+                                        style: GoogleFonts.inter(fontSize: 11.5, color: AppColors.brandPink),
+                                      ),
+                                    ),
+                                  IconButton(
+                                    visualDensity: VisualDensity.compact,
+                                    onPressed: () => setState(() => _showHistory = false),
+                                    icon: Icon(Icons.close_rounded, size: 18, color: context.textSecondary),
+                                  ),
+                                ],
+                              ),
+                            ),
+                            Divider(height: 1, color: context.border),
+                            Expanded(
+                              child: historyItems.isEmpty
+                                  ? Center(
+                                      child: Text(
+                                        'Places you search, route to, or fly to appear here.',
+                                        style: GoogleFonts.inter(fontSize: 12, color: context.textSecondary),
+                                      ),
+                                    )
+                                  : ListView.separated(
+                                      padding: const EdgeInsets.all(10),
+                                      itemCount: historyItems.length,
+                                      separatorBuilder: (_, _) => Divider(height: 1, color: context.border),
+                                      itemBuilder: (_, idx) {
+                                        final item = historyItems[idx];
+                                        return ListTile(
+                                          dense: true,
+                                          leading: Icon(
+                                            item.actionType == 'fly'
+                                                ? Icons.flight_rounded
+                                                : (item.actionType == 'route'
+                                                    ? Icons.directions_rounded
+                                                    : Icons.place_rounded),
+                                            color: AppColors.brandBlue,
+                                            size: 18,
+                                          ),
+                                          title: Text(
+                                            item.title,
+                                            maxLines: 1,
+                                            overflow: TextOverflow.ellipsis,
+                                            style: GoogleFonts.inter(
+                                              fontSize: 12.5,
+                                              fontWeight: FontWeight.w700,
+                                              color: context.textPrimary,
+                                            ),
+                                          ),
+                                          subtitle: item.subtitle != null
+                                              ? Text(
+                                                  item.subtitle!,
+                                                  maxLines: 1,
+                                                  overflow: TextOverflow.ellipsis,
+                                                  style: GoogleFonts.inter(fontSize: 11, color: context.textSecondary),
+                                                )
+                                              : null,
+                                          trailing: Row(
+                                            mainAxisSize: MainAxisSize.min,
+                                            children: [
+                                              TextButton.icon(
+                                                onPressed: () {
+                                                  setState(() {
+                                                    _showHistory = false;
+                                                    _destination = item.point;
+                                                    _destinationName = item.title;
+                                                    _flyTarget = item.point;
+                                                    _flyTargetLabel = item.title;
+                                                  });
+                                                  _recalculateRoute(
+                                                    target: item.point,
+                                                    name: item.title,
+                                                    fly: true,
+                                                  );
+                                                },
+                                                icon: const Icon(Icons.flight_rounded, size: 14, color: AppColors.brandPink),
+                                                label: Text(
+                                                  'Fly There',
+                                                  style: GoogleFonts.inter(
+                                                    fontSize: 11,
+                                                    fontWeight: FontWeight.w800,
+                                                    color: AppColors.brandPink,
+                                                  ),
+                                                ),
+                                              ),
+                                            ],
+                                          ),
+                                        );
+                                      },
+                                    ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+
                   if (_showStepsList && steps.isNotEmpty)
                     Positioned.fill(
                       child: Container(
@@ -1275,6 +1832,8 @@ class _OneovaFullMapSheetState extends State<_OneovaFullMapSheet> {
                                 setState(() {
                                   _activeStepIndex = idx;
                                   _showStepsList = false;
+                                  _flyTarget = st.location;
+                                  _flyTargetLabel = st.instruction;
                                 });
                               },
                             );
@@ -1287,11 +1846,11 @@ class _OneovaFullMapSheetState extends State<_OneovaFullMapSheet> {
             ),
           ),
 
-          // Bottom Controls: Travel Modes + Start Live Navigation + Google Maps Handoff
+          // Bottom Controls: Travel Modes + Fly Me There + Start Live Navigation
           SafeArea(
             top: false,
             child: Padding(
-              padding: const EdgeInsets.fromLTRB(14, 10, 14, 12),
+              padding: const EdgeInsets.fromLTRB(14, 8, 14, 10),
               child: Column(
                 mainAxisSize: MainAxisSize.min,
                 children: [
@@ -1335,72 +1894,84 @@ class _OneovaFullMapSheetState extends State<_OneovaFullMapSheet> {
                         Text(
                           '${formatDuration(_route!.durationS)} · ${formatDistance(remainingM ?? _route!.distanceM)}',
                           style: GoogleFonts.inter(
-                            fontSize: 12.5,
+                            fontSize: 12,
                             fontWeight: FontWeight.w800,
                             color: context.textPrimary,
                           ),
                         ),
                     ],
                   ),
-                  const SizedBox(height: 8),
+                  const SizedBox(height: 6),
                   Row(
                     children: [
-                      Expanded(
-                        child: FilledButton.icon(
-                          style: FilledButton.styleFrom(
-                            backgroundColor: _navigating ? AppColors.brandPink : AppColors.brandBlue,
-                            minimumSize: const Size(0, 42),
+                      if (_destination != null) ...[
+                        OutlinedButton.icon(
+                          style: OutlinedButton.styleFrom(
+                            minimumSize: const Size(0, 40),
+                            side: const BorderSide(color: AppColors.brandPink),
                             shape: RoundedRectangleBorder(
                               borderRadius: BorderRadius.circular(AppRadius.md),
                             ),
                           ),
-                          onPressed: _destination == null
-                              ? null
+                          onPressed: () {
+                            setState(() {
+                              _flyTarget = _destination;
+                              _flyTargetLabel = _destinationName ?? 'Destination';
+                            });
+                          },
+                          icon: const Icon(Icons.flight_rounded, size: 16, color: AppColors.brandPink),
+                          label: Text(
+                            'Fly Me There',
+                            style: GoogleFonts.inter(
+                              fontSize: 12,
+                              fontWeight: FontWeight.w800,
+                              color: AppColors.brandPink,
+                            ),
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                      ],
+                      Expanded(
+                        child: FilledButton.icon(
+                          style: FilledButton.styleFrom(
+                            backgroundColor: _navigating ? AppColors.brandPink : AppColors.brandBlue,
+                            minimumSize: const Size(0, 40),
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(AppRadius.md),
+                            ),
+                          ),
+                          onPressed: _destination == null && _places.isEmpty
+                              ? () => _scanWhatsNearMe('food')
                               : () {
                                   HapticFeedback.mediumImpact();
+                                  if (_destination == null && _places.isNotEmpty) {
+                                    _recalculateRoute(
+                                      target: _places.first.point,
+                                      name: _places.first.name,
+                                      fly: true,
+                                    );
+                                  }
                                   setState(() => _navigating = !_navigating);
                                 },
                           icon: Icon(
-                            _navigating ? Icons.stop_circle_rounded : Icons.navigation_rounded,
-                            size: 18,
+                            _destination == null && _places.isEmpty
+                                ? Icons.near_me_rounded
+                                : (_navigating ? Icons.stop_circle_rounded : Icons.navigation_rounded),
+                            size: 17,
                             color: Colors.white,
                           ),
                           label: Text(
-                            _navigating ? 'Stop Live Navigation' : 'Start Live Directions',
+                            _destination == null && _places.isEmpty
+                                ? "Scan What's Near Me"
+                                : (_navigating ? 'Stop Live Navigation' : 'Start Live Directions'),
                             style: GoogleFonts.inter(
-                              fontSize: 13,
+                              fontSize: 12.5,
                               fontWeight: FontWeight.w800,
                               color: Colors.white,
                             ),
                           ),
                         ),
                       ),
-                      if (_destination != null) ...[
-                        const SizedBox(width: 8),
-                        OutlinedButton.icon(
-                          style: OutlinedButton.styleFrom(
-                            minimumSize: const Size(0, 42),
-                            side: BorderSide(color: context.border),
-                            shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(AppRadius.md),
-                            ),
-                          ),
-                          onPressed: () => GeoServices.instance.openNavigation(
-                            _destination!,
-                            mode: _mode,
-                            label: _destinationName,
-                          ),
-                          icon: const Icon(Icons.open_in_new_rounded, size: 16, color: AppColors.brandBlue),
-                          label: Text(
-                            'Google Maps',
-                            style: GoogleFonts.inter(
-                              fontSize: 12,
-                              fontWeight: FontWeight.w700,
-                              color: context.textPrimary,
-                            ),
-                          ),
-                        ),
-                      ],
                     ],
                   ),
                 ],

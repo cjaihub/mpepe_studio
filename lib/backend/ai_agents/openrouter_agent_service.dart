@@ -90,11 +90,12 @@ class OpenRouterAgentService {
   }
 
   /// Generic method to query the agent with a custom system and user prompt.
-  /// Used by specialized AI analysts across the application.
+  /// Supports optional [imageBase64] for multimodal vision analysis (e.g. video frame).
   Future<String?> queryAgent(
     String systemPrompt,
     String userPrompt, {
     String? model,
+    String? imageBase64,
     Duration timeout = const Duration(seconds: 25),
   }) async {
     final key = await _resolveApiKey();
@@ -103,7 +104,20 @@ class OpenRouterAgentService {
     }
 
     try {
-      final selectedModel = await _resolveModel(requestedModel: model);
+      final selectedModel = imageBase64 != null && imageBase64.isNotEmpty
+          ? (model ?? 'google/gemini-2.5-flash')
+          : await _resolveModel(requestedModel: model);
+      final appCheck = await OneovaAiGateway.appCheckHeader(key);
+      final dynamic userContent = (imageBase64 != null && imageBase64.isNotEmpty)
+          ? [
+              {'type': 'text', 'text': userPrompt},
+              {
+                'type': 'image_url',
+                'image_url': {'url': 'data:image/jpeg;base64,$imageBase64'},
+              },
+            ]
+          : userPrompt;
+
       final response = await http.post(
         OneovaAiGateway.chatUri(key),
         headers: {
@@ -111,6 +125,7 @@ class OpenRouterAgentService {
           'Content-Type': 'application/json',
           'HTTP-Referer': 'https://oneova.app',
           'X-Title': 'Oneova',
+          ...appCheck,
         },
         body: jsonEncode({
           'model': selectedModel,
@@ -121,16 +136,18 @@ class OpenRouterAgentService {
             },
             {
               'role': 'user',
-              'content': userPrompt,
+              'content': userContent,
             }
           ],
         }),
       ).timeout(timeout);
 
       if (response.statusCode == 200) {
+        OneovaAiGateway.recordProxySuccess();
         final data = jsonDecode(response.body);
         return data['choices'][0]['message']['content'] as String;
       } else {
+        OneovaAiGateway.recordProxyFailure(response.statusCode);
         debugPrint('[OpenRouterAgentService] HTTP ${response.statusCode}: ${response.body}');
       }
     } catch (e) {

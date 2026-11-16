@@ -73,6 +73,9 @@ class OvaMapSpec {
   /// Optional custom highlight badge text.
   final String? highlightLabel;
 
+  /// Whether to immediately run a real-time cinematic "Fly Me There" flight animation.
+  final bool flyToTarget;
+
   const OvaMapSpec({
     required this.me,
     this.places = const [],
@@ -84,6 +87,7 @@ class OvaMapSpec {
     this.autoStartNavigation = false,
     this.liveShareMinutes,
     this.highlightLabel,
+    this.flyToTarget = false,
   });
 }
 

@@ -1,7 +1,6 @@
 import 'dart:async';
 import 'dart:io';
 
-import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -76,7 +75,6 @@ class _OvaClaudeAgentWorkspaceState
   bool _wisprProcessing = false;
   bool _polishingDraft = false;
 
-  bool _planExpanded = true;
   bool _showSlashCommands = false;
   int _lastTurnCount = 0;
 
@@ -764,14 +762,11 @@ class _OvaClaudeAgentWorkspaceState
                       ),
                       if (_showInChatSearch)
                         _buildInChatSearchBar(context, state),
-                      if (state.recentActions.isNotEmpty &&
-                          state.viewMode == OvaWorkspaceViewMode.agentChat)
-                        _buildLiveActionTicker(context, state),
                       if (state.errorBanner != null)
                         _buildErrorBanner(context, state.errorBanner!),
-                      if (state.viewMode == OvaWorkspaceViewMode.agentChat &&
-                          state.activePlan.isNotEmpty)
-                        _buildLivePlanTracker(context, state.activePlan),
+                      if (state.isBusy &&
+                          state.viewMode == OvaWorkspaceViewMode.agentChat)
+                        _buildBackgroundActivityPill(context, state),
                       Expanded(
                         child: switch (state.viewMode) {
                           OvaWorkspaceViewMode.wisprStudio => OvaWisprStudioView(
@@ -2168,52 +2163,56 @@ class _OvaClaudeAgentWorkspaceState
     );
   }
 
-  Widget _buildLiveActionTicker(
+  Widget _buildBackgroundActivityPill(
     BuildContext context,
     OvaAgentWorkspaceState state,
   ) {
-    final latest = state.recentActions.first;
-    return InkWell(
-      onTap: () => context.push('/computer_logs'),
-      child: Container(
-        height: 25,
-        padding: const EdgeInsets.symmetric(horizontal: 11),
-        decoration: BoxDecoration(
-          color: context.surfaceMid,
-          border: Border(bottom: BorderSide(color: context.border, width: 1.0)),
+    final activeStep = state.activePlan
+        .where((p) => p.status == OvaPlanStepStatus.inProgress)
+        .firstOrNull;
+    final latestAction = state.recentActions.firstOrNull;
+    final statusText = activeStep != null
+        ? 'Working on it · ${activeStep.title}'
+        : (latestAction != null
+            ? 'Working on it · ${latestAction.summary}'
+            : 'Thinking…');
+
+    return Container(
+      margin: const EdgeInsets.fromLTRB(12, 6, 12, 2),
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
+      decoration: BoxDecoration(
+        color: AppColors.brandBlue.withValues(alpha: 0.08),
+        borderRadius: BorderRadius.circular(AppRadius.full),
+        border: Border.all(
+          color: AppColors.brandBlue.withValues(alpha: 0.30),
+          width: 1.0,
         ),
-        child: Row(
-          children: [
-            Icon(
-              latest.icon,
-              size: 12,
-              color: latest.category == 'wispr'
-                  ? AppColors.brandPink
-                  : AppColors.brandBlue,
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          const SizedBox(
+            width: 13,
+            height: 13,
+            child: CircularProgressIndicator(
+              strokeWidth: 1.8,
+              color: AppColors.brandPink,
             ),
-            const SizedBox(width: 6),
-            Expanded(
-              child: Text(
-                latest.summary,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: GoogleFonts.inter(
-                  fontSize: 10.5,
-                  fontWeight: FontWeight.w600,
-                  color: context.textSecondary,
-                ),
-              ),
-            ),
-            Text(
-              'Logs →',
+          ),
+          const SizedBox(width: 8),
+          Flexible(
+            child: Text(
+              statusText,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
               style: GoogleFonts.inter(
-                fontSize: 10,
-                fontWeight: FontWeight.w700,
-                color: AppColors.brandBlue,
+                fontSize: 11.5,
+                fontWeight: FontWeight.w600,
+                color: context.textPrimary,
               ),
             ),
-          ],
-        ),
+          ),
+        ],
       ),
     );
   }
@@ -2258,154 +2257,7 @@ class _OvaClaudeAgentWorkspaceState
   }
 
   // ---------------------------------------------------------------------------
-  // 2. Collapsible Live Plan / Todo Checklist
-  // ---------------------------------------------------------------------------
-
-  Widget _buildLivePlanTracker(
-    BuildContext context,
-    List<OvaAgentPlanStep> plan,
-  ) {
-    final doneCount =
-        plan.where((p) => p.status == OvaPlanStepStatus.completed).length;
-    final progress = plan.isEmpty ? 0.0 : doneCount / plan.length;
-
-    return Container(
-      margin: const EdgeInsets.fromLTRB(12, 8, 12, 0),
-      decoration: BoxDecoration(
-        color: context.surface,
-        borderRadius: BorderRadius.circular(AppRadius.md),
-        border: Border.all(color: context.border, width: 1.0),
-      ),
-      child: Column(
-        children: [
-          InkWell(
-            borderRadius: BorderRadius.circular(AppRadius.md),
-            onTap: () => setState(() => _planExpanded = !_planExpanded),
-            child: Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 11, vertical: 8),
-              child: Row(
-                children: [
-                  const Icon(
-                    Icons.checklist_rounded,
-                    size: 15,
-                    color: AppColors.brandBlue,
-                  ),
-                  const SizedBox(width: 7),
-                  Text(
-                    'AUTONOMOUS PLAN',
-                    style: GoogleFonts.inter(
-                      fontSize: 10,
-                      fontWeight: FontWeight.w800,
-                      letterSpacing: 0.7,
-                      color: context.textPrimary,
-                    ),
-                  ),
-                  const SizedBox(width: 8),
-                  Container(
-                    padding: const EdgeInsets.symmetric(
-                        horizontal: 6, vertical: 1.5),
-                    decoration: BoxDecoration(
-                      color: AppColors.brandBlue.withValues(alpha: 0.12),
-                      borderRadius: BorderRadius.circular(AppRadius.full),
-                    ),
-                    child: Text(
-                      '$doneCount/${plan.length}',
-                      style: GoogleFonts.inter(
-                        fontSize: 10,
-                        fontWeight: FontWeight.w800,
-                        color: AppColors.brandBlue,
-                      ),
-                    ),
-                  ),
-                  const SizedBox(width: 8),
-                  Expanded(
-                    child: ClipRRect(
-                      borderRadius: BorderRadius.circular(AppRadius.full),
-                      child: LinearProgressIndicator(
-                        value: progress,
-                        minHeight: 4,
-                        backgroundColor: context.surfaceMid,
-                        valueColor: const AlwaysStoppedAnimation<Color>(
-                          AppColors.brandBlue,
-                        ),
-                      ),
-                    ),
-                  ),
-                  const SizedBox(width: 6),
-                  Icon(
-                    _planExpanded
-                        ? Icons.expand_less_rounded
-                        : Icons.expand_more_rounded,
-                    size: 16,
-                    color: context.textMuted,
-                  ),
-                ],
-              ),
-            ),
-          ),
-          if (_planExpanded) ...[
-            Divider(height: 1, thickness: 1, color: context.border),
-            Padding(
-              padding: const EdgeInsets.fromLTRB(11, 7, 11, 8),
-              child: Column(
-                children: [
-                  for (final step in plan)
-                    Padding(
-                      padding: const EdgeInsets.only(bottom: 4),
-                      child: Row(
-                        children: [
-                          Icon(
-                            switch (step.status) {
-                              OvaPlanStepStatus.completed =>
-                                Icons.check_circle_rounded,
-                              OvaPlanStepStatus.inProgress =>
-                                Icons.timelapse_rounded,
-                              OvaPlanStepStatus.pending =>
-                                Icons.radio_button_unchecked_rounded,
-                            },
-                            size: 13.5,
-                            color: switch (step.status) {
-                              OvaPlanStepStatus.completed => AppColors.brandBlue,
-                              OvaPlanStepStatus.inProgress =>
-                                AppColors.brandPink,
-                              OvaPlanStepStatus.pending => context.textMuted,
-                            },
-                          ),
-                          const SizedBox(width: 7),
-                          Expanded(
-                            child: Text(
-                              step.title,
-                              style: GoogleFonts.inter(
-                                fontSize: 11.5,
-                                fontWeight:
-                                    step.status == OvaPlanStepStatus.inProgress
-                                        ? FontWeight.w700
-                                        : FontWeight.w500,
-                                decoration:
-                                    step.status == OvaPlanStepStatus.completed
-                                        ? TextDecoration.lineThrough
-                                        : null,
-                                color:
-                                    step.status == OvaPlanStepStatus.completed
-                                        ? context.textMuted
-                                        : context.textPrimary,
-                              ),
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                ],
-              ),
-            ),
-          ],
-        ],
-      ),
-    );
-  }
-
-  // ---------------------------------------------------------------------------
-  // 3. Executive Agent Studio Landing
+  // 3. Executive Agent Studio Landing (Calm, Focused, Low-Distraction)
   // ---------------------------------------------------------------------------
 
   Widget _buildAgentLanding(
@@ -2413,10 +2265,8 @@ class _OvaClaudeAgentWorkspaceState
     OvaAgentWorkspaceState state,
   ) {
     final mode = state.selectedMode;
-    final notifier = ref.read(ovaAgentSyncProvider.notifier);
-
     return ListView(
-      padding: const EdgeInsets.fromLTRB(14, 14, 14, 12),
+      padding: const EdgeInsets.fromLTRB(16, 18, 16, 12),
       children: [
         Container(
           padding: const EdgeInsets.all(14),
@@ -2425,223 +2275,102 @@ class _OvaClaudeAgentWorkspaceState
             borderRadius: BorderRadius.circular(AppRadius.lg),
             border: Border.all(color: context.border, width: 1.0),
           ),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
+          child: Row(
             children: [
-              Row(
-                children: [
-                  Container(
-                    width: 34,
-                    height: 34,
-                    decoration: BoxDecoration(
-                      borderRadius: BorderRadius.circular(AppRadius.sm),
-                      gradient: const LinearGradient(
-                        colors: [AppColors.brandBlue, AppColors.brandPink],
-                        begin: Alignment.topLeft,
-                        end: Alignment.bottomRight,
-                      ),
-                    ),
-                    child: Icon(
-                      mode.icon,
-                      size: 18,
-                      color: AppColors.brandWhite,
-                    ),
-                  ),
-                  const SizedBox(width: 10),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          'Ova ${mode.label} • Full Computer & Voice Intelligence',
-                          style: GoogleFonts.inter(
-                            fontSize: 14.5,
-                            fontWeight: FontWeight.w800,
-                            letterSpacing: -0.2,
-                            color: context.textPrimary,
-                          ),
-                        ),
-                        Text(
-                          mode.subtitle,
-                          style: GoogleFonts.inter(
-                            fontSize: 11.5,
-                            color: context.textSecondary,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 10),
-              // Quick Capabilities Strip: Full Access • Wispr Voice • Remote Trackpad
-              Row(
-                children: [
-                  Expanded(
-                    child: _CapabilityQuickCard(
-                      icon: Icons.bolt_rounded,
-                      accent: AppColors.brandPink,
-                      title: state.fullComputerAccess
-                          ? 'Full Access ON'
-                          : 'Supervised Mode',
-                      subtitle: 'Mouse, keys, shell & apps',
-                      onTap: () => notifier
-                          .setFullComputerAccess(!state.fullComputerAccess),
-                    ),
-                  ),
-                  const SizedBox(width: 6),
-                  Expanded(
-                    child: _CapabilityQuickCard(
-                      icon: Icons.graphic_eq_rounded,
-                      accent: AppColors.brandBlue,
-                      title: 'Wispr Voice Flow',
-                      subtitle: 'Dictate to Mac cursor',
-                      onTap: () =>
-                          notifier.setViewMode(OvaWorkspaceViewMode.wisprStudio),
-                    ),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 10),
               Container(
-                padding:
-                    const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                width: 36,
+                height: 36,
                 decoration: BoxDecoration(
-                  color: context.surfaceMid,
                   borderRadius: BorderRadius.circular(AppRadius.sm),
-                  border: Border.all(color: context.border, width: 1.0),
+                  gradient: const LinearGradient(
+                    colors: [AppColors.brandBlue, AppColors.brandPink],
+                    begin: Alignment.topLeft,
+                    end: Alignment.bottomRight,
+                  ),
                 ),
-                child: Row(
+                child: Icon(
+                  mode.icon,
+                  size: 18,
+                  color: AppColors.brandWhite,
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Icon(
-                      state.workstationOnline
-                          ? Icons.desktop_mac_rounded
-                          : Icons.phonelink_setup_rounded,
-                      size: 15,
-                      color: state.workstationOnline
-                          ? AppColors.brandBlue
-                          : AppColors.brandPink,
-                    ),
-                    const SizedBox(width: 8),
-                    Expanded(
-                      child: Text(
-                        state.workstationOnline
-                            ? 'Connected to ${state.workstationName ?? "Mac"} • Active window: ${state.workstationActiveWindow ?? "Desktop"}. Chat in natural language, speak via Wispr, or control mouse & keyboard live.'
-                            : (_isDesktop
-                                ? 'Workstation online. Every natural-language turn, Wispr dictation, mouse/keyboard action & artifact syncs live to Oneova Mobile.'
-                                : 'Open OneOva on your Mac to unlock Full Computer Access, Wispr Voice-to-Cursor, and live Trackpad/Keyboard control.'),
-                        style: GoogleFonts.inter(
-                          fontSize: 11.5,
-                          height: 1.35,
-                          color: context.textSecondary,
-                        ),
+                    Text(
+                      'Ova ${mode.label}',
+                      style: GoogleFonts.inter(
+                        fontSize: 15,
+                        fontWeight: FontWeight.w800,
+                        letterSpacing: -0.2,
+                        color: context.textPrimary,
                       ),
                     ),
-                    if (!_isDesktop && !state.workstationOnline) ...[
-                      const SizedBox(width: 8),
-                      InkWell(
-                        onTap: () {
-                          if (widget.onOpenConnectWorkstation != null) {
-                            widget.onOpenConnectWorkstation!();
-                          } else {
-                            context.push('/connect');
-                          }
-                        },
-                        child: Text(
-                          'Pair Mac →',
-                          style: GoogleFonts.inter(
-                            fontSize: 11,
-                            fontWeight: FontWeight.w700,
-                            color: AppColors.brandBlue,
-                          ),
-                        ),
+                    const SizedBox(height: 2),
+                    Text(
+                      'Works silently in the background across your app, maps, studio, and paired computer.',
+                      style: GoogleFonts.inter(
+                        fontSize: 11.5,
+                        color: context.textSecondary,
+                        height: 1.35,
                       ),
-                    ],
+                    ),
                   ],
                 ),
               ),
             ],
           ),
         ),
-        const SizedBox(height: 12),
-        Text(
-          'AUTONOMOUS COMPUTER & STUDIO COMMANDS',
-          style: GoogleFonts.inter(
-            fontSize: 9.5,
-            fontWeight: FontWeight.w800,
-            letterSpacing: 0.8,
-            color: context.textMuted,
-          ),
-        ),
-        const SizedBox(height: 7),
-        for (final item in _slashCommands)
-          Padding(
-            padding: const EdgeInsets.only(bottom: 5),
-            child: InkWell(
-              borderRadius: BorderRadius.circular(AppRadius.md),
-              onTap: () {
-                if (item.prompt.endsWith(' ')) {
-                  _inputController.text = item.prompt;
-                  _inputController.selection = TextSelection.collapsed(
-                    offset: item.prompt.length,
-                  );
-                  _inputFocus.requestFocus();
-                } else {
-                  _submitPrompt(item.prompt);
-                }
-              },
-              child: Container(
-                padding:
-                    const EdgeInsets.symmetric(horizontal: 11, vertical: 8),
-                decoration: BoxDecoration(
-                  color: context.surface,
-                  borderRadius: BorderRadius.circular(AppRadius.md),
-                  border: Border.all(color: context.border, width: 1.0),
-                ),
-                child: Row(
-                  children: [
-                    Icon(item.icon, size: 15.5, color: AppColors.brandBlue),
-                    const SizedBox(width: 9),
-                    Container(
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 6,
-                        vertical: 2,
-                      ),
-                      decoration: BoxDecoration(
-                        color: context.surfaceMid,
-                        borderRadius: BorderRadius.circular(AppRadius.xs),
-                        border: Border.all(color: context.border, width: 1.0),
-                      ),
-                      child: Text(
-                        item.cmd,
-                        style: GoogleFonts.jetBrainsMono(
-                          fontSize: 10.5,
-                          fontWeight: FontWeight.w700,
-                          color: AppColors.brandBlue,
-                        ),
-                      ),
-                    ),
-                    const SizedBox(width: 8),
-                    Expanded(
-                      child: Text(
+        const SizedBox(height: 14),
+        Wrap(
+          spacing: 8,
+          runSpacing: 8,
+          children: [
+            for (final item in _slashCommands.take(4))
+              InkWell(
+                borderRadius: BorderRadius.circular(AppRadius.full),
+                onTap: () {
+                  if (item.prompt.endsWith(' ')) {
+                    _inputController.text = item.prompt;
+                    _inputController.selection = TextSelection.collapsed(
+                      offset: item.prompt.length,
+                    );
+                    _inputFocus.requestFocus();
+                  } else {
+                    _submitPrompt(item.prompt);
+                  }
+                },
+                child: Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 12,
+                    vertical: 8,
+                  ),
+                  decoration: BoxDecoration(
+                    color: context.surface,
+                    borderRadius: BorderRadius.circular(AppRadius.full),
+                    border: Border.all(color: context.border, width: 1.0),
+                  ),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(item.icon, size: 14, color: AppColors.brandBlue),
+                      const SizedBox(width: 6),
+                      Text(
                         item.label,
                         style: GoogleFonts.inter(
-                          fontSize: 12,
+                          fontSize: 11.5,
                           fontWeight: FontWeight.w600,
                           color: context.textPrimary,
                         ),
                       ),
-                    ),
-                    Icon(
-                      Icons.north_east_rounded,
-                      size: 13.5,
-                      color: context.textMuted,
-                    ),
-                  ],
+                    ],
+                  ),
                 ),
               ),
-            ),
-          ),
+          ],
+        ),
       ],
     );
   }
@@ -2917,10 +2646,9 @@ class _OvaClaudeAgentWorkspaceState
                   ),
                 ],
 
-                // Context Attachment & Quick Input Chips Row + AI Specialist Avatar & User Avatar
+                // Clean Context Attachment Row (low-distraction)
                 Row(
                   children: [
-                    // Universal + Attach Tools Button
                     Tooltip(
                       message: 'Attach tools, media, files & Mac context',
                       child: InkWell(
@@ -2978,157 +2706,33 @@ class _OvaClaudeAgentWorkspaceState
                         scrollDirection: Axis.horizontal,
                         child: Row(
                           children: [
-                            // Animated AI Specialist Avatar Pill with quick mode switcher
-                            PopupMenuButton<OvaAgentMode>(
-                              tooltip: 'Switch AI Specialist Avatar',
-                              color: context.surface,
-                              shape: RoundedRectangleBorder(
-                                borderRadius: BorderRadius.circular(AppRadius.md),
-                                side: BorderSide(color: context.border, width: 1.0),
-                              ),
-                              onSelected: (m) {
-                                HapticFeedback.selectionClick();
-                                notifier.setAgentMode(m);
-                              },
-                              itemBuilder: (ctx) => [
-                                for (final m in OvaAgentMode.values)
-                                  PopupMenuItem(
-                                    value: m,
-                                    height: 38,
-                                    child: Row(
-                                      children: [
-                                        Icon(
-                                          m.icon,
-                                          size: 15,
-                                          color: state.selectedMode == m
-                                              ? AppColors.brandBlue
-                                              : ctx.textSecondary,
-                                        ),
-                                        const SizedBox(width: 8),
-                                        Expanded(
-                                          child: Text(
-                                            m.label,
-                                            style: GoogleFonts.inter(
-                                              fontSize: 12,
-                                              fontWeight: state.selectedMode == m
-                                                  ? FontWeight.w700
-                                                  : FontWeight.w500,
-                                              color: ctx.textPrimary,
-                                            ),
-                                          ),
-                                        ),
-                                      ],
-                                    ),
-                                  ),
-                              ],
-                              child: Container(
-                                height: 26,
-                                padding: const EdgeInsets.fromLTRB(3, 2, 8, 2),
-                                decoration: BoxDecoration(
-                                  color: AppColors.brandBlue.withValues(
-                                    alpha: context.isDark ? 0.18 : 0.10,
-                                  ),
-                                  borderRadius:
-                                      BorderRadius.circular(AppRadius.full),
-                                  border: Border.all(
-                                    color: busy
-                                        ? AppColors.brandPink
-                                        : AppColors.brandBlue
-                                            .withValues(alpha: 0.45),
-                                    width: 1.0,
+                            for (final custom in _attachedContexts) ...[
+                              Padding(
+                                padding: const EdgeInsets.only(right: 5),
+                                child: _ContextTogglePill(
+                                  icon: Icons.attach_file_rounded,
+                                  label: custom.length > 26
+                                      ? '${custom.substring(0, 26)}…'
+                                      : custom,
+                                  active: true,
+                                  onTap: () => setState(
+                                    () => _attachedContexts.remove(custom),
                                   ),
                                 ),
-                                child: Row(
-                                  mainAxisSize: MainAxisSize.min,
-                                  children: [
-                                    Container(
-                                      width: 20,
-                                      height: 20,
-                                      decoration: const BoxDecoration(
-                                        shape: BoxShape.circle,
-                                        gradient: LinearGradient(
-                                          colors: [
-                                            AppColors.brandBlue,
-                                            AppColors.brandPink,
-                                          ],
-                                          begin: Alignment.topLeft,
-                                          end: Alignment.bottomRight,
-                                        ),
-                                      ),
-                                      child: Icon(
-                                        state.selectedMode.icon,
-                                        size: 11,
-                                        color: AppColors.brandWhite,
-                                      ),
-                                    ),
-                                    const SizedBox(width: 5),
-                                    Text(
-                                      state.selectedMode.label,
-                                      style: GoogleFonts.inter(
-                                        fontSize: 10.5,
-                                        fontWeight: FontWeight.w700,
-                                        color: context.textPrimary,
-                                      ),
-                                    ),
-                                    const SizedBox(width: 2),
-                                    Icon(
-                                      Icons.keyboard_arrow_down_rounded,
-                                      size: 13,
-                                      color: context.textSecondary,
-                                    ),
-                                  ],
-                                ),
-                              ),
-                            ),
-                            const SizedBox(width: 5),
-                            _buildWebSearchPill(context, state),
-                            const SizedBox(width: 5),
-                            _ContextTogglePill(
-                              icon: Icons.window_rounded,
-                              label: state.workstationActiveWindow != null
-                                  ? 'Window: ${state.workstationActiveWindow}'
-                                  : 'Active Window',
-                              active: _attachedContexts.contains('Active Window'),
-                              onTap: () => _toggleContext('Active Window'),
-                            ),
-                            const SizedBox(width: 5),
-                            _ContextTogglePill(
-                              icon: Icons.memory_rounded,
-                              label: 'Mac Telemetry',
-                              active: _attachedContexts.contains('Workstation Host'),
-                              onTap: () => _toggleContext('Workstation Host'),
-                            ),
-                            const SizedBox(width: 5),
-                            _ContextTogglePill(
-                              icon: Icons.content_paste_rounded,
-                              label: '+ Clipboard',
-                              active: false,
-                              onTap: _attachClipboardContext,
-                            ),
-                            for (final custom in _attachedContexts.where((c) =>
-                                c != 'Active Window' && c != 'Workstation Host')) ...[
-                              const SizedBox(width: 5),
-                              _ContextTogglePill(
-                                icon: Icons.attach_file_rounded,
-                                label: custom.length > 26
-                                    ? '${custom.substring(0, 26)}…'
-                                    : custom,
-                                active: true,
-                                onTap: () =>
-                                    setState(() => _attachedContexts.remove(custom)),
                               ),
                             ],
                           ],
                         ),
                       ),
                     ),
-                    const SizedBox(width: 6),
-                    _buildUserAvatarBadge(context),
-                    const SizedBox(width: 6),
                     Tooltip(
-                      message: _composerExpanded ? 'Collapse composer' : 'Expand composer',
+                      message: _composerExpanded
+                          ? 'Collapse composer'
+                          : 'Expand composer',
                       child: InkWell(
-                        onTap: () => setState(() => _composerExpanded = !_composerExpanded),
+                        onTap: () => setState(
+                          () => _composerExpanded = !_composerExpanded,
+                        ),
                         borderRadius: BorderRadius.circular(AppRadius.full),
                         child: Container(
                           padding: const EdgeInsets.all(4),
@@ -3690,59 +3294,6 @@ class _OvaClaudeAgentWorkspaceState
     }
   }
 
-  Widget _buildUserAvatarBadge(BuildContext context) {
-    User? user;
-    try {
-      user = FirebaseAuth.instance.currentUser;
-    } catch (_) {}
-    final photoUrl = user?.photoURL ?? '';
-    final name = (user?.displayName ?? '').trim();
-    final initial = name.isNotEmpty
-        ? name.characters.first.toUpperCase()
-        : (user?.email?.isNotEmpty == true
-            ? user!.email!.characters.first.toUpperCase()
-            : 'U');
-    return Container(
-      height: 24,
-      padding: const EdgeInsets.fromLTRB(3, 2, 7, 2),
-      decoration: BoxDecoration(
-        color: context.surface,
-        borderRadius: BorderRadius.circular(AppRadius.full),
-        border: Border.all(color: context.border, width: 1.0),
-      ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          CircleAvatar(
-            radius: 8.5,
-            backgroundColor: AppColors.brandBlue,
-            backgroundImage:
-                photoUrl.isNotEmpty ? NetworkImage(photoUrl) : null,
-            child: photoUrl.isEmpty
-                ? Text(
-                    initial,
-                    style: GoogleFonts.inter(
-                      fontSize: 8.5,
-                      fontWeight: FontWeight.w800,
-                      color: AppColors.brandWhite,
-                    ),
-                  )
-                : null,
-          ),
-          const SizedBox(width: 4),
-          Text(
-            name.isNotEmpty ? name.split(' ').first : 'You',
-            style: GoogleFonts.inter(
-              fontSize: 10,
-              fontWeight: FontWeight.w600,
-              color: context.textSecondary,
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
   Widget _buildAttachToolsTray(
     BuildContext context,
     OvaAgentWorkspaceState state,
@@ -3885,67 +3436,6 @@ class _OvaClaudeAgentWorkspaceState
 // Sub-Widgets: Capability Cards, Mode Chips, Session Sidebar, Turns, Tools &
 // Artifact Inspector
 // =============================================================================
-
-class _CapabilityQuickCard extends StatelessWidget {
-  final IconData icon;
-  final Color accent;
-  final String title;
-  final String subtitle;
-  final VoidCallback onTap;
-
-  const _CapabilityQuickCard({
-    required this.icon,
-    required this.accent,
-    required this.title,
-    required this.subtitle,
-    required this.onTap,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return InkWell(
-      borderRadius: BorderRadius.circular(AppRadius.sm),
-      onTap: () {
-        HapticFeedback.selectionClick();
-        onTap();
-      },
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 8),
-        decoration: BoxDecoration(
-          color: context.surfaceMid,
-          borderRadius: BorderRadius.circular(AppRadius.sm),
-          border: Border.all(color: context.border, width: 1.0),
-        ),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Icon(icon, size: 15, color: accent),
-            const SizedBox(height: 4),
-            Text(
-              title,
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: GoogleFonts.inter(
-                fontSize: 11,
-                fontWeight: FontWeight.w700,
-                color: context.textPrimary,
-              ),
-            ),
-            Text(
-              subtitle,
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: GoogleFonts.inter(
-                fontSize: 9.5,
-                color: context.textMuted,
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-}
 
 class _ContextTogglePill extends StatelessWidget {
   final IconData icon;

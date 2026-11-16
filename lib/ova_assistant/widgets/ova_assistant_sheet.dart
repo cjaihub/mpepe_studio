@@ -3,7 +3,6 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:cloud_functions/cloud_functions.dart';
-import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_animate/flutter_animate.dart';
@@ -164,7 +163,10 @@ class _OvaAssistantPanelState extends ConsumerState<OvaAssistantPanel> {
   bool _voiceMode = false;
 
   /// True when showing the Claude-Style Synced Agent Workspace.
-  bool _agentWorkspaceMode = true;
+  bool _agentWorkspaceMode = false;
+
+  /// True when the organized Sidebar drawer (tools, personas, history) is open.
+  bool _showSidebar = false;
 
   /// Voice typing: the words as heard, kept so the clean-up can be undone.
   String? _rawDictation;
@@ -173,15 +175,15 @@ class _OvaAssistantPanelState extends ConsumerState<OvaAssistantPanel> {
   String? _attachedMediaLabel;
   bool _showAttachTools = false;
   final List<String> _attachedToolChips = [];
-  String _selectedPersona = 'Ova Pro';
+  String _selectedPersona = 'Ova Core';
 
   @override
   void initState() {
     super.initState();
     _screenBytes = widget.screenContextBytes;
     _voiceMode = widget.autoStartVoice;
-    _agentWorkspaceMode =
-        !widget.autoStartVoice && widget.onInsertIntoChat == null;
+    // Always start in the clean, unified Quick Assistant view (never forced into Agent mode).
+    _agentWorkspaceMode = false;
     _chat = ref.read(ovaChatProvider)
       ..invocation = widget.invocation
       ..onNavigate = _navigate
@@ -568,7 +570,10 @@ class _OvaAssistantPanelState extends ConsumerState<OvaAssistantPanel> {
         if (widget.isSheet) _grabber(context),
         _header(context),
         Divider(height: 1, thickness: 1, color: context.border),
-        if (_voiceMode)
+        _backgroundActivityPill(context),
+        if (_showSidebar)
+          Flexible(child: _buildSidebar(context))
+        else if (_voiceMode)
           Flexible(
             child: SingleChildScrollView(
               child: OvaOverlayVoiceCard(
@@ -673,25 +678,34 @@ class _OvaAssistantPanelState extends ConsumerState<OvaAssistantPanel> {
   }
 
   Widget _header(BuildContext context) {
+    final taskCenter = ref.watch(ovaTaskCenterProvider);
+    final runningTask = taskCenter.tasks.where((t) => t.running).firstOrNull;
     final status = _voiceMode
-        ? 'Voice overlay'
-        : (_agentWorkspaceMode
-            ? 'Synced Multi-Agent'
-            : (_listening
-                ? 'Listening…'
-                : (_chat.busy ? 'Working…' : 'Quick overlay')));
+        ? 'Live voice'
+        : (_listening
+            ? 'Listening…'
+            : (_chat.busy || runningTask != null
+                ? 'Working on it…'
+                : _selectedPersona));
     return SizedBox(
       height: 46,
       child: Row(
         children: [
-          const SizedBox(width: 2),
+          const SizedBox(width: 4),
           IconButton(
-            tooltip: widget.isSheet ? 'Close' : 'Back',
+            tooltip: _showSidebar ? 'Back to chat' : 'Tools, history & settings',
             visualDensity: VisualDensity.compact,
-            onPressed: _close,
-            icon: Icon(widget.isSheet ? Icons.keyboard_arrow_down_rounded : Icons.arrow_back_rounded, size: 21, color: context.textPrimary),
+            onPressed: () {
+              HapticFeedback.selectionClick();
+              setState(() => _showSidebar = !_showSidebar);
+            },
+            icon: Icon(
+              _showSidebar ? Icons.arrow_back_rounded : Icons.menu_rounded,
+              size: 20,
+              color: _showSidebar ? AppColors.brandBlue : context.textPrimary,
+            ),
           ),
-          const _OvaMark(size: 24),
+          const _OvaMark(size: 22),
           const SizedBox(width: 8),
           Expanded(
             child: Column(
@@ -704,7 +718,7 @@ class _OvaAssistantPanelState extends ConsumerState<OvaAssistantPanel> {
                 ),
                 Row(
                   children: [
-                    _StatusDot(active: _voiceMode || _agentWorkspaceMode || _listening || _chat.busy),
+                    _StatusDot(active: _voiceMode || _listening || _chat.busy || runningTask != null),
                     const SizedBox(width: 5),
                     Flexible(
                       child: Text(
@@ -719,174 +733,271 @@ class _OvaAssistantPanelState extends ConsumerState<OvaAssistantPanel> {
               ],
             ),
           ),
-          // Compact [Agent | Quick | Voice] Mode Segmented Switcher
-          Container(
-            height: 28,
-            padding: const EdgeInsets.all(2),
-            decoration: BoxDecoration(
-              color: context.surfaceMid,
-              borderRadius: BorderRadius.circular(AppRadius.full),
-              border: Border.all(color: context.border, width: 1.0),
-            ),
-            child: Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                _OverlayModeChip(
-                  icon: Icons.hub_rounded,
-                  label: 'Agent',
-                  selected: !_voiceMode && _agentWorkspaceMode,
-                  onTap: () {
-                    _setVoiceMode(false);
-                    setState(() => _agentWorkspaceMode = true);
-                  },
-                ),
-                _OverlayModeChip(
-                  icon: Icons.bolt_rounded,
-                  label: 'Quick',
-                  selected: !_voiceMode && !_agentWorkspaceMode,
-                  onTap: () {
-                    _setVoiceMode(false);
-                    setState(() => _agentWorkspaceMode = false);
-                  },
-                ),
-                _OverlayModeChip(
-                  icon: Icons.graphic_eq_rounded,
-                  label: 'Voice',
-                  selected: _voiceMode,
-                  accent: true,
-                  onTap: () => _setVoiceMode(true),
-                ),
-              ],
-            ),
+          _OverlayModeChip(
+            icon: _voiceMode ? Icons.chat_bubble_outline_rounded : Icons.graphic_eq_rounded,
+            label: _voiceMode ? 'Chat' : 'Voice',
+            selected: _voiceMode,
+            accent: true,
+            onTap: () {
+              setState(() => _showSidebar = false);
+              _setVoiceMode(!_voiceMode);
+            },
           ),
           const SizedBox(width: 4),
-          if (!_voiceMode && !_agentWorkspaceMode && !_chat.isEmpty)
-            IconButton(
-              tooltip: 'Clear quick chat',
-              visualDensity: VisualDensity.compact,
-              onPressed: () {
-                HapticFeedback.selectionClick();
-                _chat.reset();
-              },
-              icon: Icon(Icons.refresh_rounded, size: 18, color: context.textSecondary),
-            ),
-          if (widget.isSheet)
-            IconButton(
-              tooltip: 'Open Ova Main Workspace',
-              visualDensity: VisualDensity.compact,
-              onPressed: () => _navigate('/hub/ai'),
-              icon: Icon(Icons.dashboard_customize_outlined, size: 17, color: context.textSecondary),
-            ),
           IconButton(
-            tooltip: 'Ova settings',
+            tooltip: widget.isSheet ? 'Close' : 'Back',
             visualDensity: VisualDensity.compact,
-            onPressed: () => _navigate('/ova/abilities'),
-            icon: Icon(Icons.tune_rounded, size: 18, color: context.textSecondary),
+            onPressed: _close,
+            icon: Icon(
+              widget.isSheet ? Icons.keyboard_arrow_down_rounded : Icons.close_rounded,
+              size: 21,
+              color: context.textPrimary,
+            ),
           ),
-          const SizedBox(width: 4),
+          const SizedBox(width: 2),
         ],
       ),
     );
   }
 
-  Widget _emptyState(BuildContext context) {
-    final inv = widget.invocation;
+  /// Magical one-line background activity pill shown only while Ova is thinking or working.
+  Widget _backgroundActivityPill(BuildContext context) {
+    final taskCenter = ref.watch(ovaTaskCenterProvider);
+    final runningTask = taskCenter.tasks.where((t) => t.running).firstOrNull;
+    final streamingStep = _chat.items.reversed
+        .where((i) => i.kind == OvaItemKind.result && i.streaming)
+        .firstOrNull;
+    if (!_chat.busy && runningTask == null) return const SizedBox.shrink();
+
+    final String message;
+    if (streamingStep != null && streamingStep.text.trim().isNotEmpty) {
+      message = 'Working on it · ${streamingStep.text.trim()}';
+    } else if (runningTask != null) {
+      final latestStep = runningTask.steps.lastOrNull;
+      message = latestStep != null
+          ? 'Working in background · ${latestStep.label}'
+          : 'Working on it · ${runningTask.title}';
+    } else {
+      message = 'Thinking…';
+    }
+
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 7),
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          colors: [
+            AppColors.brandBlue.withValues(alpha: context.isDark ? 0.18 : 0.08),
+            AppColors.brandPink.withValues(alpha: context.isDark ? 0.14 : 0.06),
+          ],
+        ),
+        border: Border(bottom: BorderSide(color: context.border, width: 0.8)),
+      ),
+      child: Row(
+        children: [
+          Container(
+            width: 16,
+            height: 16,
+            decoration: const BoxDecoration(
+              shape: BoxShape.circle,
+              gradient: LinearGradient(
+                colors: [AppColors.brandBlue, AppColors.brandPink],
+              ),
+            ),
+            child: const Padding(
+              padding: EdgeInsets.all(3.0),
+              child: CircularProgressIndicator(strokeWidth: 1.6, color: Colors.white),
+            ),
+          ),
+          const SizedBox(width: 9),
+          Expanded(
+            child: Text(
+              message,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: GoogleFonts.inter(
+                fontSize: 11.5,
+                fontWeight: FontWeight.w600,
+                color: context.textPrimary,
+              ),
+            ),
+          ),
+          if (_chat.busy)
+            GestureDetector(
+              onTap: _chat.stop,
+              child: Text(
+                'Stop',
+                style: GoogleFonts.inter(
+                  fontSize: 11,
+                  fontWeight: FontWeight.w700,
+                  color: AppColors.brandPink,
+                ),
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+
+  /// Organized slide-over Sidebar containing all quick actions, specialist modes,
+  /// recent background tasks, conversation history, and Ova settings.
+  Widget _buildSidebar(BuildContext context) {
     final sharedHistory = ref.watch(ovaSharedHistoryProvider);
     final taskCenter = ref.watch(ovaTaskCenterProvider);
-    final recentShared = sharedHistory.threads.take(2).toList();
-    final recentTasks = taskCenter.tasks.take(2).toList();
-    final chips = <_Suggestion>[
-      // Mobile money in one tap (Wallet tab: balance, add money, withdraw).
-      const _Suggestion(Icons.account_balance_wallet_rounded, 'My wallet', '', accent: true, route: '/hub/wallet'),
-      if (inv.contentId != null) const _Suggestion(Icons.favorite_rounded, 'Like this reel', 'like this'),
-      if (inv.contentId != null) const _Suggestion(Icons.mode_comment_rounded, 'Comment on this', 'comment ', fill: true),
-      if (inv.chatId != null) const _Suggestion(Icons.edit_note_rounded, 'Draft a reply', 'Help me write a friendly reply to this chat'),
-      const _Suggestion(Icons.sensors_rounded, 'Go live', 'go live', accent: true),
-      const _Suggestion(Icons.search_rounded, 'Search Oneova', 'search ', fill: true),
-      const _Suggestion(Icons.call_rounded, 'Call someone', 'call ', fill: true),
-      const _Suggestion(Icons.sms_rounded, 'Text someone', 'text  saying ', fill: true),
-      const _Suggestion(Icons.timer_rounded, '5 min timer', 'set a timer for 5 minutes'),
-      const _Suggestion(Icons.flashlight_on_rounded, 'Flashlight', 'flashlight on'),
-      const _Suggestion(Icons.my_location_rounded, 'Where am I?', 'where am i'),
-      const _Suggestion(Icons.photo_camera_rounded, 'Take a photo', 'take a photo'),
-      const _Suggestion(Icons.upload_rounded, 'Post a video', 'upload'),
+    final recentShared = sharedHistory.threads.take(4).toList();
+    final recentTasks = taskCenter.tasks.take(4).toList();
+    final personas = <({String id, String label, IconData icon})>[
+      (id: 'Ova Core', label: 'Ova Core', icon: Icons.auto_awesome_rounded),
+      (id: 'Director', label: 'Studio Director', icon: Icons.movie_filter_rounded),
+      (id: 'Coder', label: 'Code & PC', icon: Icons.terminal_rounded),
+      (id: 'Strategist', label: 'Growth Coach', icon: Icons.trending_up_rounded),
     ];
+    const allActions = <_Suggestion>[
+      _Suggestion(Icons.account_balance_wallet_rounded, 'My Wallet', '', accent: true, route: '/hub/wallet'),
+      _Suggestion(Icons.near_me_rounded, "What's Near Me", "what's near me", accent: true),
+      _Suggestion(Icons.flight_rounded, 'Fly Me To…', 'fly me to ', fill: true),
+      _Suggestion(Icons.notifications_active_outlined, 'Past Alerts', 'recall previous notifications'),
+      _Suggestion(Icons.sensors_rounded, 'Go Live', 'go live', accent: true),
+      _Suggestion(Icons.upload_rounded, 'Post a Video', 'upload'),
+      _Suggestion(Icons.photo_camera_rounded, 'Take a Photo', 'take a photo'),
+      _Suggestion(Icons.search_rounded, 'Search Oneova', 'search ', fill: true),
+      _Suggestion(Icons.call_rounded, 'Call Someone', 'call ', fill: true),
+      _Suggestion(Icons.sms_rounded, 'Text Someone', 'text  saying ', fill: true),
+      _Suggestion(Icons.timer_rounded, '5m Timer', 'set a timer for 5 minutes'),
+      _Suggestion(Icons.flashlight_on_rounded, 'Flashlight', 'flashlight on'),
+    ];
+
     return SingleChildScrollView(
-      padding: const EdgeInsets.fromLTRB(14, 12, 14, 8),
+      padding: const EdgeInsets.fromLTRB(14, 12, 14, 16),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Row(
             children: [
-              Expanded(
-                child: Text(
-                  'Quick actions on this screen',
-                  style: GoogleFonts.inter(
-                    fontSize: 13.5,
-                    fontWeight: FontWeight.w700,
-                    letterSpacing: -0.2,
-                    color: context.textPrimary,
-                  ),
-                ),
+              Text(
+                'SPECIALIST MODE',
+                style: GoogleFonts.inter(fontSize: 9.5, fontWeight: FontWeight.w800, letterSpacing: 0.8, color: context.textMuted),
               ),
+              const Spacer(),
               InkWell(
                 borderRadius: BorderRadius.circular(AppRadius.xs),
                 onTap: () => showOvaBrandVoiceEditor(context, ref),
-                child: Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
-                  child: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      const Icon(Icons.diamond_outlined, size: 13, color: AppColors.brandBlue),
-                      const SizedBox(width: 4),
-                      Text(
-                        'Brand tone',
-                        style: GoogleFonts.inter(
-                          fontSize: 11,
-                          fontWeight: FontWeight.w600,
-                          color: AppColors.brandBlue,
-                        ),
-                      ),
-                    ],
-                  ),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    const Icon(Icons.diamond_outlined, size: 13, color: AppColors.brandBlue),
+                    const SizedBox(width: 4),
+                    Text('Brand tone', style: GoogleFonts.inter(fontSize: 11, fontWeight: FontWeight.w600, color: AppColors.brandBlue)),
+                  ],
                 ),
               ),
             ],
           ),
-          const SizedBox(height: 10),
+          const SizedBox(height: 8),
           Wrap(
             spacing: 6,
             runSpacing: 6,
             children: [
-              for (var i = 0; i < chips.length; i++)
-                _chip(context, chips[i]).animate(delay: (20 * i).ms).fadeIn(duration: 200.ms).slideY(begin: 0.12, end: 0),
+              for (final p in personas)
+                GestureDetector(
+                  onTap: () {
+                    HapticFeedback.selectionClick();
+                    setState(() {
+                      _selectedPersona = p.id;
+                      _showSidebar = false;
+                    });
+                  },
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                    decoration: BoxDecoration(
+                      color: _selectedPersona == p.id ? AppColors.brandBlue : context.surfaceMid,
+                      borderRadius: BorderRadius.circular(AppRadius.full),
+                      border: Border.all(
+                        color: _selectedPersona == p.id ? AppColors.brandBlue : context.border,
+                      ),
+                    ),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(p.icon, size: 13, color: _selectedPersona == p.id ? Colors.white : AppColors.brandBlue),
+                        const SizedBox(width: 5),
+                        Text(
+                          p.label,
+                          style: GoogleFonts.inter(
+                            fontSize: 11.5,
+                            fontWeight: FontWeight.w700,
+                            color: _selectedPersona == p.id ? Colors.white : context.textPrimary,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
             ],
           ),
-          if (recentShared.isNotEmpty || recentTasks.isNotEmpty) ...[
-            const SizedBox(height: 12),
+          const SizedBox(height: 16),
+          Text(
+            'ALL QUICK ACTIONS',
+            style: GoogleFonts.inter(fontSize: 9.5, fontWeight: FontWeight.w800, letterSpacing: 0.8, color: context.textMuted),
+          ),
+          const SizedBox(height: 8),
+          Wrap(
+            spacing: 6,
+            runSpacing: 6,
+            children: [
+              for (final action in allActions)
+                _Pressable(
+                  onTap: () {
+                    setState(() => _showSidebar = false);
+                    if (action.route != null) {
+                      _navigate(action.route!);
+                      return;
+                    }
+                    if (action.fill) {
+                      _input.text = action.prompt;
+                      _input.selection = TextSelection.collapsed(offset: action.prompt.length);
+                      _focus.requestFocus();
+                    } else {
+                      _send(action.prompt);
+                    }
+                  },
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                    decoration: BoxDecoration(
+                      color: action.accent ? AppColors.brandPink.withValues(alpha: 0.10) : context.surfaceMid,
+                      borderRadius: BorderRadius.circular(AppRadius.full),
+                      border: Border.all(
+                        color: action.accent ? AppColors.brandPink.withValues(alpha: 0.4) : context.border,
+                      ),
+                    ),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(action.icon, size: 13, color: action.accent ? AppColors.brandPink : AppColors.brandBlue),
+                        const SizedBox(width: 5),
+                        Text(action.label, style: GoogleFonts.inter(fontSize: 11.5, fontWeight: FontWeight.w600, color: context.textPrimary)),
+                      ],
+                    ),
+                  ),
+                ),
+            ],
+          ),
+          if (recentTasks.isNotEmpty || recentShared.isNotEmpty) ...[
+            const SizedBox(height: 16),
             Row(
               children: [
                 Text(
-                  'RECENT ACTIVITY',
-                  style: GoogleFonts.inter(
-                    fontSize: 9.5,
-                    fontWeight: FontWeight.w800,
-                    letterSpacing: 0.8,
-                    color: context.textMuted,
-                  ),
+                  'RECENT ACTIVITY & HISTORY',
+                  style: GoogleFonts.inter(fontSize: 9.5, fontWeight: FontWeight.w800, letterSpacing: 0.8, color: context.textMuted),
                 ),
                 const Spacer(),
-                if (widget.isSheet)
-                  InkWell(
-                    onTap: () => _navigate('/hub/ai'),
-                    child: Text(
-                      'Open Workspace →',
-                      style: GoogleFonts.inter(
-                        fontSize: 11,
-                        fontWeight: FontWeight.w600,
-                        color: AppColors.brandBlue,
-                      ),
-                    ),
+                if (!_chat.isEmpty)
+                  GestureDetector(
+                    onTap: () {
+                      _chat.reset();
+                      setState(() => _showSidebar = false);
+                    },
+                    child: Text('Clear chat', style: GoogleFonts.inter(fontSize: 11, fontWeight: FontWeight.w700, color: AppColors.brandPink)),
                   ),
               ],
             ),
@@ -899,20 +1010,14 @@ class _OvaAssistantPanelState extends ConsumerState<OvaAssistantPanel> {
                   decoration: BoxDecoration(
                     color: context.surfaceMid,
                     borderRadius: BorderRadius.circular(AppRadius.sm),
-                    border: Border.all(color: context.border, width: 1.0),
+                    border: Border.all(color: context.border),
                   ),
                   child: Row(
                     children: [
                       Icon(
-                        task.running
-                            ? Icons.sync_rounded
-                            : (task.status == OvaTaskStatus.failed
-                                ? Icons.error_outline_rounded
-                                : Icons.check_circle_outline_rounded),
+                        task.running ? Icons.sync_rounded : Icons.check_circle_outline_rounded,
                         size: 13,
-                        color: task.status == OvaTaskStatus.failed
-                            ? AppColors.brandPink
-                            : AppColors.brandBlue,
+                        color: AppColors.brandBlue,
                       ),
                       const SizedBox(width: 7),
                       Expanded(
@@ -920,18 +1025,10 @@ class _OvaAssistantPanelState extends ConsumerState<OvaAssistantPanel> {
                           task.title,
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
-                          style: GoogleFonts.inter(
-                            fontSize: 11.5,
-                            fontWeight: FontWeight.w600,
-                            color: context.textPrimary,
-                          ),
+                          style: GoogleFonts.inter(fontSize: 11.5, fontWeight: FontWeight.w600, color: context.textPrimary),
                         ),
                       ),
-                      const SizedBox(width: 6),
-                      Text(
-                        '${task.source == 'ai_lab' ? 'Main' : 'Overlay'} · ${formatRelativeTime(task.startedAt)}',
-                        style: GoogleFonts.inter(fontSize: 10, color: context.textMuted),
-                      ),
+                      Text(formatRelativeTime(task.startedAt), style: GoogleFonts.inter(fontSize: 10, color: context.textMuted)),
                     ],
                   ),
                 ),
@@ -942,6 +1039,7 @@ class _OvaAssistantPanelState extends ConsumerState<OvaAssistantPanel> {
                 child: InkWell(
                   borderRadius: BorderRadius.circular(AppRadius.sm),
                   onTap: () {
+                    setState(() => _showSidebar = false);
                     _input.text = thread.title;
                     _input.selection = TextSelection.collapsed(offset: _input.text.length);
                     _focus.requestFocus();
@@ -951,7 +1049,7 @@ class _OvaAssistantPanelState extends ConsumerState<OvaAssistantPanel> {
                     decoration: BoxDecoration(
                       color: context.surfaceMid,
                       borderRadius: BorderRadius.circular(AppRadius.sm),
-                      border: Border.all(color: context.border, width: 1.0),
+                      border: Border.all(color: context.border),
                     ),
                     child: Row(
                       children: [
@@ -962,24 +1060,139 @@ class _OvaAssistantPanelState extends ConsumerState<OvaAssistantPanel> {
                             thread.title,
                             maxLines: 1,
                             overflow: TextOverflow.ellipsis,
-                            style: GoogleFonts.inter(
-                              fontSize: 11.5,
-                              fontWeight: FontWeight.w600,
-                              color: context.textPrimary,
-                            ),
+                            style: GoogleFonts.inter(fontSize: 11.5, fontWeight: FontWeight.w600, color: context.textPrimary),
                           ),
                         ),
-                        const SizedBox(width: 6),
-                        Text(
-                          '${thread.source.badgeLabel} · ${formatRelativeTime(thread.updatedAt)}',
-                          style: GoogleFonts.inter(fontSize: 10, color: context.textMuted),
-                        ),
+                        Text(formatRelativeTime(thread.updatedAt), style: GoogleFonts.inter(fontSize: 10, color: context.textMuted)),
                       ],
                     ),
                   ),
                 ),
               ),
           ],
+          const SizedBox(height: 14),
+          Divider(height: 1, color: context.border),
+          const SizedBox(height: 10),
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children: [
+              OutlinedButton.icon(
+                style: OutlinedButton.styleFrom(
+                  minimumSize: const Size(0, 34),
+                  side: BorderSide(color: context.border),
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(AppRadius.sm)),
+                ),
+                onPressed: () {
+                  setState(() {
+                    _showSidebar = false;
+                    _agentWorkspaceMode = !_agentWorkspaceMode;
+                  });
+                },
+                icon: const Icon(Icons.hub_rounded, size: 14, color: AppColors.brandBlue),
+                label: Text(
+                  _agentWorkspaceMode ? 'Quick View' : 'Multi-Agent Console',
+                  style: GoogleFonts.inter(fontSize: 11.5, fontWeight: FontWeight.w600, color: context.textPrimary),
+                ),
+              ),
+              OutlinedButton.icon(
+                style: OutlinedButton.styleFrom(
+                  minimumSize: const Size(0, 34),
+                  side: BorderSide(color: context.border),
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(AppRadius.sm)),
+                ),
+                onPressed: () => _navigate('/connect'),
+                icon: const Icon(Icons.laptop_mac_rounded, size: 14, color: AppColors.brandPink),
+                label: Text('My Computer', style: GoogleFonts.inter(fontSize: 11.5, fontWeight: FontWeight.w600, color: context.textPrimary)),
+              ),
+              OutlinedButton.icon(
+                style: OutlinedButton.styleFrom(
+                  minimumSize: const Size(0, 34),
+                  side: BorderSide(color: context.border),
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(AppRadius.sm)),
+                ),
+                onPressed: () => _navigate('/ova/abilities'),
+                icon: const Icon(Icons.tune_rounded, size: 14, color: AppColors.brandBlue),
+                label: Text('Ova Settings', style: GoogleFonts.inter(fontSize: 11.5, fontWeight: FontWeight.w600, color: context.textPrimary)),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _emptyState(BuildContext context) {
+    final inv = widget.invocation;
+    final essentials = <_Suggestion>[
+      const _Suggestion(Icons.account_balance_wallet_rounded, 'My Wallet', '', accent: true, route: '/hub/wallet'),
+      const _Suggestion(Icons.near_me_rounded, "What's Near Me", "what's near me", accent: true),
+      if (inv.contentId != null)
+        const _Suggestion(Icons.favorite_rounded, 'Like this reel', 'like this')
+      else
+        const _Suggestion(Icons.notifications_active_outlined, 'Past Alerts', 'recall previous notifications'),
+      if (inv.chatId != null)
+        const _Suggestion(Icons.edit_note_rounded, 'Draft a reply', 'Help me write a friendly reply to this chat')
+      else
+        const _Suggestion(Icons.sensors_rounded, 'Go Live', 'go live'),
+    ];
+    return SingleChildScrollView(
+      padding: const EdgeInsets.fromLTRB(16, 18, 16, 14),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.center,
+        children: [
+          const _OvaMark(size: 34),
+          const SizedBox(height: 10),
+          Text(
+            'How can I help you right now?',
+            textAlign: TextAlign.center,
+            style: GoogleFonts.inter(
+              fontSize: 15,
+              fontWeight: FontWeight.w700,
+              letterSpacing: -0.3,
+              color: context.textPrimary,
+            ),
+          ),
+          const SizedBox(height: 4),
+          Text(
+            'I work quietly in the background across your app, maps, and connected devices.',
+            textAlign: TextAlign.center,
+            style: GoogleFonts.inter(
+              fontSize: 11.5,
+              color: context.textSecondary,
+            ),
+          ),
+          const SizedBox(height: 14),
+          Wrap(
+            alignment: WrapAlignment.center,
+            spacing: 7,
+            runSpacing: 7,
+            children: [
+              for (final s in essentials) _chip(context, s),
+            ],
+          ),
+          const SizedBox(height: 12),
+          GestureDetector(
+            onTap: () {
+              HapticFeedback.selectionClick();
+              setState(() => _showSidebar = true);
+            },
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const Icon(Icons.menu_rounded, size: 13, color: AppColors.brandBlue),
+                const SizedBox(width: 5),
+                Text(
+                  'More tools, personas & history in sidebar',
+                  style: GoogleFonts.inter(
+                    fontSize: 11,
+                    fontWeight: FontWeight.w600,
+                    color: AppColors.brandBlue,
+                  ),
+                ),
+              ],
+            ),
+          ),
           if (_screenBytes != null) ...[const SizedBox(height: 12), _screenPreview(context)],
         ],
       ),
@@ -1488,164 +1701,6 @@ class _OvaAssistantPanelState extends ConsumerState<OvaAssistantPanel> {
     ).animate().fadeIn(duration: 200.ms).slideY(begin: 0.15, end: 0);
   }
 
-  Widget _avatarPersonaBar(BuildContext context) {
-    final user = FirebaseAuth.instance.currentUser;
-    final photoUrl = user?.photoURL ?? '';
-    final displayName = (user?.displayName ?? '').trim();
-    final initial = displayName.isNotEmpty
-        ? displayName.characters.first.toUpperCase()
-        : (user?.email?.isNotEmpty == true ? user!.email!.characters.first.toUpperCase() : 'U');
-    final personas = <({String id, String label, IconData icon})>[
-      (id: 'Ova Core', label: 'Ova Core', icon: Icons.auto_awesome_rounded),
-      (id: 'Director', label: 'Director', icon: Icons.movie_filter_rounded),
-      (id: 'Coder', label: 'Coder', icon: Icons.terminal_rounded),
-      (id: 'Strategist', label: 'Strategist', icon: Icons.trending_up_rounded),
-      (id: 'Mac Agent', label: 'Mac Agent', icon: Icons.laptop_mac_rounded),
-    ];
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 7),
-      child: SingleChildScrollView(
-        scrollDirection: Axis.horizontal,
-        child: Row(
-          children: [
-            // Animated AI Avatar Orb + Persona indicator
-            Container(
-              padding: const EdgeInsets.fromLTRB(4, 3, 9, 3),
-              decoration: BoxDecoration(
-                color: AppColors.brandBlue.withValues(alpha: context.isDark ? 0.18 : 0.10),
-                borderRadius: BorderRadius.circular(AppRadius.full),
-                border: Border.all(
-                  color: _chat.busy ? AppColors.brandPink : AppColors.brandBlue.withValues(alpha: 0.55),
-                  width: 1,
-                ),
-              ),
-              child: Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Stack(
-                    alignment: Alignment.center,
-                    children: [
-                      Container(
-                        width: 22,
-                        height: 22,
-                        decoration: const BoxDecoration(
-                          shape: BoxShape.circle,
-                          gradient: LinearGradient(
-                            colors: [AppColors.brandBlue, AppColors.brandPink],
-                            begin: Alignment.topLeft,
-                            end: Alignment.bottomRight,
-                          ),
-                        ),
-                        child: const Icon(Icons.auto_awesome_rounded, size: 12, color: AppColors.brandWhite),
-                      ),
-                      Positioned(
-                        right: 0,
-                        bottom: 0,
-                        child: Container(
-                          width: 6,
-                          height: 6,
-                          decoration: BoxDecoration(
-                            color: _chat.busy ? AppColors.brandPink : AppColors.brandBlue,
-                            shape: BoxShape.circle,
-                            border: Border.all(color: context.surface, width: 1),
-                          ),
-                        ),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(width: 6),
-                  Text(
-                    _selectedPersona,
-                    style: GoogleFonts.inter(
-                      fontSize: 11,
-                      fontWeight: FontWeight.w700,
-                      color: context.textPrimary,
-                    ),
-                  ),
-                ],
-              ),
-            ),
-            const SizedBox(width: 6),
-            for (final p in personas) ...[
-              if (p.id != _selectedPersona)
-                Padding(
-                  padding: const EdgeInsets.only(right: 5),
-                  child: GestureDetector(
-                    onTap: () {
-                      HapticFeedback.selectionClick();
-                      setState(() => _selectedPersona = p.id);
-                    },
-                    child: Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                      decoration: BoxDecoration(
-                        color: context.surfaceMid,
-                        borderRadius: BorderRadius.circular(AppRadius.full),
-                        border: Border.all(color: context.border, width: 1),
-                      ),
-                      child: Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          Icon(p.icon, size: 11.5, color: context.textSecondary),
-                          const SizedBox(width: 4),
-                          Text(
-                            p.label,
-                            style: GoogleFonts.inter(
-                              fontSize: 10.5,
-                              fontWeight: FontWeight.w600,
-                              color: context.textSecondary,
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                  ),
-                ),
-            ],
-            const SizedBox(width: 4),
-            // User avatar badge
-            Container(
-              padding: const EdgeInsets.fromLTRB(3, 2, 7, 2),
-              decoration: BoxDecoration(
-                color: context.surfaceMid,
-                borderRadius: BorderRadius.circular(AppRadius.full),
-                border: Border.all(color: context.border, width: 1),
-              ),
-              child: Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  CircleAvatar(
-                    radius: 9,
-                    backgroundColor: AppColors.brandBlue,
-                    backgroundImage: photoUrl.isNotEmpty ? NetworkImage(photoUrl) : null,
-                    child: photoUrl.isEmpty
-                        ? Text(
-                            initial,
-                            style: GoogleFonts.inter(
-                              fontSize: 9,
-                              fontWeight: FontWeight.w800,
-                              color: AppColors.brandWhite,
-                            ),
-                          )
-                        : null,
-                  ),
-                  const SizedBox(width: 5),
-                  Text(
-                    displayName.isNotEmpty ? displayName.split(' ').first : 'You',
-                    style: GoogleFonts.inter(
-                      fontSize: 10.5,
-                      fontWeight: FontWeight.w600,
-                      color: context.textSecondary,
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
   Widget _attachToolsBar(BuildContext context) {
     return Container(
       margin: const EdgeInsets.only(bottom: 8),
@@ -1804,7 +1859,6 @@ class _OvaAssistantPanelState extends ConsumerState<OvaAssistantPanel> {
         mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          _avatarPersonaBar(context),
           if (_showAttachTools) _attachToolsBar(context),
           if (_attachedToolChips.isNotEmpty)
             Padding(

@@ -257,6 +257,11 @@ class PendingPostQueue extends Notifier<List<PendingPost>> {
           remixOf: a['remixOf'] is Map ? Map<String, dynamic>.from(a['remixOf'] as Map) : null,
           allowDownload: a['allowDownload'] as bool? ?? true,
           highQualityUploads: a['highQualityUploads'] as bool? ?? false,
+          uploadQualityTier: a['uploadQualityTier'] as String? ?? '4k_master',
+          autoOptimizeInBackground: a['autoOptimizeInBackground'] as bool? ?? true,
+          selectedConnectedChannel: a['selectedConnectedChannel'] is Map
+              ? Map<String, dynamic>.from(a['selectedConnectedChannel'] as Map)
+              : null,
           location: a['location'] as String?,
           link: p.link,
           geoRadiusTier: a['geoRadiusTier'] as String?,

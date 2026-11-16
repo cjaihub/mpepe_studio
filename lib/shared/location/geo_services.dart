@@ -3,6 +3,9 @@ import 'dart:convert';
 import 'dart:io';
 import 'dart:math' as math;
 
+import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:cloud_functions/cloud_functions.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/foundation.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:http/http.dart' as http;
@@ -10,6 +13,153 @@ import 'package:latlong2/latlong.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import '../../ova_assistant/services/ova_device_hub.dart';
+
+/// One place or route stored in the user's Map & Location History.
+class MapHistoryItem {
+  final String id;
+  final String title;
+  final String? subtitle;
+  final LatLng point;
+  final String actionType; // 'fly' | 'route' | 'nearby' | 'search' | 'pin'
+  final DateTime timestamp;
+
+  const MapHistoryItem({
+    required this.id,
+    required this.title,
+    this.subtitle,
+    required this.point,
+    this.actionType = 'search',
+    required this.timestamp,
+  });
+
+  Map<String, dynamic> toMap() => {
+        'id': id,
+        'title': title,
+        'subtitle': ?subtitle,
+        'lat': point.latitude,
+        'lng': point.longitude,
+        'actionType': actionType,
+        'timestampMs': timestamp.millisecondsSinceEpoch,
+      };
+
+  factory MapHistoryItem.fromMap(Map<String, dynamic> m) {
+    return MapHistoryItem(
+      id: (m['id'] ?? '').toString(),
+      title: (m['title'] ?? 'Saved Place').toString(),
+      subtitle: m['subtitle'] as String?,
+      point: LatLng(
+        ((m['lat'] as num?) ?? 0).toDouble(),
+        ((m['lng'] as num?) ?? 0).toDouble(),
+      ),
+      actionType: (m['actionType'] ?? 'search').toString(),
+      timestamp: DateTime.fromMillisecondsSinceEpoch(
+        ((m['timestampMs'] as num?) ?? DateTime.now().millisecondsSinceEpoch).toInt(),
+      ),
+    );
+  }
+}
+
+/// Manages persistent Map & Location History (searches, "Fly Me There" targets,
+/// routes, and nearby scans) synced to `users/{uid}/ova_context/map_history`.
+class OneovaMapHistoryService {
+  OneovaMapHistoryService._();
+  static final OneovaMapHistoryService instance = OneovaMapHistoryService._();
+
+  final List<MapHistoryItem> _items = [];
+  bool _loaded = false;
+  String? _loadedUid;
+  Timer? _syncTimer;
+
+  List<MapHistoryItem> get items => List.unmodifiable(_items);
+
+  Future<void> warm() async {
+    final uid = FirebaseAuth.instance.currentUser?.uid;
+    if (uid == null) return;
+    if (_loaded && _loadedUid == uid) return;
+    _loaded = true;
+    _loadedUid = uid;
+    try {
+      final doc = await FirebaseFirestore.instance
+          .collection('users')
+          .doc(uid)
+          .collection('ova_context')
+          .doc('map_history')
+          .get();
+      if (!doc.exists) return;
+      final list = doc.data()?['items'] as List?;
+      if (list == null) return;
+      final existing = _items.map((x) => x.id).toSet();
+      for (final raw in list) {
+        if (raw is Map) {
+          final item = MapHistoryItem.fromMap(Map<String, dynamic>.from(raw));
+          if (item.title.isNotEmpty && existing.add(item.id)) {
+            _items.add(item);
+          }
+        }
+      }
+      _items.sort((a, b) => b.timestamp.compareTo(a.timestamp));
+      if (_items.length > 35) _items.removeRange(35, _items.length);
+    } catch (_) {}
+  }
+
+  void record({
+    required String title,
+    String? subtitle,
+    required LatLng point,
+    String actionType = 'search',
+  }) {
+    final clean = title.trim();
+    if (clean.isEmpty) return;
+    final key = '${clean.toLowerCase()}_${point.latitude.toStringAsFixed(3)}_${point.longitude.toStringAsFixed(3)}';
+    _items.removeWhere((e) => e.id == key || e.title.toLowerCase() == clean.toLowerCase());
+    _items.insert(
+      0,
+      MapHistoryItem(
+        id: key,
+        title: clean,
+        subtitle: subtitle,
+        point: point,
+        actionType: actionType,
+        timestamp: DateTime.now(),
+      ),
+    );
+    if (_items.length > 35) _items.removeRange(35, _items.length);
+    _scheduleSync();
+  }
+
+  Future<void> clear() async {
+    _items.clear();
+    final uid = FirebaseAuth.instance.currentUser?.uid;
+    if (uid == null) return;
+    try {
+      await FirebaseFirestore.instance
+          .collection('users')
+          .doc(uid)
+          .collection('ova_context')
+          .doc('map_history')
+          .set({'items': const [], 'updatedAt': FieldValue.serverTimestamp()});
+    } catch (_) {}
+  }
+
+  void _scheduleSync() {
+    _syncTimer?.cancel();
+    _syncTimer = Timer(const Duration(seconds: 3), () async {
+      final uid = FirebaseAuth.instance.currentUser?.uid;
+      if (uid == null) return;
+      try {
+        await FirebaseFirestore.instance
+            .collection('users')
+            .doc(uid)
+            .collection('ova_context')
+            .doc('map_history')
+            .set({
+          'updatedAt': FieldValue.serverTimestamp(),
+          'items': _items.take(30).map((e) => e.toMap()).toList(),
+        }, SetOptions(merge: true));
+      } catch (_) {}
+    });
+  }
+}
 
 /// A real place from OpenStreetMap (Nominatim search or Overpass nearby).
 class GeoPlace {
@@ -233,9 +383,53 @@ class GeoServices {
 
   double distanceM(LatLng a, LatLng b) => _distance.as(LengthUnit.Meter, a, b);
 
-  // ── Search (Nominatim) ─────────────────────────────────────────────────
+  // ── Search (Google Maps Server Gateway -> Nominatim fallback) ──────────
 
   Future<List<GeoPlace>> search(String query, {LatLng? near, int limit = 5}) async {
+    if (FirebaseAuth.instance.currentUser != null) {
+      try {
+        final callable = FirebaseFunctions.instance.httpsCallable('mapsGateway');
+        final res = await callable.call({
+          'action': 'search',
+          'query': query,
+          if (near != null) 'lat': near.latitude,
+          if (near != null) 'lng': near.longitude,
+          'limit': limit,
+        }).timeout(const Duration(seconds: 7));
+        final data = res.data as Map?;
+        final list = (data?['places'] as List?) ?? const [];
+        if (list.isNotEmpty) {
+          final out = <GeoPlace>[];
+          for (final raw in list.whereType<Map>()) {
+            final lat = (raw['lat'] as num?)?.toDouble();
+            final lng = (raw['lng'] as num?)?.toDouble();
+            if (lat == null || lng == null) continue;
+            final p = LatLng(lat, lng);
+            out.add(
+              GeoPlace(
+                name: (raw['name'] ?? query).toString(),
+                point: p,
+                category: raw['category'] as String?,
+                address: raw['address'] as String?,
+                distanceM: near == null ? null : distanceM(near, p),
+                openNow: raw['openNow'] as bool?,
+              ),
+            );
+          }
+          if (out.isNotEmpty) {
+            if (near != null) out.sort((a, b) => a.distanceM!.compareTo(b.distanceM!));
+            OneovaMapHistoryService.instance.record(
+              title: out.first.name,
+              subtitle: out.first.address,
+              point: out.first.point,
+              actionType: 'search',
+            );
+            return out;
+          }
+        }
+      } catch (_) {}
+    }
+
     final params = {
       'q': query,
       'format': 'jsonv2',
@@ -268,10 +462,30 @@ class GeoServices {
       ));
     }
     if (near != null) out.sort((a, b) => a.distanceM!.compareTo(b.distanceM!));
+    if (out.isNotEmpty) {
+      OneovaMapHistoryService.instance.record(
+        title: out.first.name,
+        subtitle: out.first.address,
+        point: out.first.point,
+        actionType: 'search',
+      );
+    }
     return out;
   }
 
   Future<String?> reverse(LatLng p) async {
+    if (FirebaseAuth.instance.currentUser != null) {
+      try {
+        final callable = FirebaseFunctions.instance.httpsCallable('mapsGateway');
+        final res = await callable.call({
+          'action': 'reverse',
+          'lat': p.latitude,
+          'lng': p.longitude,
+        }).timeout(const Duration(seconds: 6));
+        final addr = (res.data as Map?)?['address'] as String?;
+        if (addr != null && addr.trim().isNotEmpty) return addr.trim();
+      } catch (_) {}
+    }
     try {
       final res = await http.get(
         Uri.https('nominatim.openstreetmap.org', '/reverse', {
@@ -337,14 +551,60 @@ class GeoServices {
   }
 
   Future<List<GeoPlace>> nearby(LatLng at, String what, {int radiusM = 1500, int limit = 8}) async {
+    final r = radiusM.clamp(200, 15000);
+    if (FirebaseAuth.instance.currentUser != null) {
+      try {
+        final callable = FirebaseFunctions.instance.httpsCallable('mapsGateway');
+        final res = await callable.call({
+          'action': 'nearby',
+          'lat': at.latitude,
+          'lng': at.longitude,
+          'what': what.trim().isEmpty ? 'restaurant cafe shop' : what.trim(),
+          'radiusM': r,
+          'limit': limit,
+        }).timeout(const Duration(seconds: 7));
+        final data = res.data as Map?;
+        final list = (data?['places'] as List?) ?? const [];
+        if (list.isNotEmpty) {
+          final out = <GeoPlace>[];
+          for (final raw in list.whereType<Map>()) {
+            final lat = (raw['lat'] as num?)?.toDouble();
+            final lng = (raw['lng'] as num?)?.toDouble();
+            if (lat == null || lng == null) continue;
+            final p = LatLng(lat, lng);
+            out.add(
+              GeoPlace(
+                name: (raw['name'] ?? 'Place').toString(),
+                point: p,
+                category: raw['category'] as String?,
+                address: raw['address'] as String?,
+                distanceM: distanceM(at, p),
+                openNow: raw['openNow'] as bool?,
+              ),
+            );
+          }
+          if (out.isNotEmpty) {
+            out.sort((a, b) => a.distanceM!.compareTo(b.distanceM!));
+            OneovaMapHistoryService.instance.record(
+              title: what.trim().isEmpty ? "What's near me (${out.first.name})" : 'Nearby $what · ${out.first.name}',
+              subtitle: out.first.address,
+              point: out.first.point,
+              actionType: 'nearby',
+            );
+            return out.take(limit).toList();
+          }
+        }
+      } catch (_) {}
+    }
+
     final cat = categoryFor(what);
-    final r = radiusM.clamp(200, 5000);
+    final osmR = radiusM.clamp(200, 5000);
     final filters = cat != null
         ? categories[cat]!.map((f) {
             final kv = f.split('=');
-            return 'nwr["${kv[0]}"="${kv[1]}"](around:$r,${at.latitude},${at.longitude});';
+            return 'nwr["${kv[0]}"="${kv[1]}"](around:$osmR,${at.latitude},${at.longitude});';
           }).join()
-        : 'nwr["name"~"${what.replaceAll('"', '')}",i](around:$r,${at.latitude},${at.longitude});';
+        : 'nwr["name"~"${what.replaceAll('"', '')}",i](around:$osmR,${at.latitude},${at.longitude});';
     final q = '[out:json][timeout:15];($filters);out center 40;';
     final res = await http
         .post(Uri.parse('https://overpass-api.de/api/interpreter'), headers: {'User-Agent': _ua}, body: {'data': q})
@@ -372,7 +632,16 @@ class GeoServices {
     }
     out.sort((a, b) => a.distanceM!.compareTo(b.distanceM!));
     final seen = <String>{};
-    return out.where((p) => seen.add(p.name.toLowerCase())).take(limit).toList();
+    final result = out.where((p) => seen.add(p.name.toLowerCase())).take(limit).toList();
+    if (result.isNotEmpty) {
+      OneovaMapHistoryService.instance.record(
+        title: what.trim().isEmpty ? "What's near me (${result.first.name})" : 'Nearby $what · ${result.first.name}',
+        subtitle: result.first.address,
+        point: result.first.point,
+        actionType: 'nearby',
+      );
+    }
+    return result;
   }
 
   /// Reads only the simple, common forms ("24/7", "Mo-Su 08:00-22:00").
@@ -392,11 +661,56 @@ class GeoServices {
     return t >= from && t < to;
   }
 
-  // ── Routing (OSRM) ─────────────────────────────────────────────────────
+  // ── Routing (Google Maps Directions Gateway -> OSRM fallback) ──────────
 
   Future<GeoRoute?> route(LatLng from, LatLng to, {String mode = 'driving'}) async {
-    // The public OSRM server only has car routing; the openstreetmap.de
-    // servers add foot and bike profiles.
+    if (FirebaseAuth.instance.currentUser != null) {
+      try {
+        final callable = FirebaseFunctions.instance.httpsCallable('mapsGateway');
+        final res = await callable.call({
+          'action': 'route',
+          'fromLat': from.latitude,
+          'fromLng': from.longitude,
+          'toLat': to.latitude,
+          'toLng': to.longitude,
+          'mode': mode,
+        }).timeout(const Duration(seconds: 7));
+        final rMap = (res.data as Map?)?['route'] as Map?;
+        if (rMap != null) {
+          final rawPts = (rMap['points'] as List?) ?? const [];
+          final pts = <LatLng>[
+            for (final pt in rawPts.whereType<Map>())
+              LatLng(((pt['lat'] as num?) ?? 0).toDouble(), ((pt['lng'] as num?) ?? 0).toDouble()),
+          ];
+          if (pts.isNotEmpty) {
+            final rawSteps = (rMap['steps'] as List?) ?? const [];
+            final steps = <GeoRouteStep>[
+              for (final st in rawSteps.whereType<Map>())
+                GeoRouteStep(
+                  instruction: (st['instruction'] ?? 'Continue').toString(),
+                  maneuverType: (st['maneuverType'] ?? 'continue').toString(),
+                  modifier: st['modifier'] as String?,
+                  distanceM: ((st['distanceM'] as num?) ?? 0).toDouble(),
+                  durationS: ((st['durationS'] as num?) ?? 0).toDouble(),
+                  location: LatLng(
+                    ((st['lat'] as num?) ?? to.latitude).toDouble(),
+                    ((st['lng'] as num?) ?? to.longitude).toDouble(),
+                  ),
+                ),
+            ];
+            return GeoRoute(
+              points: pts,
+              distanceM: ((rMap['distanceM'] as num?) ?? distanceM(from, to)).toDouble(),
+              durationS: ((rMap['durationS'] as num?) ?? 60).toDouble(),
+              mode: mode,
+              steps: steps,
+            );
+          }
+        }
+      } catch (_) {}
+    }
+
+    // Fallback: OpenStreetMap OSRM
     final profile = switch (mode) { 'walking' => 'routed-foot', 'cycling' => 'routed-bike', _ => 'routed-car' };
     final url = Uri.parse(
       'https://routing.openstreetmap.de/$profile/route/v1/driving/'

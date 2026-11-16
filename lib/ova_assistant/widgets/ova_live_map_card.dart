@@ -36,6 +36,8 @@ class _OvaLiveMapCardState extends State<OvaLiveMapCard> {
   bool _showSteps = false;
   double _speedMps = 0;
   int? _activeLiveShareMins;
+  LatLng? _flyTarget;
+  String? _flyTargetLabel;
 
   @override
   void initState() {
@@ -167,6 +169,9 @@ class _OvaLiveMapCardState extends State<OvaLiveMapCard> {
           route: spec.route,
           destination: spec.destination?.point,
           destinationName: spec.destination?.name,
+          flyToTargetOnLoad: spec.flyToTarget,
+          flyTarget: _flyTarget,
+          flyTargetLabel: _flyTargetLabel,
           trackUser: true,
           sampleSignal: true,
           height: spec.route != null || spec.places.isNotEmpty ? 225 : 185,
@@ -189,7 +194,7 @@ class _OvaLiveMapCardState extends State<OvaLiveMapCard> {
 
         const SizedBox(height: 6),
 
-        // Primary Action Bar: Start Live Directions, Rotoscope, Full Map & Live Share
+        // Primary Action Bar: Start Live Directions, Fly Me There, What's Near Me, History & Live Share
         Wrap(
           spacing: 6,
           runSpacing: 6,
@@ -237,6 +242,42 @@ class _OvaLiveMapCardState extends State<OvaLiveMapCard> {
                   ),
                 ),
               ),
+            if (spec.destination != null || sel != null)
+              GestureDetector(
+                onTap: () {
+                  HapticFeedback.mediumImpact();
+                  final target = sel?.point ?? spec.destination!.point;
+                  final name = sel?.name ?? spec.destination!.name;
+                  setState(() {
+                    _flyTarget = target;
+                    _flyTargetLabel = name;
+                  });
+                },
+                child: _chip(
+                  context,
+                  Icons.flight_rounded,
+                  'Fly Me There',
+                  AppColors.brandPink,
+                ),
+              ),
+            GestureDetector(
+              onTap: () => widget.onPrompt?.call("what's near me"),
+              child: _chip(
+                context,
+                Icons.near_me_rounded,
+                "What's Near Me",
+                AppColors.brandBlue,
+              ),
+            ),
+            GestureDetector(
+              onTap: () => widget.onPrompt?.call('show my map history'),
+              child: _chip(
+                context,
+                Icons.history_rounded,
+                'History',
+                AppColors.brandBlue,
+              ),
+            ),
             _chip(
               context,
               Icons.fiber_manual_record_rounded,

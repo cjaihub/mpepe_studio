@@ -354,3 +354,5 @@ export { shareLinkCreate, shareLinkEvent, shareLinkOpen } from './commerce/share
 export { shopChatSend } from './commerce/shopChat';
 // Postgres ledger shadow mode (services/ledger); off unless LEDGER_OUTBOX=on.
 export { ledgerOutboxDeliver, ledgerOutboxRetry } from './ledger/outbox';
+// Google Maps Server Gateway (Places, Directions, Geocoding with GOOGLE_MAPS_SERVER_KEY).
+export { mapsGateway } from './mapsGateway';
