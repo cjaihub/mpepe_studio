@@ -6,6 +6,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:google_fonts/google_fonts.dart';
 
 import '../../../backend/calling/interpreter/call_interpreter.dart';
+import '../../../ova_assistant/widgets/ova_assistant_sheet.dart';
 import '../../../shared/language/language_detector.dart';
 import '../../../shared/theme/app_theme.dart';
 import '../../../shared/widgets/compact/compact.dart';
@@ -87,14 +88,29 @@ class _InterpreterSheet extends ConsumerWidget {
               ),
             ),
           ]),
-          const CompactSectionHeader('Translated voice'),
+          const CompactSectionHeader('Vertex Live Voice'),
           Wrap(spacing: 8, runSpacing: 8, children: [
             for (final e in kInterpreterVoices.entries)
               CompactChip(
-                label: e.value,
+                label: '${e.key} · ${e.value}',
                 selected: s.voice == e.key,
                 onTap: s.active ? null : () => n.setVoice(e.key),
               ),
+          ]),
+          const SizedBox(height: 12),
+          CompactGroup(children: [
+            CompactRow(
+              icon: Icons.graphic_eq_rounded,
+              title: 'Ask Ova Live in this call',
+              subtitle: 'Open Vertex Live voice assistant alongside your call',
+              onTap: () {
+                Navigator.of(context).pop();
+                OvaAssistantSheet.show(
+                  context,
+                  autoStartVoice: true,
+                );
+              },
+            ),
           ]),
           if (s.error != null) ...[
             const SizedBox(height: 10),

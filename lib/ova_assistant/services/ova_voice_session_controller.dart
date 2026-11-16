@@ -1,34 +1,51 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:math' as math;
 
+import 'package:firebase_ai/firebase_ai.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_core/firebase_core.dart';
+import 'package:firebase_remote_config/firebase_remote_config.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:flutter_pcm_sound/flutter_pcm_sound.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_tts/flutter_tts.dart';
 import 'package:permission_handler/permission_handler.dart';
+import 'package:record/record.dart';
 import 'package:speech_to_text/speech_to_text.dart' as stt;
 
 import '../../shared/audio/cloud_dictation.dart';
 import '../../shared/audio/mic_coordinator.dart';
 import '../../shared/audio/speech_hub.dart';
 
-import '../../backend/ai_brain_service.dart';
 import '../../backend/repair/oneova_auto_updater.dart';
 import '../../backend/repair/oneova_self_repair_engine.dart';
 import '../../backend/security/oneova_ai_gateway.dart';
 import '../core/ova_tool_result.dart';
 import '../widgets/ova_fluid_voice_orb.dart';
+import 'ova_account_context.dart';
 import 'ova_chat_controller.dart';
+import 'ova_geo_tools.dart';
 import 'ova_llm_client.dart';
 import 'ova_local_intents.dart';
-import 'ova_account_context.dart';
-import 'ova_geo_tools.dart';
 import 'ova_memory_tools.dart';
+import 'ova_native_service.dart';
+import 'ova_notification_memory_service.dart';
 import 'ova_shared_history_service.dart';
 import 'ova_task_center.dart';
 import 'ova_tool_registry.dart';
+
+/// Natural Vertex Live voices available across Ova Voice, Overlay Voice, and Calls.
+const List<({String id, String label, String tone})> kOvaVertexVoices = [
+  (id: 'Aoede', label: 'Aoede', tone: 'Warm & Kind'),
+  (id: 'Puck', label: 'Puck', tone: 'Bright & Friendly'),
+  (id: 'Kore', label: 'Kore', tone: 'Calm & Clear'),
+  (id: 'Charon', label: 'Charon', tone: 'Deep & Steady'),
+  (id: 'Fenrir', label: 'Fenrir', tone: 'Rich & Expressive'),
+  (id: 'Zephyr', label: 'Zephyr', tone: 'Soft & Gentle'),
+];
 
 enum OvaVoicePhase {
   idle,
@@ -47,6 +64,10 @@ class OvaVoiceSessionState {
   final bool captionsEnabled;
   final bool audioEnabled;
   final bool voiceEnhanced;
+  final bool wakeCallEnabled;
+  final bool isVertexLiveConnected;
+  final String voiceName;
+  final String? friendlyActivity;
   final double speechRate;
   final String? errorMessage;
   final String? pendingRoute;
@@ -60,6 +81,10 @@ class OvaVoiceSessionState {
     this.captionsEnabled = true,
     this.audioEnabled = true,
     this.voiceEnhanced = true,
+    this.wakeCallEnabled = true,
+    this.isVertexLiveConnected = false,
+    this.voiceName = 'Aoede',
+    this.friendlyActivity,
     this.speechRate = 0.50,
     this.errorMessage,
     this.pendingRoute,
@@ -70,19 +95,29 @@ class OvaVoiceSessionState {
 
   OvaOrbMode get orbMode => switch (phase) {
         OvaVoicePhase.idle => OvaOrbMode.idle,
-        OvaVoicePhase.listening => isMicMuted ? OvaOrbMode.idle : OvaOrbMode.listening,
+        OvaVoicePhase.listening =>
+          isMicMuted ? OvaOrbMode.idle : OvaOrbMode.listening,
         OvaVoicePhase.thinking => OvaOrbMode.thinking,
         OvaVoicePhase.speaking => OvaOrbMode.speaking,
         OvaVoicePhase.paused => OvaOrbMode.paused,
       };
 
-  String get statusLabel => switch (phase) {
-        OvaVoicePhase.idle => 'Tap mic to start',
-        OvaVoicePhase.listening => isMicMuted ? 'Mic muted' : 'Listening...',
-        OvaVoicePhase.thinking => 'Thinking...',
-        OvaVoicePhase.speaking => 'Speaking...',
-        OvaVoicePhase.paused => 'Paused',
-      };
+  /// Warm, human-friendly status label with zero technical jargon.
+  String get statusLabel {
+    if (friendlyActivity != null && friendlyActivity!.trim().isNotEmpty) {
+      return friendlyActivity!;
+    }
+    return switch (phase) {
+      OvaVoicePhase.idle =>
+        wakeCallEnabled ? 'Say "Hey Ova" or tap mic' : 'Tap the mic to talk',
+      OvaVoicePhase.listening =>
+        isMicMuted ? 'Microphone is muted' : 'Listening to you…',
+      OvaVoicePhase.thinking => 'Looking into that for you…',
+      OvaVoicePhase.speaking => 'Speaking with you…',
+      OvaVoicePhase.paused =>
+        wakeCallEnabled ? 'Resting · Say "Hey Ova" anytime' : 'Paused · Tap to continue',
+    };
+  }
 
   OvaVoiceSessionState copyWith({
     OvaVoicePhase? phase,
@@ -93,6 +128,11 @@ class OvaVoiceSessionState {
     bool? captionsEnabled,
     bool? audioEnabled,
     bool? voiceEnhanced,
+    bool? wakeCallEnabled,
+    bool? isVertexLiveConnected,
+    String? voiceName,
+    String? friendlyActivity,
+    bool clearActivity = false,
     double? speechRate,
     String? errorMessage,
     bool clearError = false,
@@ -108,6 +148,12 @@ class OvaVoiceSessionState {
       captionsEnabled: captionsEnabled ?? this.captionsEnabled,
       audioEnabled: audioEnabled ?? this.audioEnabled,
       voiceEnhanced: voiceEnhanced ?? this.voiceEnhanced,
+      wakeCallEnabled: wakeCallEnabled ?? this.wakeCallEnabled,
+      isVertexLiveConnected:
+          isVertexLiveConnected ?? this.isVertexLiveConnected,
+      voiceName: voiceName ?? this.voiceName,
+      friendlyActivity:
+          clearActivity ? null : (friendlyActivity ?? this.friendlyActivity),
       speechRate: speechRate ?? this.speechRate,
       errorMessage: clearError ? null : (errorMessage ?? this.errorMessage),
       pendingRoute: clearRoute ? null : (pendingRoute ?? this.pendingRoute),
@@ -115,9 +161,6 @@ class OvaVoiceSessionState {
   }
 }
 
-/// Separate session providers for Ova Main Interface vs Ova Overlay Assistant,
-/// while syncing all completed voice turns & tasks to [ovaSharedHistoryProvider]
-/// and [ovaTaskCenterProvider].
 final ovaMainVoiceSessionProvider =
     NotifierProvider<OvaMainVoiceSessionNotifier, OvaVoiceSessionState>(
   OvaMainVoiceSessionNotifier.new,
@@ -138,9 +181,30 @@ class OvaOverlayVoiceSessionNotifier extends OvaVoiceSessionBaseNotifier {
   bool get isOverlaySurface => true;
 }
 
+/// Real-Time Vertex Live Voice Engine (`FirebaseAI.agentPlatform`) shared across
+/// Ova Main Voice and Ova Overlay Voice, backed by the same conversation history
+/// and Firestore database as `OvaChatController` (`ovaChatProvider`) and
+/// `OvaSharedHistoryNotifier` (`ovaSharedHistoryProvider`).
 abstract class OvaVoiceSessionBaseNotifier extends Notifier<OvaVoiceSessionState> {
   bool get isOverlaySurface;
 
+  static const String _vertexLocation = 'us-central1';
+  static const List<String> _liveModels = [
+    'gemini-live-2.5-flash-preview-native-audio-09-2025',
+    'gemini-2.0-flash-exp',
+    'gemini-2.0-flash',
+  ];
+
+  // Vertex Live bidirectional audio session + hardware PCM stream
+  LiveSession? _liveSession;
+  final AudioRecorder _pcmRecorder = AudioRecorder();
+  StreamSubscription<Uint8List>? _pcmMicSub;
+  bool _pcmPlayerReady = false;
+  String _partialUserTranscript = '';
+  String _partialAssistantTranscript = '';
+  OvaToolResult? _lastTurnToolResult;
+
+  // Fallback dictation + wake-word standby when Vertex Live stream is resting
   final SpeechHub _speech = SpeechHub.instance;
   final FlutterTts _tts = FlutterTts();
   CloudDictation? _cloud;
@@ -148,6 +212,7 @@ abstract class OvaVoiceSessionBaseNotifier extends Notifier<OvaVoiceSessionState
   bool _heldByOtherApp = false;
   bool _usingCloud = false;
   bool _committingCloud = false;
+  bool _wakeStandbyListening = false;
   AppLifecycleListener? _lifecycle;
   final List<Map<String, dynamic>> _voiceHistory = [];
 
@@ -155,12 +220,8 @@ abstract class OvaVoiceSessionBaseNotifier extends Notifier<OvaVoiceSessionState
   bool _ttsReady = false;
   bool _disposed = false;
   String? _activeThreadId;
-  /// A question Ova asked that the user hasn't answered yet. Kept while Ova
-  /// sleeps, asked again when the user comes back.
   String? _pendingQuestion;
-  /// No speech for a while: Ova stops listening and waits to be called.
   Timer? _silenceTimer;
-  /// The task for the turn being answered (so it isn't reported as background work).
   String? _currentTaskId;
   OvaWorkspaceId _workspace = OvaWorkspaceId.personal;
   OvaInvocationContext _invocation = const OvaInvocationContext();
@@ -169,27 +230,29 @@ abstract class OvaVoiceSessionBaseNotifier extends Notifier<OvaVoiceSessionState
   @override
   OvaVoiceSessionState build() {
     _disposed = false;
-    // The in-app assistant stops listening when Oneova leaves the screen; the
-    // overlay assistant is meant to keep working over other apps.
     if (!isOverlaySurface) {
       _lifecycle = AppLifecycleListener(onPause: () {
-        if (!_disposed && state.isActive && !state.isPaused) {
+        if (!_disposed && state.isActive && !state.isPaused && !state.wakeCallEnabled) {
           state = state.copyWith(phase: OvaVoicePhase.paused, amplitude: 0.0);
           unawaited(_stopHardware());
         }
       });
     }
-    // Background work finishing while we talk: say so, in one short line.
+    // Background task completion announcement in friendly human words
     ref.listen<OvaTaskState>(ovaTaskCenterProvider, (prev, next) {
       final f = next.justFinished;
       if (f == null || prev?.justFinished?.id == f.id || f.id == _currentTaskId) return;
-      if (_disposed || !state.isActive || state.isPaused || state.phase != OvaVoicePhase.listening) return;
-      unawaited(_announce('${f.status == OvaTaskStatus.done ? 'Done' : 'Could not finish'}: ${f.title}.'));
+      if (_disposed || !state.isActive || state.isPaused) return;
+      final friendly = f.status == OvaTaskStatus.done
+          ? 'All done with ${f.title}.'
+          : 'I couldn\'t quite finish ${f.title}, let me know if you\'d like me to try again.';
+      unawaited(_announce(friendly));
     });
     ref.onDispose(() {
       _disposed = true;
       _lifecycle?.dispose();
       unawaited(_cloud?.dispose());
+      unawaited(_pcmRecorder.dispose());
       _stopHardware();
     });
     return const OvaVoiceSessionState();
@@ -211,6 +274,43 @@ abstract class OvaVoiceSessionBaseNotifier extends Notifier<OvaVoiceSessionState
     }
   }
 
+  Future<void> setVoiceName(String name) async {
+    if (!kOvaVertexVoices.any((v) => v.id == name) || state.voiceName == name) return;
+    HapticFeedback.selectionClick();
+    state = state.copyWith(voiceName: name);
+    if (state.isActive && !state.isPaused) {
+      await _reconnectVertexLive();
+    }
+  }
+
+  Future<void> toggleWakeCall() async {
+    HapticFeedback.selectionClick();
+    final next = !state.wakeCallEnabled;
+    state = state.copyWith(wakeCallEnabled: next);
+    if (next) {
+      await OvaNativeService().startBackgroundAssistant();
+      if (state.phase == OvaVoicePhase.paused || state.phase == OvaVoicePhase.idle) {
+        unawaited(_startWakeWordStandby());
+      }
+    } else {
+      await OvaNativeService().stopBackgroundAssistant();
+      if (_wakeStandbyListening) {
+        _wakeStandbyListening = false;
+        await _speech.cancel(this);
+      }
+    }
+  }
+
+  Future<void> _ensurePcmPlayer() async {
+    if (_pcmPlayerReady) return;
+    try {
+      await FlutterPcmSound.setup(sampleRate: 24000, channelCount: 1);
+      _pcmPlayerReady = true;
+    } catch (e) {
+      debugPrint('[OvaVoiceSession] PCM player setup notice: $e');
+    }
+  }
+
   Future<void> _ensureTts() async {
     if (_ttsReady) return;
     try {
@@ -225,31 +325,22 @@ abstract class OvaVoiceSessionBaseNotifier extends Notifier<OvaVoiceSessionState
       );
       await _tts.setSpeechRate(state.speechRate);
       await _tts.setPitch(1.0);
-
       _tts.setCompletionHandler(() {
         if (_disposed) return;
-        if (state.phase == OvaVoicePhase.speaking) {
+        if (state.phase == OvaVoicePhase.speaking && _liveSession == null) {
           if (!state.isMicMuted && !state.isPaused) {
-            _beginListeningInternal();
+            _beginFallbackListening();
           } else {
             state = state.copyWith(phase: OvaVoicePhase.listening, amplitude: 0.0);
           }
         }
       });
-
-      _tts.setErrorHandler((_) {
-        if (_disposed) return;
-        if (state.phase == OvaVoicePhase.speaking) {
-          state = state.copyWith(phase: OvaVoicePhase.listening, amplitude: 0.0);
-        }
-      });
       _ttsReady = true;
-    } catch (e) {
-      debugPrint('[OvaVoiceSession] TTS setup skipped: $e');
-    }
+    } catch (_) {}
   }
 
-  /// Starts or resumes a live voice session.
+  /// Starts or resumes a real-time Vertex Live voice session, sharing the exact
+  /// same conversation history and database thread as Chat (`ovaChatProvider`).
   Future<void> startSession({
     OvaWorkspaceId workspace = OvaWorkspaceId.personal,
     OvaInvocationContext invocation = const OvaInvocationContext(),
@@ -258,108 +349,630 @@ abstract class OvaVoiceSessionBaseNotifier extends Notifier<OvaVoiceSessionState
     _workspace = workspace;
     _invocation = invocation;
     _permissionContext = permissionContext;
+    _wakeStandbyListening = false;
     OneovaAiGateway.resetCooldown();
-    // Carry on where we left off, with no time limit: in memory, or from the
-    // conversation saved to the account (after an app restart).
-    if (_voiceHistory.isEmpty) _restoreLastVoiceThread();
-    final resuming = _voiceHistory.isNotEmpty;
+
+    // Sync with the unified Chat controller & shared Firestore history so
+    // Voice and Chat always work on the same conversation.
+    _syncHistoryFromSharedChat();
+
     unawaited(OvaAccountContext.instance.warm());
-    _activeThreadId ??= ref
-        .read(ovaSharedHistoryProvider.notifier)
-        .newThreadId(isOverlaySurface ? 'overlay_voice' : 'main_voice');
+    unawaited(OvaMemoryTools.instance.warm());
+    unawaited(OvaNotificationMemoryService.instance.warm());
+
+    final chatCtrl = ref.read(ovaChatProvider);
+    _activeThreadId = chatCtrl.activeThreadId ??
+        _activeThreadId ??
+        ref
+            .read(ovaSharedHistoryProvider.notifier)
+            .newThreadId('ova_unified');
+    chatCtrl.activeThreadId = _activeThreadId;
 
     HapticFeedback.lightImpact();
+    if (state.wakeCallEnabled) {
+      unawaited(OvaNativeService().startBackgroundAssistant());
+    }
 
-    final lastAsk = resuming
-        ? _voiceHistory.lastWhere((m) => m['role'] == 'user', orElse: () => const {'content': ''})['content'] as String? ?? ''
-        : '';
     state = state.copyWith(
       phase: OvaVoicePhase.listening,
       isMicMuted: false,
       clearError: true,
-      assistantReply: _pendingQuestion != null
-          ? 'Welcome back. Before you left I asked: $_pendingQuestion'
-          : resuming
-          ? (lastAsk.isNotEmpty ? 'Welcome back. We were on “${lastAsk.length > 60 ? '${lastAsk.substring(0, 60)}…' : lastAsk}”. Carry on.' : 'Welcome back. Carry on.')
-          : state.assistantReply.isEmpty
-              ? 'Hi, I\'m listening. Ask anything or give me a task.'
-              : state.assistantReply,
+      clearActivity: true,
     );
 
-    await _ensureTts();
-    if (_disposed || state.isPaused || state.phase == OvaVoicePhase.idle) return;
+    final micOk = await _requestMicAndLease();
+    if (!micOk || _disposed) return;
 
-    // Ova asked something before the user left: ask it again, then listen.
-    if (_pendingQuestion != null) {
-      await _announce('Welcome back. Before you left I asked: $_pendingQuestion');
+    // 1. Connect to real Vertex Live bidirectional audio model first!
+    final liveConnected = await _connectVertexLive();
+    if (liveConnected) {
+      state = state.copyWith(
+        phase: OvaVoicePhase.listening,
+        isVertexLiveConnected: true,
+        clearError: true,
+      );
+      _armSilence();
       return;
     }
-    await _beginListeningInternal();
+
+    // 2. If Vertex Live WebSocket couldn't open (e.g. strict firewall/offline),
+    // seamlessly fall back to hardware CloudDictation + OvaLlmClient.
+    state = state.copyWith(isVertexLiveConnected: false);
+    await _beginFallbackListening();
   }
 
-  /// Loads the latest voice conversation saved to the account.
-  void _restoreLastVoiceThread() {
+  void _syncHistoryFromSharedChat() {
     try {
-      final turns = ref.read(ovaSharedHistoryProvider).turns; // newest first
-      final latest = turns.where((t) => t.source == OvaOriginSource.voice).firstOrNull;
-      if (latest == null) return;
-      final thread = [for (final t in turns) if (t.threadId == latest.threadId) t].take(8).toList().reversed;
-      for (final t in thread) {
-        if (t.query.isNotEmpty) _voiceHistory.add({'role': 'user', 'content': t.query});
-        if (t.response.isNotEmpty) _voiceHistory.add({'role': 'assistant', 'content': t.response});
+      final chatCtrl = ref.read(ovaChatProvider);
+      if (chatCtrl.recentHistory.isNotEmpty) {
+        _voiceHistory
+          ..clear()
+          ..addAll(chatCtrl.recentHistory.take(16));
+        _activeThreadId = chatCtrl.activeThreadId;
+        return;
       }
-      _activeThreadId = latest.threadId;
-      final last = latest.response.trim();
-      if (last.endsWith('?')) _pendingQuestion = last;
+      if (_voiceHistory.isEmpty) {
+        final turns = ref.read(ovaSharedHistoryProvider).turns;
+        if (turns.isNotEmpty) {
+          final latestThreadId = turns.first.threadId;
+          final threadTurns = turns
+              .where((t) => t.threadId == latestThreadId)
+              .take(8)
+              .toList()
+              .reversed;
+          for (final t in threadTurns) {
+            if (t.query.isNotEmpty) {
+              _voiceHistory.add({'role': 'user', 'content': t.query});
+            }
+            if (t.response.isNotEmpty) {
+              _voiceHistory.add({'role': 'assistant', 'content': t.response});
+            }
+          }
+          _activeThreadId = latestThreadId;
+          chatCtrl.activeThreadId = latestThreadId;
+        }
+      }
     } catch (e) {
-      debugPrint('[OvaVoiceSession] restore: $e');
+      debugPrint('[OvaVoiceSession] history sync notice: $e');
     }
   }
 
-  /// Restarts the quiet timer: a pending question waits 45 s, otherwise 90 s,
-  /// then Ova stops listening (mic off) and waits to be called.
-  void _armSilence() {
-    _silenceTimer?.cancel();
-    if (_disposed) return;
-    _silenceTimer = Timer(Duration(seconds: _pendingQuestion != null ? 45 : 90), () {
-      if (_disposed || state.phase != OvaVoicePhase.listening || state.isPaused) return;
-      state = state.copyWith(
-        phase: OvaVoicePhase.paused,
-        amplitude: 0.0,
-        assistantReply: _pendingQuestion != null
-            ? 'I’ll wait for your answer. Tap the mic or call me when you’re back.'
-            : 'I’m resting. Tap the mic or call me when you need me.',
-      );
-      unawaited(_stopHardware());
-    });
-  }
-
-  Future<void> _beginListeningInternal() async {
-    if (_disposed || state.isPaused || state.isMicMuted) return;
-
+  Future<bool> _requestMicAndLease() async {
     try {
       final micStatus = await Permission.microphone.request();
       if (!micStatus.isGranted) {
-        if (_disposed) return;
-        state = state.copyWith(
-          phase: OvaVoicePhase.listening,
-          isMicMuted: true,
-          errorMessage: micStatus.isPermanentlyDenied
-              ? 'Microphone access is off. Enable it in Settings to speak.'
-              : 'Microphone permission needed for live voice.',
-        );
-        return;
+        if (!_disposed) {
+          state = state.copyWith(
+            phase: OvaVoicePhase.listening,
+            isMicMuted: true,
+            errorMessage: micStatus.isPermanentlyDenied
+                ? 'Microphone access is turned off. Please enable it in Settings so we can talk.'
+                : 'Please allow microphone access to talk with Ova.',
+          );
+        }
+        return false;
       }
-    } catch (_) {
-      // In desktop/test environments where Permission plugin is unmocked, proceed gracefully.
+    } catch (_) {}
+
+    return _ensureMicLease();
+  }
+
+  String _preferredLiveModel() {
+    try {
+      final m = FirebaseRemoteConfig.instance.getString('ova_live_voice_model').trim();
+      if (m.isNotEmpty) return m;
+    } catch (_) {}
+    return _liveModels.first;
+  }
+
+  String _buildVertexLiveSystemInstruction() {
+    final recentLines = _voiceHistory
+        .where((m) => m['role'] == 'user' || m['role'] == 'assistant')
+        .take(8)
+        .map((m) => '${m['role'] == 'user' ? 'User' : 'Ova'}: ${m['content']}')
+        .join('\n');
+    final recentSummary =
+        recentLines.isEmpty ? '' : '\nRecent conversation context (same thread as chat):\n$recentLines';
+
+    return '''
+You are Ova, the warm, kind, and intelligent real-time voice companion inside Oneova (${_workspace.label} workspace).
+You share the exact same memory, tools, and conversation thread as the user's text chat.
+
+How to communicate:
+- Speak naturally, warmly, and kindly like a thoughtful human friend and personal concierge.
+- Never use technical jargon, tool names, JSON, coordinates, API terms, or robotic phrases.
+- Keep spoken answers concise (1 to 3 natural sentences) unless the user asks for a detailed explanation.
+- Reply in the exact language the user speaks to you.
+- Whenever the user asks to find places near them ("what's near me"), fly to a place on the map, get directions, check notifications, set reminders, message someone, or control their phone/computer, call the matching tool right away and tell them warmly what you found or did.
+
+${_liveContext(_currentTaskId ?? '')}$recentSummary
+''';
+  }
+
+  Future<bool> _connectVertexLive() async {
+    await _closeVertexLiveSession();
+    await _ensurePcmPlayer();
+
+    final registry = ref.read(ovaToolRegistryProvider);
+    final toolDecls = registry.specs.map((s) => s.toFunctionDeclaration()).toList();
+    final candidates = {_preferredLiveModel(), ..._liveModels}.toList();
+
+    for (final candidate in candidates) {
+      if (_disposed) return false;
+      try {
+        final liveModel = FirebaseAI.agentPlatform(location: _vertexLocation)
+            .liveGenerativeModel(
+          model: candidate,
+          systemInstruction: Content.system(_buildVertexLiveSystemInstruction()),
+          tools: [Tool.functionDeclarations(toolDecls)],
+          liveGenerationConfig: LiveGenerationConfig(
+            speechConfig: SpeechConfig(voiceName: state.voiceName),
+            responseModalities: [ResponseModalities.audio],
+            inputAudioTranscription: AudioTranscriptionConfig(),
+            outputAudioTranscription: AudioTranscriptionConfig(),
+            contextWindowCompression: ContextWindowCompressionConfig(
+              slidingWindow: SlidingWindow(),
+            ),
+          ),
+        );
+
+        final session = await liveModel.connect().timeout(const Duration(seconds: 10));
+        if (_disposed) {
+          unawaited(session.close().catchError((_) {}));
+          return false;
+        }
+        _liveSession = session;
+        _partialUserTranscript = '';
+        _partialAssistantTranscript = '';
+        unawaited(_receiveVertexLive(session));
+
+        final micStarted = await _startVertexPcmMic();
+        if (!micStarted) {
+          await _closeVertexLiveSession();
+          return false;
+        }
+        debugPrint('[OvaVoiceSession] Connected to Vertex Live model: $candidate (voice: ${state.voiceName})');
+        return true;
+      } catch (e) {
+        debugPrint('[OvaVoiceSession] Vertex Live model $candidate failed: $e');
+        await _closeVertexLiveSession();
+      }
+    }
+    return false;
+  }
+
+  Future<void> _reconnectVertexLive() async {
+    if (_disposed || !state.isActive || state.isPaused) return;
+    await _connectVertexLive();
+  }
+
+  Future<bool> _startVertexPcmMic() async {
+    try {
+      await _pcmMicSub?.cancel();
+      _pcmMicSub = null;
+      if (!await _pcmRecorder.hasPermission()) return false;
+
+      final stream = await _pcmRecorder.startStream(
+        RecordConfig(
+          encoder: AudioEncoder.pcm16bits,
+          sampleRate: 16000,
+          numChannels: 1,
+          noiseSuppress: state.voiceEnhanced,
+          echoCancel: state.voiceEnhanced,
+          autoGain: state.voiceEnhanced,
+          androidConfig: const AndroidRecordConfig(
+            audioSource: AndroidAudioSource.voiceCommunication,
+          ),
+        ),
+      );
+
+      _pcmMicSub = stream.listen((pcmBytes) {
+        if (_disposed || state.isMicMuted || state.isPaused) return;
+        final s = _liveSession;
+        if (s == null) return;
+
+        // Compute real-time RMS voice level for the fluid orb
+        final level = _computePcmLevel(pcmBytes);
+        if (state.phase == OvaVoicePhase.listening) {
+          state = state.copyWith(amplitude: level);
+          if (level > 0.22) _armSilence();
+        }
+        unawaited(
+          s.sendAudioRealtime(InlineDataPart('audio/pcm', pcmBytes)).catchError((_) {}),
+        );
+      });
+      return true;
+    } catch (e) {
+      debugPrint('[OvaVoiceSession] PCM mic start failed: $e');
+      return false;
+    }
+  }
+
+  double _computePcmLevel(Uint8List pcm16) {
+    if (pcm16.length < 4) return 0.05;
+    final bd = ByteData.sublistView(pcm16);
+    final samples = pcm16.length ~/ 2;
+    final step = math.max(1, samples ~/ 64);
+    double sumSquares = 0;
+    int count = 0;
+    for (int i = 0; i < samples; i += step) {
+      final s = bd.getInt16(i * 2, Endian.little) / 32768.0;
+      sumSquares += s * s;
+      count++;
+    }
+    if (count == 0) return 0.05;
+    final rms = math.sqrt(sumSquares / count);
+    return (rms * 3.8).clamp(0.04, 1.0);
+  }
+
+  Future<void> _receiveVertexLive(LiveSession session) async {
+    try {
+      await for (final response in session.receive()) {
+        if (_disposed || !identical(session, _liveSession)) return;
+        await _handleVertexLiveMessage(response.message);
+      }
+    } catch (e) {
+      debugPrint('[OvaVoiceSession] Vertex Live stream ended: $e');
+    }
+    if (!_disposed && identical(session, _liveSession)) {
+      _liveSession = null;
+      if (state.isActive && !state.isPaused && !state.isMicMuted) {
+        // Auto-recover session or fall back smoothly
+        final reconnected = await _connectVertexLive();
+        if (!reconnected && !_disposed && state.isActive && !state.isPaused) {
+          state = state.copyWith(isVertexLiveConnected: false);
+          await _beginFallbackListening();
+        }
+      }
+    }
+  }
+
+  Future<void> _handleVertexLiveMessage(LiveServerMessage message) async {
+    // 1. Live Tool Call execution (Maps, What's Near Me, Fly To, Notifications, etc.)
+    if (message is LiveServerToolCall) {
+      final calls = message.functionCalls ?? const <FunctionCall>[];
+      if (calls.isEmpty) return;
+
+      final registry = ref.read(ovaToolRegistryProvider);
+      final tasks = ref.read(ovaTaskCenterProvider.notifier);
+      final responses = <FunctionResponse>[];
+
+      for (final call in calls) {
+        final friendly = friendlyOvaStepLabel(call.name, call.args);
+        state = state.copyWith(
+          phase: OvaVoicePhase.thinking,
+          friendlyActivity: '$friendly…',
+          amplitude: 0.32,
+        );
+
+        final taskId = tasks.start(friendly, source: isOverlaySurface ? 'ova' : 'ai_lab');
+        _currentTaskId = taskId;
+        final stepIdx = tasks.addStep(taskId, friendly, Icons.auto_awesome_rounded);
+
+        Map<String, Object?> toolResultMap;
+        try {
+          final spec = registry.spec(call.name);
+          if (spec == null) {
+            toolResultMap = {'ok': false, 'summary': 'That action is not available right now.'};
+            tasks.updateStep(taskId, stepIdx, OvaStepStatus.failed);
+            tasks.finish(taskId, ok: false);
+          } else {
+            final res = await registry.run(
+              call.name,
+              call.args,
+              _permissionContext,
+              _invocation,
+            );
+            _lastTurnToolResult = res;
+            if (res.navigateTo != null) {
+              state = state.copyWith(pendingRoute: res.navigateTo);
+            }
+            tasks.updateStep(
+              taskId,
+              stepIdx,
+              res.ok ? OvaStepStatus.done : OvaStepStatus.failed,
+            );
+            tasks.finish(taskId, ok: res.ok, summary: res.summary);
+            toolResultMap = {
+              'ok': res.ok,
+              'title': res.title,
+              'summary': res.summary,
+              if (res.navigateTo != null) 'navigateTo': res.navigateTo,
+            };
+          }
+        } catch (e) {
+          tasks.updateStep(taskId, stepIdx, OvaStepStatus.failed);
+          tasks.finish(taskId, ok: false);
+          toolResultMap = {'ok': false, 'summary': 'Could not complete that step right now.'};
+        }
+
+        responses.add(FunctionResponse(call.name, toolResultMap, id: call.id));
+      }
+
+      try {
+        await _liveSession?.sendToolResponse(responses);
+      } catch (e) {
+        debugPrint('[OvaVoiceSession] sendToolResponse error: $e');
+      }
+      state = state.copyWith(clearActivity: true);
+      return;
     }
 
+    if (message is! LiveServerContent) return;
+
+    // 2. Live User Speech Transcription
+    final heard = message.inputTranscription?.text;
+    if (heard != null && heard.isNotEmpty) {
+      _partialUserTranscript += heard;
+      state = state.copyWith(
+        userTranscript: _partialUserTranscript.trim(),
+        clearError: true,
+      );
+      _armSilence();
+    }
+
+    // 3. Live Native Audio Stream from Vertex Live
+    for (final part in message.modelTurn?.parts ?? const <Part>[]) {
+      if (part is InlineDataPart && part.mimeType.startsWith('audio')) {
+        if (state.phase != OvaVoicePhase.speaking) {
+          state = state.copyWith(
+            phase: OvaVoicePhase.speaking,
+            clearActivity: true,
+          );
+        }
+        if (state.audioEnabled && _pcmPlayerReady) {
+          final b = part.bytes;
+          final speakAmp = _computePcmLevel(b);
+          state = state.copyWith(amplitude: speakAmp.clamp(0.18, 0.95));
+          FlutterPcmSound.feed(
+            PcmArrayInt16(
+              bytes: b.buffer.asByteData(b.offsetInBytes, b.lengthInBytes),
+            ),
+          );
+        }
+      } else if (part is TextPart && part.text.trim().isNotEmpty) {
+        _partialAssistantTranscript += part.text;
+        state = state.copyWith(
+          assistantReply: _partialAssistantTranscript.trim(),
+        );
+      }
+    }
+
+    // 4. Live Output Audio Transcription
+    final said = message.outputTranscription?.text;
+    if (said != null && said.isNotEmpty) {
+      _partialAssistantTranscript += said;
+      state = state.copyWith(
+        assistantReply: _partialAssistantTranscript.trim(),
+      );
+    }
+
+    // 5. Turn Complete -> Persist to unified Chat + Shared Firestore History!
+    if (message.turnComplete == true || message.interrupted == true) {
+      final finalUser = _partialUserTranscript.trim();
+      final finalAi = _partialAssistantTranscript.trim();
+      final toolRes = _lastTurnToolResult;
+      _partialUserTranscript = '';
+      _partialAssistantTranscript = '';
+      _lastTurnToolResult = null;
+
+      if (finalUser.isNotEmpty || finalAi.isNotEmpty || toolRes != null) {
+        await _persistUnifiedTurn(
+          userText: finalUser,
+          assistantText: finalAi.isNotEmpty
+              ? finalAi
+              : (toolRes?.summary ?? ''),
+          toolResult: toolRes,
+        );
+      }
+
+      if (finalAi.endsWith('?')) {
+        _pendingQuestion = finalAi;
+      } else if (finalUser.isNotEmpty) {
+        _pendingQuestion = null;
+      }
+
+      if (!_disposed && !state.isPaused) {
+        state = state.copyWith(
+          phase: OvaVoicePhase.listening,
+          amplitude: 0.06,
+          clearActivity: true,
+        );
+        _armSilence();
+      }
+    }
+  }
+
+  /// Saves a completed voice turn to BOTH `ovaChatProvider` (so switching to
+  /// Chat shows the exact same messages & map/tool cards) AND `ovaSharedHistoryProvider`
+  /// (Firestore `users/{uid}/ai_interactions`).
+  Future<void> _persistUnifiedTurn({
+    required String userText,
+    required String assistantText,
+    OvaToolResult? toolResult,
+    bool persistToFirestore = true,
+  }) async {
+    final u = userText.trim();
+    final a = assistantText.trim();
+    if (u.isEmpty && a.isEmpty && toolResult == null) return;
+
+    if (u.isNotEmpty) {
+      _voiceHistory.add({'role': 'user', 'content': u});
+    }
+    if (a.isNotEmpty) {
+      _voiceHistory.add({'role': 'assistant', 'content': a});
+    }
+    if (_voiceHistory.length > 20) {
+      _voiceHistory.removeRange(0, _voiceHistory.length - 20);
+    }
+
+    // 1. Sync to shared Firestore history
+    if (u.isNotEmpty || a.isNotEmpty) {
+      _activeThreadId = await ref.read(ovaSharedHistoryProvider.notifier).recordTurn(
+            query: u.isNotEmpty ? u : (toolResult?.title ?? 'Voice command'),
+            response: a.isNotEmpty ? a : (toolResult?.summary ?? ''),
+            source: OvaOriginSource.voice,
+            workspace: _workspace,
+            threadId: _activeThreadId,
+            persistToFirestore: persistToFirestore,
+          );
+    }
+
+    // 2. Sync to in-memory OvaChatController so Chat and Voice are one conversation!
+    try {
+      ref.read(ovaChatProvider).recordVoiceTurn(
+            userText: u,
+            assistantText: a,
+            toolResult: toolResForChat(toolResult),
+            threadId: _activeThreadId,
+          );
+    } catch (e) {
+      debugPrint('[OvaVoiceSession] Chat sync notice: $e');
+    }
+  }
+
+  OvaToolResult? toolResForChat(OvaToolResult? r) => r;
+
+  Future<void> _closeVertexLiveSession() async {
+    await _pcmMicSub?.cancel();
+    _pcmMicSub = null;
+    try {
+      if (await _pcmRecorder.isRecording()) {
+        await _pcmRecorder.stop();
+      }
+    } catch (_) {}
+    final s = _liveSession;
+    _liveSession = null;
+    if (s != null) {
+      try {
+        await s.close();
+      } catch (_) {}
+    }
+  }
+
+  void _armSilence() {
+    _silenceTimer?.cancel();
+    if (_disposed) return;
+    _silenceTimer = Timer(
+      Duration(seconds: _pendingQuestion != null ? 55 : 110),
+      () {
+        if (_disposed || state.phase != OvaVoicePhase.listening || state.isPaused) {
+          return;
+        }
+        state = state.copyWith(
+          phase: OvaVoicePhase.paused,
+          amplitude: 0.0,
+          clearActivity: true,
+          assistantReply: _pendingQuestion != null
+              ? 'Whenever you\'re ready, just say "Hey Ova" or tap the mic.'
+              : 'I\'m resting right here. Say "Hey Ova" or tap the mic anytime.',
+        );
+        unawaited(_enterStandbyOrStop());
+      },
+    );
+  }
+
+  Future<void> _enterStandbyOrStop() async {
+    await _closeVertexLiveSession();
+    await _cloud?.cancel();
+    if (state.wakeCallEnabled && !_disposed) {
+      await _startWakeWordStandby();
+    } else {
+      await _stopHardware();
+    }
+  }
+
+  /// Low-power wake-word standby ("Hey Ova" / "Ova") so Ova can be summoned
+  /// hands-free while resting or working in the background.
+  Future<void> _startWakeWordStandby() async {
+    if (_disposed || !state.wakeCallEnabled || _wakeStandbyListening) return;
+    if (state.phase == OvaVoicePhase.listening && _liveSession != null) return;
+
+    if (!_speechReady) {
+      _speechReady = await _speech.ensureReady();
+    }
+    if (!_speechReady || _disposed) return;
+
+    _wakeStandbyListening = true;
+    try {
+      await _speech.listen(
+        owner: this,
+        options: stt.SpeechListenOptions(
+          partialResults: true,
+          cancelOnError: false,
+          listenMode: stt.ListenMode.dictation,
+        ),
+        onStatus: (status) {
+          if (_disposed || !_wakeStandbyListening) return;
+          if ((status == 'done' || status == 'notListening') &&
+              state.wakeCallEnabled &&
+              (state.isPaused || state.phase == OvaVoicePhase.idle)) {
+            Future.delayed(const Duration(milliseconds: 600), () {
+              if (!_disposed &&
+                  _wakeStandbyListening &&
+                  state.wakeCallEnabled &&
+                  (state.isPaused || state.phase == OvaVoicePhase.idle)) {
+                _wakeStandbyListening = false;
+                unawaited(_startWakeWordStandby());
+              }
+            });
+          }
+        },
+        onError: (_) {},
+        onSoundLevel: (_) {},
+        onResult: (result) {
+          if (_disposed || !_wakeStandbyListening) return;
+          final words = result.recognizedWords.trim().toLowerCase();
+          if (_containsWakeWord(words)) {
+            _wakeStandbyListening = false;
+            unawaited(_speech.stop(this));
+            HapticFeedback.mediumImpact();
+            final remainder = _stripWakeWord(result.recognizedWords.trim());
+            unawaited(
+              startSession(
+                workspace: _workspace,
+                invocation: _invocation,
+                permissionContext: _permissionContext,
+              ).then((_) {
+                if (remainder.length > 3) {
+                  unawaited(submitSpokenUtterance(remainder));
+                }
+              }),
+            );
+          }
+        },
+      );
+    } catch (_) {
+      _wakeStandbyListening = false;
+    }
+  }
+
+  static bool _containsWakeWord(String lower) {
+    return RegExp(r'\b(hey ova|hello ova|hi ova|ok ova|okay ova|wake up ova|ova)\b')
+        .hasMatch(lower);
+  }
+
+  static String _stripWakeWord(String raw) {
+    return raw
+        .replaceFirst(
+          RegExp(
+            r'^(hey|hello|hi|ok|okay|wake up)?\s*ova[,.:!\s]*',
+            caseSensitive: false,
+          ),
+          '',
+        )
+        .trim();
+  }
+
+  // ── Fallback Listening (CloudDictation + OvaLlmClient) when Vertex Live WS is unavailable ──
+
+  Future<void> _beginFallbackListening() async {
+    if (_disposed || state.isPaused || state.isMicMuted) return;
     if (!await _ensureMicLease()) return;
 
     if (!_speechReady) {
       _speechReady = await _speech.ensureReady();
     }
-
     if (_disposed || state.isPaused || state.phase == OvaVoicePhase.idle) return;
     state = state.copyWith(phase: OvaVoicePhase.listening, clearError: true);
     _armSilence();
@@ -370,8 +983,6 @@ abstract class OvaVoiceSessionBaseNotifier extends Notifier<OvaVoiceSessionState
     }
   }
 
-  /// Takes the mic for Ova. Voice typing, AI voice or a voice note started
-  /// later take it back; a call keeps it.
   Future<bool> _ensureMicLease() async {
     if (_lease?.isActive ?? false) return true;
     final got = await MicCoordinator.instance.acquire(
@@ -379,6 +990,7 @@ abstract class OvaVoiceSessionBaseNotifier extends Notifier<OvaVoiceSessionState
       onPreempted: () async {
         _lease = null;
         _usingCloud = false;
+        await _closeVertexLiveSession();
         await _speech.cancel(this);
         await _cloud?.cancel();
         try {
@@ -393,24 +1005,34 @@ abstract class OvaVoiceSessionBaseNotifier extends Notifier<OvaVoiceSessionState
         if (i == MicInterruption.heldByOtherApp) {
           _heldByOtherApp = true;
           _usingCloud = false;
+          unawaited(_closeVertexLiveSession());
           unawaited(_speech.cancel(this));
           unawaited(_cloud?.cancel());
           state = state.copyWith(
             amplitude: 0.0,
-            errorMessage: 'Another app is using the microphone. I\'ll continue when it\'s free.',
+            errorMessage:
+                'Another app is using the microphone right now. I\'ll continue as soon as it\'s free.',
           );
         } else if (_heldByOtherApp) {
           _heldByOtherApp = false;
           state = state.copyWith(clearError: true);
           if (state.phase == OvaVoicePhase.listening && !state.isMicMuted) {
-            unawaited(_speechReady ? _listenPass() : _cloudListenPass());
+            unawaited(startSession(
+              workspace: _workspace,
+              invocation: _invocation,
+              permissionContext: _permissionContext,
+            ));
           }
         }
       },
     );
     if (got is MicBusy) {
       if (!_disposed) {
-        state = state.copyWith(phase: OvaVoicePhase.listening, isMicMuted: true, errorMessage: got.message);
+        state = state.copyWith(
+          phase: OvaVoicePhase.listening,
+          isMicMuted: true,
+          errorMessage: got.message,
+        );
       }
       return false;
     }
@@ -426,10 +1048,11 @@ abstract class OvaVoiceSessionBaseNotifier extends Notifier<OvaVoiceSessionState
   }
 
   static const _endOfPassErrors = {'error_no_match', 'error_speech_timeout'};
-  static const _permissionErrors = {'error_permission', 'error_insufficient_permissions'};
+  static const _permissionErrors = {
+    'error_permission',
+    'error_insufficient_permissions',
+  };
 
-  /// Direct hardware microphone capture + Gemini transcription with VAD when
-  /// the phone's external SpeechRecognizer app is missing, disabled, or busy.
   Future<void> _cloudListenPass() async {
     if (_disposed || state.isMicMuted || state.isPaused || _heldByOtherApp) return;
     if (!(_lease?.isActive ?? false)) return;
@@ -452,7 +1075,8 @@ abstract class OvaVoiceSessionBaseNotifier extends Notifier<OvaVoiceSessionState
         state = state.copyWith(
           phase: OvaVoicePhase.listening,
           isMicMuted: true,
-          errorMessage: 'Voice input isn\'t available right now. Type your request instead.',
+          errorMessage:
+              'I couldn\'t access the microphone right now. Please check your mic settings.',
         );
       }
       await _releaseLease();
@@ -478,7 +1102,6 @@ abstract class OvaVoiceSessionBaseNotifier extends Notifier<OvaVoiceSessionState
         await _cloudListenPass();
       }
     } catch (e) {
-      debugPrint('[OvaVoiceSession] cloud dictation error: $e');
       if (!_disposed &&
           state.phase == OvaVoicePhase.listening &&
           !state.isMicMuted &&
@@ -492,7 +1115,13 @@ abstract class OvaVoiceSessionBaseNotifier extends Notifier<OvaVoiceSessionState
   }
 
   Future<void> _listenPass() async {
-    if (!_speechReady || _disposed || state.isMicMuted || state.isPaused || _heldByOtherApp) return;
+    if (!_speechReady ||
+        _disposed ||
+        state.isMicMuted ||
+        state.isPaused ||
+        _heldByOtherApp) {
+      return;
+    }
     if (!(_lease?.isActive ?? false)) return;
     _usingCloud = false;
     try {
@@ -504,15 +1133,15 @@ abstract class OvaVoiceSessionBaseNotifier extends Notifier<OvaVoiceSessionState
           listenMode: stt.ListenMode.dictation,
         ),
         onStatus: (status) {
-          if (_disposed || _usingCloud) return;
+          if (_disposed || _usingCloud || _liveSession != null) return;
           if ((status == 'done' || status == 'notListening') &&
               state.phase == OvaVoicePhase.listening &&
               !state.isMicMuted &&
               !state.isPaused) {
-            // Keep the conversation open: listen again after a short pause.
             Future.delayed(const Duration(milliseconds: 350), () {
               if (!_disposed &&
                   !_usingCloud &&
+                  _liveSession == null &&
                   state.phase == OvaVoicePhase.listening &&
                   !state.isMicMuted &&
                   !state.isPaused &&
@@ -523,19 +1152,16 @@ abstract class OvaVoiceSessionBaseNotifier extends Notifier<OvaVoiceSessionState
           }
         },
         onError: (err) {
-          if (_disposed || _usingCloud) return;
-          debugPrint('[OvaVoiceSession] STT error: ${err.errorMsg}');
+          if (_disposed || _usingCloud || _liveSession != null) return;
           if (_endOfPassErrors.contains(err.errorMsg)) return;
           if (_permissionErrors.contains(err.errorMsg)) {
             state = state.copyWith(
               isMicMuted: true,
-              errorMessage: 'Microphone permission is needed to speak with Ova.',
+              errorMessage: 'Please allow microphone access to speak with Ova.',
             );
             unawaited(_releaseLease());
             return;
           }
-          // External recognizer busy/disabled/offline/language-pack missing:
-          // switch immediately to Oneova's direct microphone recorder.
           unawaited(_cloudListenPass());
         },
         onSoundLevel: (level) {
@@ -544,7 +1170,7 @@ abstract class OvaVoiceSessionBaseNotifier extends Notifier<OvaVoiceSessionState
           state = state.copyWith(amplitude: normalized);
         },
         onResult: (result) {
-          if (_disposed || _usingCloud) return;
+          if (_disposed || _usingCloud || _liveSession != null) return;
           final words = result.recognizedWords.trim();
           if (words.isNotEmpty) {
             state = state.copyWith(userTranscript: words);
@@ -558,28 +1184,49 @@ abstract class OvaVoiceSessionBaseNotifier extends Notifier<OvaVoiceSessionState
       if (!started && !_disposed && state.phase == OvaVoicePhase.listening) {
         await _cloudListenPass();
       }
-    } catch (e) {
-      debugPrint('[OvaVoiceSession] listenPass error: $e');
+    } catch (_) {
       if (!_disposed && state.phase == OvaVoicePhase.listening) {
         await _cloudListenPass();
       }
     }
   }
 
-  /// Processes a committed spoken utterance through Ova Agent tools + AI brain + TTS.
+  /// Sends a spoken or tapped utterance into the active Vertex Live session
+  /// (or processes it via the shared LLM & tool loop when Vertex Live is in fallback mode).
   Future<void> submitSpokenUtterance(String rawUtterance) async {
     final text = rawUtterance.trim();
     if (text.isEmpty || _disposed) return;
 
-    _usingCloud = false;
     _silenceTimer?.cancel();
     _pendingQuestion = null;
+
+    // If connected to Vertex Live, send directly into the live session!
+    if (_liveSession != null) {
+      state = state.copyWith(
+        phase: OvaVoicePhase.thinking,
+        userTranscript: text,
+        friendlyActivity: 'Looking into that for you…',
+        amplitude: 0.28,
+        clearError: true,
+      );
+      _partialUserTranscript = text;
+      try {
+        await _liveSession!.sendTextRealtime(text);
+        return;
+      } catch (e) {
+        debugPrint('[OvaVoiceSession] sendTextRealtime fallback: $e');
+      }
+    }
+
+    // Fallback path when Vertex Live WebSocket is not open:
+    _usingCloud = false;
     await _speech.stop(this);
     await _cloud?.cancel();
 
     state = state.copyWith(
       phase: OvaVoicePhase.thinking,
       userTranscript: text,
+      friendlyActivity: 'Looking into that for you…',
       amplitude: 0.25,
       clearError: true,
     );
@@ -589,32 +1236,43 @@ abstract class OvaVoiceSessionBaseNotifier extends Notifier<OvaVoiceSessionState
       text.length > 64 ? '${text.substring(0, 64)}…' : text,
       source: isOverlaySurface ? 'ova' : 'ai_lab',
     );
-    final stepIdx = tasks.addStep(taskId, 'Voice · Processing request', Icons.graphic_eq_rounded);
+    final stepIdx = tasks.addStep(
+      taskId,
+      'Looking into your request',
+      Icons.auto_awesome_rounded,
+    );
     _currentTaskId = taskId;
 
     String spokenReply = '';
     String? routeToOpen;
+    OvaToolResult? turnToolResult;
     bool ok = true;
     bool degraded = false;
 
     try {
       final registry = ref.read(ovaToolRegistryProvider);
 
-      // 0. "What's happening?": answer from the task centre at once, no AI round trip.
       if (_asksForProgress(text)) {
         spokenReply = ref.read(ovaTaskCenterProvider).progressReport(exceptId: taskId);
       }
 
-      // 1. Fast local & device tool intents (flashlight, timer, go live, search, etc.)
       final local = spokenReply.isEmpty ? OvaLocalIntents.parse(text) : null;
       if (local != null) {
         final spec = registry.spec(local.tool);
         if (spec != null) {
           if (spec.risk == OvaRisk.confirm) {
             spokenReply =
-                'For safety, please confirm ${registry.describe(local.tool, local.args).title.toLowerCase()} in the Ova chat panel.';
+                'Please tap confirm on the screen so I can ${registry.describe(local.tool, local.args).title.toLowerCase()} for you.';
           } else {
-            final res = await registry.run(local.tool, local.args, _permissionContext, _invocation);
+            final friendly = friendlyOvaStepLabel(local.tool, local.args);
+            state = state.copyWith(friendlyActivity: '$friendly…');
+            final res = await registry.run(
+              local.tool,
+              local.args,
+              _permissionContext,
+              _invocation,
+            );
+            turnToolResult = res;
             spokenReply = res.summary;
             routeToOpen = res.navigateTo;
             ok = res.ok;
@@ -622,7 +1280,6 @@ abstract class OvaVoiceSessionBaseNotifier extends Notifier<OvaVoiceSessionState
         }
       }
 
-      // 2. Self-repair & health check voice trigger
       final lower = text.toLowerCase();
       if (spokenReply.isEmpty &&
           (lower.contains('repair') ||
@@ -639,23 +1296,22 @@ abstract class OvaVoiceSessionBaseNotifier extends Notifier<OvaVoiceSessionState
         final updater = ref.read(oneOvaAutoUpdaterProvider);
         final upd = await updater.checkForUpdates();
         spokenReply =
-            'System check complete. Your Oneova health score is ${health.overallScore}% and build v${OneOvaAutoUpdater.currentVersion} is ${upd.hasUpdate ? "ready for an update" : "up to date"}.';
+            'Everything looks good! Your app health is ${health.overallScore}% and you are ${upd.hasUpdate ? "ready for a new update" : "right up to date"}.';
       }
 
-      // 3. Full Ova Agent reasoning + tool execution loop via OvaLlmClient
       if (spokenReply.isEmpty) {
-        await Future.wait([OvaMemoryTools.instance.warm(), OvaAccountContext.instance.warm()]);
-        _voiceHistory.add({'role': 'user', 'content': text});
-        if (_voiceHistory.length > 16) {
-          _voiceHistory.removeRange(0, _voiceHistory.length - 16);
-        }
+        await Future.wait([
+          OvaMemoryTools.instance.warm(),
+          OvaAccountContext.instance.warm(),
+          OvaNotificationMemoryService.instance.warm(),
+        ]);
+        final tempHistory = [
+          ..._voiceHistory,
+          {'role': 'user', 'content': text},
+        ];
 
         final llm = ref.read(ovaLlmClientProvider);
-        final voiceSystemPrompt =
-            'You are Ova, the real-time voice agent inside Oneova (${_workspace.label} workspace). '
-            'Use tools whenever the user asks to take an action, check info, navigate, manage notes/reminders, or control device settings. '
-            'Reply in 1 to 3 concise, natural spoken sentences with no markdown symbols, tables, or bullet lists. '
-            'Reply in the language the user speaks.\n${_liveContext(taskId)}';
+        final voiceSystemPrompt = _buildVertexLiveSystemInstruction();
 
         String? lastToolSummary;
         for (var round = 0; round < 4; round++) {
@@ -666,7 +1322,7 @@ abstract class OvaVoiceSessionBaseNotifier extends Notifier<OvaVoiceSessionState
 
           await for (final ev in llm.stream(
             system: voiceSystemPrompt,
-            history: _voiceHistory,
+            history: tempHistory,
             tools: registry.specs,
           )) {
             if (_disposed) return;
@@ -685,7 +1341,7 @@ abstract class OvaVoiceSessionBaseNotifier extends Notifier<OvaVoiceSessionState
           if (roundDegraded) degraded = true;
           final replyChunk = textBuf.toString().trim();
 
-          _voiceHistory.add({
+          tempHistory.add({
             'role': 'assistant',
             'content': replyChunk,
             if (calls.isNotEmpty)
@@ -693,16 +1349,19 @@ abstract class OvaVoiceSessionBaseNotifier extends Notifier<OvaVoiceSessionState
                   .map((c) => {
                         'id': c.id,
                         'type': 'function',
-                        'function': {'name': c.name, 'arguments': jsonEncode(c.args)},
+                        'function': {
+                          'name': c.name,
+                          'arguments': jsonEncode(c.args),
+                        },
                       })
                   .toList(),
           });
 
           if (calls.isEmpty) {
             if (replyChunk.isNotEmpty) {
-              spokenReply = _toSpokenProse(replyChunk, isDegraded: degraded);
+              spokenReply = _toSpokenProse(replyChunk);
             } else if (lastToolSummary != null && lastToolSummary.isNotEmpty) {
-              spokenReply = _toSpokenProse(lastToolSummary, isDegraded: false);
+              spokenReply = _toSpokenProse(lastToolSummary);
             }
             break;
           }
@@ -711,23 +1370,34 @@ abstract class OvaVoiceSessionBaseNotifier extends Notifier<OvaVoiceSessionState
             final spec = registry.spec(c.name);
             String toolOut;
             if (spec == null) {
-              toolOut = 'Tool ${c.name} is not available on this device.';
+              toolOut = 'That action is not available on this device.';
             } else if (spec.risk == OvaRisk.confirm) {
               toolOut =
-                  'Action requires explicit user confirmation in the Ova chat panel: ${registry.describe(c.name, c.args).title}.';
+                  'Requires user confirmation: ${registry.describe(c.name, c.args).title}.';
               lastToolSummary =
-                  'Please confirm ${registry.describe(c.name, c.args).title.toLowerCase()} in the Ova chat panel.';
+                  'Please tap confirm on the screen so I can ${registry.describe(c.name, c.args).title.toLowerCase()} for you.';
             } else {
-              final stepLabel = 'Agent · ${c.name.replaceAll('_', ' ')}';
-              final toolStep = tasks.addStep(taskId, stepLabel, Icons.bolt_rounded);
-              final res = await registry.run(c.name, c.args, _permissionContext, _invocation);
-              tasks.updateStep(taskId, toolStep, res.ok ? OvaStepStatus.done : OvaStepStatus.failed);
+              final friendly = friendlyOvaStepLabel(c.name, c.args);
+              state = state.copyWith(friendlyActivity: '$friendly…');
+              final toolStep = tasks.addStep(taskId, friendly, Icons.auto_awesome_rounded);
+              final res = await registry.run(
+                c.name,
+                c.args,
+                _permissionContext,
+                _invocation,
+              );
+              turnToolResult = res;
+              tasks.updateStep(
+                taskId,
+                toolStep,
+                res.ok ? OvaStepStatus.done : OvaStepStatus.failed,
+              );
               routeToOpen ??= res.navigateTo;
               if (!res.ok) ok = false;
               toolOut = res.summary;
               lastToolSummary = res.summary;
             }
-            _voiceHistory.add({
+            tempHistory.add({
               'role': 'tool',
               'tool_call_id': c.id,
               'name': c.name,
@@ -736,60 +1406,33 @@ abstract class OvaVoiceSessionBaseNotifier extends Notifier<OvaVoiceSessionState
           }
 
           if (routeToOpen != null && lastToolSummary != null) {
-            spokenReply = _toSpokenProse(lastToolSummary, isDegraded: false);
+            spokenReply = _toSpokenProse(lastToolSummary);
             break;
           }
         }
-      }
-
-      // 4. Direct AI Brain fallback if stream returned empty
-      if (spokenReply.isEmpty) {
-        final aiBrain = ref.read(aiBrainProvider);
-        final res = await aiBrain.processRequest(
-          [
-            {'role': 'user', 'content': text},
-          ],
-          taskType: 'audio',
-          userContextPrompt:
-              'You are Ova in a live private voice session inside Oneova (${_workspace.label} workspace). '
-              'Reply naturally in 1 to 3 concise spoken sentences without markdown formatting or bullet symbols.',
-        );
-        if (res is AiTextResponse && res.text.trim().isNotEmpty) {
-          degraded = res.isDegraded;
-          spokenReply = _toSpokenProse(res.text, isDegraded: res.isDegraded);
-        } else if (res is AiToolCallResponse) {
-          spokenReply = 'Done. I ran that studio tool for you.';
-        }
-      }
-
-      if (spokenReply.isEmpty) {
-        spokenReply = 'Got it. I\'ve noted that in your ${_workspace.shortLabel.toLowerCase()} workspace.';
-      } else if (_voiceHistory.isEmpty || _voiceHistory.last['role'] != 'assistant') {
-        _voiceHistory.add({'role': 'assistant', 'content': spokenReply});
       }
     } catch (e) {
       ok = false;
       degraded = true;
       debugPrint('[OvaVoiceSession] utterance processing error: $e');
-      spokenReply = 'I ran into a temporary connection hiccup. Please try saying that again.';
+      spokenReply = 'I had a brief connection hiccup—could you say that one more time for me?';
     }
 
     tasks.updateStep(taskId, stepIdx, ok ? OvaStepStatus.done : OvaStepStatus.failed);
     tasks.finish(
       taskId,
       ok: ok,
-      summary: spokenReply.length > 140 ? '${spokenReply.substring(0, 140)}…' : spokenReply,
+      summary: spokenReply.length > 140
+          ? '${spokenReply.substring(0, 140)}…'
+          : spokenReply,
     );
 
-    // Sync to shared History & Activities across Main and Overlay interfaces
-    _activeThreadId = await ref.read(ovaSharedHistoryProvider.notifier).recordTurn(
-          query: text,
-          response: spokenReply,
-          source: OvaOriginSource.voice,
-          workspace: _workspace,
-          threadId: _activeThreadId,
-          persistToFirestore: !degraded,
-        );
+    await _persistUnifiedTurn(
+      userText: text,
+      assistantText: spokenReply,
+      toolResult: turnToolResult,
+      persistToFirestore: !degraded,
+    );
 
     if (_disposed) return;
 
@@ -800,9 +1443,10 @@ abstract class OvaVoiceSessionBaseNotifier extends Notifier<OvaVoiceSessionState
       assistantReply: spokenReply,
       amplitude: state.audioEnabled ? 0.65 : 0.0,
       pendingRoute: routeToOpen,
+      clearActivity: true,
     );
 
-    if (state.audioEnabled) {
+    if (state.audioEnabled && spokenReply.isNotEmpty) {
       await _ensureTts();
       try {
         await _tts.speak(spokenReply);
@@ -812,40 +1456,51 @@ abstract class OvaVoiceSessionBaseNotifier extends Notifier<OvaVoiceSessionState
         }
       }
     } else if (!state.isMicMuted && !state.isPaused) {
-      await _beginListeningInternal();
+      await _beginFallbackListening();
     }
   }
 
-  /// Toggles Pause / Resume on the live voice session.
   Future<void> togglePause() async {
     HapticFeedback.selectionClick();
     if (state.isPaused) {
-      state = state.copyWith(phase: OvaVoicePhase.listening, amplitude: 0.0);
-      if (_pendingQuestion != null) {
-        await _announce('Welcome back. Before you left I asked: $_pendingQuestion');
-      } else if (!state.isMicMuted) {
-        await _beginListeningInternal();
-      }
+      await startSession(
+        workspace: _workspace,
+        invocation: _invocation,
+        permissionContext: _permissionContext,
+      );
     } else {
-      state = state.copyWith(phase: OvaVoicePhase.paused, amplitude: 0.0);
-      await _stopHardware();
+      state = state.copyWith(
+        phase: OvaVoicePhase.paused,
+        amplitude: 0.0,
+        clearActivity: true,
+      );
+      await _enterStandbyOrStop();
     }
   }
 
-  /// Toggles Microphone mute/unmute (or starts session if idle).
   Future<void> toggleMic() async {
     HapticFeedback.lightImpact();
-    if (state.phase == OvaVoicePhase.idle) {
-      await startSession(workspace: _workspace, invocation: _invocation);
+    if (state.phase == OvaVoicePhase.idle || state.isPaused) {
+      await startSession(
+        workspace: _workspace,
+        invocation: _invocation,
+        permissionContext: _permissionContext,
+      );
       return;
     }
     if (state.phase == OvaVoicePhase.speaking) {
-      // Barge-in: interrupt TTS and listen immediately.
+      // Barge-in: stop speaking immediately and listen to the user
       try {
         await _tts.stop();
       } catch (_) {}
-      state = state.copyWith(phase: OvaVoicePhase.listening, isMicMuted: false, amplitude: 0.0);
-      await _beginListeningInternal();
+      state = state.copyWith(
+        phase: OvaVoicePhase.listening,
+        isMicMuted: false,
+        amplitude: 0.06,
+      );
+      if (_liveSession == null) {
+        await _beginFallbackListening();
+      }
       return;
     }
 
@@ -859,9 +1514,8 @@ abstract class OvaVoiceSessionBaseNotifier extends Notifier<OvaVoiceSessionState
       _usingCloud = false;
       await _speech.cancel(this);
       await _cloud?.cancel();
-      await _releaseLease();
-    } else if (!state.isPaused) {
-      await _beginListeningInternal();
+    } else if (!state.isPaused && _liveSession == null) {
+      await _beginFallbackListening();
     }
   }
 
@@ -895,7 +1549,6 @@ abstract class OvaVoiceSessionBaseNotifier extends Notifier<OvaVoiceSessionState
     } catch (_) {}
   }
 
-  /// Manually refreshes & re-acquires the microphone if interrupted or stalled.
   Future<void> retryMicrophone() async {
     if (_disposed) return;
     HapticFeedback.lightImpact();
@@ -903,17 +1556,13 @@ abstract class OvaVoiceSessionBaseNotifier extends Notifier<OvaVoiceSessionState
     OneovaAiGateway.resetCooldown();
     await _stopHardware();
     if (_disposed) return;
-    state = state.copyWith(
-      phase: OvaVoicePhase.listening,
-      isMicMuted: false,
-      clearError: true,
-      amplitude: 0.0,
+    await startSession(
+      workspace: _workspace,
+      invocation: _invocation,
+      permissionContext: _permissionContext,
     );
-    await _beginListeningInternal();
   }
 
-  /// Ends the voice session and releases mic + TTS. The conversation is kept
-  /// (and saved to the account), so reopening carries on where it stopped.
   Future<void> endSession() async {
     HapticFeedback.mediumImpact();
     if (!_disposed) {
@@ -921,10 +1570,15 @@ abstract class OvaVoiceSessionBaseNotifier extends Notifier<OvaVoiceSessionState
         phase: OvaVoicePhase.idle,
         amplitude: 0.0,
         isMicMuted: false,
+        isVertexLiveConnected: false,
         clearError: true,
+        clearActivity: true,
       );
     }
     await _stopHardware();
+    if (state.wakeCallEnabled && !_disposed) {
+      unawaited(_startWakeWordStandby());
+    }
   }
 
   static final RegExp _progressAsk = RegExp(
@@ -932,42 +1586,60 @@ abstract class OvaVoiceSessionBaseNotifier extends Notifier<OvaVoiceSessionState
     caseSensitive: false,
   );
 
-  static bool _asksForProgress(String text) => text.length < 120 && _progressAsk.hasMatch(text);
+  static bool _asksForProgress(String text) =>
+      text.length < 120 && _progressAsk.hasMatch(text);
 
-  /// Local time, language and background work, added to every voice turn.
   String _liveContext(String taskId) {
     final now = DateTime.now();
-    const days = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
+    const days = [
+      'Monday',
+      'Tuesday',
+      'Wednesday',
+      'Thursday',
+      'Friday',
+      'Saturday',
+      'Sunday',
+    ];
     final hh = now.hour.toString().padLeft(2, '0');
     final mm = now.minute.toString().padLeft(2, '0');
     final locale = WidgetsBinding.instance.platformDispatcher.locale;
-    return 'Now: ${days[now.weekday - 1]} $hh:$mm local time (UTC${now.timeZoneOffset.isNegative ? '-' : '+'}${now.timeZoneOffset.inHours.abs()}). '
-        'Phone language: ${locale.toLanguageTag()}.\n'
+    return 'Current local time: ${days[now.weekday - 1]} $hh:$mm. '
+        'User language: ${locale.toLanguageTag()}.\n'
         '${OvaAccountContext.instance.contextLine()}\n'
         '${OvaMemoryTools.instance.contextLine()}\n'
         '${OvaGeoTools.instance.contextLine()}\n'
-        'Background work (answer progress questions from this):\n${ref.read(ovaTaskCenterProvider).progressContext(exceptId: taskId)}';
+        '${OvaNotificationMemoryService.instance.buildOnDemandContext(latestUserQuery: state.userTranscript)}\n'
+        'Background tasks:\n${ref.read(ovaTaskCenterProvider).progressContext(exceptId: taskId)}';
   }
 
-  /// Speaks a short update between turns, then goes back to listening.
   Future<void> _announce(String line) async {
     if (!state.audioEnabled) {
       state = state.copyWith(assistantReply: line);
       return;
     }
+    if (_liveSession != null) {
+      try {
+        await _liveSession!.sendTextRealtime('Say this brief update warmly to the user: $line');
+        return;
+      } catch (_) {}
+    }
     await _speech.stop(this);
     await _cloud?.cancel();
     if (_disposed) return;
-    state = state.copyWith(phase: OvaVoicePhase.speaking, assistantReply: line, amplitude: 0.5);
+    state = state.copyWith(
+      phase: OvaVoicePhase.speaking,
+      assistantReply: line,
+      amplitude: 0.5,
+    );
     await _ensureTts();
     try {
       await _tts.speak(line);
     } catch (_) {
-      if (!_disposed) await _beginListeningInternal();
+      if (!_disposed) await _beginFallbackListening();
     }
   }
 
-  static String _toSpokenProse(String raw, {required bool isDegraded}) {
+  static String _toSpokenProse(String raw) {
     final lines = raw
         .split('\n')
         .map((l) => l.trim())
@@ -984,18 +1656,17 @@ abstract class OvaVoiceSessionBaseNotifier extends Notifier<OvaVoiceSessionState
         .toList();
 
     if (lines.isEmpty) {
-      return isDegraded
-          ? 'I\'m currently in Local Ova mode. Voice commands like open camera, go live, or set a timer work right away.'
-          : raw.replaceAll(RegExp(r'[*#_`|]'), '').trim();
+      return raw.replaceAll(RegExp(r'[*#_`|]'), '').trim();
     }
-
-    final joined = lines.take(isDegraded ? 2 : 4).join(' ');
-    return joined.length > 260 ? '${joined.substring(0, 260).trim()}…' : joined;
+    final joined = lines.take(4).join(' ');
+    return joined.length > 280 ? '${joined.substring(0, 280).trim()}…' : joined;
   }
 
   Future<void> _stopHardware() async {
     _silenceTimer?.cancel();
     _usingCloud = false;
+    _wakeStandbyListening = false;
+    await _closeVertexLiveSession();
     await _speech.cancel(this);
     await _cloud?.cancel();
     try {

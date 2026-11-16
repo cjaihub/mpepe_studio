@@ -20,11 +20,13 @@ final videoPlaybackManagerProvider = Provider<VideoPlaybackManager>((ref) {
 
 /// Global route observer used by root routes to detect when another full screen
 /// or route is pushed on top, enabling auto-mute and auto-pause.
-final RouteObserver<ModalRoute<void>> mainFeedRouteObserver = RouteObserver<ModalRoute<void>>();
+final RouteObserver<ModalRoute<void>> mainFeedRouteObserver =
+    RouteObserver<ModalRoute<void>>();
 
 /// Separate route observer for the nested `/hub/home` branch Navigator so a
 /// single [NavigatorObserver] is never attached to two Navigators simultaneously.
-final RouteObserver<ModalRoute<void>> homeBranchRouteObserver = RouteObserver<ModalRoute<void>>();
+final RouteObserver<ModalRoute<void>> homeBranchRouteObserver =
+    RouteObserver<ModalRoute<void>>();
 
 /// One reusable media_kit [Player] + [VideoController] pair.
 class _PlayerSlot {
@@ -39,55 +41,37 @@ class _PlayerSlot {
   Duration watchTime = Duration.zero;
   int generation = 0;
   bool isRecovering = false;
+
+  /// True only after the newly loaded media for [generation] has decoded a
+  /// real video frame. Prevents a reused slot from flashing black while the
+  /// previous video's `state.width` is still non-zero.
+  final ValueNotifier<bool> frameReady = ValueNotifier<bool>(false);
 }
 
 /// Manages a fixed pool of media_kit Players so only a few videos are loaded
 /// at a time (virtualization and prefetching).
-///
-/// Players are created lazily up to [maxCachedPlayers] and then REUSED by
-/// opening new media into them. They are intentionally never disposed:
-/// disposing a media_kit Player closes the FFI wakeup callback that libmpv's
-/// core/opener threads call into, and on Android (seen on Android 16 arm64)
-/// a late call into the freed trampoline crashes the app with SIGSEGV in
-/// libmpv.so. Stopping a player is safe; destroying its mpv handle while
-/// scrolling or navigating is not.
 class VideoPlaybackManager {
   final RecommendationService _recommendationService;
   final ReelPrefetcher _prefetcher;
 
   final List<_PlayerSlot> _slots = [];
 
-  /// Warm players: current, next, previous, next+1, next+2. Each holds at most
-  /// [playerBufferBytes] of demuxed video, so the pool stays under ~80 MB
-  /// of buffers on mid-range phones (media_kit's default is 32 MB each).
   static const int maxCachedPlayers = 5;
   static const int playerBufferBytes = 16 * 1024 * 1024;
 
-  /// Bumped whenever a reel gains or loses its player, so feed pages that
-  /// were built before their player was ready swap the cover for video.
   final ValueNotifier<int> slotsRevision = ValueNotifier(0);
-
-  /// Notifies whether the active reel is currently buffering so the UI
-  /// can show a subtle indicator and the prefetcher can throttle deep jobs.
   final ValueNotifier<bool> activeReelBuffering = ValueNotifier<bool>(false);
 
-  /// Global mute state applied across reel transitions.
   bool _isMuted = false;
   bool get isMuted => _isMuted;
 
-  /// Whether the reels screen is currently the active on-screen view.
-  /// When false, all video audio is forced to 0.0 (auto-muted) and playback paused.
   bool _isScreenActive = true;
   bool get isScreenActive => _isScreenActive;
   final ValueNotifier<bool> screenActiveNotifier = ValueNotifier<bool>(true);
 
-  /// When true, a phone or video call is active (ringing, connecting, or connected).
-  /// All video playback and audio across feeds is forced silent (0.0 volume) and paused.
   bool _isCallActive = false;
   bool get isCallActive => _isCallActive;
 
-  /// True whenever reels must stay completely silent and paused:
-  /// screen not active, active phone/video call, or any microphone session active.
   bool get isSilenced =>
       !_isScreenActive ||
       _isCallActive ||
@@ -96,6 +80,7 @@ class VideoPlaybackManager {
   void _silenceAllSlots() {
     for (final slot in _slots) {
       slot.player.setVolume(0.0);
+      slot.player.setRate(1.0);
       if (slot.contentId != null || slot.player.state.playing) {
         slot.player.pause();
       }
@@ -104,7 +89,29 @@ class VideoPlaybackManager {
     _prefetcher.setActiveReelBuffering(false);
   }
 
+  /// Guarantees that only [_activeContentId] can ever play or output audio,
+  /// silencing and pausing every other slot immediately.
+  void _enforceSingleAudioOwner() {
+    final activeId = _activeContentId;
+    for (final slot in _slots) {
+      final isCurrent =
+          activeId != null && slot.contentId == activeId && !isSilenced;
+      if (!isCurrent) {
+        if (slot.player.state.volume > 0.0) {
+          slot.player.setVolume(0.0);
+        }
+        if (slot.player.state.playing) {
+          slot.player.pause();
+        }
+        if (slot.player.state.rate != 1.0) {
+          slot.player.setRate(1.0);
+        }
+      }
+    }
+  }
+
   void _restoreActiveSlot() {
+    _enforceSingleAudioOwner();
     if (isSilenced || _activeContentId == null) return;
     final slot = _slotFor(_activeContentId!);
     if (slot != null) {
@@ -120,8 +127,6 @@ class VideoPlaybackManager {
     }
   }
 
-  /// Pauses and mutes all cached slots immediately (e.g. when scrolling onto a
-  /// non-video card like a Live slot or photo).
   void pauseAllSlots({bool clearActive = false}) {
     if (clearActive) {
       _activeContentId = null;
@@ -132,7 +137,6 @@ class VideoPlaybackManager {
 
   void _onMicOwnerChanged() {
     final micOwner = MicCoordinator.instance.owner.value;
-    debugPrint('[VideoPlaybackManager] mic owner changed: $micOwner');
     if (micOwner != null) {
       _silenceAllSlots();
       slotsRevision.value++;
@@ -142,14 +146,9 @@ class VideoPlaybackManager {
     }
   }
 
-  /// Sets whether a live phone/video call is active. When true, all background video
-  /// audio is auto-muted and playback is paused. When false (call finished), playback
-  /// and volume are cleanly restored if the feed is on screen.
   void setCallActive(bool inCall) {
     if (_isCallActive == inCall) return;
     _isCallActive = inCall;
-    debugPrint('[VideoPlaybackManager] setCallActive: $inCall');
-
     if (inCall || isSilenced) {
       _silenceAllSlots();
       slotsRevision.value++;
@@ -159,11 +158,9 @@ class VideoPlaybackManager {
     }
   }
 
-  /// Active content currently on screen.
   String? _activeContentId;
   String? get activeContentId => _activeContentId;
 
-  /// True when the active reel was playing right before the app entered background.
   bool _pausedActiveForBackground = false;
 
   late final AppLifecycleListener _lifecycle;
@@ -173,8 +170,6 @@ class VideoPlaybackManager {
   int _stallTicks = 0;
 
   VideoPlaybackManager(this._recommendationService, this._prefetcher) {
-    // The Flutter engine outlives MainActivity on Android, so the feed can stay
-    // mounted after the app is closed: keep it silent while hidden or paused.
     _lifecycle = AppLifecycleListener(
       onPause: _pauseForBackground,
       onInactive: _pauseForBackground,
@@ -196,6 +191,7 @@ class VideoPlaybackManager {
     _stallWatchdog?.cancel();
     _stallWatchdog = Timer.periodic(const Duration(milliseconds: 1500), (_) {
       if (isSilenced) return;
+      _enforceSingleAudioOwner();
       final activeId = _activeContentId;
       if (activeId == null) return;
       final slot = _slotFor(activeId);
@@ -207,12 +203,13 @@ class VideoPlaybackManager {
       if (state.playing) {
         if (state.buffering) {
           _stallTicks++;
-          if (_stallTicks >= 3) { // ~4.5 seconds stalled
+          if (_stallTicks >= 3) {
             _recoverStalledSlot(slot);
           }
-        } else if (state.position == _lastStallPosition && state.duration > Duration.zero) {
+        } else if (state.position == _lastStallPosition &&
+            state.duration > Duration.zero) {
           _stallTicks++;
-          if (_stallTicks >= 4) { // Frozen frame
+          if (_stallTicks >= 4) {
             _recoverStalledSlot(slot);
           }
         } else {
@@ -228,15 +225,19 @@ class VideoPlaybackManager {
   Future<void> _recoverStalledSlot(_PlayerSlot slot) async {
     final id = slot.contentId;
     final url = slot.mediaUrl;
-    if (id == null || url == null || slot.isRecovering || isSilenced || _activeContentId != id) return;
+    if (id == null ||
+        url == null ||
+        slot.isRecovering ||
+        isSilenced ||
+        _activeContentId != id) {
+      return;
+    }
 
     slot.isRecovering = true;
     _stallTicks = 0;
     try {
-      debugPrint('[VideoPlaybackManager] recovering stalled reel: $id');
       final pos = slot.player.state.position;
       await slot.player.stop();
-      // If we loaded from a local cached file, evict in case of corruption
       await _prefetcher.evictCorruptVideo(url);
       if (slot.contentId == id) {
         final canPlay = _activeContentId == id && !isSilenced;
@@ -284,22 +285,50 @@ class VideoPlaybackManager {
     return null;
   }
 
-  VideoController? getController(String contentId) => _slotFor(contentId)?.controller;
+  VideoController? getController(String contentId) =>
+      _slotFor(contentId)?.controller;
   Player? getPlayer(String contentId) => _slotFor(contentId)?.player;
 
+  /// Notifies whether the slot for [contentId] has decoded a genuine frame for
+  /// this specific video (preventing black flashes when slots are reused).
+  ValueNotifier<bool>? getFrameReadyNotifier(String contentId) =>
+      _slotFor(contentId)?.frameReady;
+
   void setLooping(String contentId, bool isLooping) {
-    _slotFor(contentId)?.player.setPlaylistMode(isLooping ? PlaylistMode.loop : PlaylistMode.single);
+    _slotFor(contentId)
+        ?.player
+        .setPlaylistMode(isLooping ? PlaylistMode.loop : PlaylistMode.single);
   }
 
-  /// Controls active screen visibility. When the user navigates away from the
-  /// reels feed (tabs away, pushes a new route, opens a sheet/modal, minimizes app),
-  /// [setScreenActive(false)] forces volume to 0.0 (auto-mute) and pauses playback.
-  /// When returning, [setScreenActive(true)] restores audio and playback.
+  /// Sets playback speed (`0.25x` .. `3.0x`) on the active reel.
+  Future<void> setPlaybackSpeed(String contentId, double rate) async {
+    final slot = _slotFor(contentId);
+    if (slot == null) return;
+    final clamped = rate.clamp(0.25, 3.0);
+    await slot.player.setRate(clamped);
+  }
+
+  /// Steps playback position forward or backward smoothly (e.g. hold-to-rewind).
+  Future<void> seekRelative(String contentId, Duration delta) async {
+    final slot = _slotFor(contentId);
+    if (slot == null) return;
+    final p = slot.player;
+    final dur = p.state.duration;
+    final cur = p.state.position;
+    var next = cur + delta;
+    if (next < Duration.zero) {
+      next = dur > Duration.zero ? dur + next : Duration.zero;
+      if (next < Duration.zero) next = Duration.zero;
+    } else if (dur > Duration.zero && next > dur) {
+      next = Duration.zero;
+    }
+    await p.seek(next);
+  }
+
   void setScreenActive(bool active) {
     if (_isScreenActive == active) return;
     _isScreenActive = active;
     screenActiveNotifier.value = active;
-    debugPrint('[VideoPlaybackManager] setScreenActive: $active (callActive: $_isCallActive, mic: ${MicCoordinator.instance.owner.value}, muted: $_isMuted, activeContent: $_activeContentId)');
 
     if (isSilenced) {
       _silenceAllSlots();
@@ -310,17 +339,11 @@ class VideoPlaybackManager {
     }
   }
 
-  /// Ensures that the active reel is actively playing without stalling
+  /// Ensures that [contentId] is the sole playing reel and all other slots
+  /// are immediately muted and paused.
   void ensureCurrentPlaying(String contentId) {
     _activeContentId = contentId;
-    for (final s in _slots) {
-      if (s.contentId != contentId) {
-        s.player.setVolume(0.0);
-        if (s.contentId != null || s.player.state.playing) {
-          s.player.pause();
-        }
-      }
-    }
+    _enforceSingleAudioOwner();
     final slot = _slotFor(contentId);
     if (slot != null) {
       final p = slot.player;
@@ -336,6 +359,9 @@ class VideoPlaybackManager {
       if (!p.state.playing) {
         p.play();
       }
+      if ((p.state.width ?? 0) > 0 && !slot.frameReady.value) {
+        slot.frameReady.value = true;
+      }
       activeReelBuffering.value = p.state.buffering;
       _prefetcher.setActiveReelBuffering(p.state.buffering);
     }
@@ -344,8 +370,6 @@ class VideoPlaybackManager {
   void initializeAndPreload(List<Content> feed, int currentIndex) {
     if (currentIndex < 0 || currentIndex >= feed.length) return;
 
-    // Keep players for current, previous, and the next 2 upcoming videos for seamless zero-lag playback.
-    // Ordered by priority so the current reel always gets a slot first.
     final List<String> keepIds = [feed[currentIndex].id];
     if (currentIndex < feed.length - 1) {
       keepIds.add(feed[currentIndex + 1].id);
@@ -373,7 +397,10 @@ class VideoPlaybackManager {
       }
     }
 
-    // Load the keep set (current plays, others buffer in background)
+    // Silence all non-current slots first so two reels never overlap
+    _enforceSingleAudioOwner();
+
+    // Load the keep set (current plays, others buffer silently in background)
     for (final id in keepIds.toSet()) {
       final isCurrent = id == currentId;
       final existing = _slotFor(id);
@@ -392,9 +419,8 @@ class VideoPlaybackManager {
         _loadIntoSlot(slot, content, isCurrent);
       } else {
         final canPlay = isCurrent && !isSilenced;
-        // Strict audio isolation: only current reel plays audio when screen is active & unsilenced
         existing.player.setVolume(canPlay ? (_isMuted ? 0.0 : 100.0) : 0.0);
-        // Play if current and unsilenced, pause if preloaded background buffer or silenced
+        existing.player.setRate(1.0);
         if (canPlay) {
           activeReelBuffering.value = existing.player.state.buffering;
           _prefetcher.setActiveReelBuffering(existing.player.state.buffering);
@@ -404,26 +430,27 @@ class VideoPlaybackManager {
           if (!existing.player.state.playing) {
             existing.player.play();
           }
+          if ((existing.player.state.width ?? 0) > 0 && !existing.frameReady.value) {
+            existing.frameReady.value = true;
+          }
         } else {
           existing.player.pause();
         }
       }
     }
-    // The impression itself is tracked by the feed (_onPageChanged).
   }
 
-  /// Returns a free slot, creating a new player while under the pool limit.
   _PlayerSlot? _acquireSlot() {
     for (final slot in _slots) {
       if (slot.contentId == null) return slot;
     }
     if (_slots.length >= maxCachedPlayers) return null;
 
-    final player = Player(configuration: const PlayerConfiguration(bufferSize: playerBufferBytes));
+    final player = Player(
+      configuration: const PlayerConfiguration(bufferSize: playerBufferBytes),
+    );
     final slot = _PlayerSlot(player, VideoController(player));
 
-    // Ironclad playback & audio guard: if libmpv finishes async open/demux after
-    // the user scrolled away, switched tabs, or activated a mic/call, silence & pause immediately.
     player.stream.playing.listen((isPlaying) {
       if (!isPlaying) return;
       final allowed = slot.contentId != null &&
@@ -434,10 +461,18 @@ class VideoPlaybackManager {
         player.pause();
       } else {
         player.setVolume(_isMuted ? 0.0 : 100.0);
+        if ((player.state.width ?? 0) > 0 && !slot.frameReady.value) {
+          slot.frameReady.value = true;
+        }
       }
     });
 
-    // Track real playback events for whichever content the slot currently holds
+    player.stream.width.listen((w) {
+      if ((w ?? 0) > 0 && slot.contentId != null && !slot.frameReady.value) {
+        slot.frameReady.value = true;
+      }
+    });
+
     player.stream.position.listen((pos) {
       final allowed = slot.contentId != null &&
           slot.contentId == _activeContentId &&
@@ -447,11 +482,14 @@ class VideoPlaybackManager {
         player.pause();
         return;
       }
-      // Keep track of the max position reached as watch time
+      if (pos > Duration.zero && (player.state.width ?? 0) > 0 && !slot.frameReady.value) {
+        slot.frameReady.value = true;
+      }
       if (slot.contentId != null && pos > slot.watchTime) {
         slot.watchTime = pos;
       }
     });
+
     player.stream.completed.listen((isCompleted) {
       final id = slot.contentId;
       if (isCompleted && id != null) {
@@ -467,7 +505,6 @@ class VideoPlaybackManager {
     });
 
     player.stream.error.listen((err) {
-      debugPrint('[VideoPlaybackManager] player error on ${slot.contentId}: $err');
       final url = slot.mediaUrl;
       if (url != null) {
         unawaited(_prefetcher.evictCorruptVideo(url));
@@ -484,28 +521,38 @@ class VideoPlaybackManager {
     return slot;
   }
 
-  void _loadAudioIntoSlot(_PlayerSlot slot, String contentId, String audioUrl, bool autoPlay) {
+  void _loadAudioIntoSlot(
+    _PlayerSlot slot,
+    String contentId,
+    String audioUrl,
+    bool autoPlay,
+  ) {
     slot.generation++;
     slot.contentId = contentId;
     slot.mediaUrl = audioUrl;
     slot.watchTime = Duration.zero;
+    slot.frameReady.value = false;
     final player = slot.player;
     final shouldPlay = autoPlay && !isSilenced && _activeContentId == contentId;
     player.setVolume(shouldPlay ? (_isMuted ? 0.0 : 100.0) : 0.0);
+    player.setRate(1.0);
     player.setPlaylistMode(PlaylistMode.loop);
     player.open(Media(audioUrl), play: shouldPlay);
     slotsRevision.value++;
   }
 
-  /// Attaches and plays resolved music track audio for a photo or multi-photo
-  /// carousel reel once its `musicId` is resolved.
   void attachAudioForPhotoReel(String contentId, String audioUrl) {
     final clean = audioUrl.trim();
     if (clean.isEmpty) return;
     final existing = _slotFor(contentId);
     if (existing != null) {
       if (existing.mediaUrl == clean) return;
-      _loadAudioIntoSlot(existing, contentId, clean, _activeContentId == contentId);
+      _loadAudioIntoSlot(
+        existing,
+        contentId,
+        clean,
+        _activeContentId == contentId,
+      );
       return;
     }
     if (_activeContentId != contentId) return;
@@ -519,32 +566,37 @@ class VideoPlaybackManager {
     slot.contentId = content.id;
     slot.mediaUrl = content.mediaUrl;
     slot.watchTime = Duration.zero;
+    slot.frameReady.value = false;
     final player = slot.player;
     final shouldPlay = autoPlay && !isSilenced && _activeContentId == content.id;
-    // Strict audio isolation: only active reel gets volume if screen is active & unsilenced
     player.setVolume(shouldPlay ? (_isMuted ? 0.0 : 100.0) : 0.0);
+    player.setRate(1.0);
     player.setPlaylistMode(PlaylistMode.single);
 
-    // If prefetcher has a local copy right now, open immediately
+    Future<void> openMedia(String source) async {
+      if (slot.contentId != content.id || slot.generation != gen) return;
+      final canStillPlay =
+          autoPlay && !isSilenced && _activeContentId == content.id;
+      player.setVolume(canStillPlay ? (_isMuted ? 0.0 : 100.0) : 0.0);
+      await player.open(Media(source), play: canStillPlay);
+      if (slot.contentId != content.id || slot.generation != gen) return;
+      if (!canStillPlay) {
+        player.setVolume(0.0);
+        await player.pause();
+      } else if ((player.state.width ?? 0) > 0) {
+        slot.frameReady.value = true;
+      }
+      slotsRevision.value++;
+    }
+
     final local = _prefetcher.localVideoFor(content.mediaUrl);
     if (local != null) {
-      player.open(Media(local), play: shouldPlay);
-      slotsRevision.value++;
+      unawaited(openMedia(local));
     } else {
-      // Check disk cache with a tiny non-blocking timeout first so we never
-      // double-open the same slot when a file is already on disk.
       _prefetcher.resolvePlayableSource(content.mediaUrl).then((resolved) {
-        if (slot.contentId != content.id || slot.generation != gen) return;
-        final canStillPlay = autoPlay && !isSilenced && _activeContentId == content.id;
-        player.setVolume(canStillPlay ? (_isMuted ? 0.0 : 100.0) : 0.0);
-        player.open(Media(resolved), play: canStillPlay);
-        slotsRevision.value++;
+        unawaited(openMedia(resolved));
       }).catchError((_) {
-        if (slot.contentId != content.id || slot.generation != gen) return;
-        final canStillPlay = autoPlay && !isSilenced && _activeContentId == content.id;
-        player.setVolume(canStillPlay ? (_isMuted ? 0.0 : 100.0) : 0.0);
-        player.open(Media(content.mediaUrl), play: canStillPlay);
-        slotsRevision.value++;
+        unawaited(openMedia(content.mediaUrl));
       });
     }
   }
@@ -553,15 +605,19 @@ class VideoPlaybackManager {
     final id = slot.contentId;
     if (id == null) return;
 
-    // Log the watch time before unloading
-    _trackPlaybackEvent(id, ContentInteractionType.watchDuration, {'durationMs': slot.watchTime.inMilliseconds});
+    _trackPlaybackEvent(
+      id,
+      ContentInteractionType.watchDuration,
+      {'durationMs': slot.watchTime.inMilliseconds},
+    );
 
     slot.contentId = null;
     slot.mediaUrl = null;
     slot.watchTime = Duration.zero;
+    slot.frameReady.value = false;
     slot.generation++;
     slot.player.setVolume(0.0);
-    // stop() unloads the media and frees its buffers; the mpv handle is kept for reuse.
+    slot.player.setRate(1.0);
     slot.player.stop();
     slotsRevision.value++;
   }
@@ -573,6 +629,7 @@ class VideoPlaybackManager {
       if (player.state.playing) {
         player.pause();
       } else if (!isSilenced && _activeContentId == contentId) {
+        _enforceSingleAudioOwner();
         player.setVolume(_isMuted ? 0.0 : 100.0);
         player.play();
       }
@@ -582,7 +639,9 @@ class VideoPlaybackManager {
   void setMute(String contentId, bool mute) {
     _isMuted = mute;
     for (final slot in _slots) {
-      if (slot.contentId == contentId && _activeContentId == contentId && !isSilenced) {
+      if (slot.contentId == contentId &&
+          _activeContentId == contentId &&
+          !isSilenced) {
         slot.player.setVolume(mute ? 0.0 : 100.0);
       } else {
         slot.player.setVolume(0.0);
@@ -590,8 +649,6 @@ class VideoPlaybackManager {
     }
   }
 
-  /// Unloads every video (e.g. when the feed screen goes away).
-  /// Players stay in the pool for reuse; see the class doc for why they are not disposed.
   void disposeAll() {
     _activeContentId = null;
     activeReelBuffering.value = false;
@@ -601,7 +658,11 @@ class VideoPlaybackManager {
     }
   }
 
-  void _trackPlaybackEvent(String contentId, ContentInteractionType type, [Map<String, dynamic>? extraData]) {
+  void _trackPlaybackEvent(
+    String contentId,
+    ContentInteractionType type, [
+    Map<String, dynamic>? extraData,
+  ]) {
     final uid = FirebaseAuth.instance.currentUser?.uid;
     if (uid == null) return;
     _recommendationService.trackEvent(uid, contentId, type, extraData ?? {});

@@ -307,40 +307,77 @@ class OvaGeoTools {
     if (err != null) return err;
     List<GeoPlace> places;
     try {
-      places = what.isEmpty || RegExp(r'^(places?|anything|stuff|things)$').hasMatch(what.toLowerCase())
+      places = what.isEmpty || RegExp(r'^(places?|anything|stuff|things|near me|around me)$').hasMatch(what.toLowerCase())
           ? await _geo.nearby(me!, 'food', radiusM: radiusM)
           : await _geo.nearby(me!, what, radiusM: radiusM);
       if (places.isEmpty && what.isNotEmpty && GeoServices.categoryFor(what) == null) {
         places = (await _geo.search(what, near: me, limit: 6)).where((p) => (p.distanceM ?? 1e9) < 50000).toList();
       }
     } catch (e) {
-      return OvaToolResult.fail('Nearby search failed: $e', icon: Icons.wifi_off_rounded);
+      return OvaToolResult.fail('I couldn\'t check places nearby right now. Please check your connection.', icon: Icons.wifi_off_rounded);
     }
     final label = what.isEmpty ? 'places' : what;
     if (places.isEmpty) {
       return OvaToolResult(
         ok: true,
-        summary: 'No $label found within ${formatDistance(radiusM.toDouble())} on OpenStreetMap.',
+        title: 'Nothing found nearby yet',
+        summary: 'I didn\'t spot any $label within ${formatDistance(radiusM.toDouble())} of your current location. Would you like me to look a bit wider?',
         icon: Icons.search_off_rounded,
         map: OvaMapSpec(me: me, rotoscopeHighlight: rotoscope),
         actions: [
           if (radiusM < 5000)
-            OvaResultAction(label: 'Search wider', icon: Icons.zoom_out_map_rounded, prompt: 'find $label within 5 km'),
+            OvaResultAction(label: 'Search 5 km around me', icon: Icons.zoom_out_map_rounded, prompt: 'find $label within 5 km'),
+          const OvaResultAction(label: 'Food & Cafes', icon: Icons.restaurant_rounded, prompt: 'find food near me'),
+          const OvaResultAction(label: 'ATMs & Cash', icon: Icons.atm_rounded, prompt: 'find ATM near me'),
         ],
       );
     }
+
+    // Automatically pre-compute the live route to the closest top place and
+    // reverse-geocode the user's current area in the background!
+    final topPlace = places.first;
+    final bgResults = await Future.wait([
+      _geo.route(me, topPlace.point),
+      _geo.reverse(me),
+      _geo.signal(),
+    ]);
+    final autoRoute = bgResults[0] as GeoRoute?;
+    final myArea = bgResults[1] as String?;
+    final signal = bgResults[2] as GeoSignal;
+    lastAddress = myArea;
+
+    OneovaMapHistoryService.instance.record(
+      title: topPlace.name,
+      subtitle: topPlace.address ?? label,
+      point: topPlace.point,
+      actionType: 'nearby',
+    );
+
     final lines = [
       for (var k = 0; k < places.length; k++)
-        '${k + 1}. ${places[k].name} – ${formatDistance(places[k].distanceM ?? 0)}'
-            '${places[k].openNow == true ? ' (open now)' : places[k].openNow == false ? ' (closed now)' : ''}'
-            '${places[k].address != null ? ', ${places[k].address}' : ''}',
+        '${k + 1}. ${places[k].name} (${formatDistance(places[k].distanceM ?? 0)})'
+            '${places[k].openNow == true ? ' · Open now' : ''}'
+            '${places[k].address != null ? ' · ${places[k].address}' : ''}',
     ];
+    final areaIntro = myArea != null && myArea.isNotEmpty ? 'Around $myArea, ' : '';
+    final routeHint = autoRoute != null
+        ? ' The closest is ${topPlace.name}, just ${formatDistance(autoRoute.distanceM)} (${formatDuration(autoRoute.durationS)}) away — I\'ve already highlighted the route on your map.'
+        : '';
+
     return OvaToolResult(
       ok: true,
       title: '${places.length} ${label.toLowerCase()} near you',
-      summary: 'Nearby $label:\n${lines.join('\n')}',
+      summary: '${areaIntro}I found ${places.length} $label near you.$routeHint\n${lines.join('\n')}',
       icon: Icons.near_me_rounded,
-      map: OvaMapSpec(me: me, places: places, rotoscopeHighlight: rotoscope),
+      map: OvaMapSpec(
+        me: me,
+        places: places,
+        destination: topPlace,
+        route: autoRoute,
+        signal: signal,
+        rotoscopeHighlight: rotoscope,
+        flyToTarget: true,
+      ),
       items: [
         for (var k = 0; k < places.length; k++)
           OvaResultItem(
@@ -354,6 +391,33 @@ class OvaGeoTools {
             icon: Icons.place_rounded,
             onTap: OvaResultAction(label: 'Start Route', icon: Icons.directions_rounded, prompt: 'start navigation to ${places[k].name}'),
           ),
+      ],
+      actions: [
+        OvaResultAction(
+          label: 'Navigate to ${topPlace.name}',
+          icon: Icons.navigation_rounded,
+          prompt: 'start navigation to ${topPlace.name}',
+        ),
+        OvaResultAction(
+          label: 'Fly to ${topPlace.name}',
+          icon: Icons.flight_takeoff_rounded,
+          prompt: 'fly me to ${topPlace.name}',
+        ),
+        const OvaResultAction(
+          label: 'Cafes & Food',
+          icon: Icons.restaurant_rounded,
+          prompt: 'find coffee and food near me',
+        ),
+        const OvaResultAction(
+          label: 'ATMs',
+          icon: Icons.atm_rounded,
+          prompt: 'find ATM near me',
+        ),
+        const OvaResultAction(
+          label: 'Pharmacies',
+          icon: Icons.local_pharmacy_rounded,
+          prompt: 'find pharmacy near me',
+        ),
       ],
     );
   }

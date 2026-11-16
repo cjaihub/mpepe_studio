@@ -109,15 +109,17 @@ class _OvaLiveVoiceViewState extends ConsumerState<OvaLiveVoiceView> {
                         Container(
                           padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2.5),
                           decoration: BoxDecoration(
-                            color: const Color(0xFF8B5CF6).withValues(alpha: context.isDark ? 0.22 : 0.12),
+                            color: AppColors.brandBlue.withValues(alpha: context.isDark ? 0.22 : 0.12),
                             borderRadius: BorderRadius.circular(AppRadius.full),
                           ),
                           child: Text(
-                            'Advanced',
+                            state.isVertexLiveConnected
+                                ? 'Vertex Live · ${state.voiceName}'
+                                : 'Live · ${state.voiceName}',
                             style: GoogleFonts.inter(
                               fontSize: 10,
                               fontWeight: FontWeight.w700,
-                              color: const Color(0xFF8B5CF6),
+                              color: AppColors.brandBlue,
                             ),
                           ),
                         ),
@@ -345,32 +347,80 @@ class _OvaOverlayVoiceCardState extends ConsumerState<OvaOverlayVoiceCard> {
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
-          // Top status & private session pill
+          // Top status & Vertex Live voice/wake controls
           Row(
             children: [
-              _VoiceStatusPill(state: state, compact: true),
-              const Spacer(),
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
-                decoration: BoxDecoration(
-                  color: context.surfaceMid,
-                  borderRadius: BorderRadius.circular(AppRadius.full),
-                  border: Border.all(color: context.border, width: 1.0),
-                ),
-                child: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Icon(Icons.lock_outline_rounded, size: 10, color: context.textMuted),
-                    const SizedBox(width: 4),
-                    Text(
-                      'Overlay Voice',
-                      style: GoogleFonts.inter(
-                        fontSize: 10,
-                        fontWeight: FontWeight.w600,
-                        color: context.textSecondary,
-                      ),
+              Expanded(child: _VoiceStatusPill(state: state, compact: true)),
+              const SizedBox(width: 6),
+              InkWell(
+                borderRadius: BorderRadius.circular(AppRadius.full),
+                onTap: () => notifier.toggleWakeCall(),
+                child: Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
+                  decoration: BoxDecoration(
+                    color: state.wakeCallEnabled
+                        ? AppColors.brandPink.withValues(alpha: 0.14)
+                        : context.surfaceMid,
+                    borderRadius: BorderRadius.circular(AppRadius.full),
+                    border: Border.all(
+                      color: state.wakeCallEnabled
+                          ? AppColors.brandPink.withValues(alpha: 0.45)
+                          : context.border,
+                      width: 1.0,
                     ),
-                  ],
+                  ),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(
+                        Icons.hearing_rounded,
+                        size: 11,
+                        color: state.wakeCallEnabled ? AppColors.brandPink : context.textMuted,
+                      ),
+                      const SizedBox(width: 4),
+                      Text(
+                        state.wakeCallEnabled ? 'Wake On' : 'Hey Ova',
+                        style: GoogleFonts.inter(
+                          fontSize: 10,
+                          fontWeight: FontWeight.w700,
+                          color: state.wakeCallEnabled ? AppColors.brandPink : context.textSecondary,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+              const SizedBox(width: 5),
+              InkWell(
+                borderRadius: BorderRadius.circular(AppRadius.full),
+                onTap: () => _showVoiceSettingsSheet(context, ref, isOverlay: true),
+                child: Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
+                  decoration: BoxDecoration(
+                    color: AppColors.brandBlue.withValues(alpha: 0.12),
+                    borderRadius: BorderRadius.circular(AppRadius.full),
+                    border: Border.all(
+                      color: AppColors.brandBlue.withValues(alpha: 0.35),
+                      width: 1.0,
+                    ),
+                  ),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      const Icon(Icons.graphic_eq_rounded, size: 11, color: AppColors.brandBlue),
+                      const SizedBox(width: 4),
+                      Text(
+                        state.voiceName,
+                        style: GoogleFonts.inter(
+                          fontSize: 10,
+                          fontWeight: FontWeight.w700,
+                          color: AppColors.brandBlue,
+                        ),
+                      ),
+                      const SizedBox(width: 2),
+                      const Icon(Icons.tune_rounded, size: 10, color: AppColors.brandBlue),
+                    ],
+                  ),
                 ),
               ),
             ],
@@ -496,26 +546,29 @@ class _VoiceStatusPill extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final customStatus = state.statusLabel.trim();
     final (dotColor, statusText) = switch (state.phase) {
       OvaVoicePhase.listening => (
-          const Color(0xFF8B5CF6),
-          state.isMicMuted ? 'Muted' : 'Listening...',
+          AppColors.brandBlue,
+          state.isMicMuted
+              ? 'Microphone muted'
+              : (customStatus.isNotEmpty ? customStatus : 'I\'m listening…'),
         ),
       OvaVoicePhase.thinking => (
           AppColors.brandPink,
-          'Thinking...',
+          customStatus.isNotEmpty ? customStatus : 'Looking into that for you…',
         ),
       OvaVoicePhase.speaking => (
           const Color(0xFF38BDF8),
-          'Speaking...',
+          customStatus.isNotEmpty ? customStatus : 'Speaking with you…',
         ),
       OvaVoicePhase.paused => (
           context.textMuted,
-          'Paused',
+          'Paused · tap to continue',
         ),
       OvaVoicePhase.idle => (
-          const Color(0xFF8B5CF6),
-          'Listening...',
+          AppColors.brandBlue,
+          customStatus.isNotEmpty ? customStatus : 'Ready whenever you are',
         ),
     };
 
@@ -537,12 +590,16 @@ class _VoiceStatusPill extends StatelessWidget {
           ),
         ),
         const SizedBox(width: 7),
-        Text(
-          statusText,
-          style: GoogleFonts.inter(
-            fontSize: compact ? 12 : 13,
-            fontWeight: FontWeight.w600,
-            color: context.textPrimary,
+        Flexible(
+          child: Text(
+            statusText,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: GoogleFonts.inter(
+              fontSize: compact ? 11.5 : 13,
+              fontWeight: FontWeight.w600,
+              color: context.textPrimary,
+            ),
           ),
         ),
       ],
@@ -940,18 +997,87 @@ void _showVoiceSettingsSheet(BuildContext context, WidgetRef ref, {required bool
                   ),
                   const SizedBox(height: 12),
                   Text(
-                    'Live Voice Settings',
+                    'Vertex Live Voice & Microphone',
                     style: GoogleFonts.inter(
                       fontSize: 15,
                       fontWeight: FontWeight.w700,
                       color: context.textPrimary,
                     ),
                   ),
+                  const SizedBox(height: 8),
+                  Text(
+                    'VERTEX LIVE VOICE PERSONA',
+                    style: GoogleFonts.inter(
+                      fontSize: 9.5,
+                      fontWeight: FontWeight.w800,
+                      letterSpacing: 0.8,
+                      color: context.textMuted,
+                    ),
+                  ),
+                  const SizedBox(height: 6),
+                  Wrap(
+                    spacing: 6,
+                    runSpacing: 6,
+                    children: [
+                      for (final v in kOvaVertexVoices)
+                        InkWell(
+                          borderRadius: BorderRadius.circular(AppRadius.full),
+                          onTap: () {
+                            HapticFeedback.selectionClick();
+                            notifier.setVoiceName(v.id);
+                          },
+                          child: Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                            decoration: BoxDecoration(
+                              color: state.voiceName == v.id
+                                  ? AppColors.brandBlue
+                                  : context.surfaceMid,
+                              borderRadius: BorderRadius.circular(AppRadius.full),
+                              border: Border.all(
+                                color: state.voiceName == v.id
+                                    ? AppColors.brandBlue
+                                    : context.border,
+                              ),
+                            ),
+                            child: Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Icon(
+                                  Icons.graphic_eq_rounded,
+                                  size: 12,
+                                  color: state.voiceName == v.id
+                                      ? Colors.white
+                                      : AppColors.brandBlue,
+                                ),
+                                const SizedBox(width: 5),
+                                Text(
+                                  '${v.label} · ${v.tone}',
+                                  style: GoogleFonts.inter(
+                                    fontSize: 11,
+                                    fontWeight: FontWeight.w700,
+                                    color: state.voiceName == v.id
+                                        ? Colors.white
+                                        : context.textPrimary,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ),
+                    ],
+                  ),
                   const SizedBox(height: 10),
                   _VoiceSettingSwitchTile(
+                    icon: Icons.hearing_rounded,
+                    title: 'Background Wake Call ("Hey Ova")',
+                    subtitle: 'Listen quietly for "Hey Ova" so you can talk hands-free',
+                    value: state.wakeCallEnabled,
+                    onChanged: (_) => notifier.toggleWakeCall(),
+                  ),
+                  _VoiceSettingSwitchTile(
                     icon: Icons.noise_aware_rounded,
-                    title: 'Clean up voice audio',
-                    subtitle: 'Suppress background noise & echo',
+                    title: 'Enhanced Studio Microphone',
+                    subtitle: 'Hardware echo cancellation, noise suppression & auto-gain',
                     value: state.voiceEnhanced,
                     onChanged: (_) => notifier.toggleVoiceEnhance(),
                   ),
@@ -965,7 +1091,7 @@ void _showVoiceSettingsSheet(BuildContext context, WidgetRef ref, {required bool
                   _VoiceSettingSwitchTile(
                     icon: Icons.volume_up_outlined,
                     title: 'Spoken voice replies',
-                    subtitle: 'Read Ova\'s answers aloud automatically',
+                    subtitle: 'Stream Vertex Live native audio replies automatically',
                     value: state.audioEnabled,
                     onChanged: (_) => notifier.toggleAudioOutput(),
                   ),

@@ -1,6 +1,7 @@
 import 'dart:io';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_ai/firebase_ai.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
@@ -87,6 +88,88 @@ class OvaToolSpec {
         ...s,
         'type': (s['type'] as String).toUpperCase(),
       };
+
+  /// Converts this tool spec into a Vertex Live [FunctionDeclaration] so
+  /// bidirectional live audio sessions can invoke any Ova tool natively.
+  FunctionDeclaration toFunctionDeclaration() {
+    final params = <String, Schema>{};
+    final optional = <String>[];
+    for (final e in properties.entries) {
+      final prop = e.value as Map<String, dynamic>;
+      final type = (prop['type'] as String? ?? 'string').toLowerCase();
+      final desc = prop['description'] as String?;
+      final enums = (prop['enum'] as List?)?.map((x) => x.toString()).toList();
+      if (enums != null && enums.isNotEmpty) {
+        params[e.key] = Schema.enumString(enumValues: enums, description: desc);
+      } else if (type == 'integer' || type == 'number') {
+        params[e.key] = Schema.integer(description: desc);
+      } else if (type == 'boolean') {
+        params[e.key] = Schema.boolean(description: desc);
+      } else {
+        params[e.key] = Schema.string(description: desc);
+      }
+      if (!required.contains(e.key)) {
+        optional.add(e.key);
+      }
+    }
+    return FunctionDeclaration(
+      name,
+      description,
+      parameters: params,
+      optionalParameters: optional,
+    );
+  }
+}
+
+/// Translates internal tool names into warm, natural human-language status phrases
+/// so the user never sees technical tool identifiers or robotic labels.
+String friendlyOvaStepLabel(String toolName, [Map<String, dynamic> args = const {}]) {
+  switch (toolName) {
+    case 'find_nearby':
+      final q = (args['category'] ?? args['query'] ?? '').toString().trim();
+      return q.isNotEmpty
+          ? 'Looking for $q near you'
+          : 'Exploring what is near you right now';
+    case 'fly_to_place':
+      final p = (args['place'] ?? '').toString().trim();
+      return p.isNotEmpty ? 'Flying you over to $p' : 'Flying to that location on the map';
+    case 'navigate_to':
+      final dest = (args['destination'] ?? '').toString().trim();
+      return dest.isNotEmpty
+          ? 'Setting up your live route to $dest'
+          : 'Preparing your live route and directions';
+    case 'get_location':
+      return 'Finding your current location';
+    case 'map_history':
+      return 'Pulling up your recent places';
+    case 'share_live_location':
+      return 'Getting your live location ready to share';
+    case 'recall_previous_notifications':
+    case 'read_notifications':
+      return 'Checking your recent updates';
+    case 'mute_notification_source':
+      return 'Quieting updates from that source for you';
+    case 'open_screen':
+    case 'open_app':
+      return 'Opening that for you';
+    case 'set_reminder':
+    case 'list_reminders':
+    case 'cancel_reminder':
+      return 'Updating your reminders';
+    case 'save_memory':
+    case 'recall_memory':
+      return 'Remembering that for you';
+    case 'send_message':
+    case 'whatsapp_send':
+    case 'gmail_send':
+    case 'reply_notification':
+      return 'Preparing your message';
+    case 'start_call':
+    case 'make_phone_call':
+      return 'Getting your call ready';
+    default:
+      return 'Working on that for you';
+  }
 }
 
 Map<String, dynamic> _str(String d, [List<String>? enumValues]) =>

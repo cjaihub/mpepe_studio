@@ -272,21 +272,22 @@ class _ShortVideoFeedScreenState extends ConsumerState<ShortVideoFeedScreen>
     }
 
     if (!mounted) return;
+    final resolvedTarget = target;
     if (existingPageIdx >= 0 && existingPageIdx != _currentPage) {
       _safeJumpToPage(existingPageIdx);
       _onPageChanged(existingPageIdx);
     } else {
-      final feedIdx = _feed.indexWhere((c) => c.id == target?.id);
+      final feedIdx = _feed.indexWhere((c) => c.id == resolvedTarget.id);
       if (feedIdx >= 0) _warmAround(feedIdx);
-      if (target != null) ref.read(videoPlaybackManagerProvider).ensureCurrentPlaying(target.id);
+      ref.read(videoPlaybackManagerProvider).ensureCurrentPlaying(resolvedTarget.id);
     }
 
-    if (highlight && target != null) {
-      _triggerHighlightReel(target.id);
+    if (highlight) {
+      _triggerHighlightReel(resolvedTarget.id);
     }
 
-    if (openComments && target != null) {
-      final contentForSheet = target;
+    if (openComments) {
+      final contentForSheet = resolvedTarget;
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (!mounted) return;
         CommentBottomSheet.show(
@@ -416,9 +417,15 @@ class _ShortVideoFeedScreenState extends ConsumerState<ShortVideoFeedScreen>
     });
   }
 
-  /// Focus mode keeps the top phone status bar hidden.
+  int? _lockedPageDuringModeSwitch;
+
+  /// Focus mode keeps the top phone status bar hidden and preserves the exact
+  /// active reel across the framed <-> full-screen transition.
   void _onFocusChanged(bool focus) {
     SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersiveSticky);
+    final savedPage = _currentPage;
+    final activeId = _currentContent?.id;
+    _lockedPageDuringModeSwitch = savedPage;
     if (_reelFullScreen != focus && mounted) {
       setState(() => _reelFullScreen = focus);
     }
@@ -426,31 +433,35 @@ class _ShortVideoFeedScreenState extends ConsumerState<ShortVideoFeedScreen>
       _autoFocusArmed = false; // one time only
       _autoFocusTimer?.cancel();
     }
-    final cur = _currentContent;
-    if (cur != null && mounted) {
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (mounted) {
-          ref.read(videoPlaybackManagerProvider).ensureCurrentPlaying(cur.id);
-        }
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      _safeJumpToPage(savedPage);
+      if (activeId != null) {
+        ref.read(videoPlaybackManagerProvider).ensureCurrentPlaying(activeId);
+      }
+      Future.delayed(const Duration(milliseconds: 140), () {
+        _lockedPageDuringModeSwitch = null;
       });
-    }
+    });
   }
 
   void _toggleFullScreenMode([bool? targetValue]) {
     final next = targetValue ?? !(_reelFullScreen || ref.read(oneovaFocusModeProvider));
     final activeId = _currentContent?.id;
     final savedPage = _currentPage;
+    _lockedPageDuringModeSwitch = savedPage;
     setState(() => _reelFullScreen = next);
     ref.read(oneovaFocusModeProvider.notifier).set(next);
     SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersiveSticky);
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
-      if (_pageController.hasClients && _currentPage != savedPage) {
-        _safeJumpToPage(savedPage);
-      }
+      _safeJumpToPage(savedPage);
       if (activeId != null) {
         ref.read(videoPlaybackManagerProvider).ensureCurrentPlaying(activeId);
       }
+      Future.delayed(const Duration(milliseconds: 140), () {
+        _lockedPageDuringModeSwitch = null;
+      });
     });
   }
 
@@ -763,6 +774,10 @@ class _ShortVideoFeedScreenState extends ConsumerState<ShortVideoFeedScreen>
   }
 
   void _onPageChanged(int page) {
+    if (_lockedPageDuringModeSwitch != null && page != _lockedPageDuringModeSwitch) {
+      _safeJumpToPage(_lockedPageDuringModeSwitch!);
+      return;
+    }
     final previousWasVideo = _currentPage < _pages.length && _pages[_currentPage] is Content;
     _currentPage = page;
     final item = page < _pages.length ? _pages[page] : null;
@@ -945,10 +960,8 @@ class _ShortVideoFeedScreenState extends ConsumerState<ShortVideoFeedScreen>
               return _buildEmptyState();
             })
           else
-            AnimatedPadding(
+            Padding(
               key: const ValueKey('feed_animated_padding'),
-              duration: const Duration(milliseconds: 280),
-              curve: Curves.easeOutCubic,
               padding: framed
                   ? EdgeInsets.fromLTRB(0, frameTop, 0, frameBottom)
                   : (immersive
@@ -958,8 +971,6 @@ class _ShortVideoFeedScreenState extends ConsumerState<ShortVideoFeedScreen>
               key: const ValueKey('short_video_feed_pageview'),
               controller: _pageController,
               scrollDirection: Axis.vertical,
-              // Builds the reel above and below too, so a swipe lands on a
-              // page whose cover (and warm player) is already laid out.
               allowImplicitScrolling: true,
               onPageChanged: _onPageChanged,
               itemCount: _pages.length,
@@ -1267,22 +1278,20 @@ class _ShortVideoFeedScreenState extends ConsumerState<ShortVideoFeedScreen>
         onTap();
       },
       onLongPress: onLongPress,
-      child: ClipRRect(
-        borderRadius: BorderRadius.circular(AppRadius.full),
-        child: BackdropFilter(
-          filter: ImageFilter.blur(sigmaX: 12, sigmaY: 12),
-          child: Container(
-            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
-            decoration: BoxDecoration(
-              color: Colors.black.withValues(alpha: 0.4),
-              borderRadius: BorderRadius.circular(AppRadius.full),
-              border: Border.all(color: Colors.white.withValues(alpha: 0.15)),
-            ),
-            child: DefaultTextStyle(
-              style: GoogleFonts.inter(color: Colors.white.withValues(alpha: 0.92), fontSize: 11, fontWeight: FontWeight.w600),
-              child: child,
-            ),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+        decoration: BoxDecoration(
+          color: Colors.black.withValues(alpha: 0.62),
+          borderRadius: BorderRadius.circular(AppRadius.full),
+          border: Border.all(color: Colors.white.withValues(alpha: 0.16)),
+        ),
+        child: DefaultTextStyle(
+          style: GoogleFonts.inter(
+            color: Colors.white.withValues(alpha: 0.94),
+            fontSize: 11,
+            fontWeight: FontWeight.w600,
           ),
+          child: child,
         ),
       ),
     );
@@ -1453,7 +1462,7 @@ class _ShortVideoFeedScreenState extends ConsumerState<ShortVideoFeedScreen>
                   ),
                   child: ClipRRect(
                     borderRadius: BorderRadius.circular(radius),
-                    clipBehavior: Clip.antiAliasWithSaveLayer,
+                    clipBehavior: Clip.hardEdge,
                     child: child,
                   ),
                 ),
@@ -2232,7 +2241,6 @@ class _ShortVideoItemState extends ConsumerState<_ShortVideoItem> with TickerPro
 
   final int _optimisticShareDelta = 0;
 
-  Offset? _lastTapPosition;
   Offset? _burstHeartPosition;
   bool _showBurstHeart = false;
   bool _followJustConfirmed = false;
@@ -2240,6 +2248,12 @@ class _ShortVideoItemState extends ConsumerState<_ShortVideoItem> with TickerPro
   bool _showPlayPauseIndicator = false;
   Timer? _playPauseFadeTimer;
   VideoPlaybackManager? _playbackManager;
+
+  // Hold Left/Right Edge for Speed & Rewind Control ('speed' | 'rewind' | null)
+  String? _holdEdgeMode;
+  double _holdSpeedMultiplier = 2.0;
+  Offset? _holdStartLocalPos;
+  Timer? _rewindTicker;
 
   ReelPalette get _p => ReelPalette.of(context);
 
@@ -2325,6 +2339,7 @@ class _ShortVideoItemState extends ConsumerState<_ShortVideoItem> with TickerPro
 
   @override
   void dispose() {
+    _rewindTicker?.cancel();
     _playPauseFadeTimer?.cancel();
     _photoPageController.dispose();
     for (final s in _subs) {
@@ -2480,8 +2495,86 @@ class _ShortVideoItemState extends ConsumerState<_ShortVideoItem> with TickerPro
     );
   }
 
+  void _onLongPressStart(LongPressStartDetails details) {
+    if (widget.content.isPhotoOrCarousel) {
+      if (!widget.isFullScreen) _showFeedControls(context);
+      return;
+    }
+    final width = MediaQuery.sizeOf(context).width;
+    final dx = details.localPosition.dx;
+    _holdStartLocalPos = details.localPosition;
+
+    if (dx > width * 0.62) {
+      // Hold Right Side -> Fast-Forward Speed Control (default 2.0x, slide up/down for 1.5x / 3.0x)
+      HapticFeedback.mediumImpact();
+      setState(() {
+        _holdEdgeMode = 'speed';
+        _holdSpeedMultiplier = 2.0;
+      });
+      ref
+          .read(videoPlaybackManagerProvider)
+          .setPlaybackSpeed(widget.content.id, 2.0);
+    } else if (dx < width * 0.38) {
+      // Hold Left Side -> Smooth Rewind / Backwards Control (slide up/down for 1.5x / 2x / 3x rewind)
+      HapticFeedback.mediumImpact();
+      setState(() {
+        _holdEdgeMode = 'rewind';
+        _holdSpeedMultiplier = 2.0;
+      });
+      _rewindTicker?.cancel();
+      _rewindTicker = Timer.periodic(const Duration(milliseconds: 160), (_) {
+        if (!mounted || _holdEdgeMode != 'rewind') return;
+        final stepMs = (-240 * _holdSpeedMultiplier).round();
+        ref
+            .read(videoPlaybackManagerProvider)
+            .seekRelative(widget.content.id, Duration(milliseconds: stepMs));
+      });
+    } else if (!widget.isFullScreen) {
+      _showFeedControls(context);
+    }
+  }
+
+  void _onLongPressMoveUpdate(LongPressMoveUpdateDetails details) {
+    if (_holdEdgeMode == null || _holdStartLocalPos == null) return;
+    final dy = details.localPosition.dy - _holdStartLocalPos!.dy;
+    double nextRate = 2.0;
+    if (dy < -36) {
+      nextRate = 3.0;
+    } else if (dy > 36) {
+      nextRate = 1.5;
+    }
+    if (nextRate != _holdSpeedMultiplier) {
+      HapticFeedback.selectionClick();
+      setState(() => _holdSpeedMultiplier = nextRate);
+      if (_holdEdgeMode == 'speed') {
+        ref
+            .read(videoPlaybackManagerProvider)
+            .setPlaybackSpeed(widget.content.id, nextRate);
+      }
+    }
+  }
+
+  void _onLongPressEnd([LongPressEndDetails? _]) {
+    if (_holdEdgeMode == null) return;
+    _rewindTicker?.cancel();
+    _rewindTicker = null;
+    ref
+        .read(videoPlaybackManagerProvider)
+        .setPlaybackSpeed(widget.content.id, 1.0);
+    HapticFeedback.lightImpact();
+    if (mounted) {
+      setState(() {
+        _holdEdgeMode = null;
+        _holdSpeedMultiplier = 2.0;
+        _holdStartLocalPos = null;
+      });
+    }
+  }
+
   Widget _buildItem(BuildContext context, VideoController? controller) {
     final isMultiPhoto = widget.content.isPhotoOrCarousel && widget.content.mediaUrls.length > 1;
+    final frameReadyNotifier =
+        ref.read(videoPlaybackManagerProvider).getFrameReadyNotifier(widget.content.id);
     return GestureDetector(
       behavior: HitTestBehavior.opaque,
       onTap: () {
@@ -2492,14 +2585,14 @@ class _ShortVideoItemState extends ConsumerState<_ShortVideoItem> with TickerPro
           _togglePlay();
         }
       },
-      onDoubleTapDown: (details) {
-        _lastTapPosition = details.localPosition;
-      },
       onDoubleTap: () {
         HapticFeedback.mediumImpact();
         _togglePlay();
       },
-      onLongPress: widget.isFullScreen ? null : () => _showFeedControls(context),
+      onLongPressStart: _onLongPressStart,
+      onLongPressMoveUpdate: _onLongPressMoveUpdate,
+      onLongPressEnd: _onLongPressEnd,
+      onLongPressCancel: _onLongPressEnd,
       onHorizontalDragEnd: isMultiPhoto
           ? null
           : (details) {
@@ -2520,21 +2613,19 @@ class _ShortVideoItemState extends ConsumerState<_ShortVideoItem> with TickerPro
         fit: StackFit.expand,
         children: [
           // ── Video / Multi-Photo Player Surface ────────────────────
-          // Cover stays visible underneath until the video decoder outputs its
-          // first real frame (width > 0), eliminating black screen blinking.
+          // Cover stays visible underneath until the current slot's frameReady
+          // notifier confirms a genuine decoded frame for THIS video.
           if (widget.content.isPhotoOrCarousel)
             _buildPhotoCarousel()
           else ...[
             _buildThumbnail(),
-            if (controller != null)
-              StreamBuilder<int?>(
-                stream: controller.player.stream.width,
-                initialData: controller.player.state.width,
-                builder: (context, snap) {
-                  final hasFrame = (snap.data ?? controller.player.state.width ?? 0) > 0;
+            if (controller != null && frameReadyNotifier != null)
+              ValueListenableBuilder<bool>(
+                valueListenable: frameReadyNotifier,
+                builder: (context, hasFrame, _) {
                   return AnimatedOpacity(
                     opacity: hasFrame ? 1.0 : 0.0,
-                    duration: const Duration(milliseconds: 140),
+                    duration: const Duration(milliseconds: 110),
                     curve: Curves.easeOut,
                     child: RepaintBoundary(
                       child: Video(
@@ -2548,6 +2639,65 @@ class _ShortVideoItemState extends ConsumerState<_ShortVideoItem> with TickerPro
                 },
               ),
           ],
+
+          // ── Hold Left/Right Speed & Rewind HUD Pill ───────────────
+          if (_holdEdgeMode != null)
+            Positioned(
+              top: widget.framed ? 48 : MediaQuery.paddingOf(context).top + 56,
+              left: 0,
+              right: 0,
+              child: IgnorePointer(
+                child: Center(
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 7),
+                    decoration: BoxDecoration(
+                      color: Colors.black.withValues(alpha: 0.78),
+                      borderRadius: BorderRadius.circular(AppRadius.full),
+                      border: Border.all(
+                        color: _holdEdgeMode == 'rewind'
+                            ? AppColors.brandPink
+                            : AppColors.brandBlue,
+                        width: 1.2,
+                      ),
+                    ),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(
+                          _holdEdgeMode == 'rewind'
+                              ? Icons.fast_rewind_rounded
+                              : Icons.fast_forward_rounded,
+                          size: 16,
+                          color: _holdEdgeMode == 'rewind'
+                              ? AppColors.brandPink
+                              : Colors.white,
+                        ),
+                        const SizedBox(width: 6),
+                        Text(
+                          _holdEdgeMode == 'rewind'
+                              ? 'Rewinding · ${_holdSpeedMultiplier.toStringAsFixed(1)}x'
+                              : 'Speed · ${_holdSpeedMultiplier.toStringAsFixed(1)}x',
+                          style: GoogleFonts.inter(
+                            color: Colors.white,
+                            fontSize: 12,
+                            fontWeight: FontWeight.w800,
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        Text(
+                          'Slide ↑↓ (1.5x · 2x · 3x)',
+                          style: GoogleFonts.inter(
+                            color: Colors.white70,
+                            fontSize: 10,
+                            fontWeight: FontWeight.w500,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+            ),
 
           // ── Bottom Legibility Gradient Scrim (ensures owner & title are never hidden) ──
           Positioned(

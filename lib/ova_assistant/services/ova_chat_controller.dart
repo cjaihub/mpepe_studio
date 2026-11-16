@@ -127,12 +127,66 @@ class OvaChatController extends ChangeNotifier {
 
   final List<OvaItem> items = [];
   final List<Map<String, dynamic>> _history = [];
+  String? activeThreadId;
   bool busy = false;
   bool _disposed = false;
   int _turn = 0;
   String? _lastPrompt;
   String? _lastImageBase64;
   bool _lastTurnDegraded = false;
+
+  /// Recent conversation turns shared between Chat and Live Voice.
+  List<Map<String, dynamic>> get recentHistory => List.unmodifiable(_history);
+
+  /// Appends a live voice turn (and any tool result card, such as a Map or
+  /// "What's Near Me" card) directly into the shared Chat + Voice conversation.
+  void recordVoiceTurn({
+    required String userText,
+    required String assistantText,
+    OvaToolResult? toolResult,
+    String? threadId,
+  }) {
+    if (threadId != null && threadId.isNotEmpty) {
+      activeThreadId = threadId;
+    }
+    final u = userText.trim();
+    final a = assistantText.trim();
+    if (u.isNotEmpty) {
+      items.add(OvaItem._(OvaItemKind.user, text: u));
+      _history.add({'role': 'user', 'content': u});
+    }
+    if (toolResult != null) {
+      items.add(OvaItem._(OvaItemKind.result, result: toolResult));
+    }
+    if (a.isNotEmpty) {
+      items.add(OvaItem._(OvaItemKind.assistant, text: a));
+      _history.add({'role': 'assistant', 'content': a});
+    }
+    if (_history.length > 24) {
+      _history.removeRange(0, _history.length - 24);
+    }
+    _notify();
+  }
+
+  /// Loads a saved thread from the shared database into the active conversation
+  /// so both Chat and Live Voice continue seamlessly from it.
+  void loadSharedThread(OvaSharedThread thread) {
+    stop();
+    items.clear();
+    _history.clear();
+    activeThreadId = thread.id;
+    for (final t in thread.turns) {
+      if (t.query.trim().isNotEmpty) {
+        items.add(OvaItem._(OvaItemKind.user, text: t.query.trim()));
+        _history.add({'role': 'user', 'content': t.query.trim()});
+      }
+      if (t.response.trim().isNotEmpty) {
+        items.add(OvaItem._(OvaItemKind.assistant, text: t.response.trim()));
+        _history.add({'role': 'assistant', 'content': t.response.trim()});
+      }
+    }
+    _notify();
+  }
 
   /// Context used for permission prompts (set by the sheet).
   BuildContext? _permissionContext;
@@ -162,6 +216,7 @@ class OvaChatController extends ChangeNotifier {
     stop();
     items.clear();
     _history.clear();
+    activeThreadId = null;
     _notify();
   }
 
@@ -428,34 +483,32 @@ class OvaChatController extends ChangeNotifier {
     return res;
   }
 
-  static String _stepLabel(String name, Map<String, dynamic> a) {
-    final pretty = name.replaceAll('_', ' ');
-    final cap = pretty[0].toUpperCase() + pretty.substring(1);
-    final hint = a.values.whereType<String>().where((v) => v.trim().isNotEmpty).take(1).join();
-    if (hint.isEmpty) return cap;
-    final h = hint.length > 28 ? '${hint.substring(0, 28)}…' : hint;
-    return '$cap · $h';
-  }
+  static String _stepLabel(String name, Map<String, dynamic> a) =>
+      friendlyOvaStepLabel(name, a);
 
   String _systemPrompt() {
     final now = DateTime.now();
     final platform = kIsWeb ? 'web' : (Platform.isIOS ? 'iOS' : (Platform.isAndroid ? 'Android' : Platform.operatingSystem));
     final phone = registry.ref.read(ovaContextProvider);
     return '''
-You are Ova, the assistant inside the Oneova app (a short-video, live and creator studio app).
-You can act on the user's phone and in the app through the tools provided.
+You are Ova, the kind, warm, and intelligent personal companion inside Oneova.
+You can act on the user's phone, map, studio, and accounts through the tools provided.
+
+Communication Style (Mandatory):
+- Always speak and write in warm, kind, natural human language — like a thoughtful friend and personal concierge sitting right next to them.
+- Never use technical jargon, tool names, function names, JSON, API status codes, database paths, or robotic system phrases.
+- Keep your responses clear, reassuring, and easy to read or hear.
 
 Rules:
 - Use a tool whenever the user asks you to do something. Never say you did something unless a tool result says so.
-- Do things in the background with tools (message, follow, like, reply, settings…). Only call open_screen or open_app when the user asks to see or open something.
-- For multi-step tasks, call one tool per step and check each result before the next. After the last step, reply in one short sentence.
+- Do things in the background with tools (message, follow, like, reply, settings, maps…). Only call open_screen or open_app when the user asks to see or open something.
+- For multi-step tasks, call one tool per step and check each result before the next. After the last step, reply in one short, warm sentence.
 - You can act on the user's own accounts: Gmail (gmail_*), YouTube (youtube_*), their connected Facebook Page (facebook_*) and WhatsApp (whatsapp_*). List first, then use the short ids (g1, y1, v1, f1, c1) the list returns. Draft replies yourself, then call the send/reply tool; the user approves on a card.
 - On Android you can work inside other apps: open_app, then device_control steps, then read_screen to check. Use read_notifications / reply_notification to answer messages without opening apps.
 - Sending, calling, following, messaging and posting show a confirmation card automatically. Do not ask "are you sure" yourself.
-- If a tool result says something is unsupported on this platform, say so plainly and offer the closest alternative.
-- If a needed detail is missing (who, what time), ask one short question.
-- Keep answers short and friendly. Use Markdown lists only when they help.
-- Location & Map: use get_location for "where am I", find_nearby for places around them, navigate_to for live animated directions with Start, and share_live_location for WhatsApp-style live location sharing. You can pass rotoscope: true to highlight places/routes with rotoscope contour glow, or start_navigation: true when the user says "start navigation to...".
+- If a tool result says something is unsupported on this platform, say so plainly and kindly, and offer the closest helpful alternative.
+- If a needed detail is missing (who, what time), ask one short, polite question.
+- Location & Map: use get_location for "where am I", find_nearby for "what's near me" or places around them (it automatically uses their live GPS in the background and self-navigates the map), fly_to_place for flying to a place in real time, navigate_to for live animated directions with Start, and share_live_location for WhatsApp-style live location sharing.
 - Notifications: never mention notifications unless the user asks about them. When the user asks about previous notifications, missed alerts, or messages, use recall_previous_notifications (or read_notifications on Android). Use mute_notification_source when the user says they don't want notifications or information from an app, category, or sender.
 - Memory: use recent_activity when the user asks what they were doing or what to do next, and use it to make suggestions personal.
 - Reminders: set_reminder needs a clock time. For "remind me when…" without a time, ask what time. list_reminders and cancel_reminder manage them.
@@ -489,12 +542,19 @@ Reel style: talk like a warm, switched-on friend watching with them. Reply in th
   void _log(String query, String reply, {bool persistToFirestore = true}) {
     if (reply.trim().isEmpty) return;
     try {
-      registry.ref.read(ovaSharedHistoryProvider.notifier).recordTurn(
-            query: query,
-            response: reply,
-            source: OvaOriginSource.overlay,
-            persistToFirestore: persistToFirestore,
-          );
+      final histNotifier = registry.ref.read(ovaSharedHistoryProvider.notifier);
+      activeThreadId ??= histNotifier.newThreadId('ova_unified');
+      unawaited(
+        histNotifier
+            .recordTurn(
+              query: query,
+              response: reply,
+              source: OvaOriginSource.overlay,
+              threadId: activeThreadId,
+              persistToFirestore: persistToFirestore,
+            )
+            .then((id) => activeThreadId = id),
+      );
     } catch (e) {
       debugPrint('[OvaChatController] shared history sync failed: $e');
     }

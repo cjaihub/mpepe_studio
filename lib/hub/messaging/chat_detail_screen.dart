@@ -1260,6 +1260,50 @@ class _ChatDetailScreenState extends ConsumerState<ChatDetailScreen> with Single
     }
   }
 
+  Future<void> _stopRecordingAndTranslateAndSend() async {
+    _recordingTimer?.cancel();
+    _amplitudeTimer?.cancel();
+    final currentUserId = FirebaseAuth.instance.currentUser?.uid;
+    if (!_isRecordingVoice) {
+      await _releaseVoiceMic();
+      return;
+    }
+    String? path;
+    try {
+      if (await _audioRecorder.isRecording()) {
+        path = await _audioRecorder.stop();
+      }
+    } catch (e) {
+      debugPrint('[Chat] audioRecorder stop error: $e');
+    }
+    await _releaseVoiceMic();
+    if (mounted) {
+      setState(() {
+        _isRecordingVoice = false;
+        _recordingDurationSeconds = 0;
+        _voiceLocked = false;
+        _voicePaused = false;
+        _voiceSlide = Offset.zero;
+      });
+    }
+    if (currentUserId != null) {
+      (_messagingRepo ?? (mounted ? ref.read(messagingRepositoryProvider) : null))
+          ?.setRecordingStatus(widget.chatId, currentUserId, false);
+    }
+    if (path != null && File(path).existsSync() && mounted) {
+      final dummyMsg = MessageModel(
+        id: 'live_vn_${DateTime.now().millisecondsSinceEpoch}',
+        senderId: currentUserId ?? 'guest',
+        text: '',
+        timestamp: Timestamp.now(),
+        readBy: const [],
+        mediaUrl: path,
+        mediaType: 'audio',
+      );
+      await _sendVoiceInLanguage(dummyMsg, path);
+    }
+  }
+
   Future<void> _stopRecordingAndSend() async {
     _recordingTimer?.cancel();
     _amplitudeTimer?.cancel();
@@ -3851,7 +3895,39 @@ class _ChatDetailScreenState extends ConsumerState<ChatDetailScreen> with Single
             ),
           ),
           const SizedBox(width: 6),
-          if (_voiceLocked)
+          if (_voiceLocked) ...[
+            GestureDetector(
+              onTap: _stopRecordingAndTranslateAndSend,
+              child: Tooltip(
+                message: 'Translate & send in Vertex AI Voice',
+                child: Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 4),
+                  decoration: BoxDecoration(
+                    color: AppColors.brandBlue.withValues(alpha: 0.14),
+                    borderRadius: BorderRadius.circular(AppRadius.full),
+                    border: Border.all(
+                      color: AppColors.brandBlue.withValues(alpha: 0.4),
+                    ),
+                  ),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      const Icon(Icons.translate_rounded, color: AppColors.brandBlue, size: 12),
+                      const SizedBox(width: 3),
+                      Text(
+                        'AI Voice',
+                        style: GoogleFonts.inter(
+                          fontSize: 9.5,
+                          fontWeight: FontWeight.w700,
+                          color: AppColors.brandBlue,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+            const SizedBox(width: 5),
             GestureDetector(
               onTap: _toggleVoicePause,
               child: Container(
@@ -3863,8 +3939,8 @@ class _ChatDetailScreenState extends ConsumerState<ChatDetailScreen> with Single
                 child: Icon(_voicePaused ? Icons.mic_rounded : Icons.pause_rounded,
                     color: AppColors.brandPink, size: 16),
               ),
-            )
-          else
+            ),
+          ] else
             Column(
               mainAxisAlignment: MainAxisAlignment.center,
               children: [

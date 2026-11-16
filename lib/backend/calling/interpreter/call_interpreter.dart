@@ -29,10 +29,12 @@ class InterpCaption {
 
 /// Voices the interpreter can speak with (Vertex Live preset voices).
 const Map<String, String> kInterpreterVoices = {
-  'Aoede': 'Warm',
-  'Charon': 'Deep',
-  'Puck': 'Bright',
-  'Kore': 'Calm',
+  'Aoede': 'Warm & Natural',
+  'Puck': 'Bright & Expressive',
+  'Kore': 'Calm & Clear',
+  'Charon': 'Deep & Grounded',
+  'Fenrir': 'Bold & Energetic',
+  'Zephyr': 'Breezy & Friendly',
 };
 
 class CallInterpreterState {

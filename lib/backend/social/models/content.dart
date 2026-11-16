@@ -212,7 +212,21 @@ class Content {
             (e) => e.name.toLowerCase() == rawType,
             orElse: () => ContentType.short_video,
           );
-    final meta = MediaMetadata.fromMap(data['mediaMetadata'] as Map<String, dynamic>?);
+    final rawMeta = Map<String, dynamic>.from(
+      data['mediaMetadata'] as Map<String, dynamic>? ?? const {},
+    );
+    if ((rawMeta['thumbnailUrl'] == null ||
+            (rawMeta['thumbnailUrl'] as String).trim().isEmpty) &&
+        data['coverUrl'] is String &&
+        (data['coverUrl'] as String).trim().isNotEmpty) {
+      rawMeta['thumbnailUrl'] = (data['coverUrl'] as String).trim();
+    } else if ((rawMeta['thumbnailUrl'] == null ||
+            (rawMeta['thumbnailUrl'] as String).trim().isEmpty) &&
+        data['thumbnailUrl'] is String &&
+        (data['thumbnailUrl'] as String).trim().isNotEmpty) {
+      rawMeta['thumbnailUrl'] = (data['thumbnailUrl'] as String).trim();
+    }
+    final meta = MediaMetadata.fromMap(rawMeta);
     final primaryUrl = (data['mediaUrl'] as String?)?.trim() ?? '';
     final rawUrls = <String>[
       ...List<String>.from(data['mediaUrls'] ?? data['imageUrls'] ?? const []),

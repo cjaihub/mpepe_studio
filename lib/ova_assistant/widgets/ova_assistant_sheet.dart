@@ -564,31 +564,23 @@ class _OvaAssistantPanelState extends ConsumerState<OvaAssistantPanel> {
   @override
   Widget build(BuildContext context) {
     final media = MediaQuery.of(context);
-    final body = Column(
-      mainAxisSize: widget.isSheet ? MainAxisSize.min : MainAxisSize.max,
-      children: [
-        if (widget.isSheet) _grabber(context),
-        _header(context),
-        Divider(height: 1, thickness: 1, color: context.border),
-        _backgroundActivityPill(context),
-        if (_showSidebar)
-          Flexible(child: _buildSidebar(context))
-        else if (_voiceMode)
-          Flexible(
-            child: SingleChildScrollView(
-              child: OvaOverlayVoiceCard(
-                invocation: widget.invocation,
-                onSwitchToText: () {
-                  if (mounted) setState(() => _voiceMode = false);
-                },
-                onCloseOverlay: _close,
-                onNavigateRoute: _navigate,
-              ),
-            ),
-          )
-        else if (_agentWorkspaceMode)
-          if (widget.isSheet)
-            SizedBox(
+    final Widget mainContent;
+    if (_voiceMode) {
+      mainContent = Flexible(
+        child: SingleChildScrollView(
+          child: OvaOverlayVoiceCard(
+            invocation: widget.invocation,
+            onSwitchToText: () {
+              if (mounted) setState(() => _voiceMode = false);
+            },
+            onCloseOverlay: _close,
+            onNavigateRoute: _navigate,
+          ),
+        ),
+      );
+    } else if (_agentWorkspaceMode) {
+      mainContent = widget.isSheet
+          ? SizedBox(
               height: (media.size.height * 0.70).clamp(360.0, 680.0),
               child: OvaAgentWorkspace(
                 compactSheet: true,
@@ -596,17 +588,79 @@ class _OvaAssistantPanelState extends ConsumerState<OvaAssistantPanel> {
                 onOpenConnectWorkstation: () => _navigate('/connect'),
               ),
             )
-          else
-            Expanded(
+          : Expanded(
               child: OvaAgentWorkspace(
                 screenContextLabel: widget.screenContextLabel,
                 onOpenConnectWorkstation: () => _navigate('/connect'),
               ),
-            )
-        else ...[
-          Flexible(child: _chat.isEmpty ? _emptyState(context) : _conversation(context)),
-          _composer(context),
-        ],
+            );
+    } else {
+      mainContent = Flexible(
+        child: Column(
+          mainAxisSize: widget.isSheet ? MainAxisSize.min : MainAxisSize.max,
+          children: [
+            Flexible(child: _chat.isEmpty ? _emptyState(context) : _conversation(context)),
+            _composer(context),
+          ],
+        ),
+      );
+    }
+
+    final body = Stack(
+      children: [
+        Column(
+          mainAxisSize: widget.isSheet ? MainAxisSize.min : MainAxisSize.max,
+          children: [
+            if (widget.isSheet) _grabber(context),
+            _header(context),
+            Divider(height: 1, thickness: 1, color: context.border),
+            _backgroundActivityPill(context),
+            mainContent,
+          ],
+        ),
+        if (_showSidebar)
+          Positioned.fill(
+            top: widget.isSheet ? 59 : 47,
+            child: Row(
+              children: [
+                ConstrainedBox(
+                  constraints: BoxConstraints(
+                    maxWidth: 232,
+                    maxHeight: (media.size.height * 0.72).clamp(320.0, 640.0),
+                  ),
+                  child: Material(
+                    color: context.surface,
+                    elevation: 10,
+                    shadowColor: Colors.black.withValues(alpha: 0.35),
+                    child: Container(
+                      width: 232,
+                      decoration: BoxDecoration(
+                        color: context.surface,
+                        border: Border(
+                          right: BorderSide(color: context.border, width: 1.0),
+                        ),
+                      ),
+                      child: _buildSidebar(context),
+                    ),
+                  ),
+                ).animate().slideX(
+                      begin: -0.18,
+                      end: 0,
+                      duration: 180.ms,
+                      curve: Curves.easeOutCubic,
+                    ),
+                Expanded(
+                  child: GestureDetector(
+                    behavior: HitTestBehavior.opaque,
+                    onTap: () => setState(() => _showSidebar = false),
+                    child: Container(
+                      color: Colors.black.withValues(alpha: 0.24),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
       ],
     );
 
@@ -679,28 +733,33 @@ class _OvaAssistantPanelState extends ConsumerState<OvaAssistantPanel> {
 
   Widget _header(BuildContext context) {
     final taskCenter = ref.watch(ovaTaskCenterProvider);
+    final voiceState = ref.watch(ovaOverlayVoiceSessionProvider);
     final runningTask = taskCenter.tasks.where((t) => t.running).firstOrNull;
     final status = _voiceMode
-        ? 'Live voice'
+        ? (voiceState.statusLabel.isNotEmpty
+            ? voiceState.statusLabel
+            : 'Vertex Live · ${voiceState.voiceName}')
         : (_listening
-            ? 'Listening…'
+            ? 'Listening to you…'
             : (_chat.busy || runningTask != null
-                ? 'Working on it…'
-                : _selectedPersona));
+                ? 'Looking into that for you…'
+                : (voiceState.wakeCallEnabled
+                    ? '$_selectedPersona · "Hey Ova" ready'
+                    : _selectedPersona)));
     return SizedBox(
       height: 46,
       child: Row(
         children: [
           const SizedBox(width: 4),
           IconButton(
-            tooltip: _showSidebar ? 'Back to chat' : 'Tools, history & settings',
+            tooltip: _showSidebar ? 'Close menu' : 'Menu, voice & history',
             visualDensity: VisualDensity.compact,
             onPressed: () {
               HapticFeedback.selectionClick();
               setState(() => _showSidebar = !_showSidebar);
             },
             icon: Icon(
-              _showSidebar ? Icons.arrow_back_rounded : Icons.menu_rounded,
+              _showSidebar ? Icons.close_rounded : Icons.menu_rounded,
               size: 20,
               color: _showSidebar ? AppColors.brandBlue : context.textPrimary,
             ),
@@ -718,7 +777,7 @@ class _OvaAssistantPanelState extends ConsumerState<OvaAssistantPanel> {
                 ),
                 Row(
                   children: [
-                    _StatusDot(active: _voiceMode || _listening || _chat.busy || runningTask != null),
+                    _StatusDot(active: _voiceMode || _listening || _chat.busy || runningTask != null || voiceState.wakeCallEnabled),
                     const SizedBox(width: 5),
                     Flexible(
                       child: Text(
@@ -771,14 +830,14 @@ class _OvaAssistantPanelState extends ConsumerState<OvaAssistantPanel> {
 
     final String message;
     if (streamingStep != null && streamingStep.text.trim().isNotEmpty) {
-      message = 'Working on it · ${streamingStep.text.trim()}';
+      message = streamingStep.text.trim();
     } else if (runningTask != null) {
       final latestStep = runningTask.steps.lastOrNull;
       message = latestStep != null
-          ? 'Working in background · ${latestStep.label}'
-          : 'Working on it · ${runningTask.title}';
+          ? latestStep.label
+          : 'Working quietly on ${runningTask.title.toLowerCase()}…';
     } else {
-      message = 'Thinking…';
+      message = 'Just a moment, looking into that for you…';
     }
 
     return Container(
@@ -839,64 +898,389 @@ class _OvaAssistantPanelState extends ConsumerState<OvaAssistantPanel> {
     );
   }
 
-  /// Organized slide-over Sidebar containing all quick actions, specialist modes,
-  /// recent background tasks, conversation history, and Ova settings.
+  /// Compact small slide-over Sidebar menu containing Vertex Live voice & wake call,
+  /// navigation shortcuts, specialist modes, and shared chat/voice history.
   Widget _buildSidebar(BuildContext context) {
     final sharedHistory = ref.watch(ovaSharedHistoryProvider);
-    final taskCenter = ref.watch(ovaTaskCenterProvider);
-    final recentShared = sharedHistory.threads.take(4).toList();
-    final recentTasks = taskCenter.tasks.take(4).toList();
+    final voiceState = ref.watch(ovaOverlayVoiceSessionProvider);
+    final voiceNotifier = ref.read(ovaOverlayVoiceSessionProvider.notifier);
+    final recentShared = sharedHistory.threads.take(6).toList();
     final personas = <({String id, String label, IconData icon})>[
       (id: 'Ova Core', label: 'Ova Core', icon: Icons.auto_awesome_rounded),
-      (id: 'Director', label: 'Studio Director', icon: Icons.movie_filter_rounded),
+      (id: 'Director', label: 'Director', icon: Icons.movie_filter_rounded),
       (id: 'Coder', label: 'Code & PC', icon: Icons.terminal_rounded),
-      (id: 'Strategist', label: 'Growth Coach', icon: Icons.trending_up_rounded),
-    ];
-    const allActions = <_Suggestion>[
-      _Suggestion(Icons.account_balance_wallet_rounded, 'My Wallet', '', accent: true, route: '/hub/wallet'),
-      _Suggestion(Icons.near_me_rounded, "What's Near Me", "what's near me", accent: true),
-      _Suggestion(Icons.flight_rounded, 'Fly Me To…', 'fly me to ', fill: true),
-      _Suggestion(Icons.notifications_active_outlined, 'Past Alerts', 'recall previous notifications'),
-      _Suggestion(Icons.sensors_rounded, 'Go Live', 'go live', accent: true),
-      _Suggestion(Icons.upload_rounded, 'Post a Video', 'upload'),
-      _Suggestion(Icons.photo_camera_rounded, 'Take a Photo', 'take a photo'),
-      _Suggestion(Icons.search_rounded, 'Search Oneova', 'search ', fill: true),
-      _Suggestion(Icons.call_rounded, 'Call Someone', 'call ', fill: true),
-      _Suggestion(Icons.sms_rounded, 'Text Someone', 'text  saying ', fill: true),
-      _Suggestion(Icons.timer_rounded, '5m Timer', 'set a timer for 5 minutes'),
-      _Suggestion(Icons.flashlight_on_rounded, 'Flashlight', 'flashlight on'),
+      (id: 'Strategist', label: 'Growth', icon: Icons.trending_up_rounded),
     ];
 
+    Widget menuRow({
+      required IconData icon,
+      required String label,
+      String? subtitle,
+      bool accent = false,
+      Widget? trailing,
+      required VoidCallback onTap,
+    }) {
+      return InkWell(
+        borderRadius: BorderRadius.circular(AppRadius.sm),
+        onTap: onTap,
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 7),
+          child: Row(
+            children: [
+              Container(
+                width: 26,
+                height: 26,
+                decoration: BoxDecoration(
+                  color: accent
+                      ? AppColors.brandPink.withValues(alpha: 0.12)
+                      : AppColors.brandBlue.withValues(alpha: 0.10),
+                  borderRadius: BorderRadius.circular(AppRadius.xs),
+                ),
+                child: Icon(
+                  icon,
+                  size: 14,
+                  color: accent ? AppColors.brandPink : AppColors.brandBlue,
+                ),
+              ),
+              const SizedBox(width: 9),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(
+                      label,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: GoogleFonts.inter(
+                        fontSize: 12,
+                        fontWeight: FontWeight.w600,
+                        color: context.textPrimary,
+                      ),
+                    ),
+                    if (subtitle != null)
+                      Text(
+                        subtitle,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: GoogleFonts.inter(
+                          fontSize: 10,
+                          color: context.textMuted,
+                        ),
+                      ),
+                  ],
+                ),
+              ),
+              ?trailing,
+            ],
+          ),
+        ),
+      );
+    }
+
     return SingleChildScrollView(
-      padding: const EdgeInsets.fromLTRB(14, 12, 14, 16),
+      padding: const EdgeInsets.fromLTRB(10, 10, 10, 16),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
+          // 1. New conversation + Vertex Live Voice quick launch
           Row(
             children: [
-              Text(
-                'SPECIALIST MODE',
-                style: GoogleFonts.inter(fontSize: 9.5, fontWeight: FontWeight.w800, letterSpacing: 0.8, color: context.textMuted),
+              Expanded(
+                child: InkWell(
+                  borderRadius: BorderRadius.circular(AppRadius.sm),
+                  onTap: () {
+                    HapticFeedback.selectionClick();
+                    _chat.reset();
+                    setState(() {
+                      _showSidebar = false;
+                      _voiceMode = false;
+                    });
+                  },
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                    decoration: BoxDecoration(
+                      color: AppColors.brandBlue,
+                      borderRadius: BorderRadius.circular(AppRadius.sm),
+                    ),
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        const Icon(Icons.add_comment_outlined, size: 13, color: Colors.white),
+                        const SizedBox(width: 6),
+                        Text(
+                          'New Chat',
+                          style: GoogleFonts.inter(
+                            fontSize: 11.5,
+                            fontWeight: FontWeight.w700,
+                            color: Colors.white,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
               ),
-              const Spacer(),
+              const SizedBox(width: 6),
               InkWell(
-                borderRadius: BorderRadius.circular(AppRadius.xs),
-                onTap: () => showOvaBrandVoiceEditor(context, ref),
-                child: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    const Icon(Icons.diamond_outlined, size: 13, color: AppColors.brandBlue),
-                    const SizedBox(width: 4),
-                    Text('Brand tone', style: GoogleFonts.inter(fontSize: 11, fontWeight: FontWeight.w600, color: AppColors.brandBlue)),
-                  ],
+                borderRadius: BorderRadius.circular(AppRadius.sm),
+                onTap: () {
+                  HapticFeedback.selectionClick();
+                  setState(() => _showSidebar = false);
+                  _setVoiceMode(true);
+                },
+                child: Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                  decoration: BoxDecoration(
+                    color: AppColors.brandPink.withValues(alpha: 0.14),
+                    borderRadius: BorderRadius.circular(AppRadius.sm),
+                    border: Border.all(color: AppColors.brandPink.withValues(alpha: 0.45)),
+                  ),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      const Icon(Icons.graphic_eq_rounded, size: 14, color: AppColors.brandPink),
+                      const SizedBox(width: 4),
+                      Text(
+                        'Live',
+                        style: GoogleFonts.inter(
+                          fontSize: 11.5,
+                          fontWeight: FontWeight.w700,
+                          color: AppColors.brandPink,
+                        ),
+                      ),
+                    ],
+                  ),
                 ),
               ),
             ],
           ),
-          const SizedBox(height: 8),
+
+          const SizedBox(height: 10),
+
+          // 2. Background Wake Call ("Hey Ova") & Vertex Voice Selector
+          Container(
+            padding: const EdgeInsets.all(8),
+            decoration: BoxDecoration(
+              color: context.surfaceMid,
+              borderRadius: BorderRadius.circular(AppRadius.sm),
+              border: Border.all(color: context.border),
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    Icon(
+                      Icons.hearing_rounded,
+                      size: 14,
+                      color: voiceState.wakeCallEnabled
+                          ? AppColors.brandPink
+                          : AppColors.brandBlue,
+                    ),
+                    const SizedBox(width: 6),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            'Wake Call ("Hey Ova")',
+                            style: GoogleFonts.inter(
+                              fontSize: 11,
+                              fontWeight: FontWeight.w700,
+                              color: context.textPrimary,
+                            ),
+                          ),
+                          Text(
+                            voiceState.wakeCallEnabled
+                                ? 'Listening in background'
+                                : 'Hands-free voice wake',
+                            style: GoogleFonts.inter(
+                              fontSize: 9.5,
+                              color: context.textMuted,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    SizedBox(
+                      height: 24,
+                      child: Switch.adaptive(
+                        value: voiceState.wakeCallEnabled,
+                        activeTrackColor: AppColors.brandPink,
+                        onChanged: (_) => voiceNotifier.toggleWakeCall(),
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 6),
+                SingleChildScrollView(
+                  scrollDirection: Axis.horizontal,
+                  child: Row(
+                    children: [
+                      for (final v in kOvaVertexVoices)
+                        Padding(
+                          padding: const EdgeInsets.only(right: 4),
+                          child: InkWell(
+                            borderRadius: BorderRadius.circular(AppRadius.full),
+                            onTap: () {
+                              HapticFeedback.selectionClick();
+                              voiceNotifier.setVoiceName(v.id);
+                            },
+                            child: Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3.5),
+                              decoration: BoxDecoration(
+                                color: voiceState.voiceName == v.id
+                                    ? AppColors.brandBlue
+                                    : context.surface,
+                                borderRadius: BorderRadius.circular(AppRadius.full),
+                                border: Border.all(
+                                  color: voiceState.voiceName == v.id
+                                      ? AppColors.brandBlue
+                                      : context.border,
+                                ),
+                              ),
+                              child: Text(
+                                v.label,
+                                style: GoogleFonts.inter(
+                                  fontSize: 10,
+                                  fontWeight: FontWeight.w700,
+                                  color: voiceState.voiceName == v.id
+                                      ? Colors.white
+                                      : context.textSecondary,
+                                ),
+                              ),
+                            ),
+                          ),
+                        ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ),
+
+          const SizedBox(height: 10),
+          Text(
+            'QUICK MENU',
+            style: GoogleFonts.inter(
+              fontSize: 9.5,
+              fontWeight: FontWeight.w800,
+              letterSpacing: 0.8,
+              color: context.textMuted,
+            ),
+          ),
+          const SizedBox(height: 4),
+          menuRow(
+            icon: Icons.near_me_rounded,
+            label: "What's Near Me",
+            subtitle: 'Live GPS radar & auto-route',
+            accent: true,
+            onTap: () {
+              setState(() => _showSidebar = false);
+              _send("what's near me");
+            },
+          ),
+          menuRow(
+            icon: Icons.flight_rounded,
+            label: 'Fly Me To…',
+            subtitle: 'Real-time 3D map & directions',
+            onTap: () {
+              setState(() => _showSidebar = false);
+              _input.text = 'fly me to ';
+              _input.selection = TextSelection.collapsed(offset: _input.text.length);
+              _focus.requestFocus();
+            },
+          ),
+          menuRow(
+            icon: Icons.account_balance_wallet_rounded,
+            label: 'My Wallet',
+            subtitle: 'Balances & Oneova Pay',
+            accent: true,
+            onTap: () {
+              setState(() => _showSidebar = false);
+              _navigate('/hub/wallet');
+            },
+          ),
+          menuRow(
+            icon: Icons.laptop_mac_rounded,
+            label: 'My Computer',
+            subtitle: 'Remote screen, mouse & voice',
+            onTap: () {
+              setState(() => _showSidebar = false);
+              _navigate('/connect');
+            },
+          ),
+          menuRow(
+            icon: Icons.sensors_rounded,
+            label: 'Go Live',
+            subtitle: 'Broadcast to followers',
+            accent: true,
+            onTap: () {
+              setState(() => _showSidebar = false);
+              _send('go live');
+            },
+          ),
+          menuRow(
+            icon: Icons.upload_rounded,
+            label: 'Post & Optimize Video',
+            subtitle: 'AI niche & multi-channel post',
+            onTap: () {
+              setState(() => _showSidebar = false);
+              _send('upload');
+            },
+          ),
+          menuRow(
+            icon: Icons.hub_rounded,
+            label: _agentWorkspaceMode ? 'Quick Assistant View' : 'Agent Workspace',
+            subtitle: 'Background tasks & skills',
+            onTap: () {
+              setState(() {
+                _showSidebar = false;
+                _agentWorkspaceMode = !_agentWorkspaceMode;
+              });
+            },
+          ),
+          menuRow(
+            icon: Icons.tune_rounded,
+            label: 'Ova Settings & Tone',
+            subtitle: 'Voice, permissions & brand tone',
+            onTap: () {
+              setState(() => _showSidebar = false);
+              _navigate('/ova/abilities');
+            },
+          ),
+
+          const SizedBox(height: 10),
+          Row(
+            children: [
+              Text(
+                'SPECIALIST',
+                style: GoogleFonts.inter(
+                  fontSize: 9.5,
+                  fontWeight: FontWeight.w800,
+                  letterSpacing: 0.8,
+                  color: context.textMuted,
+                ),
+              ),
+              const Spacer(),
+              InkWell(
+                onTap: () => showOvaBrandVoiceEditor(context, ref),
+                child: Text(
+                  'Tone',
+                  style: GoogleFonts.inter(
+                    fontSize: 10.5,
+                    fontWeight: FontWeight.w700,
+                    color: AppColors.brandBlue,
+                  ),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 6),
           Wrap(
-            spacing: 6,
-            runSpacing: 6,
+            spacing: 5,
+            runSpacing: 5,
             children: [
               for (final p in personas)
                 GestureDetector(
@@ -908,7 +1292,7 @@ class _OvaAssistantPanelState extends ConsumerState<OvaAssistantPanel> {
                     });
                   },
                   child: Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 5),
                     decoration: BoxDecoration(
                       color: _selectedPersona == p.id ? AppColors.brandBlue : context.surfaceMid,
                       borderRadius: BorderRadius.circular(AppRadius.full),
@@ -919,12 +1303,16 @@ class _OvaAssistantPanelState extends ConsumerState<OvaAssistantPanel> {
                     child: Row(
                       mainAxisSize: MainAxisSize.min,
                       children: [
-                        Icon(p.icon, size: 13, color: _selectedPersona == p.id ? Colors.white : AppColors.brandBlue),
-                        const SizedBox(width: 5),
+                        Icon(
+                          p.icon,
+                          size: 11,
+                          color: _selectedPersona == p.id ? Colors.white : AppColors.brandBlue,
+                        ),
+                        const SizedBox(width: 4),
                         Text(
                           p.label,
                           style: GoogleFonts.inter(
-                            fontSize: 11.5,
+                            fontSize: 10.5,
                             fontWeight: FontWeight.w700,
                             color: _selectedPersona == p.id ? Colors.white : context.textPrimary,
                           ),
@@ -935,60 +1323,19 @@ class _OvaAssistantPanelState extends ConsumerState<OvaAssistantPanel> {
                 ),
             ],
           ),
-          const SizedBox(height: 16),
-          Text(
-            'ALL QUICK ACTIONS',
-            style: GoogleFonts.inter(fontSize: 9.5, fontWeight: FontWeight.w800, letterSpacing: 0.8, color: context.textMuted),
-          ),
-          const SizedBox(height: 8),
-          Wrap(
-            spacing: 6,
-            runSpacing: 6,
-            children: [
-              for (final action in allActions)
-                _Pressable(
-                  onTap: () {
-                    setState(() => _showSidebar = false);
-                    if (action.route != null) {
-                      _navigate(action.route!);
-                      return;
-                    }
-                    if (action.fill) {
-                      _input.text = action.prompt;
-                      _input.selection = TextSelection.collapsed(offset: action.prompt.length);
-                      _focus.requestFocus();
-                    } else {
-                      _send(action.prompt);
-                    }
-                  },
-                  child: Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-                    decoration: BoxDecoration(
-                      color: action.accent ? AppColors.brandPink.withValues(alpha: 0.10) : context.surfaceMid,
-                      borderRadius: BorderRadius.circular(AppRadius.full),
-                      border: Border.all(
-                        color: action.accent ? AppColors.brandPink.withValues(alpha: 0.4) : context.border,
-                      ),
-                    ),
-                    child: Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Icon(action.icon, size: 13, color: action.accent ? AppColors.brandPink : AppColors.brandBlue),
-                        const SizedBox(width: 5),
-                        Text(action.label, style: GoogleFonts.inter(fontSize: 11.5, fontWeight: FontWeight.w600, color: context.textPrimary)),
-                      ],
-                    ),
-                  ),
-                ),
-            ],
-          ),
-          if (recentTasks.isNotEmpty || recentShared.isNotEmpty) ...[
-            const SizedBox(height: 16),
+
+          if (recentShared.isNotEmpty) ...[
+            const SizedBox(height: 12),
             Row(
               children: [
                 Text(
-                  'RECENT ACTIVITY & HISTORY',
-                  style: GoogleFonts.inter(fontSize: 9.5, fontWeight: FontWeight.w800, letterSpacing: 0.8, color: context.textMuted),
+                  'SHARED CHAT & VOICE HISTORY',
+                  style: GoogleFonts.inter(
+                    fontSize: 9.0,
+                    fontWeight: FontWeight.w800,
+                    letterSpacing: 0.7,
+                    color: context.textMuted,
+                  ),
                 ),
                 const Spacer(),
                 if (!_chat.isEmpty)
@@ -997,126 +1344,77 @@ class _OvaAssistantPanelState extends ConsumerState<OvaAssistantPanel> {
                       _chat.reset();
                       setState(() => _showSidebar = false);
                     },
-                    child: Text('Clear chat', style: GoogleFonts.inter(fontSize: 11, fontWeight: FontWeight.w700, color: AppColors.brandPink)),
+                    child: Text(
+                      'Clear',
+                      style: GoogleFonts.inter(
+                        fontSize: 10,
+                        fontWeight: FontWeight.w700,
+                        color: AppColors.brandPink,
+                      ),
+                    ),
                   ),
               ],
             ),
             const SizedBox(height: 6),
-            for (final task in recentTasks)
-              Padding(
-                padding: const EdgeInsets.only(bottom: 5),
-                child: Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
-                  decoration: BoxDecoration(
-                    color: context.surfaceMid,
-                    borderRadius: BorderRadius.circular(AppRadius.sm),
-                    border: Border.all(color: context.border),
-                  ),
-                  child: Row(
-                    children: [
-                      Icon(
-                        task.running ? Icons.sync_rounded : Icons.check_circle_outline_rounded,
-                        size: 13,
-                        color: AppColors.brandBlue,
-                      ),
-                      const SizedBox(width: 7),
-                      Expanded(
-                        child: Text(
-                          task.title,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: GoogleFonts.inter(fontSize: 11.5, fontWeight: FontWeight.w600, color: context.textPrimary),
-                        ),
-                      ),
-                      Text(formatRelativeTime(task.startedAt), style: GoogleFonts.inter(fontSize: 10, color: context.textMuted)),
-                    ],
-                  ),
-                ),
-              ),
             for (final thread in recentShared)
               Padding(
-                padding: const EdgeInsets.only(bottom: 5),
+                padding: const EdgeInsets.only(bottom: 4),
                 child: InkWell(
                   borderRadius: BorderRadius.circular(AppRadius.sm),
                   onTap: () {
-                    setState(() => _showSidebar = false);
-                    _input.text = thread.title;
-                    _input.selection = TextSelection.collapsed(offset: _input.text.length);
-                    _focus.requestFocus();
+                    HapticFeedback.selectionClick();
+                    _chat.loadSharedThread(thread);
+                    setState(() {
+                      _showSidebar = false;
+                      _voiceMode = false;
+                    });
                   },
                   child: Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
+                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
                     decoration: BoxDecoration(
-                      color: context.surfaceMid,
+                      color: _chat.activeThreadId == thread.id
+                          ? AppColors.brandBlue.withValues(alpha: 0.12)
+                          : context.surfaceMid,
                       borderRadius: BorderRadius.circular(AppRadius.sm),
-                      border: Border.all(color: context.border),
+                      border: Border.all(
+                        color: _chat.activeThreadId == thread.id
+                            ? AppColors.brandBlue.withValues(alpha: 0.45)
+                            : context.border,
+                      ),
                     ),
                     child: Row(
                       children: [
-                        Icon(thread.source.icon, size: 13, color: AppColors.brandBlue),
-                        const SizedBox(width: 7),
+                        Icon(
+                          thread.source.icon,
+                          size: 12,
+                          color: thread.source == OvaOriginSource.voice
+                              ? AppColors.brandPink
+                              : AppColors.brandBlue,
+                        ),
+                        const SizedBox(width: 6),
                         Expanded(
                           child: Text(
                             thread.title,
                             maxLines: 1,
                             overflow: TextOverflow.ellipsis,
-                            style: GoogleFonts.inter(fontSize: 11.5, fontWeight: FontWeight.w600, color: context.textPrimary),
+                            style: GoogleFonts.inter(
+                              fontSize: 11,
+                              fontWeight: FontWeight.w600,
+                              color: context.textPrimary,
+                            ),
                           ),
                         ),
-                        Text(formatRelativeTime(thread.updatedAt), style: GoogleFonts.inter(fontSize: 10, color: context.textMuted)),
+                        const SizedBox(width: 4),
+                        Text(
+                          formatRelativeTime(thread.updatedAt),
+                          style: GoogleFonts.inter(fontSize: 9.5, color: context.textMuted),
+                        ),
                       ],
                     ),
                   ),
                 ),
               ),
           ],
-          const SizedBox(height: 14),
-          Divider(height: 1, color: context.border),
-          const SizedBox(height: 10),
-          Wrap(
-            spacing: 8,
-            runSpacing: 8,
-            children: [
-              OutlinedButton.icon(
-                style: OutlinedButton.styleFrom(
-                  minimumSize: const Size(0, 34),
-                  side: BorderSide(color: context.border),
-                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(AppRadius.sm)),
-                ),
-                onPressed: () {
-                  setState(() {
-                    _showSidebar = false;
-                    _agentWorkspaceMode = !_agentWorkspaceMode;
-                  });
-                },
-                icon: const Icon(Icons.hub_rounded, size: 14, color: AppColors.brandBlue),
-                label: Text(
-                  _agentWorkspaceMode ? 'Quick View' : 'Multi-Agent Console',
-                  style: GoogleFonts.inter(fontSize: 11.5, fontWeight: FontWeight.w600, color: context.textPrimary),
-                ),
-              ),
-              OutlinedButton.icon(
-                style: OutlinedButton.styleFrom(
-                  minimumSize: const Size(0, 34),
-                  side: BorderSide(color: context.border),
-                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(AppRadius.sm)),
-                ),
-                onPressed: () => _navigate('/connect'),
-                icon: const Icon(Icons.laptop_mac_rounded, size: 14, color: AppColors.brandPink),
-                label: Text('My Computer', style: GoogleFonts.inter(fontSize: 11.5, fontWeight: FontWeight.w600, color: context.textPrimary)),
-              ),
-              OutlinedButton.icon(
-                style: OutlinedButton.styleFrom(
-                  minimumSize: const Size(0, 34),
-                  side: BorderSide(color: context.border),
-                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(AppRadius.sm)),
-                ),
-                onPressed: () => _navigate('/ova/abilities'),
-                icon: const Icon(Icons.tune_rounded, size: 14, color: AppColors.brandBlue),
-                label: Text('Ova Settings', style: GoogleFonts.inter(fontSize: 11.5, fontWeight: FontWeight.w600, color: context.textPrimary)),
-              ),
-            ],
-          ),
         ],
       ),
     );
@@ -1209,14 +1507,7 @@ class _OvaAssistantPanelState extends ConsumerState<OvaAssistantPanel> {
           if (nav != null) GoRouter.of(nav).go(s.route!);
           return;
         }
-        if (s.fill) {
-          _input.text = s.prompt;
-          final caret = s.prompt.indexOf('  ');
-          _input.selection = TextSelection.collapsed(offset: caret >= 0 ? caret + 1 : s.prompt.length);
-          _focus.requestFocus();
-        } else {
-          _send(s.prompt);
-        }
+        _send(s.prompt);
       },
       child: Container(
         padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
@@ -2045,12 +2336,11 @@ class _Suggestion {
   final IconData icon;
   final String label;
   final String prompt;
-  final bool fill;
   final bool accent;
 
   /// Opens this screen instead of sending a prompt.
   final String? route;
-  const _Suggestion(this.icon, this.label, this.prompt, {this.fill = false, this.accent = false, this.route});
+  const _Suggestion(this.icon, this.label, this.prompt, {this.accent = false, this.route});
 }
 
 class _OvaMark extends StatelessWidget {
