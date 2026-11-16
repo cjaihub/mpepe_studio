@@ -2,46 +2,71 @@ import 'package:flutter/material.dart';
 import 'package:latlong2/latlong.dart';
 
 import '../../shared/location/geo_services.dart';
+import '../../shared/location/oneova_map_view.dart';
 import '../core/ova_tool_result.dart';
 import 'ova_tool_registry.dart';
 
 Map<String, dynamic> _s(String d, [List<String>? e]) => {'type': 'string', 'description': d, 'enum': ?e};
 Map<String, dynamic> _i(String d) => {'type': 'integer', 'description': d};
+Map<String, dynamic> _b(String d) => {'type': 'boolean', 'description': d};
 
-/// Location tools: where am I, what is near me, navigate to a place, and
-/// signal checks. Results carry an [OvaMapSpec], so Ova's answer shows a
-/// live map that follows the user.
+/// Location tools: where am I, what is near me, navigate to a place with
+/// live animated route + turn-by-turn directions, rotoscope contour highlighter,
+/// WhatsApp-style live location sharing, and signal checks.
 class OvaGeoTools {
   OvaGeoTools._();
   static final OvaGeoTools instance = OvaGeoTools._();
 
   GeoServices get _geo => GeoServices.instance;
 
-  static const names = {'get_location', 'find_nearby', 'navigate_to', 'check_signal'};
+  static const names = {
+    'get_location',
+    'find_nearby',
+    'navigate_to',
+    'share_live_location',
+    'check_signal',
+  };
 
   /// The newest position Ova saw, so follow-up questions have context.
   LatLng? lastKnown;
   String? lastAddress;
 
   List<OvaToolSpec> get specs => [
-        OvaToolSpec('get_location', 'Find where the user is now. Shows a live map with their position, the address and their signal.'),
+        OvaToolSpec(
+          'get_location',
+          'Find where the user is now. Shows a live map with their position, address, signal, and rotoscope highlighter.',
+          properties: {
+            'rotoscope': _b('Enable rotoscope contour highlighter on the map (default true)'),
+          },
+        ),
         OvaToolSpec(
           'find_nearby',
           'Find real places near the user (restaurants, cafes, ATMs, pharmacies, hospitals, fuel, hotels, Wi-Fi spots, or a name). '
-              'Shows them highlighted on a live map with distance and whether they are open.',
+              'Shows them highlighted on a live map with rotoscope target lock, distance, and whether they are open.',
           properties: {
             'what': _s('What to look for, e.g. "coffee", "pharmacy", "ATM", "Java House". Empty for anything useful nearby.'),
             'radius_m': _i('Search radius in metres (default 1500, max 5000)'),
+            'rotoscope': _b('Highlight places with rotoscope contour glow (default true)'),
           },
         ),
         OvaToolSpec(
           'navigate_to',
-          'Plan a route from the user to a place or address and show it on a live map. The user can then tap Navigate for turn-by-turn in Google Maps.',
+          'Plan a live animated route with turn-by-turn street directions from the user to a place or address, '
+              'with an in-app Start Live Directions button and Google Maps handoff.',
           properties: {
             'destination': _s('Place name or address'),
             'mode': _s('How they travel', ['driving', 'walking', 'cycling']),
+            'start_navigation': _b('Start live turn-by-turn navigation immediately (default true when user says start/go)'),
+            'rotoscope': _b('Enable rotoscope route & target highlighter (default true)'),
           },
           required: ['destination'],
+        ),
+        OvaToolSpec(
+          'share_live_location',
+          'Share the user\'s live moving location (WhatsApp-style live location for 15 min, 1 hour, or 8 hours) on a live map.',
+          properties: {
+            'duration_minutes': _i('Duration in minutes: 15, 60, or 480 (default 60)'),
+          },
         ),
         OvaToolSpec('check_signal', "Read the phone's current network and signal strength."),
       ];
@@ -49,13 +74,21 @@ class OvaGeoTools {
   Future<OvaToolResult> run(String name, Map<String, dynamic> a) async {
     String s(String k) => (a[k] ?? '').toString().trim();
     int i(String k, int d) => a[k] is num ? (a[k] as num).toInt() : int.tryParse(s(k)) ?? d;
+    bool b(String k, bool d) => a[k] is bool ? a[k] as bool : (s(k).isEmpty ? d : s(k) == 'true');
     switch (name) {
       case 'get_location':
-        return whereAmI();
+        return whereAmI(rotoscope: b('rotoscope', true));
       case 'find_nearby':
-        return nearby(s('what'), radiusM: i('radius_m', 1500));
+        return nearby(s('what'), radiusM: i('radius_m', 1500), rotoscope: b('rotoscope', true));
       case 'navigate_to':
-        return navigate(s('destination'), mode: s('mode').isEmpty ? 'driving' : s('mode'));
+        return navigate(
+          s('destination'),
+          mode: s('mode').isEmpty ? 'driving' : s('mode'),
+          startNavigation: b('start_navigation', false),
+          rotoscope: b('rotoscope', true),
+        );
+      case 'share_live_location':
+        return shareLiveLocation(durationMinutes: i('duration_minutes', 60));
       case 'check_signal':
         return checkSignal();
     }
@@ -85,7 +118,7 @@ class OvaGeoTools {
     return 'Signal: ${s.label}; calls and maps may be slow here.';
   }
 
-  Future<OvaToolResult> whereAmI() async {
+  Future<OvaToolResult> whereAmI({bool rotoscope = true}) async {
     final (me, err) = await _here();
     if (err != null) return err;
     final results = await Future.wait([_geo.reverse(me!), _geo.signal()]);
@@ -98,11 +131,12 @@ class OvaGeoTools {
       title: address ?? 'You are here',
       summary: 'User location: ${address ?? coords} ($coords). ${_signalLine(signal)}',
       icon: Icons.my_location_rounded,
-      map: OvaMapSpec(me: me, signal: signal),
+      map: OvaMapSpec(me: me, signal: signal, rotoscopeHighlight: rotoscope),
       actions: [
-        OvaResultAction(label: "What's nearby", icon: Icons.near_me_rounded, prompt: "what's near me"),
+        const OvaResultAction(label: "What's nearby", icon: Icons.near_me_rounded, prompt: "what's near me"),
+        const OvaResultAction(label: 'Share Live 1h', icon: Icons.share_location_rounded, prompt: 'share my live location for 60 minutes'),
         OvaResultAction(
-          label: 'Share',
+          label: 'Send Pin',
           icon: Icons.ios_share_rounded,
           prompt: 'share my location https://maps.google.com/?q=${me.latitude},${me.longitude}',
         ),
@@ -110,7 +144,38 @@ class OvaGeoTools {
     );
   }
 
-  Future<OvaToolResult> nearby(String what, {int radiusM = 1500}) async {
+  Future<OvaToolResult> shareLiveLocation({int durationMinutes = 60}) async {
+    final (me, err) = await _here();
+    if (err != null) return err;
+    final results = await Future.wait([_geo.reverse(me!), _geo.signal()]);
+    final address = results[0] as String?;
+    final signal = results[1] as GeoSignal;
+    lastAddress = address;
+    final mins = durationMinutes.clamp(15, 480);
+    final label = mins >= 60 ? '${mins ~/ 60} hour${mins >= 120 ? 's' : ''}' : '$mins mins';
+    return OvaToolResult(
+      ok: true,
+      title: 'Live Location Active · $label',
+      summary: 'Sharing live GPS location at ${address ?? '${me.latitude.toStringAsFixed(5)}, ${me.longitude.toStringAsFixed(5)}'} for $label. ${_signalLine(signal)}',
+      icon: Icons.share_location_rounded,
+      map: OvaMapSpec(
+        me: me,
+        signal: signal,
+        rotoscopeHighlight: true,
+        liveShareMinutes: mins,
+      ),
+      actions: [
+        OvaResultAction(
+          label: 'Send Live Link',
+          icon: Icons.send_rounded,
+          prompt: 'share text 📍 Live Location ($label): https://maps.google.com/?q=${me.latitude},${me.longitude}',
+        ),
+        const OvaResultAction(label: "What's nearby", icon: Icons.near_me_rounded, prompt: "what's near me"),
+      ],
+    );
+  }
+
+  Future<OvaToolResult> nearby(String what, {int radiusM = 1500, bool rotoscope = true}) async {
     final (me, err) = await _here();
     if (err != null) return err;
     List<GeoPlace> places;
@@ -130,7 +195,7 @@ class OvaGeoTools {
         ok: true,
         summary: 'No $label found within ${formatDistance(radiusM.toDouble())} on OpenStreetMap.',
         icon: Icons.search_off_rounded,
-        map: OvaMapSpec(me: me),
+        map: OvaMapSpec(me: me, rotoscopeHighlight: rotoscope),
         actions: [
           if (radiusM < 5000)
             OvaResultAction(label: 'Search wider', icon: Icons.zoom_out_map_rounded, prompt: 'find $label within 5 km'),
@@ -148,7 +213,7 @@ class OvaGeoTools {
       title: '${places.length} ${label.toLowerCase()} near you',
       summary: 'Nearby $label:\n${lines.join('\n')}',
       icon: Icons.near_me_rounded,
-      map: OvaMapSpec(me: me, places: places),
+      map: OvaMapSpec(me: me, places: places, rotoscopeHighlight: rotoscope),
       items: [
         for (var k = 0; k < places.length; k++)
           OvaResultItem(
@@ -160,13 +225,18 @@ class OvaGeoTools {
               ?places[k].category?.replaceAll('_', ' '),
             ].join(' · '),
             icon: Icons.place_rounded,
-            onTap: OvaResultAction(label: 'Go', icon: Icons.directions_rounded, prompt: 'navigate to ${places[k].name}'),
+            onTap: OvaResultAction(label: 'Start Route', icon: Icons.directions_rounded, prompt: 'start navigation to ${places[k].name}'),
           ),
       ],
     );
   }
 
-  Future<OvaToolResult> navigate(String destination, {String mode = 'driving'}) async {
+  Future<OvaToolResult> navigate(
+    String destination, {
+    String mode = 'driving',
+    bool startNavigation = false,
+    bool rotoscope = true,
+  }) async {
     if (destination.isEmpty) return OvaToolResult.fail('Where do you want to go?');
     final (me, err) = await _here();
     if (err != null) return err;
@@ -175,7 +245,6 @@ class OvaGeoTools {
       final hits = await _geo.search(destination, near: me, limit: 5);
       dest = hits.isEmpty ? null : hits.first;
       if (dest == null) {
-        // Maybe it is a nearby place type ("nearest pharmacy").
         final near = await _geo.nearby(me!, destination, radiusM: 3000, limit: 1);
         if (near.isNotEmpty) dest = near.first;
       }
@@ -190,17 +259,37 @@ class OvaGeoTools {
     final signal = results[1] as GeoSignal;
     final navUrl = 'ova://navigate?lat=${dest.point.latitude}&lng=${dest.point.longitude}&mode=$mode';
     final how = switch (mode) { 'walking' => 'walk', 'cycling' => 'ride', _ => 'drive' };
+    final stepSummary = (route != null && route.steps.isNotEmpty)
+        ? '\nNext turns: ${route.steps.take(3).map((s) => '${s.instruction} (${formatDistance(s.distanceM)})').join(' → ')}.'
+        : '';
     final summary = route == null
         ? '${dest.name} is ${formatDistance(_geo.distanceM(me, dest.point))} away (straight line). No route was available, Google Maps can still navigate. ${_signalLine(signal)}'
-        : 'Route to ${dest.name}: ${formatDistance(route.distanceM)}, about ${formatDuration(route.durationS)} by $how. ${_signalLine(signal)}';
+        : 'Route to ${dest.name}: ${formatDistance(route.distanceM)}, about ${formatDuration(route.durationS)} by $how.$stepSummary ${_signalLine(signal)}';
     return OvaToolResult(
       ok: true,
       title: route == null ? dest.name : '${dest.name} · ${formatDuration(route.durationS)} ($how)',
       summary: summary,
       icon: Icons.directions_rounded,
-      map: OvaMapSpec(me: me, destination: dest, route: route, mode: mode, signal: signal),
+      map: OvaMapSpec(
+        me: me,
+        destination: dest,
+        route: route,
+        mode: mode,
+        signal: signal,
+        rotoscopeHighlight: rotoscope,
+        autoStartNavigation: startNavigation,
+      ),
+      items: [
+        if (route != null)
+          for (final st in route.steps.take(6))
+            OvaResultItem(
+              title: st.instruction,
+              subtitle: '${formatDistance(st.distanceM)} · ${formatDuration(st.durationS)}',
+              icon: maneuverIcon(st.maneuverType, st.modifier),
+            ),
+      ],
       actions: [
-        OvaResultAction(label: 'Navigate', icon: Icons.navigation_rounded, url: navUrl),
+        OvaResultAction(label: 'Start in Google Maps', icon: Icons.navigation_rounded, url: navUrl),
         if (mode != 'walking')
           OvaResultAction(label: 'Walk instead', icon: Icons.directions_walk_rounded, prompt: 'walk to ${dest.name}'),
         if (mode == 'walking')

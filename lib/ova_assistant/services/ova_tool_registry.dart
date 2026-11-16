@@ -15,6 +15,8 @@ import '../../backend/social/models/comment.dart';
 import '../../backend/social/repositories/interaction_repository.dart';
 import '../../backend/social/repositories/relationship_repository.dart';
 import '../../backend/social/services/comment_service.dart';
+import '../../backend/notifications/models/notification_preferences.dart';
+import '../../backend/notifications/providers/notification_service.dart';
 import '../../shared/theme/theme_provider.dart';
 import '../core/ova_tool_result.dart';
 import 'ova_abilities.dart';
@@ -26,6 +28,7 @@ import 'ova_device_control.dart';
 import 'ova_geo_tools.dart';
 import 'ova_instagram_tools.dart';
 import 'ova_memory_tools.dart';
+import 'ova_notification_memory_service.dart';
 import 'ova_studio_tools.dart';
 
 /// Screen-level context handed to the assistant by the screen that opened it.
@@ -234,6 +237,7 @@ class OvaToolRegistry {
         }, required: ['percent']),
         ...OvaGeoTools.instance.specs,
         ...OvaMemoryTools.instance.specs,
+        ...OvaNotificationMemoryService.instance.specs,
         ...ref.read(ovaStudioToolsProvider).specs,
         OvaToolSpec('device_status', 'Read battery level and charging state.'),
         OvaToolSpec('open_settings', 'Open the phone Settings app.'),
@@ -480,6 +484,15 @@ class OvaToolRegistry {
         if (res == null) return OvaToolResult.fail('I did not understand that screen command.');
         return OvaToolResult(ok: res.ok, summary: res.message, icon: res.ok ? Icons.touch_app_rounded : Icons.error_outline_rounded,
             actions: res.ok ? const [] : const [OvaResultAction(label: 'Ova setup', icon: Icons.tune_rounded, route: '/ova/setup')]);
+    }
+    if (OvaNotificationMemoryService.toolNames.contains(name)) {
+      final prefs = ref.read(notificationPreferencesProvider).value ?? NotificationPreferences();
+      return OvaNotificationMemoryService.instance.runTool(
+        name,
+        a,
+        prefs: prefs,
+        savePrefs: (fields) => ref.read(notificationServiceProvider).updatePreferenceFields(fields),
+      );
     }
     if (OvaConnectedTools.names.contains(name)) {
       return ref.read(ovaConnectedToolsProvider).run(name, a, context != null && context.mounted ? context : null);

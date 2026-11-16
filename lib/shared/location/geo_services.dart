@@ -44,14 +44,42 @@ class GeoPlace {
       };
 }
 
+/// One turn-by-turn maneuver step along a [GeoRoute].
+class GeoRouteStep {
+  final String instruction;
+  final String maneuverType;
+  final String? modifier;
+  final double distanceM;
+  final double durationS;
+  final LatLng location;
+  final String? streetName;
+
+  const GeoRouteStep({
+    required this.instruction,
+    required this.maneuverType,
+    this.modifier,
+    required this.distanceM,
+    required this.durationS,
+    required this.location,
+    this.streetName,
+  });
+}
+
 /// A route from OSRM (OpenStreetMap routing).
 class GeoRoute {
   final List<LatLng> points;
   final double distanceM;
   final double durationS;
   final String mode;
+  final List<GeoRouteStep> steps;
 
-  const GeoRoute({required this.points, required this.distanceM, required this.durationS, required this.mode});
+  const GeoRoute({
+    required this.points,
+    required this.distanceM,
+    required this.durationS,
+    required this.mode,
+    this.steps = const [],
+  });
 }
 
 /// Network signal at a moment, read from the phone (Android) or connectivity.
@@ -372,25 +400,98 @@ class GeoServices {
     final profile = switch (mode) { 'walking' => 'routed-foot', 'cycling' => 'routed-bike', _ => 'routed-car' };
     final url = Uri.parse(
       'https://routing.openstreetmap.de/$profile/route/v1/driving/'
-      '${from.longitude},${from.latitude};${to.longitude},${to.latitude}?overview=full&geometries=geojson',
+      '${from.longitude},${from.latitude};${to.longitude},${to.latitude}?overview=full&geometries=geojson&steps=true',
     );
     try {
-      final res = await http.get(url, headers: {'User-Agent': _ua}).timeout(const Duration(seconds: 15));
-      if (res.statusCode != 200) return null;
+      var res = await http.get(url, headers: {'User-Agent': _ua}).timeout(const Duration(seconds: 12));
+      if (res.statusCode != 200) {
+        final fallbackUrl = Uri.parse(
+          'https://router.project-osrm.org/route/v1/driving/'
+          '${from.longitude},${from.latitude};${to.longitude},${to.latitude}?overview=full&geometries=geojson&steps=true',
+        );
+        res = await http.get(fallbackUrl, headers: {'User-Agent': _ua}).timeout(const Duration(seconds: 10));
+        if (res.statusCode != 200) return null;
+      }
       final m = jsonDecode(res.body) as Map<String, dynamic>;
       final routes = m['routes'] as List?;
       if (routes == null || routes.isEmpty) return null;
       final r = routes.first as Map<String, dynamic>;
       final coords = ((r['geometry'] as Map)['coordinates'] as List).cast<List>();
+      final parsedSteps = <GeoRouteStep>[];
+      final legs = r['legs'] as List?;
+      if (legs != null) {
+        for (final leg in legs.whereType<Map>()) {
+          final rawSteps = leg['steps'] as List?;
+          if (rawSteps == null) continue;
+          for (final st in rawSteps.whereType<Map>()) {
+            final man = (st['maneuver'] as Map?)?.cast<String, dynamic>() ?? const {};
+            final mType = (man['type'] ?? 'continue').toString();
+            final mMod = man['modifier']?.toString();
+            final locList = man['location'] as List?;
+            final loc = (locList != null && locList.length >= 2)
+                ? LatLng((locList[1] as num).toDouble(), (locList[0] as num).toDouble())
+                : to;
+            final road = (st['name'] ?? st['ref'] ?? '').toString().trim();
+            final dist = ((st['distance'] as num?) ?? 0).toDouble();
+            final dur = ((st['duration'] as num?) ?? 0).toDouble();
+            final instr = _buildStepInstruction(mType, mMod, road);
+            if (dist > 3 || mType == 'arrive' || mType == 'depart') {
+              parsedSteps.add(
+                GeoRouteStep(
+                  instruction: instr,
+                  maneuverType: mType,
+                  modifier: mMod,
+                  distanceM: dist,
+                  durationS: dur,
+                  location: loc,
+                  streetName: road.isEmpty ? null : road,
+                ),
+              );
+            }
+          }
+        }
+      }
       return GeoRoute(
         points: [for (final c in coords) LatLng((c[1] as num).toDouble(), (c[0] as num).toDouble())],
         distanceM: (r['distance'] as num).toDouble(),
         durationS: (r['duration'] as num).toDouble(),
         mode: mode,
+        steps: parsedSteps,
       );
     } catch (e) {
       debugPrint('[GeoServices] route failed: $e');
       return null;
+    }
+  }
+
+  static String _buildStepInstruction(String type, String? modifier, String road) {
+    final onRoad = road.isNotEmpty ? ' onto $road' : '';
+    final mod = (modifier ?? '').replaceAll('_', ' ').trim();
+    switch (type) {
+      case 'depart':
+        return road.isNotEmpty ? 'Start on $road' : 'Head out on route';
+      case 'arrive':
+        return 'Arrive at destination';
+      case 'roundabout':
+      case 'rotary':
+        return 'Take the roundabout$onRoad';
+      case 'merge':
+        return 'Merge ${mod.isNotEmpty ? mod : ''}$onRoad'.trim();
+      case 'fork':
+        return 'Keep ${mod.isNotEmpty ? mod : 'ahead'} at the fork$onRoad';
+      case 'end of road':
+        return 'At the end of the road, turn ${mod.isNotEmpty ? mod : 'ahead'}$onRoad';
+      case 'new name':
+      case 'continue':
+        if (mod.isNotEmpty && mod != 'straight') {
+          return 'Bear $mod$onRoad';
+        }
+        return road.isNotEmpty ? 'Continue on $road' : 'Continue straight';
+      default:
+        if (mod.isNotEmpty) {
+          return 'Turn $mod$onRoad';
+        }
+        return road.isNotEmpty ? 'Proceed on $road' : 'Continue along route';
     }
   }
 

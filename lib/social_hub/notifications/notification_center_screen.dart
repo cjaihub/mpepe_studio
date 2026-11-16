@@ -457,7 +457,10 @@ class _OtherAppsShieldBar extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final prefs = ref.watch(notificationPreferencesProvider).value;
     final blockedAll = prefs?.blockExternalAppNotifications ?? false;
-    final blockedCount = prefs?.blockedExternalPackages.length ?? 0;
+    final blockedCount = (prefs?.blockedExternalPackages.length ?? 0) +
+        (prefs?.mutedSources.length ?? 0) +
+        (prefs?.mutedKeywords.length ?? 0);
+    final ringOnly = !(prefs?.showScreenPopups ?? false);
 
     return Padding(
       padding: const EdgeInsets.fromLTRB(16, 10, 16, 2),
@@ -500,9 +503,11 @@ class _OtherAppsShieldBar extends ConsumerWidget {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
-                      blockedAll
-                          ? 'Other App Notifications Blocked'
-                          : 'Block Other App Notifications',
+                      ringOnly
+                          ? 'Ring Only · No Screen Pop-ups'
+                          : (blockedAll
+                              ? 'Other App Notifications Blocked'
+                              : 'Focus Shield & Muted Sources'),
                       style: GoogleFonts.inter(
                         fontSize: 12.5,
                         fontWeight: FontWeight.w700,
@@ -510,11 +515,9 @@ class _OtherAppsShieldBar extends ConsumerWidget {
                       ),
                     ),
                     Text(
-                      blockedAll
-                          ? 'External app pop-ups are muted while you use Oneova'
-                          : (blockedCount > 0
-                              ? '$blockedCount external app${blockedCount == 1 ? '' : 's'} blocked · Tap to manage'
-                              : 'Keep other phone apps from interrupting your reels & studio'),
+                      blockedCount > 0
+                          ? '$blockedCount source${blockedCount == 1 ? '' : 's'}/app${blockedCount == 1 ? '' : 's'} muted · Tap to choose what to block'
+                          : 'Alerts ring & learn in background for Ova AI · Tap to mute apps or topics',
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
                       style: GoogleFonts.inter(

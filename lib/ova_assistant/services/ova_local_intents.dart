@@ -108,9 +108,12 @@ class OvaLocalIntents {
       return const OvaLocalIntent('facebook_comments', {});
     }
 
-    // Device awareness (Android)
-    if (RegExp(r"^(read|show|check)( me)?( my)? (notifications|alerts)$|^(what'?s new|any new (messages|notifications)|what did i miss)$").hasMatch(p)) {
-      return const OvaLocalIntent('read_notifications', {});
+    // Device awareness & Background Notification Memory
+    if (RegExp(r"^(read|show|check|recall)( me)?( my)? (previous |past |recent )?(notifications|alerts)$|^(what'?s new|any new (messages|notifications)|what did i miss|what was my (last|previous) notification)$").hasMatch(p)) {
+      return const OvaLocalIntent('recall_previous_notifications', {});
+    }
+    if ((m = RegExp(r'^(?:mute|block|stop)\s+(?:notifications?|alerts?|info|information)\s+(?:from|about)\s+(.+)$').firstMatch(p)) != null) {
+      return OvaLocalIntent('mute_notification_source', {'target': _orig(raw, m!.group(1)!)});
     }
     if ((m = RegExp(r'^(?:read|show|check)\s+(?:my\s+)?(\w+)\s+(?:notifications|messages)$').firstMatch(p)) != null &&
         !const {'my', 'the', 'new', 'sms', 'text'}.contains(m!.group(1))) {
@@ -164,17 +167,31 @@ class OvaLocalIntents {
     if ((m = RegExp(r'^(?:set\s+)?(?:the\s+)?brightness\s+(?:to\s+)?(\d{1,3})\s*%?$').firstMatch(p)) != null) {
       return OvaLocalIntent('set_brightness', {'percent': int.parse(m!.group(1)!)});
     }
-    if (RegExp(r'^(where am i|my location|share my location|what is my location)$').hasMatch(p)) {
-      return const OvaLocalIntent('get_location', {});
+    if ((m = RegExp(r'^share (?:my )?live location(?:\s+for\s+(\d+)\s*(min|mins|minutes|h|hr|hour|hours))?$').firstMatch(p)) != null) {
+      final rawNum = int.tryParse(m!.group(1) ?? '');
+      final unit = m.group(2) ?? 'minutes';
+      final mins = rawNum == null ? 60 : (unit.startsWith('h') ? rawNum * 60 : rawNum);
+      return OvaLocalIntent('share_live_location', {'duration_minutes': mins});
     }
-    if ((m = RegExp(r'^(?:navigate|directions|get directions|route|guide me|how do i get|how to get)\s+(?:me\s+)?(?:to|for)\s+(.+)$').firstMatch(p)) != null) {
-      return OvaLocalIntent('navigate_to', {'destination': _orig(raw, m!.group(1)!), 'mode': 'driving'});
+    if (RegExp(r'^(where am i|my location|share my location|what is my location)$').hasMatch(p)) {
+      return const OvaLocalIntent('get_location', {'rotoscope': true});
+    }
+    if ((m = RegExp(r'^(start\s+navigation|start\s+directions|navigate|directions|get directions|route|guide me|how do i get|how to get)\s+(?:me\s+)?(?:to|for)\s+(.+)$').firstMatch(p)) != null) {
+      final isStart = m!.group(1)!.startsWith('start');
+      return OvaLocalIntent('navigate_to', {
+        'destination': _orig(raw, m.group(2)!),
+        'mode': 'driving',
+        'start_navigation': isStart,
+        'rotoscope': true,
+      });
     }
     if ((m = RegExp(r'^(walk|drive|cycle|bike|ride)\s+(?:me\s+)?to\s+(.+)$').firstMatch(p)) != null) {
       final v = m!.group(1)!;
       return OvaLocalIntent('navigate_to', {
         'destination': _orig(raw, m.group(2)!),
         'mode': v == 'walk' ? 'walking' : (v == 'drive' ? 'driving' : 'cycling'),
+        'start_navigation': true,
+        'rotoscope': true,
       });
     }
     if (RegExp(r"^(what'?s|what is|show( me)?|anything)\s+(near me|nearby|around( me| here)?)$").hasMatch(p)) {

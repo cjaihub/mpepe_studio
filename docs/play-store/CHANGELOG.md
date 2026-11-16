@@ -1,5 +1,13 @@
 # Oneova release notes
 
+## 1.0.0 (43) — 2026-11-16 · Internal Testing Release
+
+**Ring-only notifications (no screen pop-ups), muted sources & backend AI notification memory, and Rotoscope Live Maps with Start Directions**
+- **Ring without screen pop-ups**: alerts now ring your chime and save quietly without popping intrusive banners over your screen (`showScreenPopups: false` by default).
+- **Choose where you don't want info from**: mute specific sources (`Other Phone Apps`, `AI Tips`, `Promos`, `Likes`, `Comments`, `Lives`), external apps, or custom keywords/senders.
+- **On-demand AI notification recall**: Ova AI silently learns allowed notifications in the background and only brings them up when you ask about previous notifications or messages.
+- **Rotoscope Highlighter & Live Animated Route**: maps now feature a toggleable Rotoscope contour highlighter, animated route pulse with travelling beacon, turn-by-turn street steps, in-app **Start Live Directions**, and WhatsApp-style Live Location sharing + nearby places picker.
+
 ## 1.0.0 (42) — 2026-11-16 · Internal Testing Release
 
 **Reels deep-link comment highlights, persistent status bar, timeline stretch and color grading improvements**

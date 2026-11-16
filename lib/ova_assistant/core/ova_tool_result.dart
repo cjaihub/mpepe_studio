@@ -61,6 +61,18 @@ class OvaMapSpec {
   /// Signal when the tool ran.
   final GeoSignal? signal;
 
+  /// Whether Rotoscope Neon Contour Highlighter mode is active on the map.
+  final bool rotoscopeHighlight;
+
+  /// Whether live turn-by-turn navigation should start immediately.
+  final bool autoStartNavigation;
+
+  /// Active WhatsApp-style live location share duration in minutes (15, 60, 480).
+  final int? liveShareMinutes;
+
+  /// Optional custom highlight badge text.
+  final String? highlightLabel;
+
   const OvaMapSpec({
     required this.me,
     this.places = const [],
@@ -68,6 +80,10 @@ class OvaMapSpec {
     this.destination,
     this.mode = 'driving',
     this.signal,
+    this.rotoscopeHighlight = true,
+    this.autoStartNavigation = false,
+    this.liveShareMinutes,
+    this.highlightLabel,
   });
 }
 

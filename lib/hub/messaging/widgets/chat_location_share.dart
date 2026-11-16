@@ -199,6 +199,10 @@ class _ShareLocationSheetState extends State<_ShareLocationSheet> {
   String? _error;
   StreamSubscription<Position>? _sub;
   bool _addressLoading = false;
+  List<GeoPlace> _nearby = const [];
+  bool _nearbyLoading = false;
+  String _selectedCat = 'food';
+  int? _highlightPlaceIdx;
 
   @override
   void initState() {
@@ -217,12 +221,14 @@ class _ShareLocationSheetState extends State<_ShareLocationSheet> {
     try {
       final p = await GeoServices.instance.current();
       if (!mounted) return;
+      final pt = LatLng(p.latitude, p.longitude);
       setState(() {
-        _me = LatLng(p.latitude, p.longitude);
+        _me = pt;
         _accuracy = p.accuracy;
         _addressLoading = true;
       });
-      final a = await GeoServices.instance.reverse(_me!);
+      _loadNearby(pt, _selectedCat);
+      final a = await GeoServices.instance.reverse(pt);
       if (mounted) {
         setState(() {
           _address = a;
@@ -234,17 +240,43 @@ class _ShareLocationSheetState extends State<_ShareLocationSheet> {
     }
   }
 
+  Future<void> _loadNearby(LatLng pt, String cat) async {
+    setState(() {
+      _selectedCat = cat;
+      _nearbyLoading = true;
+    });
+    try {
+      final list = await GeoServices.instance.nearby(pt, cat, radiusM: 1800, limit: 6);
+      if (!mounted) return;
+      setState(() {
+        _nearby = list;
+        _highlightPlaceIdx = list.isNotEmpty ? 0 : null;
+        _nearbyLoading = false;
+      });
+    } catch (_) {
+      if (mounted) setState(() => _nearbyLoading = false);
+    }
+  }
+
   @override
   void dispose() {
     _sub?.cancel();
     super.dispose();
   }
 
-  void _pick(Duration? live) {
-    final me = _me;
-    if (me == null) return;
+  void _pick(Duration? live, {LatLng? customPoint, String? customAddress}) {
+    final pt = customPoint ?? _me;
+    if (pt == null) return;
     HapticFeedback.mediumImpact();
-    Navigator.pop(context, LocationShareChoice(point: me, accuracy: _accuracy, address: _address, live: live));
+    Navigator.pop(
+      context,
+      LocationShareChoice(
+        point: pt,
+        accuracy: customPoint != null ? 5.0 : _accuracy,
+        address: customAddress ?? _address,
+        live: live,
+      ),
+    );
   }
 
   @override
@@ -253,72 +285,179 @@ class _ShareLocationSheetState extends State<_ShareLocationSheet> {
     return SafeArea(
       child: Padding(
         padding: const EdgeInsets.fromLTRB(16, 10, 16, 12),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Center(
-              child: Container(
-                width: 36,
-                height: 4,
-                decoration: BoxDecoration(color: context.border, borderRadius: BorderRadius.circular(2)),
+        child: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Center(
+                child: Container(
+                  width: 36,
+                  height: 4,
+                  decoration: BoxDecoration(color: context.border, borderRadius: BorderRadius.circular(2)),
+                ),
               ),
-            ),
-            const SizedBox(height: 12),
-            Text('Share location', style: GoogleFonts.inter(fontSize: 17, fontWeight: FontWeight.w700, color: context.textPrimary)),
-            const SizedBox(height: 10),
-            if (_error != null)
-              Text(_error!, style: GoogleFonts.inter(fontSize: 12.5, color: AppColors.brandPink))
-            else if (me == null)
-              Container(
-                height: 180,
-                alignment: Alignment.center,
-                decoration: BoxDecoration(color: context.surfaceMid, borderRadius: BorderRadius.circular(AppRadius.md)),
-                child: const CircularProgressIndicator(strokeWidth: 2, color: AppColors.brandBlue),
-              )
-            else
-              OneovaMapView(me: me, height: 180),
-            const SizedBox(height: 12),
-            _option(
-              context,
-              icon: Icons.my_location_rounded,
-              color: AppColors.brandBlue,
-              title: 'Send your current location',
-              subtitle: me == null
-                  ? 'Finding you…'
-                  : '${_addressLoading ? 'Looking up address…' : (_address ?? '${me.latitude.toStringAsFixed(5)}, ${me.longitude.toStringAsFixed(5)}')} · ±${_accuracy.round()} m',
-              onTap: me == null ? null : () => _pick(null),
-            ),
-            const SizedBox(height: 8),
-            Text('SHARE LIVE LOCATION',
-                style: GoogleFonts.inter(fontSize: 9.5, fontWeight: FontWeight.w800, letterSpacing: 0.8, color: context.textMuted)),
-            const SizedBox(height: 6),
-            Row(
-              children: [
-                for (final d in const [(Duration(minutes: 15), '15 min'), (Duration(hours: 1), '1 hour'), (Duration(hours: 8), '8 hours')])
-                  Expanded(
-                    child: Padding(
-                      padding: const EdgeInsets.symmetric(horizontal: 3),
-                      child: OutlinedButton.icon(
-                        onPressed: me == null ? null : () => _pick(d.$1),
-                        icon: const Icon(Icons.share_location_rounded, size: 16, color: AppColors.brandPink),
-                        label: Text(d.$2, style: GoogleFonts.inter(fontSize: 12, fontWeight: FontWeight.w600, color: context.textPrimary)),
-                        style: OutlinedButton.styleFrom(
-                          padding: const EdgeInsets.symmetric(vertical: 10),
-                          side: BorderSide(color: context.border),
-                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(AppRadius.sm)),
+              const SizedBox(height: 12),
+              Text('Share location', style: GoogleFonts.inter(fontSize: 17, fontWeight: FontWeight.w700, color: context.textPrimary)),
+              const SizedBox(height: 10),
+              if (_error != null)
+                Text(_error!, style: GoogleFonts.inter(fontSize: 12.5, color: AppColors.brandPink))
+              else if (me == null)
+                Container(
+                  height: 190,
+                  alignment: Alignment.center,
+                  decoration: BoxDecoration(color: context.surfaceMid, borderRadius: BorderRadius.circular(AppRadius.md)),
+                  child: const CircularProgressIndicator(strokeWidth: 2, color: AppColors.brandBlue),
+                )
+              else
+                OneovaMapView(
+                  me: me,
+                  places: _nearby,
+                  highlightIndex: _highlightPlaceIdx,
+                  rotoscopeHighlight: true,
+                  trackUser: true,
+                  height: 195,
+                  onPlaceTap: (i) => setState(() => _highlightPlaceIdx = i),
+                ),
+              const SizedBox(height: 12),
+              _option(
+                context,
+                icon: Icons.my_location_rounded,
+                color: AppColors.brandBlue,
+                title: 'Send your current location',
+                subtitle: me == null
+                    ? 'Finding you…'
+                    : '${_addressLoading ? 'Looking up address…' : (_address ?? '${me.latitude.toStringAsFixed(5)}, ${me.longitude.toStringAsFixed(5)}')} · ±${_accuracy.round()} m',
+                onTap: me == null ? null : () => _pick(null),
+              ),
+              const SizedBox(height: 8),
+              Text('SHARE LIVE LOCATION (REAL-TIME MOVING PIN)',
+                  style: GoogleFonts.inter(fontSize: 9.5, fontWeight: FontWeight.w800, letterSpacing: 0.8, color: context.textMuted)),
+              const SizedBox(height: 6),
+              Row(
+                children: [
+                  for (final d in const [(Duration(minutes: 15), '15 min'), (Duration(hours: 1), '1 hour'), (Duration(hours: 8), '8 hours')])
+                    Expanded(
+                      child: Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: 3),
+                        child: OutlinedButton.icon(
+                          onPressed: me == null ? null : () => _pick(d.$1),
+                          icon: const Icon(Icons.share_location_rounded, size: 16, color: AppColors.brandPink),
+                          label: Text(d.$2, style: GoogleFonts.inter(fontSize: 12, fontWeight: FontWeight.w600, color: context.textPrimary)),
+                          style: OutlinedButton.styleFrom(
+                            padding: const EdgeInsets.symmetric(vertical: 10),
+                            side: BorderSide(color: context.border),
+                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(AppRadius.sm)),
+                          ),
                         ),
                       ),
                     ),
+                ],
+              ),
+              const SizedBox(height: 10),
+              Row(
+                children: [
+                  Text('OR PICK A NEARBY PLACE',
+                      style: GoogleFonts.inter(fontSize: 9.5, fontWeight: FontWeight.w800, letterSpacing: 0.8, color: context.textMuted)),
+                  const Spacer(),
+                  if (_nearbyLoading)
+                    const SizedBox(
+                      width: 12,
+                      height: 12,
+                      child: CircularProgressIndicator(strokeWidth: 1.8, color: AppColors.brandBlue),
+                    ),
+                ],
+              ),
+              const SizedBox(height: 6),
+              SingleChildScrollView(
+                scrollDirection: Axis.horizontal,
+                child: Row(
+                  children: [
+                    for (final (catId, catLabel) in const [
+                      ('food', 'Food & Cafe'),
+                      ('shop', 'Shops & Malls'),
+                      ('atm', 'ATM & Bank'),
+                      ('fuel', 'Fuel'),
+                      ('pharmacy', 'Pharmacy'),
+                      ('hotel', 'Hotels'),
+                    ])
+                      Padding(
+                        padding: const EdgeInsets.only(right: 6),
+                        child: GestureDetector(
+                          onTap: me == null ? null : () => _loadNearby(me, catId),
+                          child: Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                            decoration: BoxDecoration(
+                              color: _selectedCat == catId ? AppColors.brandBlue : context.surfaceMid,
+                              borderRadius: BorderRadius.circular(AppRadius.full),
+                              border: Border.all(
+                                color: _selectedCat == catId ? AppColors.brandBlue : context.border,
+                              ),
+                            ),
+                            child: Text(
+                              catLabel,
+                              style: GoogleFonts.inter(
+                                fontSize: 11,
+                                fontWeight: FontWeight.w700,
+                                color: _selectedCat == catId ? Colors.white : context.textPrimary,
+                              ),
+                            ),
+                          ),
+                        ),
+                      ),
+                  ],
+                ),
+              ),
+              if (_nearby.isNotEmpty) ...[
+                const SizedBox(height: 6),
+                ConstrainedBox(
+                  constraints: const BoxConstraints(maxHeight: 160),
+                  child: ListView.builder(
+                    shrinkWrap: true,
+                    itemCount: _nearby.length,
+                    itemBuilder: (_, idx) {
+                      final p = _nearby[idx];
+                      return ListTile(
+                        dense: true,
+                        contentPadding: const EdgeInsets.symmetric(horizontal: 4),
+                        leading: Container(
+                          width: 30,
+                          height: 30,
+                          decoration: BoxDecoration(
+                            color: AppColors.brandPink.withValues(alpha: 0.12),
+                            borderRadius: BorderRadius.circular(AppRadius.sm),
+                          ),
+                          child: const Icon(Icons.place_rounded, size: 16, color: AppColors.brandPink),
+                        ),
+                        title: Text(
+                          p.name,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: GoogleFonts.inter(fontSize: 12.5, fontWeight: FontWeight.w700, color: context.textPrimary),
+                        ),
+                        subtitle: Text(
+                          [
+                            if (p.distanceM != null) formatDistance(p.distanceM!),
+                            if (p.openNow == true) 'Open now',
+                            ?p.address,
+                          ].join(' · '),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: GoogleFonts.inter(fontSize: 11, color: context.textSecondary),
+                        ),
+                        trailing: const Icon(Icons.send_rounded, size: 16, color: AppColors.brandBlue),
+                        onTap: () => _pick(
+                          null,
+                          customPoint: p.point,
+                          customAddress: '${p.name}${p.address != null ? ' · ${p.address}' : ''}',
+                        ),
+                      );
+                    },
                   ),
+                ),
               ],
-            ),
-            const SizedBox(height: 8),
-            Text(
-              'Live location updates in this chat as you move, until you stop it or it ends. It keeps running in the background with a notification.',
-              style: GoogleFonts.inter(fontSize: 11, height: 1.35, color: context.textSecondary),
-            ),
-          ],
+            ],
+          ),
         ),
       ),
     );
@@ -520,28 +659,72 @@ class _ChatLocationBubbleState extends State<ChatLocationBubble> {
 }
 
 /// Full map of a shared location. Streams the message so a live pin keeps
-/// moving, and shows your own position too.
-class _LocationViewer extends StatelessWidget {
+/// moving, and shows your own position + live animated route.
+class _LocationViewer extends StatefulWidget {
   final String chatId;
   final String messageId;
   final bool isMe;
   final String senderName;
 
-  const _LocationViewer({required this.chatId, required this.messageId, required this.isMe, required this.senderName});
+  const _LocationViewer({
+    required this.chatId,
+    required this.messageId,
+    required this.isMe,
+    required this.senderName,
+  });
+
+  @override
+  State<_LocationViewer> createState() => _LocationViewerState();
+}
+
+class _LocationViewerState extends State<_LocationViewer> {
+  GeoRoute? _route;
+  LatLng? _myPos;
+  bool _navigating = false;
+  LatLng? _lastRoutedTarget;
+
+  Future<void> _ensureRoute(LatLng target) async {
+    if (_lastRoutedTarget != null &&
+        GeoServices.instance.distanceM(_lastRoutedTarget!, target) < 25) {
+      return;
+    }
+    _lastRoutedTarget = target;
+    try {
+      final LatLng pos = _myPos ??
+          await GeoServices.instance
+              .current()
+              .then((p) => LatLng(p.latitude, p.longitude));
+      _myPos = pos;
+      final r = await GeoServices.instance.route(pos, target);
+      if (mounted) setState(() => _route = r);
+    } catch (_) {}
+  }
 
   @override
   Widget build(BuildContext context) {
     final uid = FirebaseAuth.instance.currentUser?.uid;
-    final stream = FirebaseFirestore.instance.collection('chats').doc(chatId).collection('messages').doc(messageId).snapshots();
+    final stream = FirebaseFirestore.instance
+        .collection('chats')
+        .doc(widget.chatId)
+        .collection('messages')
+        .doc(widget.messageId)
+        .snapshots();
     return SafeArea(
       child: StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
         stream: stream,
         builder: (context, snap) {
           final data = snap.data?.data();
-          final loc = ChatLocation.fromMap((data?['location'] as Map?)?.cast<String, dynamic>());
-          final mine = isMe || (uid != null && data?['senderId'] == uid);
-          final label = mine ? 'You' : senderName;
-          final whose = mine ? 'Your' : (senderName.isEmpty ? 'Shared' : "$senderName's");
+          final loc = ChatLocation.fromMap(
+            (data?['location'] as Map?)?.cast<String, dynamic>(),
+          );
+          final mine = widget.isMe || (uid != null && data?['senderId'] == uid);
+          final label = mine ? 'You' : widget.senderName;
+          final whose = mine
+              ? 'Your'
+              : (widget.senderName.isEmpty ? 'Shared' : "${widget.senderName}'s");
+          if (loc != null && !mine) {
+            _ensureRoute(loc.point);
+          }
           return Padding(
             padding: const EdgeInsets.fromLTRB(12, 10, 12, 12),
             child: Column(
@@ -552,24 +735,70 @@ class _LocationViewer extends StatelessWidget {
                   child: Container(
                     width: 36,
                     height: 4,
-                    decoration: BoxDecoration(color: context.border, borderRadius: BorderRadius.circular(2)),
+                    decoration: BoxDecoration(
+                      color: context.border,
+                      borderRadius: BorderRadius.circular(2),
+                    ),
                   ),
                 ),
                 const SizedBox(height: 10),
-                Text(
-                  loc == null ? 'Location' : (loc.isLiveNow ? '$whose live location' : '$whose location'),
-                  style: GoogleFonts.inter(fontSize: 17, fontWeight: FontWeight.w700, color: context.textPrimary),
+                Row(
+                  children: [
+                    Expanded(
+                      child: Text(
+                        loc == null
+                            ? 'Location'
+                            : (loc.isLiveNow
+                                ? '$whose live location'
+                                : '$whose location'),
+                        style: GoogleFonts.inter(
+                          fontSize: 17,
+                          fontWeight: FontWeight.w700,
+                          color: context.textPrimary,
+                        ),
+                      ),
+                    ),
+                    if (_route != null)
+                      Text(
+                        '${formatDuration(_route!.durationS)} · ${formatDistance(_route!.distanceM)}',
+                        style: GoogleFonts.inter(
+                          fontSize: 12.5,
+                          fontWeight: FontWeight.w800,
+                          color: AppColors.brandBlue,
+                        ),
+                      ),
+                  ],
                 ),
                 if (loc?.address != null)
-                  Text(loc!.address!, style: GoogleFonts.inter(fontSize: 12, color: context.textSecondary)),
+                  Text(
+                    loc!.address!,
+                    style: GoogleFonts.inter(
+                      fontSize: 12,
+                      color: context.textSecondary,
+                    ),
+                  ),
                 const SizedBox(height: 10),
                 if (loc == null)
-                  const SizedBox(height: 300, child: Center(child: CircularProgressIndicator(strokeWidth: 2, color: AppColors.brandBlue)))
+                  const SizedBox(
+                    height: 300,
+                    child: Center(
+                      child: CircularProgressIndicator(
+                        strokeWidth: 2,
+                        color: AppColors.brandBlue,
+                      ),
+                    ),
+                  )
                 else
                   OneovaMapView(
                     others: mine ? const {} : {label: loc.point},
-                    me: mine ? loc.point : null,
+                    me: mine ? loc.point : _myPos,
+                    destination: mine ? null : loc.point,
+                    destinationName: loc.address ?? label,
+                    route: _route,
+                    rotoscopeHighlight: true,
+                    navigating: _navigating,
                     trackUser: !mine,
+                    onMove: (p) => _myPos = p,
                     height: MediaQuery.of(context).size.height * 0.5,
                   ),
                 const SizedBox(height: 10),
@@ -578,13 +807,29 @@ class _LocationViewer extends StatelessWidget {
                     children: [
                       Expanded(
                         child: OutlinedButton.icon(
-                          onPressed: () => GeoServices.instance.openInMaps(loc.point, label: label.isEmpty ? null : label),
-                          icon: const Icon(Icons.map_rounded, size: 16, color: AppColors.brandBlue),
-                          label: Text('Open in Maps', style: GoogleFonts.inter(fontSize: 12.5, fontWeight: FontWeight.w600, color: context.textPrimary)),
+                          onPressed: () => GeoServices.instance.openInMaps(
+                            loc.point,
+                            label: label.isEmpty ? null : label,
+                          ),
+                          icon: const Icon(
+                            Icons.map_rounded,
+                            size: 16,
+                            color: AppColors.brandBlue,
+                          ),
+                          label: Text(
+                            'Open in Maps',
+                            style: GoogleFonts.inter(
+                              fontSize: 12.5,
+                              fontWeight: FontWeight.w600,
+                              color: context.textPrimary,
+                            ),
+                          ),
                           style: OutlinedButton.styleFrom(
                             minimumSize: const Size.fromHeight(40),
                             side: BorderSide(color: context.border),
-                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(AppRadius.sm)),
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(AppRadius.sm),
+                            ),
                           ),
                         ),
                       ),
@@ -592,13 +837,33 @@ class _LocationViewer extends StatelessWidget {
                         const SizedBox(width: 8),
                         Expanded(
                           child: FilledButton.icon(
-                            onPressed: () => GeoServices.instance.openNavigation(loc.point),
-                            icon: const Icon(Icons.navigation_rounded, size: 16, color: Colors.white),
-                            label: Text('Directions', style: GoogleFonts.inter(fontSize: 12.5, fontWeight: FontWeight.w700, color: Colors.white)),
+                            onPressed: () {
+                              HapticFeedback.mediumImpact();
+                              setState(() => _navigating = !_navigating);
+                            },
+                            icon: Icon(
+                              _navigating
+                                  ? Icons.stop_circle_rounded
+                                  : Icons.navigation_rounded,
+                              size: 16,
+                              color: Colors.white,
+                            ),
+                            label: Text(
+                              _navigating ? 'Stop' : 'Start Live Route',
+                              style: GoogleFonts.inter(
+                                fontSize: 12.5,
+                                fontWeight: FontWeight.w700,
+                                color: Colors.white,
+                              ),
+                            ),
                             style: FilledButton.styleFrom(
                               minimumSize: const Size.fromHeight(40),
-                              backgroundColor: AppColors.brandBlue,
-                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(AppRadius.sm)),
+                              backgroundColor: _navigating
+                                  ? AppColors.brandPink
+                                  : AppColors.brandBlue,
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(AppRadius.sm),
+                              ),
                             ),
                           ),
                         ),
@@ -607,13 +872,29 @@ class _LocationViewer extends StatelessWidget {
                         const SizedBox(width: 8),
                         Expanded(
                           child: FilledButton.icon(
-                            onPressed: () => LiveLocationSharer.instance.stop(chatId, messageId),
-                            icon: const Icon(Icons.stop_circle_rounded, size: 16, color: Colors.white),
-                            label: Text('Stop sharing', style: GoogleFonts.inter(fontSize: 12.5, fontWeight: FontWeight.w700, color: Colors.white)),
+                            onPressed: () => LiveLocationSharer.instance.stop(
+                              widget.chatId,
+                              widget.messageId,
+                            ),
+                            icon: const Icon(
+                              Icons.stop_circle_rounded,
+                              size: 16,
+                              color: Colors.white,
+                            ),
+                            label: Text(
+                              'Stop sharing',
+                              style: GoogleFonts.inter(
+                                fontSize: 12.5,
+                                fontWeight: FontWeight.w700,
+                                color: Colors.white,
+                              ),
+                            ),
                             style: FilledButton.styleFrom(
                               minimumSize: const Size.fromHeight(40),
                               backgroundColor: AppColors.brandPink,
-                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(AppRadius.sm)),
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(AppRadius.sm),
+                              ),
                             ),
                           ),
                         ),

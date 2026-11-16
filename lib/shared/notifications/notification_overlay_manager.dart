@@ -19,6 +19,7 @@ import '../../backend/notifications/models/notification_preferences.dart';
 import '../../backend/notifications/providers/notification_service.dart';
 import '../../backend/security/oneova_ai_gateway.dart';
 import '../../ova_assistant/services/ova_device_hub.dart';
+import '../../ova_assistant/services/ova_notification_memory_service.dart';
 import '../../shared/theme/app_theme.dart';
 import '../router.dart' show rootNavigatorKey;
 import '../services/oneova_sound_service.dart';
@@ -63,8 +64,12 @@ class _NotificationOverlayManagerState extends ConsumerState<NotificationOverlay
     super.initState();
     WidgetsBinding.instance.addObserver(this);
     _authSub = FirebaseAuth.instance.authStateChanges().listen((_) {
-      if (mounted) _syncChatListener();
+      if (mounted) {
+        _syncChatListener();
+        OvaNotificationMemoryService.instance.warm();
+      }
     });
+    OvaNotificationMemoryService.instance.warm();
     _listenToCrossAppNotifications();
     Future.delayed(const Duration(milliseconds: 2200), () {
       if (mounted) _triggerLiveStartupAiSuggestion();
@@ -75,7 +80,7 @@ class _NotificationOverlayManagerState extends ConsumerState<NotificationOverlay
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state == AppLifecycleState.resumed && mounted) {
       final elapsed = DateTime.now().difference(_lastAiPulseAt);
-      if (elapsed.inSeconds >= 90) {
+      if (elapsed.inSeconds >= 300) {
         Future.delayed(const Duration(milliseconds: 1200), () {
           if (mounted) _triggerLiveStartupAiSuggestion();
         });
@@ -115,13 +120,26 @@ class _NotificationOverlayManagerState extends ConsumerState<NotificationOverlay
   void _enqueueExternalAppNotification(OvaPhoneNotification ext) {
     final prefs = ref.read(notificationPreferencesProvider).value ?? NotificationPreferences();
     final appLabel = ext.app.isNotEmpty ? ext.app : 'External App';
-    if (prefs.isExternalPackageBlocked(ext.package) ||
-        prefs.isExternalPackageBlocked(appLabel)) {
+    if (prefs.shouldIgnoreNotification(
+      packageName: ext.package,
+      appName: appLabel,
+      sender: ext.title,
+      title: ext.title,
+      body: ext.text,
+      isExternal: true,
+    )) {
       if (ext.key.isNotEmpty) {
         ref.read(ovaDeviceHubProvider).dismissNotification(ext.key).catchError((_) => false);
       }
       return;
     }
+
+    // Learn silently in the background so Ova is aware ONLY if the user asks about previous notifications.
+    OvaNotificationMemoryService.instance.learnExternalNotification(ext, prefs);
+
+    // Do NOT pop up on screen unless the user explicitly enabled on-screen banner pop-ups.
+    if (!prefs.showScreenPopups) return;
+
     final sender = ext.title.isNotEmpty ? ext.title : appLabel;
     final body = ext.text.isNotEmpty ? ext.text : 'New activity in $appLabel';
     final quickReplies = _buildInstantSmartReplies(sender, body, appLabel);
@@ -132,7 +150,7 @@ class _NotificationOverlayManagerState extends ConsumerState<NotificationOverlay
         id: id,
         userId: FirebaseAuth.instance.currentUser?.uid ?? 'local',
         category: AppNotificationCategory.newMessage,
-        priority: AppNotificationPriority.urgent,
+        priority: AppNotificationPriority.normal,
         title: sender == appLabel ? '📲 $appLabel' : '📲 $appLabel · $sender',
         body: body,
         groupId: 'ext_${ext.key}',
@@ -158,9 +176,9 @@ class _NotificationOverlayManagerState extends ConsumerState<NotificationOverlay
     final token = packageName.trim().isNotEmpty ? packageName.trim() : appName.trim();
     if (token.isEmpty) return;
     final nextList = <String>{...prefs.blockedExternalPackages, token}.toList();
-    await ref.read(notificationServiceProvider).updatePreferences(
-          prefs.copyWith(blockedExternalPackages: nextList),
-        );
+    final updated = prefs.copyWith(blockedExternalPackages: nextList);
+    await ref.read(notificationServiceProvider).updatePreferences(updated);
+    OvaNotificationMemoryService.instance.pruneMuted(updated);
     if (notificationKey.isNotEmpty) {
       await ref.read(ovaDeviceHubProvider).dismissNotification(notificationKey).catchError((_) => false);
     }
@@ -211,7 +229,7 @@ class _NotificationOverlayManagerState extends ConsumerState<NotificationOverlay
     ),
     (
       '⚡ Ova Live Pulse · 1-Second Smart Replies',
-      'Messages from your other apps pop up live here with 1-tap AI replies so you can respond in a second without leaving Oneova.',
+      'Ask Ova AI about your recent messages or notifications anytime to reply in a second without leaving Oneova.',
     ),
     (
       '🎨 Ova Color Director · Cinema Grade',
@@ -229,11 +247,13 @@ class _NotificationOverlayManagerState extends ConsumerState<NotificationOverlay
 
   Future<void> _triggerLiveStartupAiSuggestion() async {
     _lastAiPulseAt = DateTime.now();
+    final prefs = ref.read(notificationPreferencesProvider).value ?? NotificationPreferences();
+    if (prefs.shouldIgnoreNotification(category: 'aiSuggestion')) return;
+
     final rng = math.Random();
     var (String title, String body) =
         _fallbackAiSuggestions[rng.nextInt(_fallbackAiSuggestions.length)];
 
-    // Attempt a fast live AI suggestion from OneovaAiGateway (2.5s budget so startup feels snappy)
     try {
       final user = FirebaseAuth.instance.currentUser;
       final nameHint = user?.displayName?.split(' ').first ?? 'Creator';
@@ -254,13 +274,11 @@ class _NotificationOverlayManagerState extends ConsumerState<NotificationOverlay
         title = '✨ Ova Live AI · Personalized Tip';
         body = cleaned;
       }
-    } catch (_) {
-      // Fallback suggestion already selected
-    }
+    } catch (_) {}
 
     if (!mounted) return;
 
-    // 1. Update the Android system notification so the notification shade shows the live AI suggestion
+    // 1. Quietly update the Android system notification shade (never pops on screen)
     if (!kIsWeb && defaultTargetPlatform == TargetPlatform.android) {
       try {
         await _assistantChannel.invokeMethod('updateAssistantNotification', {
@@ -270,47 +288,34 @@ class _NotificationOverlayManagerState extends ConsumerState<NotificationOverlay
       } catch (_) {}
     }
 
-    // 2. Check if Notification Access is enabled on Android and if there are recent cross-app notifications
-    bool hasNotifAccess = true;
-    List<OvaPhoneNotification> recentExternal = const [];
+    // 2. Silently ingest recent phone notifications into Ova background memory so if the user asks, Ova knows
     if (OvaDeviceHub.supported) {
       try {
         final hub = ref.read(ovaDeviceHubProvider);
         final st = await hub.status();
-        hasNotifAccess = st.notificationAccess;
-        if (hasNotifAccess) {
-          final all = await hub.notifications(limit: 2);
-          final cutoff = DateTime.now().subtract(const Duration(minutes: 20));
-          recentExternal = all.where((x) => x.postTime.isAfter(cutoff)).toList();
+        if (st.notificationAccess) {
+          final all = await hub.notifications(limit: 5);
+          for (final ext in all) {
+            OvaNotificationMemoryService.instance.learnExternalNotification(ext, prefs);
+          }
         }
       } catch (_) {}
     }
 
-    if (!mounted) return;
-
-    // 3. Enqueue the in-app Live AI Suggestion popup
-    _enqueue(
+    // 3. Learn the AI suggestion in background memory without popping up on screen
+    OvaNotificationMemoryService.instance.learnAppNotification(
       AppNotification(
         id: 'ai_startup_${DateTime.now().millisecondsSinceEpoch}',
         userId: FirebaseAuth.instance.currentUser?.uid ?? 'local',
         category: AppNotificationCategory.aiSuggestion,
-        priority: AppNotificationPriority.urgent,
+        priority: AppNotificationPriority.low,
         title: title,
         body: body,
         deepLink: '/hub/ai',
-        payload: {
-          'isStartupAiSuggestion': true,
-          'needsNotificationAccess': OvaDeviceHub.supported && !hasNotifAccess,
-          'quickReplies': const ['✨ Ask Ova AI', '🎬 Film Reel', '🎵 Story + Music'],
-        },
         createdAt: DateTime.now(),
       ),
+      prefs,
     );
-
-    // 4. If there's an active recent notification from another app, queue it right behind so user sees what's happening
-    for (final ext in recentExternal.take(1)) {
-      _enqueueExternalAppNotification(ext);
-    }
   }
 
   // ───────────────────────── Queue ─────────────────────────
@@ -320,13 +325,35 @@ class _NotificationOverlayManagerState extends ConsumerState<NotificationOverlay
     if (_seen.length > 300) _seen.remove(_seen.first);
 
     final prefs = ref.read(notificationPreferencesProvider).value ?? NotificationPreferences();
+    final isExt = n.payload?['isExternalApp'] == true;
+    if (prefs.shouldIgnoreNotification(
+      category: n.category.name,
+      packageName: n.payload?['packageName']?.toString(),
+      appName: n.payload?['appName']?.toString(),
+      sender: n.payload?['senderName']?.toString() ?? n.title,
+      title: n.title,
+      body: n.body,
+      isExternal: isExt,
+    )) {
+      return;
+    }
+
+    // Silently learn in background memory so Ova knows if the user asks about previous notifications.
+    OvaNotificationMemoryService.instance.learnAppNotification(n, prefs);
+
     final urgent = n.priority == AppNotificationPriority.urgent;
-    // Tips and update notes wait quietly in the centre and the system tray.
     if (n.priority == AppNotificationPriority.low) return;
     if (!prefs.inAppEnabled && !urgent) return;
-    if (!prefs.isCategoryEnabled(n.category.name) && !urgent) return;
 
-    // A newer message from the same chat replaces the queued one.
+    final quiet = prefs.isInQuietHours() && !urgent;
+
+    // Default behavior: ring the notification chime & haptic without popping a banner over the screen!
+    if (!prefs.showScreenPopups) {
+      if (!quiet) _ring(n, prefs);
+      return;
+    }
+
+    // Only if the user explicitly enabled on-screen banner pop-ups:
     if (n.groupId != null) _queue.removeWhere((q) => q.groupId == n.groupId);
     if (urgent) {
       _queue.insert(0, n);

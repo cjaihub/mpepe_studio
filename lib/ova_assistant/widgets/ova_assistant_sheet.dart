@@ -1712,6 +1712,30 @@ class _OvaAssistantPanelState extends ConsumerState<OvaAssistantPanel> {
             const SizedBox(width: 6),
             _attachToolTile(
               context,
+              icon: Icons.map_rounded,
+              label: 'Live Map & Route',
+              accent: AppColors.brandPink,
+              onTap: () {
+                HapticFeedback.selectionClick();
+                setState(() => _showAttachTools = false);
+                _chat.send('where am I');
+              },
+            ),
+            const SizedBox(width: 6),
+            _attachToolTile(
+              context,
+              icon: Icons.notifications_active_outlined,
+              label: 'Past Alerts',
+              accent: AppColors.brandBlue,
+              onTap: () {
+                HapticFeedback.selectionClick();
+                setState(() => _showAttachTools = false);
+                _chat.send('recall previous notifications');
+              },
+            ),
+            const SizedBox(width: 6),
+            _attachToolTile(
+              context,
               icon: Icons.record_voice_over_rounded,
               label: 'Voice Avatar',
               accent: AppColors.brandPink,

@@ -22,6 +22,7 @@ import 'ova_geo_tools.dart';
 import 'ova_llm_client.dart';
 import 'ova_local_intents.dart';
 import 'ova_memory_tools.dart';
+import 'ova_notification_memory_service.dart';
 import 'ova_shared_history_service.dart';
 import 'ova_task_center.dart';
 import 'ova_tool_registry.dart';
@@ -268,6 +269,7 @@ class OvaChatController extends ChangeNotifier {
   Future<String?> _modelLoop(int turn, String? imageBase64, StringBuffer replyLog) async {
     String? navigateTo;
     await OvaMemoryTools.instance.warm();
+    await OvaNotificationMemoryService.instance.warm();
     for (var round = 0; round < 8; round++) {
       final bubble = OvaItem._(OvaItemKind.assistant, streaming: true);
       items.add(bubble);
@@ -453,7 +455,8 @@ Rules:
 - If a tool result says something is unsupported on this platform, say so plainly and offer the closest alternative.
 - If a needed detail is missing (who, what time), ask one short question.
 - Keep answers short and friendly. Use Markdown lists only when they help.
-- Location: use get_location for "where am I", find_nearby for places around them, navigate_to for directions. These show a live map in your reply, so do not repeat coordinates; give one useful line (closest open place, travel time, weak signal warning).
+- Location & Map: use get_location for "where am I", find_nearby for places around them, navigate_to for live animated directions with Start, and share_live_location for WhatsApp-style live location sharing. You can pass rotoscope: true to highlight places/routes with rotoscope contour glow, or start_navigation: true when the user says "start navigation to...".
+- Notifications: never mention notifications unless the user asks about them. When the user asks about previous notifications, missed alerts, or messages, use recall_previous_notifications (or read_notifications on Android). Use mute_notification_source when the user says they don't want notifications or information from an app, category, or sender.
 - Memory: use recent_activity when the user asks what they were doing or what to do next, and use it to make suggestions personal.
 - Reminders: set_reminder needs a clock time. For "remind me when…" without a time, ask what time. list_reminders and cancel_reminder manage them.
 - Times for tools are ISO 8601 local time. Now: ${DateFormat("yyyy-MM-dd'T'HH:mm (EEEE)").format(now)}.
@@ -463,6 +466,7 @@ Context:
 - Ova abilities the user allowed: ${_abilitiesLine()}.
 - ${OvaGeoTools.instance.contextLine()}
 - ${OvaMemoryTools.instance.contextLine()}
+- ${OvaNotificationMemoryService.instance.buildOnDemandContext(latestUserQuery: _lastPrompt)}
 - ${invocation.contentId != null ? 'The user opened you from a reel, so like_current_reel and comment_current_reel work.' : 'No reel is open, so like/comment tools will not work.'}
 - ${invocation.chatId != null ? 'The user opened you from a chat; help them draft replies when asked.' : ''}
 ${invocation.contentId != null ? '''

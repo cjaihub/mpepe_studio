@@ -188,8 +188,16 @@ class _SettingsBody extends ConsumerWidget {
           ],
         ),
         _Section(
-          title: 'Other apps & focus shield',
+          title: 'Focus shield & where you don\'t want info from',
           children: [
+            _ToggleRow(
+              icon: Icons.volume_up_outlined,
+              tint: AppColors.brandBlue,
+              title: 'Ring only (no screen pop-ups)',
+              subtitle: 'Rings your chime & learns in background for Ova AI without popping banners over your screen',
+              value: !prefs.showScreenPopups,
+              onChanged: (v) => _save(ref, {'showScreenPopups': !v}),
+            ),
             _ToggleRow(
               icon: Icons.block_rounded,
               tint: AppColors.brandPink,
@@ -198,9 +206,17 @@ class _SettingsBody extends ConsumerWidget {
               value: prefs.blockExternalAppNotifications,
               onChanged: (v) => _save(ref, {'blockExternalAppNotifications': v}),
             ),
+            _MutedSourcesRow(
+              prefs: prefs,
+              onChanged: (list) => _save(ref, {'mutedSources': list}),
+            ),
             _BlockedExternalAppsRow(
               prefs: prefs,
               onChanged: (list) => _save(ref, {'blockedExternalPackages': list}),
+            ),
+            _MutedKeywordsRow(
+              prefs: prefs,
+              onChanged: (list) => _save(ref, {'mutedKeywords': list}),
             ),
           ],
         ),
@@ -218,10 +234,17 @@ class _SettingsBody extends ConsumerWidget {
           children: [
             _ToggleRow(
               icon: Icons.notifications_outlined,
-              title: 'In-app banners',
-              subtitle: 'Drop-down alerts while you use Oneova',
+              title: 'In-app alerts & ring',
+              subtitle: 'Ring and badge alerts while you use Oneova',
               value: prefs.inAppEnabled,
               onChanged: (v) => _save(ref, {'inAppEnabled': v}),
+            ),
+            _ToggleRow(
+              icon: Icons.web_asset_rounded,
+              title: 'Floating screen pop-ups',
+              subtitle: 'Show drop-down cards over your screen when alerts arrive',
+              value: prefs.showScreenPopups,
+              onChanged: (v) => _save(ref, {'showScreenPopups': v}),
             ),
             _ToggleRow(
               icon: Icons.phone_iphone_rounded,
@@ -260,6 +283,243 @@ class _SettingsBody extends ConsumerWidget {
 // ─────────────────────────────────────────────────────────────────────────────
 // Building blocks
 // ─────────────────────────────────────────────────────────────────────────────
+
+class _MutedSourcesRow extends StatelessWidget {
+  final NotificationPreferences prefs;
+  final ValueChanged<List<String>> onChanged;
+  const _MutedSourcesRow({required this.prefs, required this.onChanged});
+
+  static const List<(String, String, IconData)> _sources = [
+    ('external_apps', 'Other Phone Apps', Icons.phone_android_rounded),
+    ('ai_suggestions', 'AI Tips & Prompts', Icons.auto_awesome_outlined),
+    ('promotions', 'Promos & Deals', Icons.local_offer_outlined),
+    ('social_likes', 'Likes & Follows', Icons.favorite_border_rounded),
+    ('comments', 'Comments & Tags', Icons.chat_bubble_outline_rounded),
+    ('live_streams', 'Live Broadcasts', Icons.sensors_rounded),
+  ];
+
+  @override
+  Widget build(BuildContext context) {
+    final muted = prefs.mutedSources.toSet();
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(14, 10, 14, 10),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Text(
+                'Where you don\'t want info from',
+                style: GoogleFonts.inter(
+                  fontSize: 12.5,
+                  fontWeight: FontWeight.w700,
+                  color: context.textPrimary,
+                ),
+              ),
+              const Spacer(),
+              if (muted.isNotEmpty)
+                GestureDetector(
+                  onTap: () => onChanged(const []),
+                  child: Text(
+                    'Allow all (${muted.length} muted)',
+                    style: GoogleFonts.inter(
+                      fontSize: 11,
+                      fontWeight: FontWeight.w700,
+                      color: AppColors.brandBlue,
+                    ),
+                  ),
+                ),
+            ],
+          ),
+          const SizedBox(height: 3),
+          Text(
+            'Tap any source to block alerts and stop Ova AI from learning from it.',
+            style: GoogleFonts.inter(fontSize: 11, color: context.textSecondary),
+          ),
+          const SizedBox(height: 8),
+          Wrap(
+            spacing: 6,
+            runSpacing: 6,
+            children: [
+              for (final (id, label, icon) in _sources)
+                Builder(builder: (context) {
+                  final isMuted = muted.contains(id);
+                  return GestureDetector(
+                    onTap: () {
+                      final next = Set<String>.from(muted);
+                      if (isMuted) {
+                        next.remove(id);
+                      } else {
+                        next.add(id);
+                      }
+                      onChanged(next.toList());
+                    },
+                    child: AnimatedContainer(
+                      duration: const Duration(milliseconds: 160),
+                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+                      decoration: BoxDecoration(
+                        color: isMuted
+                            ? AppColors.brandPink.withValues(alpha: 0.14)
+                            : context.surfaceMid,
+                        borderRadius: BorderRadius.circular(AppRadius.full),
+                        border: Border.all(
+                          color: isMuted ? AppColors.brandPink : context.border,
+                          width: 1.0,
+                        ),
+                      ),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Icon(
+                            isMuted ? Icons.notifications_off_rounded : icon,
+                            size: 12,
+                            color: isMuted ? AppColors.brandPink : context.textSecondary,
+                          ),
+                          const SizedBox(width: 4),
+                          Text(
+                            isMuted ? '$label (Muted)' : label,
+                            style: GoogleFonts.inter(
+                              fontSize: 11,
+                              fontWeight: isMuted ? FontWeight.w700 : FontWeight.w500,
+                              color: isMuted ? AppColors.brandPink : context.textPrimary,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  );
+                }),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _MutedKeywordsRow extends StatefulWidget {
+  final NotificationPreferences prefs;
+  final ValueChanged<List<String>> onChanged;
+  const _MutedKeywordsRow({required this.prefs, required this.onChanged});
+
+  @override
+  State<_MutedKeywordsRow> createState() => _MutedKeywordsRowState();
+}
+
+class _MutedKeywordsRowState extends State<_MutedKeywordsRow> {
+  final TextEditingController _ctrl = TextEditingController();
+
+  @override
+  void dispose() {
+    _ctrl.dispose();
+    super.dispose();
+  }
+
+  void _add() {
+    final v = _ctrl.text.trim();
+    if (v.isEmpty) return;
+    _ctrl.clear();
+    final next = <String>{...widget.prefs.mutedKeywords, v}.toList();
+    widget.onChanged(next);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final list = widget.prefs.mutedKeywords;
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(14, 8, 14, 12),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            'Muted senders, topics & keywords',
+            style: GoogleFonts.inter(
+              fontSize: 12.5,
+              fontWeight: FontWeight.w700,
+              color: context.textPrimary,
+            ),
+          ),
+          const SizedBox(height: 6),
+          Row(
+            children: [
+              Expanded(
+                child: TextField(
+                  controller: _ctrl,
+                  onSubmitted: (_) => _add(),
+                  style: GoogleFonts.inter(fontSize: 12, color: context.textPrimary),
+                  decoration: InputDecoration(
+                    isDense: true,
+                    hintText: 'Add sender, app, or keyword to mute…',
+                    hintStyle: GoogleFonts.inter(fontSize: 11.5, color: context.textMuted),
+                    filled: true,
+                    fillColor: context.surfaceMid,
+                    contentPadding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                    border: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(AppRadius.sm),
+                      borderSide: BorderSide(color: context.border),
+                    ),
+                    enabledBorder: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(AppRadius.sm),
+                      borderSide: BorderSide(color: context.border),
+                    ),
+                  ),
+                ),
+              ),
+              const SizedBox(width: 8),
+              FilledButton(
+                style: FilledButton.styleFrom(
+                  backgroundColor: AppColors.brandBlue,
+                  minimumSize: const Size(0, 34),
+                  padding: const EdgeInsets.symmetric(horizontal: 12),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(AppRadius.sm),
+                  ),
+                ),
+                onPressed: _add,
+                child: Text('Mute', style: GoogleFonts.inter(fontSize: 11.5, fontWeight: FontWeight.w700, color: Colors.white)),
+              ),
+            ],
+          ),
+          if (list.isNotEmpty) ...[
+            const SizedBox(height: 8),
+            Wrap(
+              spacing: 6,
+              runSpacing: 6,
+              children: [
+                for (final kw in list)
+                  GestureDetector(
+                    onTap: () {
+                      final next = list.where((x) => x != kw).toList();
+                      widget.onChanged(next);
+                    },
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 4),
+                      decoration: BoxDecoration(
+                        color: AppColors.brandPink.withValues(alpha: 0.12),
+                        borderRadius: BorderRadius.circular(AppRadius.full),
+                        border: Border.all(color: AppColors.brandPink.withValues(alpha: 0.45)),
+                      ),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Text(
+                            kw,
+                            style: GoogleFonts.inter(fontSize: 11, fontWeight: FontWeight.w700, color: AppColors.brandPink),
+                          ),
+                          const SizedBox(width: 4),
+                          const Icon(Icons.close_rounded, size: 12, color: AppColors.brandPink),
+                        ],
+                      ),
+                    ),
+                  ),
+              ],
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+}
 
 class _BlockedExternalAppsRow extends StatelessWidget {
   final NotificationPreferences prefs;
