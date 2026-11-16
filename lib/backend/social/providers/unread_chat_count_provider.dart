@@ -13,7 +13,12 @@ final unreadChatCountProvider = StreamProvider<int>((ref) {
       .map((snap) {
     var total = 0;
     for (final d in snap.docs) {
-      final counts = d.data()['unreadCounts'];
+      final data = d.data();
+      final archived = data['archivedUsers'];
+      if (archived is List && archived.contains(uid)) continue;
+      final muted = data['mutedUsers'];
+      if (muted is List && muted.contains(uid)) continue;
+      final counts = data['unreadCounts'];
       if (counts is Map) {
         final v = counts[uid];
         if (v is num) total += v.toInt();

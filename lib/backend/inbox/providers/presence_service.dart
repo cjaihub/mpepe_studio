@@ -71,12 +71,13 @@ final userPresenceDetailsProvider =
     final data = snapshot.data();
     if (data == null) return const UserPresence();
 
-    final isOnline = data['isOnline'] as bool? ?? false;
+    final showActivity = data['showActivityStatus'] as bool? ?? true;
+    final isOnline = showActivity && (data['isOnline'] as bool? ?? false);
     final inCall = data['inCall'] as bool? ?? false;
     final inLive = data['inLive'] as bool? ?? false;
     final callId = data['activeCallId'] as String?;
     final liveStreamId = data['activeStreamId'] as String?;
-    final lastSeen = (data['lastSeen'] as Timestamp?)?.toDate();
+    final lastSeen = showActivity ? (data['lastSeen'] as Timestamp?)?.toDate() : null;
 
     if (inCall) {
       return UserPresence(
@@ -117,25 +118,46 @@ final userPresenceProvider = StreamProvider.family<bool, String>((ref, userId) {
   return ref.watch(userPresenceDetailsProvider(userId)).when(
         data: (presence) => Stream.value(presence.isOnline),
         loading: () => Stream.value(false),
-        error: (_, __) => Stream.value(false),
+        error: (_, _) => Stream.value(false),
       );
 });
 
 class PresenceService {
   final FirebaseFirestore _firestore;
   Timer? _heartbeatTimer;
+  StreamSubscription<DocumentSnapshot<Map<String, dynamic>>>? _privacySub;
   String? _userId;
+  bool _showActivityStatus = true;
 
   PresenceService(this._firestore) {
     FirebaseAuth.instance.authStateChanges().listen((user) {
       if (user != null) {
         _userId = user.uid;
+        _watchPrivacySetting(user.uid);
         _startHeartbeat();
       } else {
+        _privacySub?.cancel();
+        _privacySub = null;
         _stopHeartbeat();
         _userId = null;
       }
     });
+  }
+
+  void _watchPrivacySetting(String uid) {
+    _privacySub?.cancel();
+    _privacySub = _firestore
+        .collection('user_settings')
+        .doc(uid)
+        .snapshots()
+        .listen((doc) {
+      final privacy = doc.data()?['privacy'];
+      final show = privacy is Map ? (privacy['showActivityStatus'] as bool? ?? true) : true;
+      if (show != _showActivityStatus) {
+        _showActivityStatus = show;
+        _updatePresence();
+      }
+    }, onError: (_) {});
   }
 
   void _startHeartbeat() {
@@ -155,9 +177,17 @@ class PresenceService {
   Future<void> _updatePresence() async {
     if (_userId == null) return;
     try {
+      if (!_showActivityStatus) {
+        await _firestore.collection('users').doc(_userId).set({
+          'isOnline': false,
+          'showActivityStatus': false,
+        }, SetOptions(merge: true));
+        return;
+      }
       await _firestore.collection('users').doc(_userId).set({
         'lastSeen': FieldValue.serverTimestamp(),
         'isOnline': true,
+        'showActivityStatus': true,
       }, SetOptions(merge: true));
     } catch (e) {
       debugPrint('Error updating presence: $e');

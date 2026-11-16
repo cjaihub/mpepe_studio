@@ -579,6 +579,10 @@ class _NotificationOverlayManagerState extends ConsumerState<NotificationOverlay
     if (sender == null || sender == me || at == null || !at.isAfter(_chatSince)) return;
     final muted = d['mutedBy'];
     if (muted is List && muted.contains(me)) return;
+    final mutedUsers = d['mutedUsers'];
+    if (mutedUsers is List && mutedUsers.contains(me)) return;
+    final archivedUsers = d['archivedUsers'];
+    if (archivedUsers is List && archivedUsers.contains(me)) return;
 
     // Already looking at this chat (or in a call): don't pop.
     final path = _currentPath();

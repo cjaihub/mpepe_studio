@@ -34,6 +34,9 @@ import '../../backend/inbox/providers/presence_service.dart';
 import '../../shared/widgets/live_user_presence_dot.dart';
 import '../../ova_assistant/widgets/ova_assistant_sheet.dart';
 import '../../backend/social/models/creator_engagement_level.dart';
+import '../../backend/social/repositories/relationship_repository.dart';
+import 'widgets/chat_local_preview_store.dart';
+import 'widgets/starred_messages_sheet.dart';
 
 /// The single Oneova inbox (`/hub/messages`): Oneova chats plus the
 /// messages and comments of every linked platform. Every inbox entry point
@@ -82,6 +85,9 @@ class _InAppMessagingScreenState extends ConsumerState<InAppMessagingScreen> {
   @override
   void initState() {
     super.initState();
+    ChatLocalPreviewStore.instance.ensureLoaded().then((_) {
+      if (mounted) setState(() {});
+    });
     if (currentUserId != null) {
       _currentUserFuture = ref
           .read(userProvider.notifier)
@@ -131,141 +137,9 @@ class _InAppMessagingScreenState extends ConsumerState<InAppMessagingScreen> {
   }
 
   void _openStarredMessagesSheet() {
-    showModalBottomSheet(
-      context: context,
-      backgroundColor: context.surface,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
-      ),
-      builder: (ctx) => SafeArea(
-        child: Padding(
-          padding: const EdgeInsets.all(20),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Row(
-                children: [
-                  const Icon(
-                    Icons.star_rounded,
-                    color: AppColors.brandPink,
-                    size: 22,
-                  ),
-                  const SizedBox(width: 10),
-                  Text(
-                    'Starred Messages',
-                    style: GoogleFonts.inter(
-                      color: context.textPrimary,
-                      fontWeight: FontWeight.bold,
-                      fontSize: 17,
-                    ),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 16),
-              Container(
-                padding: const EdgeInsets.all(14),
-                decoration: BoxDecoration(
-                  color: context.surfaceMid,
-                  borderRadius: BorderRadius.circular(14),
-                  border: Border.all(color: context.border),
-                ),
-                child: Row(
-                  children: [
-                    const Icon(
-                      Icons.description_outlined,
-                      color: AppColors.brandBlue,
-                      size: 20,
-                    ),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            'OneOva XML Sequence',
-                            style: GoogleFonts.inter(
-                              color: context.textPrimary,
-                              fontWeight: FontWeight.bold,
-                              fontSize: 13,
-                            ),
-                          ),
-                          const SizedBox(height: 2),
-                          Text(
-                            'Draft sequence ready for export (OneOva XML)',
-                            style: GoogleFonts.inter(
-                              color: context.textSecondary,
-                              fontSize: 12,
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                    Text(
-                      '4:38 AM',
-                      style: GoogleFonts.inter(
-                        color: context.textMuted,
-                        fontSize: 11,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-              const SizedBox(height: 12),
-              Container(
-                padding: const EdgeInsets.all(14),
-                decoration: BoxDecoration(
-                  color: context.surfaceMid,
-                  borderRadius: BorderRadius.circular(14),
-                  border: Border.all(color: context.border),
-                ),
-                child: Row(
-                  children: [
-                    const Icon(
-                      Icons.graphic_eq_rounded,
-                      color: AppColors.brandBlue,
-                      size: 20,
-                    ),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            'Young P Audio Master',
-                            style: GoogleFonts.inter(
-                              color: context.textPrimary,
-                              fontWeight: FontWeight.bold,
-                              fontSize: 13,
-                            ),
-                          ),
-                          const SizedBox(height: 2),
-                          Text(
-                            '0:42 Iyi kitu ni mbaya Babu, drop the master!',
-                            style: GoogleFonts.inter(
-                              color: context.textSecondary,
-                              fontSize: 12,
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                    Text(
-                      '4:51 AM',
-                      style: GoogleFonts.inter(
-                        color: context.textMuted,
-                        fontSize: 11,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-              const SizedBox(height: 20),
-            ],
-          ),
-        ),
-      ),
-    );
+    final uid = currentUserId;
+    if (uid == null || uid.isEmpty) return;
+    showGlobalStarredMessagesSheet(context, uid: uid);
   }
 
   void _openAiStudioCompanion() {
@@ -843,16 +717,25 @@ class _InAppMessagingScreenState extends ConsumerState<InAppMessagingScreen> {
     final uid = currentUserId ?? '';
     final chats = chatsAsync.value ?? const <ChatModel>[];
     var totalUnread = 0;
+    var archivedCount = 0;
     for (final c in chats) {
-      totalUnread += c.unreadCounts[uid] ?? 0;
+      if (c.isArchivedBy(uid)) {
+        archivedCount++;
+        continue;
+      }
+      if (!c.isMutedBy(uid)) {
+        totalUnread += c.unreadCounts[uid] ?? 0;
+      }
     }
     final groupCount = chats
-        .where((c) => c.category == 'group' || c.participants.length > 2)
+        .where((c) => !c.isArchivedBy(uid) && (c.category == 'group' || c.participants.length > 2))
         .length;
     final requestCount = chats
         .where(
           (c) =>
+              !c.isArchivedBy(uid) &&
               !c.isMutual &&
+              !c.acceptedRequests.contains(uid) &&
               c.participants.length == 2 &&
               c.category != 'group' &&
               c.category != 'channel',
@@ -890,6 +773,12 @@ class _InAppMessagingScreenState extends ConsumerState<InAppMessagingScreen> {
         'id': 'files',
         'label': 'Files & media',
         'icon': Icons.attach_file_rounded,
+      },
+      {
+        'id': 'archived',
+        'label': 'Archived',
+        'icon': Icons.archive_outlined,
+        if (archivedCount > 0) 'badge': '$archivedCount',
       },
       {'id': 'rooms', 'label': 'Rooms', 'icon': Icons.meeting_room_rounded},
       {
@@ -1119,12 +1008,16 @@ class _InAppMessagingScreenState extends ConsumerState<InAppMessagingScreen> {
   // 4B. MESSAGE REQUESTS VIEW (NON-MUTUAL FOLLOWERS)
   // ──────────────────────────────────────────────────────────────────────────
   Widget _buildMessageRequestsView(AsyncValue<List<ChatModel>> chatsAsync) {
+    final uid = currentUserId ?? '';
     return chatsAsync.smoothWhen(
       data: (chats) {
         final requests = chats
             .where(
               (c) =>
+                  !c.isArchivedBy(uid) &&
+                  !c.isBlocked &&
                   !c.isMutual &&
+                  !c.acceptedRequests.contains(uid) &&
                   c.participants.length == 2 &&
                   c.category != 'group' &&
                   c.category != 'channel',
@@ -1274,8 +1167,8 @@ class _InAppMessagingScreenState extends ConsumerState<InAppMessagingScreen> {
                             ),
                             const SizedBox(height: 2),
                             Text(
-                              chat.lastMessage.isNotEmpty
-                                  ? chat.lastMessage
+                              _snippetForChat(chat).isNotEmpty
+                                  ? _snippetForChat(chat)
                                   : 'Wants to send you a message',
                               style: GoogleFonts.inter(
                                 color: context.textSecondary,
@@ -1293,33 +1186,96 @@ class _InAppMessagingScreenState extends ConsumerState<InAppMessagingScreen> {
                   Row(
                     children: [
                       Expanded(
+                        child: ElevatedButton(
+                          onPressed: () async {
+                            HapticFeedback.lightImpact();
+                            final myId = currentUserId;
+                            if (myId == null) return;
+                            final router = GoRouter.of(context);
+                            await ref.read(messagingRepositoryProvider).acceptMessageRequest(chat.id, myId);
+                            if (mounted) router.push('/hub/messages/${chat.id}');
+                          },
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: AppColors.brandBlue,
+                            foregroundColor: Colors.white,
+                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                            padding: const EdgeInsets.symmetric(vertical: 8),
+                          ),
+                          child: Text(
+                            'Accept',
+                            style: GoogleFonts.inter(fontSize: 12, fontWeight: FontWeight.w700),
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: FollowButton(
+                          targetUserId: otherUserId,
+                          targetName: chat.title,
+                          expand: true,
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 6),
+                  Row(
+                    children: [
+                      Expanded(
                         child: OutlinedButton(
                           onPressed: () {
                             context.push('/hub/messages/${chat.id}');
                           },
                           style: OutlinedButton.styleFrom(
                             side: BorderSide(color: context.border),
-                            shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(10),
-                            ),
-                            padding: const EdgeInsets.symmetric(vertical: 8),
+                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                            padding: const EdgeInsets.symmetric(vertical: 7),
                           ),
                           child: Text(
-                            'Preview Chat',
+                            'Preview',
                             style: GoogleFonts.inter(
                               color: context.textPrimary,
-                              fontSize: 12,
+                              fontSize: 11.5,
                               fontWeight: FontWeight.w600,
                             ),
                           ),
                         ),
                       ),
-                      const SizedBox(width: 10),
-                      Expanded(
-                        child: FollowButton(
-                          targetUserId: otherUserId,
-                          targetName: chat.title,
-                          expand: true,
+                      const SizedBox(width: 8),
+                      OutlinedButton(
+                        onPressed: () async {
+                          final myId = currentUserId;
+                          if (myId == null) return;
+                          await ref.read(messagingRepositoryProvider).declineMessageRequest(chat.id, myId);
+                        },
+                        style: OutlinedButton.styleFrom(
+                          side: BorderSide(color: context.border),
+                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
+                        ),
+                        child: Text(
+                          'Delete',
+                          style: GoogleFonts.inter(
+                            color: context.textSecondary,
+                            fontSize: 11.5,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      OutlinedButton(
+                        onPressed: () => _confirmBlockFromInbox(chat, otherUserId),
+                        style: OutlinedButton.styleFrom(
+                          side: BorderSide(color: AppColors.brandPink.withValues(alpha: 0.45)),
+                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
+                        ),
+                        child: Text(
+                          'Block',
+                          style: GoogleFonts.inter(
+                            color: AppColors.brandPink,
+                            fontSize: 11.5,
+                            fontWeight: FontWeight.w700,
+                          ),
                         ),
                       ),
                     ],
@@ -1692,9 +1648,14 @@ class _InAppMessagingScreenState extends ConsumerState<InAppMessagingScreen> {
     } catch (e) {
       if (!mounted) return;
       Navigator.pop(context); // dismiss loading
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(content: Text('Error starting chat: $e')));
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            e is StateError ? e.message : 'Could not open this conversation right now.',
+          ),
+          backgroundColor: AppColors.brandPink,
+        ),
+      );
     }
   }
 
@@ -1960,27 +1921,39 @@ class _InAppMessagingScreenState extends ConsumerState<InAppMessagingScreen> {
   // ──────────────────────────────────────────────────────────────────────────
   // 6. CHAT INBOX CONVERSATION LIST
   // ──────────────────────────────────────────────────────────────────────────
+  String _snippetForChat(ChatModel chat) {
+    final local = ChatLocalPreviewStore.instance.previewFor(
+      chat.id,
+      chat.lastMessageTime?.millisecondsSinceEpoch,
+    );
+    if (local != null && local.isNotEmpty) return local;
+    return chat.lastMessage;
+  }
+
   Widget _buildChatsList(AsyncValue<List<ChatModel>> chatsAsync) {
+    final uid = currentUserId ?? '';
     return chatsAsync.when(
       data: (chats) {
-        // Apply filter logic
-        var filtered = chats;
+        if (uid.isNotEmpty) {
+          WidgetsBinding.instance.addPostFrameCallback((_) {
+            if (mounted) {
+              ref.read(messagingRepositoryProvider).markChatsDelivered(uid, chats);
+            }
+          });
+        }
 
-        // Strict Mutual Connection Gate: Only mutual followers appear in the primary inbox
-        // Non-mutual chats are accessible via the 'Requests' pill
-        filtered = filtered.where((c) {
-          if (c.category == 'group' ||
-              c.category == 'channel' ||
-              c.participants.length > 2) {
+        // Apply archive vs active partition first, then mutual/accepted gate.
+        var filtered = chats.where((c) {
+          if (_activeFilter == 'archived') return c.isArchivedBy(uid);
+          if (c.isArchivedBy(uid)) return false;
+          if (c.category == 'group' || c.category == 'channel' || c.participants.length > 2) {
             return true;
           }
-          return c.isMutual;
+          return c.isMutual || c.acceptedRequests.contains(uid);
         }).toList();
 
         if (_activeFilter == 'unread') {
-          filtered = filtered
-              .where((c) => (c.unreadCounts[currentUserId!] ?? 0) > 0)
-              .toList();
+          filtered = filtered.where((c) => (c.unreadCounts[uid] ?? 0) > 0).toList();
         } else if (_activeFilter == 'favorites') {
           filtered = filtered.where((c) => c.isStarred).toList();
         } else if (_activeFilter == 'groups') {
@@ -1990,32 +1963,33 @@ class _InAppMessagingScreenState extends ConsumerState<InAppMessagingScreen> {
         } else if (_activeFilter == 'channels') {
           filtered = filtered.where((c) => c.category == 'channel').toList();
         } else if (_activeFilter == 'voicenotes') {
-          filtered = filtered
-              .where(
-                (c) =>
-                    c.hasVoiceMemo ||
-                    c.lastMessage.toLowerCase().contains('voice note') ||
-                    c.lastMessage.contains('🎙️'),
-              )
-              .toList();
+          filtered = filtered.where((c) {
+            final t = c.lastMessageType;
+            return t == 'audio' ||
+                c.hasVoiceMemo ||
+                c.lastMessage.toLowerCase().contains('voice note') ||
+                c.lastMessage.contains('🎙️');
+          }).toList();
         } else if (_activeFilter == 'files') {
-          filtered = filtered
-              .where(
-                (c) =>
-                    c.lastMessage.toLowerCase().contains('document') ||
-                    c.lastMessage.contains('📄') ||
-                    c.lastMessage.contains('photo') ||
-                    c.lastMessage.contains('📷') ||
-                    c.lastMessage.contains('video') ||
-                    c.lastMessage.contains('🎥'),
-              )
-              .toList();
+          const mediaTypes = {'image', 'video', 'video_note', 'gif', 'document', 'file', 'archive', 'code'};
+          filtered = filtered.where((c) {
+            if (c.lastMessageType != null && mediaTypes.contains(c.lastMessageType)) {
+              return true;
+            }
+            final lower = c.lastMessage.toLowerCase();
+            return lower.contains('document') ||
+                lower.contains('photo') ||
+                lower.contains('video') ||
+                c.lastMessage.contains('📄') ||
+                c.lastMessage.contains('📷') ||
+                c.lastMessage.contains('🎥');
+          }).toList();
         }
 
         if (_searchQuery.isNotEmpty) {
           filtered = filtered.where((c) {
             final t = (c.title ?? '').toLowerCase();
-            final msg = c.lastMessage.toLowerCase();
+            final msg = _snippetForChat(c).toLowerCase();
             final role = (c.roleBadge ?? '').toLowerCase();
             return t.contains(_searchQuery) ||
                 msg.contains(_searchQuery) ||
@@ -2694,92 +2668,115 @@ class _InAppMessagingScreenState extends ConsumerState<InAppMessagingScreen> {
   }
 
   Widget _buildChatItem(ChatModel chat, int index) {
-    final unreadCount = chat.unreadCounts[currentUserId!] ?? 0;
+    final uid = currentUserId ?? '';
+    final unreadCount = chat.unreadCounts[uid] ?? 0;
     final otherUserId = chat.participants.firstWhere(
-      (id) => id != currentUserId,
+      (id) => id != uid,
       orElse: () => chat.participants.first,
     );
+    final isPinned = uid.isNotEmpty && chat.isPinnedBy(uid);
+    final isMuted = uid.isNotEmpty && chat.isMutedBy(uid);
+    final isArchived = uid.isNotEmpty && chat.isArchivedBy(uid);
+    final isGroup = chat.category == 'group' || chat.participants.length > 2;
+    final isOutgoingLast = chat.lastMessageSenderId != null && chat.lastMessageSenderId == uid;
+    final snippet = _snippetForChat(chat);
 
     // Formatted time or fallback
     final timeStr = chat.lastMessageTime != null
         ? timeago.format(chat.lastMessageTime!.toDate(), locale: 'en_short')
         : 'now';
 
-    return InkWell(
-          onTap: () {
-            context.push('/hub/messages/${chat.id}');
-          },
+    final row = InkWell(
+      onTap: () {
+        context.push('/hub/messages/${chat.id}');
+      },
+      onLongPress: () => _showThreadActions(chat),
+      borderRadius: BorderRadius.circular(12),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+        margin: const EdgeInsets.symmetric(horizontal: 10, vertical: 3),
+        decoration: BoxDecoration(
+          color: context.surface,
           borderRadius: BorderRadius.circular(12),
-          child: Container(
-            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-            margin: const EdgeInsets.symmetric(horizontal: 10, vertical: 3),
-            decoration: BoxDecoration(
-              color: context.surface,
-              borderRadius: BorderRadius.circular(12),
-              border: Border.all(color: context.border, width: 1.0),
-            ),
-            child: Row(
-              children: [
-                // Avatar with overlay badge
-                _buildAvatarWithBadge(chat, otherUserId),
-                const SizedBox(width: 12),
+          border: Border.all(
+            color: isPinned ? AppColors.brandBlue.withValues(alpha: 0.35) : context.border,
+            width: 1.0,
+          ),
+        ),
+        child: Row(
+          children: [
+            // Avatar with overlay badge
+            _buildAvatarWithBadge(chat, otherUserId),
+            const SizedBox(width: 12),
 
-                // Middle Text Column
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
+            // Middle Text Column
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  // Title row
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
-                      // Title row
-                      Row(
-                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                        children: [
-                          Expanded(
-                            child: Row(
-                              children: [
-                                Flexible(
-                                  child: Text(
-                                    chat.title ?? 'Creator Contact',
-                                    style: GoogleFonts.inter(
-                                      color: context.textPrimary,
-                                      fontSize: 13.5,
-                                      fontWeight: FontWeight.w600,
-                                    ),
-                                    maxLines: 1,
-                                    overflow: TextOverflow.ellipsis,
-                                  ),
+                      Expanded(
+                        child: Row(
+                          children: [
+                            Flexible(
+                              child: Text(
+                                chat.title ?? (isGroup ? 'Group chat' : 'Creator Contact'),
+                                style: GoogleFonts.inter(
+                                  color: context.textPrimary,
+                                  fontSize: 13.5,
+                                  fontWeight: FontWeight.w600,
                                 ),
-                                if (chat.isVerified) ...[
-                                  const SizedBox(width: 4),
-                                  const Icon(
-                                    Icons.check_circle_rounded,
-                                    color: AppColors.brandBlue,
-                                    size: 13,
-                                  ),
-                                ],
-                                const SizedBox(width: 4),
-                                CreatorLevelBadge(
-                                  tier: CreatorTier.fromLevel(
-                                    chat.creatorLevel,
-                                  ),
-                                  isCompact: true,
-                                  onTap: () {
-                                    CreatorLevelDetailModal.show(
-                                      context,
-                                      tier: CreatorTier.fromLevel(
-                                        chat.creatorLevel,
-                                      ),
-                                      username: chat.title,
-                                    );
-                                  },
-                                ),
-                                if (chat.roleBadge != null &&
-                                    chat.roleBadge!.isNotEmpty) ...[
-                                  const SizedBox(width: 6),
-                                  _buildRoleBadge(chat.roleBadge!),
-                                ],
-                              ],
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                              ),
                             ),
-                          ),
+                            if (chat.isVerified) ...[
+                              const SizedBox(width: 4),
+                              const Icon(
+                                Icons.check_circle_rounded,
+                                color: AppColors.brandBlue,
+                                size: 13,
+                              ),
+                            ],
+                            const SizedBox(width: 4),
+                            if (!isGroup)
+                              CreatorLevelBadge(
+                                tier: CreatorTier.fromLevel(
+                                  chat.creatorLevel,
+                                ),
+                                isCompact: true,
+                                onTap: () {
+                                  CreatorLevelDetailModal.show(
+                                    context,
+                                    tier: CreatorTier.fromLevel(
+                                      chat.creatorLevel,
+                                    ),
+                                    username: chat.title,
+                                  );
+                                },
+                              ),
+                            if (chat.roleBadge != null &&
+                                chat.roleBadge!.isNotEmpty) ...[
+                              const SizedBox(width: 6),
+                              _buildRoleBadge(chat.roleBadge!),
+                            ],
+                          ],
+                        ),
+                      ),
+                      Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          if (isPinned) ...[
+                            const Icon(Icons.push_pin_rounded, size: 12, color: AppColors.brandBlue),
+                            const SizedBox(width: 4),
+                          ],
+                          if (isMuted) ...[
+                            Icon(Icons.notifications_off_outlined, size: 12, color: context.textMuted),
+                            const SizedBox(width: 4),
+                          ],
                           Text(
                             timeStr,
                             style: GoogleFonts.inter(
@@ -2794,140 +2791,315 @@ class _InAppMessagingScreenState extends ConsumerState<InAppMessagingScreen> {
                           ),
                         ],
                       ),
-                      const SizedBox(height: 4),
-
-                      // Message Snippet row
-                      Row(
-                        children: [
-                          // Delivery checkmark ticks
-                          if (chat.deliveryStatus == 'read') ...[
-                            const Icon(
-                              Icons.done_all_rounded,
-                              size: 14,
-                              color: AppColors.brandPink,
-                            ),
-                            const SizedBox(width: 4),
-                          ] else if (chat.deliveryStatus == 'delivered') ...[
-                            Icon(
-                              Icons.done_all_rounded,
-                              size: 14,
-                              color: context.textMuted,
-                            ),
-                            const SizedBox(width: 4),
-                          ] else if (chat.deliveryStatus == 'sent') ...[
-                            Icon(
-                              Icons.done_rounded,
-                              size: 14,
-                              color: context.textMuted,
-                            ),
-                            const SizedBox(width: 4),
-                          ],
-
-                          // Audio duration or waveform
-                          if (chat.hasVoiceMemo) ...[
-                            const Icon(
-                              Icons.play_circle_fill_rounded,
-                              size: 14,
-                              color: AppColors.brandBlue,
-                            ),
-                            const SizedBox(width: 4),
-                            if (chat.voiceDuration != null) ...[
-                              Text(
-                                chat.voiceDuration!,
-                                style: GoogleFonts.inter(
-                                  color: context.textSecondary,
-                                  fontSize: 11,
-                                  fontWeight: FontWeight.w600,
-                                ),
-                              ),
-                              const SizedBox(width: 6),
-                            ],
-                          ] else if (chat.avatarOverlayIcon == 'whatsapp' ||
-                              chat.category == 'whatsapp_sync') ...[
-                            const Icon(
-                              Icons.description_rounded,
-                              size: 13,
-                              color: AppColors.brandBlue,
-                            ),
-                            const SizedBox(width: 4),
-                          ],
-
-                          // Message snippet
-                          Expanded(
-                            child: RichText(
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                              text: TextSpan(
-                                children: [
-                                  if (chat.messagePrefix != null)
-                                    TextSpan(
-                                      text: chat.messagePrefix!,
-                                      style: GoogleFonts.inter(
-                                        color: context.textSecondary,
-                                        fontSize: 12.0,
-                                        fontWeight: FontWeight.bold,
-                                      ),
-                                    ),
-                                  TextSpan(
-                                    text: chat.lastMessage.isNotEmpty
-                                        ? chat.lastMessage
-                                        : 'Tap to open conversation',
-                                    style: GoogleFonts.inter(
-                                      color: unreadCount > 0
-                                          ? context.textPrimary
-                                          : context.textSecondary,
-                                      fontSize: 12.0,
-                                      fontWeight: unreadCount > 0
-                                          ? FontWeight.w500
-                                          : FontWeight.w400,
-                                    ),
-                                  ),
-                                ],
-                              ),
-                            ),
-                          ),
-
-                          // Unread count badge circle
-                          if (unreadCount > 0)
-                            Container(
-                              margin: const EdgeInsets.only(left: 8),
-                              padding: const EdgeInsets.symmetric(
-                                horizontal: 7,
-                                vertical: 2,
-                              ),
-                              decoration: BoxDecoration(
-                                color: AppColors.brandPink,
-                                borderRadius: BorderRadius.circular(10),
-                                boxShadow: [
-                                  BoxShadow(
-                                    color: AppColors.brandPink.withOpacity(
-                                      0.45,
-                                    ),
-                                    blurRadius: 6,
-                                  ),
-                                ],
-                              ),
-                              child: Text(
-                                '$unreadCount',
-                                style: const TextStyle(
-                                  color: Colors.white,
-                                  fontSize: 10,
-                                  fontWeight: FontWeight.w900,
-                                ),
-                              ),
-                            ),
-                        ],
-                      ),
                     ],
                   ),
-                ),
-              ],
+                  const SizedBox(height: 4),
+
+                  // Message Snippet row
+                  Row(
+                    children: [
+                      // Only show outgoing delivery ticks when WE sent the last message
+                      if (isOutgoingLast) ...[
+                        if (chat.deliveryStatus == 'read') ...[
+                          const Icon(
+                            Icons.done_all_rounded,
+                            size: 14,
+                            color: AppColors.brandPink,
+                          ),
+                          const SizedBox(width: 4),
+                        ] else if (chat.deliveryStatus == 'delivered') ...[
+                          Icon(
+                            Icons.done_all_rounded,
+                            size: 14,
+                            color: context.textMuted,
+                          ),
+                          const SizedBox(width: 4),
+                        ] else if (chat.deliveryStatus == 'sent') ...[
+                          Icon(
+                            Icons.done_rounded,
+                            size: 14,
+                            color: context.textMuted,
+                          ),
+                          const SizedBox(width: 4),
+                        ],
+                      ],
+
+                      if (chat.isBlocked) ...[
+                        const Icon(Icons.block_rounded, size: 13, color: AppColors.brandPink),
+                        const SizedBox(width: 4),
+                      ] else if (chat.hasVoiceMemo || chat.lastMessageType == 'audio') ...[
+                        const Icon(
+                          Icons.play_circle_fill_rounded,
+                          size: 14,
+                          color: AppColors.brandBlue,
+                        ),
+                        const SizedBox(width: 4),
+                        if (chat.voiceDuration != null) ...[
+                          Text(
+                            chat.voiceDuration!,
+                            style: GoogleFonts.inter(
+                              color: context.textSecondary,
+                              fontSize: 11,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                          const SizedBox(width: 6),
+                        ],
+                      ] else if (chat.avatarOverlayIcon == 'whatsapp' ||
+                          chat.category == 'whatsapp_sync') ...[
+                        const Icon(
+                          Icons.description_rounded,
+                          size: 13,
+                          color: AppColors.brandBlue,
+                        ),
+                        const SizedBox(width: 4),
+                      ],
+
+                      // Message snippet
+                      Expanded(
+                        child: RichText(
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          text: TextSpan(
+                            children: [
+                              if (chat.messagePrefix != null)
+                                TextSpan(
+                                  text: chat.messagePrefix!,
+                                  style: GoogleFonts.inter(
+                                    color: context.textSecondary,
+                                    fontSize: 12.0,
+                                    fontWeight: FontWeight.bold,
+                                  ),
+                                ),
+                              TextSpan(
+                                text: chat.isBlocked
+                                    ? 'Blocked conversation'
+                                    : (snippet.isNotEmpty ? snippet : 'Tap to open conversation'),
+                                style: GoogleFonts.inter(
+                                  color: unreadCount > 0
+                                      ? context.textPrimary
+                                      : context.textSecondary,
+                                  fontSize: 12.0,
+                                  fontWeight: unreadCount > 0
+                                      ? FontWeight.w500
+                                      : FontWeight.w400,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+
+                      // Unread count badge circle
+                      if (unreadCount > 0)
+                        Container(
+                          margin: const EdgeInsets.only(left: 8),
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 7,
+                            vertical: 2,
+                          ),
+                          decoration: BoxDecoration(
+                            color: isMuted ? context.textMuted : AppColors.brandPink,
+                            borderRadius: BorderRadius.circular(10),
+                          ),
+                          child: Text(
+                            '$unreadCount',
+                            style: const TextStyle(
+                              color: Colors.white,
+                              fontSize: 10,
+                              fontWeight: FontWeight.w900,
+                            ),
+                          ),
+                        ),
+                    ],
+                  ),
+                ],
+              ),
             ),
+          ],
+        ),
+      ),
+    );
+
+    return Dismissible(
+      key: ValueKey('chat_swipe_${chat.id}'),
+      direction: DismissDirection.endToStart,
+      confirmDismiss: (_) async {
+        if (uid.isEmpty) return false;
+        HapticFeedback.lightImpact();
+        await ref.read(messagingRepositoryProvider).setChatArchived(chat.id, uid, !isArchived);
+        if (mounted) {
+          ScaffoldMessenger.of(context)
+            ..hideCurrentSnackBar()
+            ..showSnackBar(
+              SnackBar(
+                content: Text(isArchived ? 'Moved back to Chats' : 'Chat archived'),
+                action: SnackBarAction(
+                  label: 'Undo',
+                  onPressed: () =>
+                      ref.read(messagingRepositoryProvider).setChatArchived(chat.id, uid, isArchived),
+                ),
+              ),
+            );
+        }
+        return false;
+      },
+      background: Container(
+        margin: const EdgeInsets.symmetric(horizontal: 10, vertical: 3),
+        padding: const EdgeInsets.only(right: 20),
+        alignment: Alignment.centerRight,
+        decoration: BoxDecoration(
+          color: AppColors.brandBlue,
+          borderRadius: BorderRadius.circular(12),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text(
+              isArchived ? 'Unarchive' : 'Archive',
+              style: GoogleFonts.inter(color: Colors.white, fontWeight: FontWeight.w700, fontSize: 12),
+            ),
+            const SizedBox(width: 6),
+            Icon(isArchived ? Icons.unarchive_rounded : Icons.archive_rounded, color: Colors.white, size: 18),
+          ],
+        ),
+      ),
+      child: row
+          .animate()
+          .fadeIn(delay: Duration(milliseconds: (index.clamp(0, 10)) * 20))
+          .slideX(begin: 0.03, end: 0),
+    );
+  }
+
+  void _showThreadActions(ChatModel chat) {
+    final uid = currentUserId;
+    if (uid == null || uid.isEmpty) return;
+    HapticFeedback.mediumImpact();
+    final isPinned = chat.isPinnedBy(uid);
+    final isMuted = chat.isMutedBy(uid);
+    final isArchived = chat.isArchivedBy(uid);
+    final hasUnread = (chat.unreadCounts[uid] ?? 0) > 0;
+    final isGroup = chat.category == 'group' || chat.participants.length > 2;
+    final otherUserId = chat.participants.firstWhere((id) => id != uid, orElse: () => '');
+
+    showModalBottomSheet<void>(
+      context: context,
+      backgroundColor: context.surface,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(AppRadius.xl)),
+      ),
+      builder: (ctx) => SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(12, 10, 12, 12),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Container(
+                width: 36,
+                height: 4,
+                decoration: BoxDecoration(color: ctx.border, borderRadius: BorderRadius.circular(2)),
+              ),
+              const SizedBox(height: 10),
+              ListTile(
+                dense: true,
+                leading: Icon(isPinned ? Icons.push_pin_outlined : Icons.push_pin_rounded, color: AppColors.brandBlue),
+                title: Text(isPinned ? 'Unpin chat' : 'Pin to top', style: GoogleFonts.inter(color: ctx.textPrimary, fontWeight: FontWeight.w600)),
+                onTap: () async {
+                  Navigator.pop(ctx);
+                  await ref.read(messagingRepositoryProvider).setChatPinned(chat.id, uid, !isPinned);
+                },
+              ),
+              ListTile(
+                dense: true,
+                leading: Icon(hasUnread ? Icons.mark_chat_read_outlined : Icons.mark_chat_unread_outlined, color: AppColors.brandBlue),
+                title: Text(hasUnread ? 'Mark as read' : 'Mark as unread', style: GoogleFonts.inter(color: ctx.textPrimary, fontWeight: FontWeight.w600)),
+                onTap: () async {
+                  Navigator.pop(ctx);
+                  final repo = ref.read(messagingRepositoryProvider);
+                  if (hasUnread) {
+                    await repo.markMessagesAsRead(chat.id, uid);
+                  } else {
+                    await repo.markChatUnread(chat.id, uid);
+                  }
+                },
+              ),
+              ListTile(
+                dense: true,
+                leading: Icon(isMuted ? Icons.notifications_active_outlined : Icons.notifications_off_outlined, color: AppColors.brandBlue),
+                title: Text(isMuted ? 'Unmute notifications' : 'Mute notifications', style: GoogleFonts.inter(color: ctx.textPrimary, fontWeight: FontWeight.w600)),
+                onTap: () async {
+                  Navigator.pop(ctx);
+                  await ref.read(messagingRepositoryProvider).setChatMuted(chat.id, uid, !isMuted);
+                },
+              ),
+              ListTile(
+                dense: true,
+                leading: Icon(isArchived ? Icons.unarchive_outlined : Icons.archive_outlined, color: AppColors.brandBlue),
+                title: Text(isArchived ? 'Unarchive chat' : 'Archive chat', style: GoogleFonts.inter(color: ctx.textPrimary, fontWeight: FontWeight.w600)),
+                onTap: () async {
+                  Navigator.pop(ctx);
+                  await ref.read(messagingRepositoryProvider).setChatArchived(chat.id, uid, !isArchived);
+                },
+              ),
+              if (!isGroup && otherUserId.isNotEmpty)
+                ListTile(
+                  dense: true,
+                  leading: const Icon(Icons.block_rounded, color: AppColors.brandPink),
+                  title: Text(
+                    chat.isBlocked ? 'Manage blocked user' : 'Block user',
+                    style: GoogleFonts.inter(color: AppColors.brandPink, fontWeight: FontWeight.w700),
+                  ),
+                  onTap: () {
+                    Navigator.pop(ctx);
+                    if (chat.isBlocked) {
+                      context.push('/settings/blocked');
+                    } else {
+                      _confirmBlockFromInbox(chat, otherUserId);
+                    }
+                  },
+                ),
+            ],
           ),
-        )
-        .animate()
-        .fadeIn(delay: Duration(milliseconds: 25 * index))
-        .slideX(begin: 0.05, end: 0);
+        ),
+      ),
+    );
+  }
+
+  void _confirmBlockFromInbox(ChatModel chat, String otherUserId) {
+    final uid = currentUserId;
+    if (uid == null || otherUserId.isEmpty) return;
+    final name = chat.title ?? 'this user';
+    showDialog<void>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: ctx.surface,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(AppRadius.lg),
+          side: BorderSide(color: ctx.border),
+        ),
+        title: Text('Block $name?', style: GoogleFonts.inter(color: ctx.textPrimary, fontWeight: FontWeight.w700, fontSize: 16)),
+        content: Text(
+          'You will no longer receive messages or calls from $name.',
+          style: GoogleFonts.inter(color: ctx.textSecondary, fontSize: 13),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: Text('Cancel', style: GoogleFonts.inter(color: ctx.textMuted)),
+          ),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(backgroundColor: AppColors.brandPink, foregroundColor: Colors.white),
+            onPressed: () async {
+              Navigator.pop(ctx);
+              await ref.read(relationshipRepositoryProvider).blockUser(uid, otherUserId);
+              ref.read(messagingRepositoryProvider).invalidateRelationCache(uid, otherUserId);
+              await ref.read(messagingRepositoryProvider).declineMessageRequest(chat.id, uid);
+            },
+            child: const Text('Block'),
+          ),
+        ],
+      ),
+    );
   }
 
   Widget _buildAvatarWithBadge(ChatModel chat, String otherUserId) {
@@ -3281,6 +3453,7 @@ class _InAppMessagingScreenState extends ConsumerState<InAppMessagingScreen> {
         var count = 0;
         final myId = currentUserId ?? '';
         for (final c in chats) {
+          if (c.isArchivedBy(myId) || c.isMutedBy(myId)) continue;
           count += c.unreadCounts[myId] ?? 0;
         }
         return count;

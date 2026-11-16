@@ -27,6 +27,12 @@ final chatMessagesProvider = StreamProvider.family<List<MessageModel>, String>((
   return repository.getChatMessages(chatId);
 });
 
+final chatMessagesPaginatedProvider =
+    StreamProvider.family<List<MessageModel>, ({String chatId, int limit})>((ref, params) {
+  final repository = ref.watch(messagingRepositoryProvider);
+  return repository.getChatMessages(params.chatId, limit: params.limit);
+});
+
 final filteredUserChatsProvider = StreamProvider.family<List<ChatModel>, ({String userId, String? category, bool unreadOnly, bool starredOnly})>((ref, params) {
   final repository = ref.watch(messagingRepositoryProvider);
   return repository.getFilteredChats(
@@ -72,6 +78,12 @@ class MessagingRepository {
   final E2EEncryptionService _e2eeService;
   final ChatAffinityExtractor? _chatAffinityExtractor;
 
+  /// Short-lived caches to eliminate repeated N+1 reads on every inbox snapshot.
+  final Map<String, ({Map<String, dynamic>? data, DateTime at})> _userProfileCache = {};
+  final Map<String, ({bool mutual, bool blocked, DateTime at})> _pairRelationCache = {};
+  final Map<String, ({bool enabled, DateTime at})> _readReceiptsCache = {};
+  static const Duration _cacheTtl = Duration(seconds: 45);
+
   MessagingRepository(
     this._firestore, {
     E2EEncryptionService? e2eeService,
@@ -79,6 +91,72 @@ class MessagingRepository {
   })  : _e2eeService = e2eeService ?? E2EEncryptionService(),
         // ignore: prefer_initializing_formals
         _chatAffinityExtractor = chatAffinityExtractor;
+
+  void invalidateRelationCache(String a, String b) {
+    _pairRelationCache.remove('${a}_$b');
+    _pairRelationCache.remove('${b}_$a');
+  }
+
+  Future<Map<String, dynamic>?> _getCachedUserDoc(String uid) async {
+    final now = DateTime.now();
+    final cached = _userProfileCache[uid];
+    if (cached != null && now.difference(cached.at) < _cacheTtl) {
+      return cached.data;
+    }
+    final doc = await _firestore.collection('users').doc(uid).get();
+    final data = doc.exists ? doc.data() : null;
+    _userProfileCache[uid] = (data: data, at: now);
+    _accountExists[uid] = doc.exists;
+    return data;
+  }
+
+  Future<({bool mutual, bool blocked})> _getPairRelation(String currentUserId, String otherUserId) async {
+    final key = '${currentUserId}_$otherUserId';
+    final now = DateTime.now();
+    final cached = _pairRelationCache[key];
+    if (cached != null && now.difference(cached.at) < _cacheTtl) {
+      return (mutual: cached.mutual, blocked: cached.blocked);
+    }
+    try {
+      final docs = await Future.wait([
+        _firestore.collection('relationships').doc('${currentUserId}_$otherUserId').get(),
+        _firestore.collection('relationships').doc('${otherUserId}_$currentUserId').get(),
+      ]);
+      final fwdData = docs[0].data();
+      final revData = docs[1].data();
+      final fwdStatus = fwdData != null ? fwdData['status'] : null;
+      final revStatus = revData != null ? revData['status'] : null;
+      final mutual = fwdStatus == 'accepted' && revStatus == 'accepted';
+      final blocked = fwdStatus == 'blocked' || revStatus == 'blocked';
+      _pairRelationCache[key] = (mutual: mutual, blocked: blocked, at: now);
+      return (mutual: mutual, blocked: blocked);
+    } catch (_) {
+      return (mutual: false, blocked: false);
+    }
+  }
+
+  Future<bool> isBlockedPair(String a, String b) async {
+    if (a.isEmpty || b.isEmpty || a == b) return false;
+    final rel = await _getPairRelation(a, b);
+    return rel.blocked;
+  }
+
+  Future<bool> _shouldSendReadReceipts(String userId) async {
+    final now = DateTime.now();
+    final cached = _readReceiptsCache[userId];
+    if (cached != null && now.difference(cached.at) < _cacheTtl) {
+      return cached.enabled;
+    }
+    try {
+      final doc = await _firestore.collection('user_settings').doc(userId).get();
+      final privacy = doc.data()?['privacy'];
+      final enabled = privacy is Map ? (privacy['readReceipts'] as bool? ?? true) : true;
+      _readReceiptsCache[userId] = (enabled: enabled, at: now);
+      return enabled;
+    } catch (_) {
+      return true;
+    }
+  }
 
   /// Resolves the other participant's real profile from Firestore `users/{otherUserId}`
   /// so that it always displays the exact real profile (username, displayName, photo, isVerified, role).
@@ -95,9 +173,8 @@ class MessagingRepository {
     if (otherUserId.isEmpty) return chat;
 
     try {
-      final userDoc = await _firestore.collection('users').doc(otherUserId).get();
-      if (userDoc.exists && userDoc.data() != null) {
-        final data = userDoc.data()!;
+      final data = await _getCachedUserDoc(otherUserId);
+      if (data != null) {
         final resolvedTitle = (data['displayName'] as String?)?.isNotEmpty == true
             ? data['displayName'] as String
             : ((data['fullName'] as String?)?.isNotEmpty == true
@@ -108,23 +185,19 @@ class MessagingRepository {
 
         final resolvedAvatar = (data['profilePhotoUrl'] as String?) ??
             (data['photoUrl'] as String?) ??
+            (data['avatarUrl'] as String?) ??
             chat.avatarUrl;
 
         final isVerified = (data['isVerified'] as bool?) ?? chat.isVerified;
         final role = (data['role'] as String?)?.toUpperCase() ?? chat.roleBadge;
 
-        // Strict Mutual Connection Resolution for 1-on-1 chats
+        // Strict Mutual Connection & Block Resolution for 1-on-1 chats
         bool isMutual = true;
+        bool isBlocked = false;
         if (currentUserId != null && currentUserId.isNotEmpty && chat.participants.length == 2) {
-          try {
-            final fwdDoc = await _firestore.collection('relationships').doc('${currentUserId}_$otherUserId').get();
-            final revDoc = await _firestore.collection('relationships').doc('${otherUserId}_$currentUserId').get();
-            final fwd = fwdDoc.exists && fwdDoc.data()?['status'] == 'accepted';
-            final rev = revDoc.exists && revDoc.data()?['status'] == 'accepted';
-            isMutual = fwd && rev;
-          } catch (_) {
-            isMutual = false;
-          }
+          final rel = await _getPairRelation(currentUserId, otherUserId);
+          isMutual = rel.mutual;
+          isBlocked = rel.blocked;
         }
 
         // Creator Engagement Level (Instagram-style 1-5 tier progression)
@@ -141,6 +214,7 @@ class MessagingRepository {
           isVerified: isVerified,
           roleBadge: role,
           isMutual: isMutual,
+          isBlocked: isBlocked,
           creatorLevel: engagement.tier.level,
           creatorEngagementScore: engagement.totalScore,
         );
@@ -152,21 +226,30 @@ class MessagingRepository {
     return chat;
   }
 
-  Stream<List<ChatModel>> getUserChatsStream(String userId) {
+  Stream<List<ChatModel>> getUserChatsStream(String userId, {int limit = 80}) {
     return _firestore
         .collection('chats')
         .where('participants', arrayContains: userId)
         .orderBy('lastMessageTime', descending: true)
+        .limit(limit)
         .snapshots()
         .asyncMap((snapshot) async {
-      final List<ChatModel> resolvedList = [];
-      for (final doc in snapshot.docs) {
-        final chat = ChatModel.fromFirestore(doc);
-        if (!await _hasRealCounterpart(chat, userId)) continue;
-        final resolved = await _resolveChatWithRealProfile(chat, userId);
-        resolvedList.add(resolved);
-      }
-      return resolvedList;
+      final rawChats = snapshot.docs.map(ChatModel.fromFirestore).toList();
+      final resolved = await Future.wait(rawChats.map((chat) async {
+        if (!await _hasRealCounterpart(chat, userId)) return null;
+        return _resolveChatWithRealProfile(chat, userId);
+      }));
+      final list = resolved.whereType<ChatModel>().toList();
+      // Keep pinned chats at the top while preserving recency inside each bucket.
+      list.sort((a, b) {
+        final ap = a.isPinnedBy(userId) ? 1 : 0;
+        final bp = b.isPinnedBy(userId) ? 1 : 0;
+        if (ap != bp) return bp.compareTo(ap);
+        final at = a.lastMessageTime?.millisecondsSinceEpoch ?? 0;
+        final bt = b.lastMessageTime?.millisecondsSinceEpoch ?? 0;
+        return bt.compareTo(at);
+      });
+      return list;
     });
   }
 
@@ -252,14 +335,32 @@ class MessagingRepository {
     return getFilteredChats(userId, category: category);
   }
 
-  Stream<List<MessageModel>> getChatMessages(String chatId) {
+  Stream<List<MessageModel>> getChatMessages(String chatId, {int limit = 60}) {
     return _firestore
         .collection('chats')
         .doc(chatId)
         .collection('messages')
         .orderBy('timestamp', descending: true)
+        .limit(limit)
         .snapshots()
-        .map((snapshot) => snapshot.docs.map((doc) => MessageModel.fromFirestore(doc)).toList());
+        .map((snapshot) {
+      final now = DateTime.now();
+      return snapshot.docs
+          .map((doc) => MessageModel.fromFirestore(doc))
+          .where((m) => m.expiresAt == null || m.expiresAt!.toDate().isAfter(now))
+          .toList();
+    });
+  }
+
+  Future<MessageModel?> getMessage(String chatId, String messageId) async {
+    final doc = await _firestore
+        .collection('chats')
+        .doc(chatId)
+        .collection('messages')
+        .doc(messageId)
+        .get();
+    if (!doc.exists) return null;
+    return MessageModel.fromFirestore(doc);
   }
 
   Future<ChatModel?> getChat(String chatId, [String? currentUserId]) async {
@@ -279,17 +380,28 @@ class MessagingRepository {
       throw ArgumentError('currentUserId and targetUserId cannot be empty');
     }
 
-    // 1. Check if chat already exists in `chats` where participants contains both
+    // 1. Check if a direct 1:1 chat between both users already exists.
     final querySnapshot = await _firestore
         .collection('chats')
         .where('participants', arrayContains: currentUserId)
         .get();
 
     for (final doc in querySnapshot.docs) {
-      final docParticipants = List<String>.from(doc.data()['participants'] ?? []);
-      if (docParticipants.contains(targetUserId)) {
+      final data = doc.data();
+      final docParticipants = List<String>.from(data['participants'] ?? []);
+      final cat = data['category'] as String?;
+      if (docParticipants.length == 2 &&
+          docParticipants.contains(targetUserId) &&
+          cat != 'group' &&
+          cat != 'room' &&
+          cat != 'vip_room' &&
+          cat != 'channel') {
         return doc.id;
       }
+    }
+
+    if (await isBlockedPair(currentUserId, targetUserId)) {
+      throw StateError('You cannot start a conversation with a blocked user.');
     }
 
     // 2. Resolve target user real profile to prefill chat metadata
@@ -364,43 +476,36 @@ class MessagingRepository {
           .where((uid) => uid.isNotEmpty && uid != currentUserId)
           .toSet();
 
-      final List<Map<String, dynamic>> creators = [];
-
-      // 1. Strictly enforce mutual follow rule: current user follows target AND target follows current user back
-      for (final uid in followedUids) {
+      final resolved = await Future.wait(followedUids.map((uid) async {
         try {
-          final reverseRelDoc = await _firestore.collection('relationships').doc('${uid}_$currentUserId').get();
-          final isMutual = reverseRelDoc.exists && reverseRelDoc.data()?['status'] == 'accepted';
+          final rel = await _getPairRelation(currentUserId, uid);
+          if (!rel.mutual || rel.blocked) return null;
 
-          // As specified: "You can't see in your inbox or circle people you don't follow or don't follow back."
-          if (!isMutual) continue;
+          final userData = await _getCachedUserDoc(uid);
+          if (userData == null) return null;
+          final data = Map<String, dynamic>.from(userData);
+          data['id'] = uid;
+          data['uid'] = uid;
+          data['isFollowed'] = true;
+          data['isMutual'] = true;
 
-          final userDoc = await _firestore.collection('users').doc(uid).get();
-          if (userDoc.exists && userDoc.data() != null) {
-            final data = Map<String, dynamic>.from(userDoc.data()!);
-            data['id'] = userDoc.id;
-            data['uid'] = userDoc.id;
-            data['isFollowed'] = true;
-            data['isMutual'] = true;
-
-            final engagement = CreatorEngagementLevel.fromStats(
-              likes: data['totalLikes'] as int? ?? 0,
-              comments: data['commentsCount'] as int? ?? 0,
-              followers: data['followers'] as int? ?? 0,
-              creations: data['postsCount'] as int? ?? data['videoCount'] as int? ?? 0,
-            );
-            data['creatorLevel'] = engagement.tier.level;
-            data['creatorTierTitle'] = engagement.tier.title;
-            data['creatorEngagementScore'] = engagement.totalScore;
-
-            creators.add(data);
-          }
+          final engagement = CreatorEngagementLevel.fromStats(
+            likes: data['totalLikes'] as int? ?? 0,
+            comments: data['commentsCount'] as int? ?? 0,
+            followers: data['followers'] as int? ?? 0,
+            creations: data['postsCount'] as int? ?? data['videoCount'] as int? ?? 0,
+          );
+          data['creatorLevel'] = engagement.tier.level;
+          data['creatorTierTitle'] = engagement.tier.title;
+          data['creatorEngagementScore'] = engagement.totalScore;
+          return data;
         } catch (e) {
           debugPrint('Error loading mutual creator $uid: $e');
+          return null;
         }
-      }
+      }));
 
-      return creators;
+      return resolved.whereType<Map<String, dynamic>>().toList();
     });
   }
 
@@ -408,8 +513,14 @@ class MessagingRepository {
   Stream<List<ChatModel>> getMessageRequestsStream(String userId) {
     return getUserChatsStream(userId).map((chats) {
       return chats.where((c) {
-        // Direct 1-on-1 chats that are NOT mutual yet
-        return c.category != 'group' && c.category != 'channel' && !c.isMutual && c.participants.length == 2;
+        // Direct 1-on-1 chats that are NOT mutual/accepted yet
+        return c.category != 'group' &&
+            c.category != 'channel' &&
+            !c.isMutual &&
+            !c.isBlocked &&
+            !c.acceptedRequests.contains(userId) &&
+            !c.isArchivedBy(userId) &&
+            c.participants.length == 2;
       }).toList();
     });
   }
@@ -422,34 +533,49 @@ class MessagingRepository {
     String? roleBadge,
     String? avatarOverlayIcon,
     bool isVerified = false,
+    String? ownerId,
   }) async {
-    // Check for an existing exact match
-    final querySnapshot = await _firestore
-        .collection('chats')
-        .where('participants', arrayContains: participants.first)
-        .get();
+    final normalized = participants.where((p) => p.isNotEmpty).toSet().toList();
+    final effectiveCategory = category ?? (normalized.length > 2 ? 'group' : 'direct');
 
-    for (final doc in querySnapshot.docs) {
-      final docParticipants = List<String>.from(doc.data()['participants'] ?? []);
-      if (docParticipants.length == participants.length &&
-          participants.every((p) => docParticipants.contains(p))) {
-        return doc.id;
+    // Only deduplicate 1:1 direct chats (separate group chats can share members).
+    if (effectiveCategory == 'direct' && normalized.length == 2) {
+      final querySnapshot = await _firestore
+          .collection('chats')
+          .where('participants', arrayContains: normalized.first)
+          .get();
+
+      for (final doc in querySnapshot.docs) {
+        final data = doc.data();
+        final docParticipants = List<String>.from(data['participants'] ?? []);
+        final cat = data['category'] as String?;
+        if (cat != 'group' &&
+            cat != 'room' &&
+            cat != 'vip_room' &&
+            cat != 'channel' &&
+            docParticipants.length == 2 &&
+            normalized.every((p) => docParticipants.contains(p))) {
+          return doc.id;
+        }
       }
     }
 
     // Create a new chat
     final newChatId = const Uuid().v4();
-    final initialUnread = {for (var p in participants) p: 0};
-    
+    final initialUnread = {for (var p in normalized) p: 0};
+
     await _firestore.collection('chats').doc(newChatId).set({
-      'participants': participants,
+      'participants': normalized,
       'lastMessage': '',
       'lastMessageTime': FieldValue.serverTimestamp(),
+      'lastMessageType': 'text',
       'unreadCounts': initialUnread,
-      'typingUsers': [],
+      'typingUsers': <String>[],
+      'createdAt': FieldValue.serverTimestamp(),
       'title': ?title,
       'avatarUrl': ?avatarUrl,
-      'category': ?category,
+      'category': effectiveCategory,
+      'ownerId': ?ownerId,
       'roleBadge': ?roleBadge,
       'avatarOverlayIcon': ?avatarOverlayIcon,
       'isVerified': isVerified,
@@ -658,9 +784,10 @@ class MessagingRepository {
 
   /// Returns the new message id.
   Future<String> sendMessage(
-    String chatId, 
-    String senderId, 
+    String chatId,
+    String senderId,
     String text, {
+    String? messageId,
     String? recipientId,
     String? replyToMessageId,
     String? mediaUrl,
@@ -676,13 +803,14 @@ class MessagingRepository {
     bool mediaEncrypted = false,
     bool forwarded = false,
   }) async {
-    final messageId = const Uuid().v4();
+    final msgId = (messageId != null && messageId.isNotEmpty) ? messageId : const Uuid().v4();
     final timestamp = Timestamp.now();
 
     // Determine recipientId if not explicitly passed. E2EE is per-recipient,
     // so it only applies to 1:1 chats; shared chats stay readable by all members.
     String? targetRecipientId = recipientId;
     bool isSharedChat = false;
+    int disappearingSecs = 0;
     try {
       final chatDoc = await _firestore.collection('chats').doc(chatId).get();
       if (chatDoc.exists) {
@@ -690,12 +818,19 @@ class MessagingRepository {
         final participants = List<String>.from(data['participants'] ?? []);
         const sharedCategories = {'group', 'room', 'vip_room', 'channel'};
         isSharedChat = participants.length > 2 || sharedCategories.contains(data['category']);
+        disappearingSecs = (data['disappearingDuration'] as num?)?.toInt() ?? 0;
         if (targetRecipientId == null || targetRecipientId.isEmpty) {
           targetRecipientId = participants.firstWhere((p) => p != senderId, orElse: () => '');
         }
       }
     } catch (e) {
       debugPrint('Error resolving recipient for E2EE: $e');
+    }
+
+    if (!isSharedChat && targetRecipientId != null && targetRecipientId.isNotEmpty) {
+      if (await isBlockedPair(senderId, targetRecipientId)) {
+        throw StateError('You cannot send messages to a blocked contact.');
+      }
     }
 
     // Check E2EE encryption
@@ -732,12 +867,18 @@ class MessagingRepository {
       }
     }
 
+    final Timestamp? expiresAt = disappearingSecs > 0
+        ? Timestamp.fromMillisecondsSinceEpoch(timestamp.millisecondsSinceEpoch + disappearingSecs * 1000)
+        : null;
+
     final message = MessageModel(
-      id: messageId,
+      id: msgId,
       senderId: senderId,
       text: textToSend,
       timestamp: timestamp,
-      readBy: [senderId],
+      // Read receipts only track OTHER recipients, never pre-marking senderId as read.
+      readBy: const [],
+      deliveredTo: const [],
       replyToMessageId: replyToMessageId,
       mediaUrl: mediaUrl,
       mediaType: mediaType,
@@ -750,17 +891,18 @@ class MessagingRepository {
       mediaEncrypted: mediaEncrypted,
       location: location,
       forwarded: forwarded,
+      expiresAt: expiresAt,
     );
 
     final chatRef = _firestore.collection('chats').doc(chatId);
-    
+
     await _firestore.runTransaction((transaction) async {
       final doc = await transaction.get(chatRef);
       if (!doc.exists) return;
-      
+
       final chatData = doc.data() as Map<String, dynamic>;
       final unreadCounts = Map<String, int>.from(chatData['unreadCounts'] ?? {});
-      
+
       final participants = List<String>.from(chatData['participants'] ?? []);
       for (final p in participants) {
         if (p != senderId) {
@@ -769,35 +911,26 @@ class MessagingRepository {
       }
 
       transaction.set(
-        chatRef.collection('messages').doc(messageId),
+        chatRef.collection('messages').doc(msgId),
         message.toMap(),
       );
 
-      String displayLastMessage = isEncrypted ? '🔒 Encrypted message' : text;
-      if (displayLastMessage.trim().isEmpty) {
-        if (mediaType == 'audio' || hasVoiceMemo) {
-          displayLastMessage = '🎙️ Voice note ${voiceDuration != null ? '($voiceDuration)' : ''}';
-        } else if (mediaType == 'image') {
-          displayLastMessage = '📷 Photo';
-        } else if (mediaType == 'video') {
-          displayLastMessage = '🎥 Video';
-        } else if (mediaType == 'video_note') {
-          displayLastMessage = '📹 Video message ${voiceDuration != null ? '($voiceDuration)' : ''}';
-        } else if (mediaType == 'gif') {
-          displayLastMessage = 'GIF';
-        } else if (mediaType == 'document') {
-          displayLastMessage = '📄 ${fileName ?? 'Document'}';
-        } else if (mediaType == 'location') {
-          displayLastMessage = location?['live'] == true ? '📍 Live location' : '📍 Location';
-        } else {
-          displayLastMessage = 'Attachment';
-        }
-      }
+      final String resolvedType = mediaType ?? (hasVoiceMemo ? 'audio' : 'text');
+      final String displayLastMessage = _previewSnippet(
+        text: text,
+        isEncrypted: isEncrypted,
+        mediaEncrypted: mediaEncrypted,
+        mediaType: resolvedType,
+        fileName: fileName,
+        voiceDuration: voiceDuration,
+        location: location,
+      );
 
       final updateMap = <String, dynamic>{
         'lastMessage': displayLastMessage,
         'lastMessageTime': timestamp,
         'lastMessageSenderId': senderId,
+        'lastMessageType': resolvedType,
         'unreadCounts': unreadCounts,
         'deliveryStatus': 'sent',
       };
@@ -814,37 +947,117 @@ class MessagingRepository {
 
       transaction.update(chatRef, updateMap);
     });
-    return messageId;
+    return msgId;
   }
-  
-  Future<void> markMessagesAsRead(String chatId, String userId) async {
+
+  static String _previewSnippet({
+    required String text,
+    required bool isEncrypted,
+    required bool mediaEncrypted,
+    String? mediaType,
+    String? fileName,
+    String? voiceDuration,
+    Map<String, dynamic>? location,
+  }) {
+    if (isEncrypted || mediaEncrypted) {
+      return switch (mediaType) {
+        'audio' => '🔒 Encrypted voice note',
+        'image' => '🔒 Encrypted photo',
+        'video' => '🔒 Encrypted video',
+        'video_note' => '🔒 Encrypted video message',
+        'location' => location?['live'] == true ? '📍 Live location' : '📍 Location',
+        'document' || 'file' || 'archive' || 'code' => '🔒 Encrypted file',
+        _ => '🔒 Encrypted message',
+      };
+    }
+    if (text.trim().isNotEmpty) return text;
+    return switch (mediaType) {
+      'audio' => '🎙️ Voice note ${voiceDuration != null ? '($voiceDuration)' : ''}'.trim(),
+      'image' => '📷 Photo',
+      'video' => '🎥 Video',
+      'video_note' => '📹 Video message ${voiceDuration != null ? '($voiceDuration)' : ''}'.trim(),
+      'gif' => 'GIF',
+      'location' => location?['live'] == true ? '📍 Live location' : '📍 Location',
+      'document' || 'file' || 'archive' || 'code' => '📄 ${fileName ?? 'Document'}',
+      _ => 'Attachment',
+    };
+  }
+
+  Future<void> markMessagesAsRead(String chatId, String userId, {bool? sendReceipt}) async {
+    if (chatId.isEmpty || userId.isEmpty || userId == 'guest') return;
     final chatRef = _firestore.collection('chats').doc(chatId);
-    
-    await _firestore.runTransaction((transaction) async {
-      final doc = await transaction.get(chatRef);
-      if (!doc.exists) return;
-      
-      final chatData = doc.data() as Map<String, dynamic>;
-      final unreadCounts = Map<String, int>.from(chatData['unreadCounts'] ?? {});
-      unreadCounts[userId] = 0;
-      
-      transaction.update(chatRef, {
-        'unreadCounts': unreadCounts,
-        'deliveryStatus': 'read',
-      });
-      
-      // Also update messages that haven't been read by this user yet
-      final messagesSnapshot = await chatRef.collection('messages').get();
-      for (final msgDoc in messagesSnapshot.docs) {
-        final data = msgDoc.data();
-        if (data['senderId'] == userId) continue; // don't mark own messages as read by self
-        
+    final allowReceipt = sendReceipt ?? await _shouldSendReadReceipts(userId);
+    final nowTs = Timestamp.fromDate(DateTime.now().add(const Duration(seconds: 2)));
+
+    final update = <String, dynamic>{
+      'unreadCounts.$userId': 0,
+      'deliveredWatermarks.$userId': nowTs,
+    };
+    if (allowReceipt) {
+      update['readWatermarks.$userId'] = nowTs;
+      update['deliveryStatus'] = 'read';
+    }
+    await chatRef.update(update).catchError((_) {});
+
+    if (!allowReceipt) return;
+    // Bounded batch of recent unread incoming messages so individual bubbles update smoothly
+    // without scanning the entire subcollection inside a transaction.
+    try {
+      final recent = await chatRef
+          .collection('messages')
+          .orderBy('timestamp', descending: true)
+          .limit(20)
+          .get();
+      final batch = _firestore.batch();
+      var dirty = false;
+      for (final doc in recent.docs) {
+        final data = doc.data();
+        if (data['senderId'] == userId) continue;
         final readBy = List<String>.from(data['readBy'] ?? []);
-        if (!readBy.contains(userId)) {
-          readBy.add(userId);
-          transaction.update(msgDoc.reference, {'readBy': readBy});
+        final deliveredTo = List<String>.from(data['deliveredTo'] ?? []);
+        final needsRead = !readBy.contains(userId);
+        final needsDelivered = !deliveredTo.contains(userId);
+        if (needsRead || needsDelivered) {
+          batch.update(doc.reference, {
+            if (needsRead) 'readBy': FieldValue.arrayUnion([userId]),
+            if (needsDelivered) 'deliveredTo': FieldValue.arrayUnion([userId]),
+          });
+          dirty = true;
         }
       }
+      if (dirty) await batch.commit();
+    } catch (e) {
+      debugPrint('Bounded read-receipt update skipped: $e');
+    }
+  }
+
+  Future<void> markChatsDelivered(String userId, List<ChatModel> chats) async {
+    if (userId.isEmpty || userId == 'guest') return;
+    final batch = _firestore.batch();
+    var count = 0;
+    final nowTs = Timestamp.fromDate(DateTime.now().add(const Duration(seconds: 1)));
+    for (final c in chats) {
+      final unread = c.unreadCounts[userId] ?? 0;
+      if (unread <= 0 || c.lastMessageSenderId == userId) continue;
+      final existing = c.deliveredWatermarks[userId];
+      final lastMs = c.lastMessageTime?.millisecondsSinceEpoch ?? 0;
+      if (existing != null && existing.millisecondsSinceEpoch >= lastMs) continue;
+      batch.update(_firestore.collection('chats').doc(c.id), {
+        'deliveredWatermarks.$userId': nowTs,
+        if (c.deliveryStatus == 'sent') 'deliveryStatus': 'delivered',
+      });
+      count++;
+      if (count >= 25) break;
+    }
+    if (count > 0) {
+      await batch.commit().catchError((_) {});
+    }
+  }
+
+  Future<void> markChatUnread(String chatId, String userId) async {
+    if (chatId.isEmpty || userId.isEmpty) return;
+    await _firestore.collection('chats').doc(chatId).update({
+      'unreadCounts.$userId': 1,
     });
   }
 
@@ -873,11 +1086,13 @@ class MessagingRepository {
     final chatRef = _firestore.collection('chats').doc(chatId);
     if (isTyping) {
       await chatRef.update({
-        'typingUsers': FieldValue.arrayUnion([userId])
+        'typingUsers': FieldValue.arrayUnion([userId]),
+        'typingAt.$userId': DateTime.now().millisecondsSinceEpoch,
       });
     } else {
       await chatRef.update({
-        'typingUsers': FieldValue.arrayRemove([userId])
+        'typingUsers': FieldValue.arrayRemove([userId]),
+        'typingAt.$userId': FieldValue.delete(),
       });
     }
   }
@@ -897,11 +1112,116 @@ class MessagingRepository {
 
   Future<void> addReaction(String chatId, String messageId, String userId, String emoji) async {
     final msgRef = _firestore.collection('chats').doc(chatId).collection('messages').doc(messageId);
-    await msgRef.set({
-      'reactions': {
-        userId: emoji,
+    await msgRef.update({'reactions.$userId': emoji}).catchError((_) async {
+      await msgRef.set({
+        'reactions': {userId: emoji},
+      }, SetOptions(merge: true));
+    });
+  }
+
+  Future<void> toggleReaction(
+    String chatId,
+    String messageId,
+    String userId,
+    String emoji, {
+    String? currentReaction,
+  }) async {
+    final msgRef = _firestore.collection('chats').doc(chatId).collection('messages').doc(messageId);
+    if (currentReaction == emoji) {
+      await msgRef.update({'reactions.$userId': FieldValue.delete()});
+    } else {
+      await msgRef.update({'reactions.$userId': emoji}).catchError((_) async {
+        await msgRef.set({
+          'reactions': {userId: emoji},
+        }, SetOptions(merge: true));
+      });
+    }
+  }
+
+  Future<void> editMessage(
+    String chatId,
+    String messageId,
+    String senderId,
+    String newText, {
+    String? recipientId,
+  }) async {
+    final trimmed = newText.trim();
+    if (trimmed.isEmpty) return;
+
+    bool isSharedChat = false;
+    String? targetRecipient = recipientId;
+    final chatRef = _firestore.collection('chats').doc(chatId);
+    final chatSnap = await chatRef.get();
+    final chatData = chatSnap.data() ?? {};
+    final participants = List<String>.from(chatData['participants'] ?? []);
+    const sharedCategories = {'group', 'room', 'vip_room', 'channel'};
+    isSharedChat = participants.length > 2 || sharedCategories.contains(chatData['category']);
+    if (targetRecipient == null || targetRecipient.isEmpty) {
+      targetRecipient = participants.firstWhere((p) => p != senderId, orElse: () => '');
+    }
+
+    String textToWrite = trimmed;
+    bool isEncrypted = false;
+    if (!isSharedChat && targetRecipient.isNotEmpty) {
+      try {
+        await _e2eeService.ensureUserE2eeKeys(senderId);
+        final pubKey = await _e2eeService.getRecipientPublicKey(targetRecipient);
+        if (pubKey != null && pubKey.isNotEmpty) {
+          textToWrite = await _e2eeService.encryptMessage(trimmed, pubKey);
+          isEncrypted = true;
+        }
+      } catch (_) {}
+    }
+
+    await chatRef.collection('messages').doc(messageId).update({
+      'text': textToWrite,
+      'isEncrypted': isEncrypted,
+      'edited': true,
+      'editedAt': FieldValue.serverTimestamp(),
+    });
+
+    // Update inbox snippet if this was the latest message.
+    try {
+      final latest = await chatRef.collection('messages').orderBy('timestamp', descending: true).limit(1).get();
+      if (latest.docs.isNotEmpty && latest.docs.first.id == messageId) {
+        await chatRef.update({
+          'lastMessage': isEncrypted ? '🔒 Encrypted message' : trimmed,
+        });
       }
-    }, SetOptions(merge: true));
+    } catch (_) {}
+  }
+
+  Future<void> _refreshChatLatestSnippet(String chatId) async {
+    final chatRef = _firestore.collection('chats').doc(chatId);
+    try {
+      final latest = await chatRef.collection('messages').orderBy('timestamp', descending: true).limit(1).get();
+      if (latest.docs.isEmpty) {
+        await chatRef.update({
+          'lastMessage': '',
+          'lastMessageType': 'text',
+        });
+        return;
+      }
+      final m = MessageModel.fromFirestore(latest.docs.first);
+      final resolvedType = m.mediaType ?? 'text';
+      final snippet = _previewSnippet(
+        text: m.isEncrypted ? '' : m.text,
+        isEncrypted: m.isEncrypted,
+        mediaEncrypted: m.mediaEncrypted,
+        mediaType: resolvedType,
+        fileName: m.fileName,
+        voiceDuration: m.voiceDuration,
+        location: m.location,
+      );
+      await chatRef.update({
+        'lastMessage': snippet,
+        'lastMessageTime': m.timestamp,
+        'lastMessageSenderId': m.senderId,
+        'lastMessageType': resolvedType,
+      });
+    } catch (e) {
+      debugPrint('Refresh chat snippet skipped: $e');
+    }
   }
 
   Future<void> deleteMessage(String chatId, String messageId) async {
@@ -911,9 +1231,27 @@ class MessagingRepository {
         .collection('messages')
         .doc(messageId)
         .delete();
+    await _refreshChatLatestSnippet(chatId);
   }
 
-  Future<void> clearChatHistory(String chatId) async {
+  Future<void> deleteMessages(String chatId, List<String> messageIds) async {
+    if (messageIds.isEmpty) return;
+    final batch = _firestore.batch();
+    final col = _firestore.collection('chats').doc(chatId).collection('messages');
+    for (final id in messageIds) {
+      batch.delete(col.doc(id));
+    }
+    await batch.commit();
+    await _refreshChatLatestSnippet(chatId);
+  }
+
+  Future<void> clearChatHistory(String chatId, {String? userId}) async {
+    if (userId != null && userId.isNotEmpty) {
+      await _firestore.collection('chats').doc(chatId).update({
+        'unreadCounts.$userId': 0,
+      }).catchError((_) {});
+      return;
+    }
     final messages = await _firestore
         .collection('chats')
         .doc(chatId)
@@ -928,6 +1266,7 @@ class MessagingRepository {
 
     await _firestore.collection('chats').doc(chatId).update({
       'lastMessage': '',
+      'lastMessageType': 'text',
       'lastMessageTime': FieldValue.serverTimestamp(),
     });
   }
@@ -951,6 +1290,93 @@ class MessagingRepository {
     }
   }
 
+  Future<void> setChatPinned(String chatId, String userId, bool isPinned) async {
+    final chatRef = _firestore.collection('chats').doc(chatId);
+    await chatRef.update({
+      'pinnedUsers': isPinned ? FieldValue.arrayUnion([userId]) : FieldValue.arrayRemove([userId]),
+    });
+  }
+
+  Future<void> setChatArchived(String chatId, String userId, bool isArchived) async {
+    final chatRef = _firestore.collection('chats').doc(chatId);
+    await chatRef.update({
+      'archivedUsers': isArchived ? FieldValue.arrayUnion([userId]) : FieldValue.arrayRemove([userId]),
+      if (isArchived) 'unreadCounts.$userId': 0,
+    });
+  }
+
+  Future<void> togglePinMessage(
+    String chatId,
+    String messageId, {
+    required bool currentlyPinned,
+    String? previewText,
+  }) async {
+    final chatRef = _firestore.collection('chats').doc(chatId);
+    if (currentlyPinned) {
+      final doc = await chatRef.get();
+      final existing = List<String>.from(doc.data()?['pinnedMessageIds'] ?? []);
+      existing.remove(messageId);
+      await chatRef.update({
+        'pinnedMessageIds': existing,
+        'pinnedMessageId': existing.isNotEmpty ? existing.last : FieldValue.delete(),
+        if (existing.isEmpty) 'pinnedMessagePreview': FieldValue.delete(),
+      });
+    } else {
+      await chatRef.update({
+        'pinnedMessageIds': FieldValue.arrayUnion([messageId]),
+        'pinnedMessageId': messageId,
+        if (previewText != null && previewText.isNotEmpty)
+          'pinnedMessagePreview': previewText.trim().length > 90
+              ? '${previewText.trim().substring(0, 90)}…'
+              : previewText.trim(),
+      });
+    }
+  }
+
+  Future<void> renameGroup(String chatId, String newTitle) async {
+    final trimmed = newTitle.trim();
+    if (trimmed.isEmpty) return;
+    await _firestore.collection('chats').doc(chatId).update({'title': trimmed});
+  }
+
+  Future<void> updateGroupAvatar(String chatId, String avatarUrl) async {
+    await _firestore.collection('chats').doc(chatId).update({'avatarUrl': avatarUrl});
+  }
+
+  Future<void> addGroupMembers(String chatId, List<String> memberIds) async {
+    if (memberIds.isEmpty) return;
+    final updates = <String, dynamic>{
+      'participants': FieldValue.arrayUnion(memberIds),
+    };
+    for (final uid in memberIds) {
+      updates['unreadCounts.$uid'] = 0;
+    }
+    await _firestore.collection('chats').doc(chatId).update(updates);
+  }
+
+  Future<void> removeGroupMember(String chatId, String memberId) async {
+    await _firestore.collection('chats').doc(chatId).update({
+      'participants': FieldValue.arrayRemove([memberId]),
+      'unreadCounts.$memberId': FieldValue.delete(),
+    });
+  }
+
+  Future<void> leaveGroup(String chatId, String userId) => removeGroupMember(chatId, userId);
+
+  Future<void> acceptMessageRequest(String chatId, String userId) async {
+    await _firestore.collection('chats').doc(chatId).update({
+      'acceptedRequests': FieldValue.arrayUnion([userId]),
+    });
+  }
+
+  Future<void> declineMessageRequest(String chatId, String userId) async {
+    await _firestore.collection('chats').doc(chatId).update({
+      'archivedUsers': FieldValue.arrayUnion([userId]),
+      'acceptedRequests': FieldValue.arrayRemove([userId]),
+      'unreadCounts.$userId': 0,
+    });
+  }
+
   /// Deprecated: Seeded mock chats are eliminated in favor of real platform
   /// creators from Firestore `users` and genuine relationships.
   @Deprecated('Use getOrCreateDirectChat or real Firestore chat streams instead')
@@ -966,9 +1392,11 @@ class ChatModel {
   final String lastMessage;
   final Timestamp? lastMessageTime;
   final String? lastMessageSenderId;
+  final String? lastMessageType;
   final Map<String, int> unreadCounts;
   final List<String> typingUsers;
   final List<String> recordingUsers;
+  final Map<String, int> typingAt;
   final String? title;
   final String? avatarUrl;
   final String? category;
@@ -983,7 +1411,16 @@ class ChatModel {
   final bool isStarred;
   final int disappearingDuration;
   final List<String> mutedUsers;
+  final List<String> pinnedUsers;
+  final List<String> archivedUsers;
+  final List<String> acceptedRequests;
+  final String? pinnedMessageId;
+  final List<String> pinnedMessageIds;
+  final String? pinnedMessagePreview;
+  final Map<String, Timestamp> readWatermarks;
+  final Map<String, Timestamp> deliveredWatermarks;
   final bool isMutual;
+  final bool isBlocked;
   final int creatorLevel;
   final int creatorEngagementScore;
   final String? ownerId;
@@ -994,9 +1431,11 @@ class ChatModel {
     required this.lastMessage,
     this.lastMessageTime,
     this.lastMessageSenderId,
+    this.lastMessageType,
     required this.unreadCounts,
     this.typingUsers = const [],
     this.recordingUsers = const [],
+    this.typingAt = const {},
     this.title,
     this.avatarUrl,
     this.category,
@@ -1011,23 +1450,77 @@ class ChatModel {
     this.isStarred = false,
     this.disappearingDuration = 0,
     this.mutedUsers = const [],
+    this.pinnedUsers = const [],
+    this.archivedUsers = const [],
+    this.acceptedRequests = const [],
+    this.pinnedMessageId,
+    this.pinnedMessageIds = const [],
+    this.pinnedMessagePreview,
+    this.readWatermarks = const {},
+    this.deliveredWatermarks = const {},
     this.isMutual = true,
+    this.isBlocked = false,
     this.creatorLevel = 1,
     this.creatorEngagementScore = 0,
     this.ownerId,
   });
 
-  factory ChatModel.fromFirestore(DocumentSnapshot doc) {
-    final data = (doc.data() as Map<String, dynamic>?) ?? {};
+  bool isPinnedBy(String uid) => pinnedUsers.contains(uid);
+  bool isArchivedBy(String uid) => archivedUsers.contains(uid);
+  bool isMutedBy(String uid) => mutedUsers.contains(uid);
 
-    Map<String, int> parsedUnread = {};
-    if (data['unreadCounts'] != null && data['unreadCounts'] is Map) {
-      (data['unreadCounts'] as Map).forEach((k, v) {
+  /// Filters out stale typing heartbeats older than 10s (e.g. abrupt app kill).
+  List<String> activeTypingUsers(String currentUserId, {int? nowMs}) {
+    final now = nowMs ?? DateTime.now().millisecondsSinceEpoch;
+    return typingUsers.where((uid) {
+      if (uid == currentUserId) return false;
+      final at = typingAt[uid];
+      if (at == null) return true;
+      return (now - at) < 10000;
+    }).toList();
+  }
+
+  bool isMessageReadByOther(MessageModel m, String senderId) {
+    if (m.readBy.any((id) => id != senderId)) return true;
+    final msgMs = m.timestamp.millisecondsSinceEpoch;
+    return readWatermarks.entries.any(
+      (e) => e.key != senderId && e.value.millisecondsSinceEpoch >= msgMs,
+    );
+  }
+
+  bool isMessageDeliveredToOther(MessageModel m, String senderId) {
+    if (isMessageReadByOther(m, senderId)) return true;
+    if (m.deliveredTo.any((id) => id != senderId)) return true;
+    final msgMs = m.timestamp.millisecondsSinceEpoch;
+    return deliveredWatermarks.entries.any(
+      (e) => e.key != senderId && e.value.millisecondsSinceEpoch >= msgMs,
+    );
+  }
+
+  static Map<String, Timestamp> _parseTsMap(dynamic raw) {
+    final out = <String, Timestamp>{};
+    if (raw is Map) {
+      raw.forEach((k, v) {
+        if (k != null && v is Timestamp) out[k.toString()] = v;
+      });
+    }
+    return out;
+  }
+
+  static Map<String, int> _parseIntMap(dynamic raw) {
+    final out = <String, int>{};
+    if (raw is Map) {
+      raw.forEach((k, v) {
         if (k != null) {
-          parsedUnread[k.toString()] = (v is num) ? v.toInt() : int.tryParse(v.toString()) ?? 0;
+          out[k.toString()] = (v is num) ? v.toInt() : int.tryParse(v.toString()) ?? 0;
         }
       });
     }
+    return out;
+  }
+
+  factory ChatModel.fromFirestore(DocumentSnapshot doc) {
+    final data = (doc.data() as Map<String, dynamic>?) ?? {};
 
     return ChatModel(
       id: doc.id,
@@ -1035,9 +1528,11 @@ class ChatModel {
       lastMessage: (data['lastMessage'] as String?) ?? '',
       lastMessageTime: data['lastMessageTime'] as Timestamp?,
       lastMessageSenderId: data['lastMessageSenderId'] as String?,
-      unreadCounts: parsedUnread,
+      lastMessageType: data['lastMessageType'] as String?,
+      unreadCounts: _parseIntMap(data['unreadCounts']),
       typingUsers: List<String>.from(data['typingUsers'] ?? []),
       recordingUsers: List<String>.from(data['recordingUsers'] ?? []),
+      typingAt: _parseIntMap(data['typingAt']),
       title: data['title'] as String?,
       avatarUrl: data['avatarUrl'] as String?,
       category: data['category'] as String?,
@@ -1052,7 +1547,16 @@ class ChatModel {
       isStarred: (data['isStarred'] as bool?) ?? false,
       disappearingDuration: (data['disappearingDuration'] as num?)?.toInt() ?? 0,
       mutedUsers: List<String>.from(data['mutedUsers'] ?? []),
+      pinnedUsers: List<String>.from(data['pinnedUsers'] ?? []),
+      archivedUsers: List<String>.from(data['archivedUsers'] ?? []),
+      acceptedRequests: List<String>.from(data['acceptedRequests'] ?? []),
+      pinnedMessageId: data['pinnedMessageId'] as String?,
+      pinnedMessageIds: List<String>.from(data['pinnedMessageIds'] ?? []),
+      pinnedMessagePreview: data['pinnedMessagePreview'] as String?,
+      readWatermarks: _parseTsMap(data['readWatermarks']),
+      deliveredWatermarks: _parseTsMap(data['deliveredWatermarks']),
       isMutual: (data['isMutual'] as bool?) ?? true,
+      isBlocked: (data['isBlocked'] as bool?) ?? false,
       creatorLevel: (data['creatorLevel'] as num?)?.toInt() ?? 1,
       creatorEngagementScore: (data['creatorEngagementScore'] as num?)?.toInt() ?? 0,
       ownerId: data['ownerId'] as String?,
@@ -1065,9 +1569,11 @@ class ChatModel {
       'lastMessage': lastMessage,
       if (lastMessageTime != null) 'lastMessageTime': lastMessageTime,
       if (lastMessageSenderId != null) 'lastMessageSenderId': lastMessageSenderId,
+      if (lastMessageType != null) 'lastMessageType': lastMessageType,
       'unreadCounts': unreadCounts,
       'typingUsers': typingUsers,
       'recordingUsers': recordingUsers,
+      if (typingAt.isNotEmpty) 'typingAt': typingAt,
       if (title != null) 'title': title,
       if (avatarUrl != null) 'avatarUrl': avatarUrl,
       if (category != null) 'category': category,
@@ -1082,6 +1588,14 @@ class ChatModel {
       'isStarred': isStarred,
       'disappearingDuration': disappearingDuration,
       'mutedUsers': mutedUsers,
+      if (pinnedUsers.isNotEmpty) 'pinnedUsers': pinnedUsers,
+      if (archivedUsers.isNotEmpty) 'archivedUsers': archivedUsers,
+      if (acceptedRequests.isNotEmpty) 'acceptedRequests': acceptedRequests,
+      if (pinnedMessageId != null) 'pinnedMessageId': pinnedMessageId,
+      if (pinnedMessageIds.isNotEmpty) 'pinnedMessageIds': pinnedMessageIds,
+      if (pinnedMessagePreview != null) 'pinnedMessagePreview': pinnedMessagePreview,
+      if (readWatermarks.isNotEmpty) 'readWatermarks': readWatermarks,
+      if (deliveredWatermarks.isNotEmpty) 'deliveredWatermarks': deliveredWatermarks,
       'isMutual': isMutual,
       'creatorLevel': creatorLevel,
       'creatorEngagementScore': creatorEngagementScore,
@@ -1094,8 +1608,11 @@ class ChatModel {
     String? lastMessage,
     Timestamp? lastMessageTime,
     String? lastMessageSenderId,
+    String? lastMessageType,
     Map<String, int>? unreadCounts,
     List<String>? typingUsers,
+    List<String>? recordingUsers,
+    Map<String, int>? typingAt,
     String? title,
     String? avatarUrl,
     String? category,
@@ -1110,7 +1627,16 @@ class ChatModel {
     bool? isStarred,
     int? disappearingDuration,
     List<String>? mutedUsers,
+    List<String>? pinnedUsers,
+    List<String>? archivedUsers,
+    List<String>? acceptedRequests,
+    String? pinnedMessageId,
+    List<String>? pinnedMessageIds,
+    String? pinnedMessagePreview,
+    Map<String, Timestamp>? readWatermarks,
+    Map<String, Timestamp>? deliveredWatermarks,
     bool? isMutual,
+    bool? isBlocked,
     int? creatorLevel,
     int? creatorEngagementScore,
     String? ownerId,
@@ -1121,8 +1647,11 @@ class ChatModel {
       lastMessage: lastMessage ?? this.lastMessage,
       lastMessageTime: lastMessageTime ?? this.lastMessageTime,
       lastMessageSenderId: lastMessageSenderId ?? this.lastMessageSenderId,
+      lastMessageType: lastMessageType ?? this.lastMessageType,
       unreadCounts: unreadCounts ?? this.unreadCounts,
       typingUsers: typingUsers ?? this.typingUsers,
+      recordingUsers: recordingUsers ?? this.recordingUsers,
+      typingAt: typingAt ?? this.typingAt,
       title: title ?? this.title,
       avatarUrl: avatarUrl ?? this.avatarUrl,
       category: category ?? this.category,
@@ -1137,7 +1666,16 @@ class ChatModel {
       isStarred: isStarred ?? this.isStarred,
       disappearingDuration: disappearingDuration ?? this.disappearingDuration,
       mutedUsers: mutedUsers ?? this.mutedUsers,
+      pinnedUsers: pinnedUsers ?? this.pinnedUsers,
+      archivedUsers: archivedUsers ?? this.archivedUsers,
+      acceptedRequests: acceptedRequests ?? this.acceptedRequests,
+      pinnedMessageId: pinnedMessageId ?? this.pinnedMessageId,
+      pinnedMessageIds: pinnedMessageIds ?? this.pinnedMessageIds,
+      pinnedMessagePreview: pinnedMessagePreview ?? this.pinnedMessagePreview,
+      readWatermarks: readWatermarks ?? this.readWatermarks,
+      deliveredWatermarks: deliveredWatermarks ?? this.deliveredWatermarks,
       isMutual: isMutual ?? this.isMutual,
+      isBlocked: isBlocked ?? this.isBlocked,
       creatorLevel: creatorLevel ?? this.creatorLevel,
       creatorEngagementScore: creatorEngagementScore ?? this.creatorEngagementScore,
       ownerId: ownerId ?? this.ownerId,
@@ -1151,6 +1689,7 @@ class MessageModel {
   final String text;
   final Timestamp timestamp;
   final List<String> readBy;
+  final List<String> deliveredTo;
   final String? replyToMessageId;
   final Map<String, String>? reactions;
   final String? mediaUrl;
@@ -1162,6 +1701,10 @@ class MessageModel {
   final String? voiceDuration;
   final List<double>? voiceWaveform;
   final bool isEncrypted;
+  final bool edited;
+  final Timestamp? editedAt;
+  final Timestamp? expiresAt;
+  final String localStatus;
 
   /// The file at [mediaUrl] is AES-GCM ciphertext under the per-chat key.
   final bool mediaEncrypted;
@@ -1183,6 +1726,7 @@ class MessageModel {
     required this.text,
     required this.timestamp,
     required this.readBy,
+    this.deliveredTo = const [],
     this.replyToMessageId,
     this.reactions,
     this.mediaUrl,
@@ -1198,6 +1742,10 @@ class MessageModel {
     this.location,
     this.forwarded = false,
     this.safety,
+    this.edited = false,
+    this.editedAt,
+    this.expiresAt,
+    this.localStatus = '',
   });
 
   factory MessageModel.fromFirestore(DocumentSnapshot doc) {
@@ -1215,6 +1763,7 @@ class MessageModel {
       text: (data['text'] as String?) ?? '',
       timestamp: (data['timestamp'] as Timestamp?) ?? Timestamp.now(),
       readBy: List<String>.from(data['readBy'] ?? []),
+      deliveredTo: List<String>.from(data['deliveredTo'] ?? []),
       replyToMessageId: data['replyToMessageId'] as String?,
       reactions: data['reactions'] != null ? Map<String, String>.from(data['reactions'] as Map) : null,
       mediaUrl: data['mediaUrl'] as String?,
@@ -1230,6 +1779,9 @@ class MessageModel {
       location: data['location'] is Map ? Map<String, dynamic>.from(data['location'] as Map) : null,
       forwarded: (data['forwarded'] as bool?) ?? false,
       safety: data['safety'] is Map ? Map<String, dynamic>.from(data['safety'] as Map) : null,
+      edited: (data['edited'] as bool?) ?? false,
+      editedAt: data['editedAt'] as Timestamp?,
+      expiresAt: data['expiresAt'] as Timestamp?,
     );
   }
 
@@ -1240,6 +1792,7 @@ class MessageModel {
       'text': text,
       'timestamp': timestamp,
       'readBy': readBy,
+      'deliveredTo': deliveredTo,
       if (replyToMessageId != null) 'replyToMessageId': replyToMessageId,
       if (reactions != null) 'reactions': reactions,
       if (mediaUrl != null) 'mediaUrl': mediaUrl,
@@ -1254,6 +1807,9 @@ class MessageModel {
       if (mediaEncrypted) 'mediaEncrypted': true,
       if (location != null) 'location': location,
       if (forwarded) 'forwarded': true,
+      if (edited) 'edited': true,
+      if (editedAt != null) 'editedAt': editedAt,
+      if (expiresAt != null) 'expiresAt': expiresAt,
     };
   }
 
@@ -1263,6 +1819,7 @@ class MessageModel {
     String? text,
     Timestamp? timestamp,
     List<String>? readBy,
+    List<String>? deliveredTo,
     String? replyToMessageId,
     Map<String, String>? reactions,
     String? mediaUrl,
@@ -1274,6 +1831,14 @@ class MessageModel {
     String? voiceDuration,
     List<double>? voiceWaveform,
     bool? isEncrypted,
+    bool? mediaEncrypted,
+    Map<String, dynamic>? location,
+    bool? forwarded,
+    Map<String, dynamic>? safety,
+    bool? edited,
+    Timestamp? editedAt,
+    Timestamp? expiresAt,
+    String? localStatus,
   }) {
     return MessageModel(
       id: id ?? this.id,
@@ -1281,6 +1846,7 @@ class MessageModel {
       text: text ?? this.text,
       timestamp: timestamp ?? this.timestamp,
       readBy: readBy ?? this.readBy,
+      deliveredTo: deliveredTo ?? this.deliveredTo,
       replyToMessageId: replyToMessageId ?? this.replyToMessageId,
       reactions: reactions ?? this.reactions,
       mediaUrl: mediaUrl ?? this.mediaUrl,
@@ -1292,9 +1858,14 @@ class MessageModel {
       voiceDuration: voiceDuration ?? this.voiceDuration,
       voiceWaveform: voiceWaveform ?? this.voiceWaveform,
       isEncrypted: isEncrypted ?? this.isEncrypted,
-      mediaEncrypted: mediaEncrypted,
-      location: location,
-      forwarded: forwarded,
+      mediaEncrypted: mediaEncrypted ?? this.mediaEncrypted,
+      location: location ?? this.location,
+      forwarded: forwarded ?? this.forwarded,
+      safety: safety ?? this.safety,
+      edited: edited ?? this.edited,
+      editedAt: editedAt ?? this.editedAt,
+      expiresAt: expiresAt ?? this.expiresAt,
+      localStatus: localStatus ?? this.localStatus,
     );
   }
 }

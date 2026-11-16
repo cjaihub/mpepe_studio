@@ -356,3 +356,5 @@ export { shopChatSend } from './commerce/shopChat';
 export { ledgerOutboxDeliver, ledgerOutboxRetry } from './ledger/outbox';
 // Google Maps Server Gateway (Places, Directions, Geocoding with GOOGLE_MAPS_SERVER_KEY).
 export { mapsGateway } from './mapsGateway';
+// Chat message push notifications and disappearing message expiry sweep.
+export { onChatMessagePush, sweepExpiredChatMessages } from './chatMessaging';

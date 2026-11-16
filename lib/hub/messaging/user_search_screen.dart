@@ -1,16 +1,19 @@
-import 'package:flutter/material.dart';
-import '../../shared/widgets/follow_button.dart';
-import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:go_router/go_router.dart';
-import 'package:firebase_auth/firebase_auth.dart';
-import 'package:flutter_animate/flutter_animate.dart';
+import 'dart:async';
 
+import 'package:firebase_auth/firebase_auth.dart';
+import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import '../../backend/user_service.dart';
+import 'package:flutter_animate/flutter_animate.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:go_router/go_router.dart';
+import 'package:google_fonts/google_fonts.dart';
+
 import '../../backend/messaging_repository.dart';
 import '../../backend/social/models/creator_engagement_level.dart';
+import '../../backend/user_service.dart';
 import '../../shared/theme/app_theme.dart';
+import '../../shared/widgets/follow_button.dart';
+import 'widgets/chat_user_directory.dart';
 
 class UserSearchScreen extends ConsumerStatefulWidget {
   const UserSearchScreen({super.key});
@@ -25,6 +28,7 @@ class _UserSearchScreenState extends ConsumerState<UserSearchScreen> {
   List<AppUser> _searchResults = [];
   bool _isLoading = false;
   String? _startingChatUserId;
+  Timer? _debounce;
 
   @override
   void initState() {
@@ -34,14 +38,8 @@ class _UserSearchScreenState extends ConsumerState<UserSearchScreen> {
 
   Future<void> _loadInitialUsers() async {
     setState(() => _isLoading = true);
-    final currentUserId = FirebaseAuth.instance.currentUser?.uid;
     try {
-      final snapshot = await FirebaseFirestore.instance.collection('users').limit(30).get();
-      final users = snapshot.docs
-          .map((doc) => AppUser.fromMap(doc.data(), doc.id))
-          .where((u) => u.id != currentUserId)
-          .toList();
-
+      final users = await ChatUserDirectory.loadSuggested(limit: 35);
       if (mounted) {
         setState(() {
           _allSuggestedUsers = users;
@@ -55,53 +53,29 @@ class _UserSearchScreenState extends ConsumerState<UserSearchScreen> {
     }
   }
 
-  void _searchUsers(String query) async {
+  void _onQueryChanged(String query) {
+    _debounce?.cancel();
+    _debounce = Timer(const Duration(milliseconds: 220), () => _searchUsers(query));
+  }
+
+  Future<void> _searchUsers(String query) async {
     final q = query.trim().toLowerCase();
     if (q.isEmpty) {
       setState(() => _searchResults = _allSuggestedUsers);
       return;
     }
 
-    final localMatches = _allSuggestedUsers.where((u) {
-      final name = u.fullName.toLowerCase();
-      final username = (u.username ?? '').toLowerCase();
-      final email = u.email.toLowerCase();
-      return name.contains(q) || username.contains(q) || email.contains(q);
-    }).toList();
-
-    setState(() {
-      _searchResults = localMatches;
-    });
-
     try {
-      final currentUserId = FirebaseAuth.instance.currentUser?.uid;
-      final snapshot = await FirebaseFirestore.instance
-          .collection('users')
-          .limit(30)
-          .get();
-
-      final users = snapshot.docs
-          .map((doc) => AppUser.fromMap(doc.data(), doc.id))
-          .where((u) => u.id != currentUserId)
-          .where((u) {
-            final name = u.fullName.toLowerCase();
-            final username = (u.username ?? '').toLowerCase();
-            final email = u.email.toLowerCase();
-            return name.contains(q) || username.contains(q) || email.contains(q);
-          })
-          .toList();
-
+      final users = await ChatUserDirectory.search(query, seed: _allSuggestedUsers);
       if (mounted) {
-        setState(() {
-          _searchResults = users;
-        });
+        setState(() => _searchResults = users);
       }
     } catch (e) {
-      debugPrint("Search error: $e");
+      debugPrint('Search error: $e');
     }
   }
 
-  void _startChat(AppUser user) async {
+  Future<void> _startChat(AppUser user) async {
     final currentUserId = FirebaseAuth.instance.currentUser?.uid;
     if (currentUserId == null || _startingChatUserId != null) return;
 
@@ -111,9 +85,8 @@ class _UserSearchScreenState extends ConsumerState<UserSearchScreen> {
     try {
       final repo = ref.read(messagingRepositoryProvider);
       final chatId = await repo.getOrCreateDirectChat(currentUserId, user.id);
-      
+
       if (!mounted) return;
-      // Close the search bottom sheet cleanly before navigating to conversation
       if (Navigator.of(context).canPop()) {
         Navigator.of(context).pop();
       }
@@ -123,7 +96,11 @@ class _UserSearchScreenState extends ConsumerState<UserSearchScreen> {
         setState(() => _startingChatUserId = null);
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('Error starting chat: $e'),
+            content: Text(
+              e is StateError
+                  ? e.message
+                  : 'Could not open this conversation right now.',
+            ),
             backgroundColor: AppColors.brandPink,
           ),
         );
@@ -133,76 +110,89 @@ class _UserSearchScreenState extends ConsumerState<UserSearchScreen> {
 
   @override
   void dispose() {
+    _debounce?.cancel();
     _searchController.dispose();
     super.dispose();
   }
 
   @override
   Widget build(BuildContext context) {
+    final currentUserId = FirebaseAuth.instance.currentUser?.uid;
     return Container(
       height: MediaQuery.of(context).size.height * 0.85,
       decoration: BoxDecoration(
-        color: AppColors.darkSurface,
-        borderRadius: const BorderRadius.vertical(top: Radius.circular(30)),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withValues(alpha: 0.5),
-            blurRadius: 20,
-            offset: const Offset(0, -5),
-          )
-        ],
+        color: context.surface,
+        borderRadius: const BorderRadius.vertical(top: Radius.circular(AppRadius.xl)),
+        border: Border(top: BorderSide(color: context.border, width: 1)),
       ),
       child: Column(
         children: [
-          const SizedBox(height: 12),
+          const SizedBox(height: 10),
           Container(
-            width: 40,
+            width: 38,
             height: 4,
             decoration: BoxDecoration(
-              color: Colors.white24,
+              color: context.border,
               borderRadius: BorderRadius.circular(2),
             ),
           ),
-          const SizedBox(height: 16),
+          const SizedBox(height: 12),
           Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 20),
+            padding: const EdgeInsets.symmetric(horizontal: 16),
             child: Row(
               children: [
                 Expanded(
                   child: TextField(
                     controller: _searchController,
-                    onChanged: _searchUsers,
-                    style: const TextStyle(color: Colors.white),
+                    autofocus: true,
+                    onChanged: _onQueryChanged,
+                    style: GoogleFonts.inter(color: context.textPrimary, fontSize: 13.5),
                     decoration: InputDecoration(
-                      hintText: 'Search creators or people...',
-                      hintStyle: const TextStyle(color: Colors.white54),
-                      prefixIcon: const Icon(Icons.search, color: Colors.white54),
+                      hintText: 'Search people by name or @username…',
+                      hintStyle: GoogleFonts.inter(color: context.textMuted, fontSize: 13),
+                      prefixIcon: Icon(Icons.search_rounded, color: context.textMuted, size: 19),
+                      isDense: true,
                       filled: true,
-                      fillColor: Colors.black26,
+                      fillColor: context.surfaceMid,
+                      contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
                       border: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(20),
-                        borderSide: BorderSide.none,
+                        borderRadius: BorderRadius.circular(AppRadius.full),
+                        borderSide: BorderSide(color: context.border),
                       ),
-                      contentPadding: const EdgeInsets.symmetric(vertical: 0),
+                      enabledBorder: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(AppRadius.full),
+                        borderSide: BorderSide(color: context.border),
+                      ),
+                      focusedBorder: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(AppRadius.full),
+                        borderSide: const BorderSide(color: AppColors.brandBlue),
+                      ),
                     ),
                   ),
                 ),
                 TextButton(
                   onPressed: () => Navigator.pop(context),
-                  child: const Text('Cancel', style: TextStyle(color: AppColors.brandBlue, fontWeight: FontWeight.bold)),
+                  child: Text(
+                    'Cancel',
+                    style: GoogleFonts.inter(
+                      color: AppColors.brandBlue,
+                      fontWeight: FontWeight.w700,
+                      fontSize: 13.5,
+                    ),
+                  ),
                 ),
               ],
             ),
           ),
-          const SizedBox(height: 16),
+          const SizedBox(height: 8),
           Expanded(
             child: _isLoading
                 ? const Center(child: CircularProgressIndicator(color: AppColors.brandBlue))
                 : _searchResults.isEmpty && _searchController.text.isNotEmpty
                     ? Center(
                         child: Text(
-                          "No users found for '${_searchController.text}'",
-                          style: const TextStyle(color: Colors.white54),
+                          "No people found for '${_searchController.text}'",
+                          style: GoogleFonts.inter(color: context.textMuted, fontSize: 13),
                         ),
                       )
                     : ListView.builder(
@@ -213,23 +203,23 @@ class _UserSearchScreenState extends ConsumerState<UserSearchScreen> {
                               ? user.fullName
                               : (user.username ?? 'Oneova Creator');
                           final avatarLetter = displayName.isNotEmpty ? displayName[0].toUpperCase() : '?';
-
                           final tier = CreatorEngagementLevel.fromUser(user).tier;
-                          final currentUserId = FirebaseAuth.instance.currentUser?.uid;
 
                           return ListTile(
+                            dense: true,
                             onTap: () => _startChat(user),
-                            contentPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
+                            contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 5),
                             leading: CircleAvatar(
-                              radius: 24,
+                              radius: 21,
                               backgroundColor: AppColors.brandBlue,
-                              backgroundImage: (user.profilePhotoUrl != null && user.profilePhotoUrl!.isNotEmpty)
-                                  ? NetworkImage(user.profilePhotoUrl!)
-                                  : null,
+                              backgroundImage:
+                                  (user.profilePhotoUrl != null && user.profilePhotoUrl!.isNotEmpty)
+                                      ? NetworkImage(user.profilePhotoUrl!)
+                                      : null,
                               child: (user.profilePhotoUrl == null || user.profilePhotoUrl!.isEmpty)
                                   ? Text(
                                       avatarLetter,
-                                      style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
+                                      style: GoogleFonts.inter(color: Colors.white, fontWeight: FontWeight.w700),
                                     )
                                   : null,
                             ),
@@ -238,14 +228,18 @@ class _UserSearchScreenState extends ConsumerState<UserSearchScreen> {
                                 Flexible(
                                   child: Text(
                                     displayName,
-                                    style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
+                                    style: GoogleFonts.inter(
+                                      color: context.textPrimary,
+                                      fontWeight: FontWeight.w600,
+                                      fontSize: 13.5,
+                                    ),
                                     maxLines: 1,
                                     overflow: TextOverflow.ellipsis,
                                   ),
                                 ),
                                 if (user.isVerified) ...[
                                   const SizedBox(width: 4),
-                                  const Icon(Icons.verified, color: AppColors.brandBlue, size: 14),
+                                  const Icon(Icons.verified_rounded, color: AppColors.brandBlue, size: 14),
                                 ],
                                 const SizedBox(width: 6),
                                 CreatorLevelBadge(
@@ -257,12 +251,12 @@ class _UserSearchScreenState extends ConsumerState<UserSearchScreen> {
                                 ),
                               ],
                             ),
-                            subtitle: Text(
-                              user.username != null && user.username!.isNotEmpty
-                                  ? '@${user.username}'
-                                  : user.email,
-                              style: const TextStyle(color: Colors.white54),
-                            ),
+                            subtitle: user.username != null && user.username!.isNotEmpty
+                                ? Text(
+                                    '@${user.username}',
+                                    style: GoogleFonts.inter(color: context.textMuted, fontSize: 11.5),
+                                  )
+                                : null,
                             trailing: Row(
                               mainAxisSize: MainAxisSize.min,
                               children: [
@@ -280,7 +274,7 @@ class _UserSearchScreenState extends ConsumerState<UserSearchScreen> {
                                   style: ElevatedButton.styleFrom(
                                     backgroundColor: AppColors.brandBlue,
                                     disabledBackgroundColor: AppColors.brandBlue.withValues(alpha: 0.6),
-                                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(AppRadius.sm)),
                                     padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
                                     minimumSize: Size.zero,
                                     tapTargetSize: MaterialTapTargetSize.shrinkWrap,
@@ -294,11 +288,18 @@ class _UserSearchScreenState extends ConsumerState<UserSearchScreen> {
                                             color: Colors.white,
                                           ),
                                         )
-                                      : const Text('Chat', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 11)),
+                                      : Text(
+                                          'Chat',
+                                          style: GoogleFonts.inter(
+                                            color: Colors.white,
+                                            fontWeight: FontWeight.w700,
+                                            fontSize: 11.5,
+                                          ),
+                                        ),
                                 ),
                               ],
                             ),
-                          ).animate().fadeIn(delay: Duration(milliseconds: 50 * index)).slideY(begin: 0.1, end: 0);
+                          ).animate().fadeIn(delay: Duration(milliseconds: (index.clamp(0, 8)) * 30));
                         },
                       ),
           ),

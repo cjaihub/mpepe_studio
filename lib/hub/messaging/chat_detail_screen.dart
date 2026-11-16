@@ -53,6 +53,11 @@ import '../../security/widgets/link_safety_gate.dart';
 import '../../shared/audio/mic_coordinator.dart';
 import '../../shared/widgets/oneova_smart_status_banner.dart';
 import '../../shared/language/language_detector.dart';
+import 'package:uuid/uuid.dart';
+import 'widgets/chat_local_preview_store.dart';
+import 'widgets/chat_shared_media_sheet.dart';
+import 'widgets/chat_group_members_sheet.dart';
+import 'widgets/chat_reaction_strip.dart';
 
 part 'chat_detail_upgrades.dart';
 
@@ -65,7 +70,8 @@ class ChatDetailScreen extends ConsumerStatefulWidget {
   ConsumerState<ChatDetailScreen> createState() => _ChatDetailScreenState();
 }
 
-class _ChatDetailScreenState extends ConsumerState<ChatDetailScreen> with SingleTickerProviderStateMixin {
+class _ChatDetailScreenState extends ConsumerState<ChatDetailScreen>
+    with SingleTickerProviderStateMixin, WidgetsBindingObserver {
   final TextEditingController _messageController = TextEditingController();
   bool _isTyping = false;
   bool _isRecordingVoice = false;
@@ -142,6 +148,13 @@ class _ChatDetailScreenState extends ConsumerState<ChatDetailScreen> with Single
   double? _uploadProgress;
   UploadTask? _activeUploadTask;
   StreamSubscription<TaskSnapshot>? _uploadProgressSub;
+  int _messagePageLimit = 60;
+  bool _loadingOlder = false;
+  MessageModel? _editingMessage;
+  final Set<String> _selectedMessageIds = {};
+  bool get _isMultiSelecting => _selectedMessageIds.isNotEmpty;
+  Timer? _typingIdleTimer;
+  String? _lastReadReceiptKey;
 
   void _refresh(VoidCallback fn) {
     if (mounted) setState(fn);
@@ -209,6 +222,7 @@ class _ChatDetailScreenState extends ConsumerState<ChatDetailScreen> with Single
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     _initE2EE();
     _loadChatPreferences();
     _listController.addListener(_onListScroll);
@@ -229,8 +243,22 @@ class _ChatDetailScreenState extends ConsumerState<ChatDetailScreen> with Single
     }
 
     _messageController.addListener(() {
-      DraftStore.instance.setDraft(DraftStore.chatKey(widget.chatId), _messageController.text);
+      if (_editingMessage == null) {
+        DraftStore.instance.setDraft(DraftStore.chatKey(widget.chatId), _messageController.text);
+      }
       final isTyping = _messageController.text.trim().isNotEmpty;
+      final currentUserId = FirebaseAuth.instance.currentUser?.uid;
+      if (isTyping) {
+        _typingIdleTimer?.cancel();
+        _typingIdleTimer = Timer(const Duration(seconds: 5), () {
+          if (mounted && currentUserId != null) {
+            (_messagingRepo ?? ref.read<MessagingRepository>(messagingRepositoryProvider))
+                .setTypingStatus(widget.chatId, currentUserId, false);
+          }
+        });
+      } else {
+        _typingIdleTimer?.cancel();
+      }
       if (isTyping != _isTyping) {
         setState(() {
           _isTyping = isTyping;
@@ -238,15 +266,25 @@ class _ChatDetailScreenState extends ConsumerState<ChatDetailScreen> with Single
             _toggleAttachments(); // hide attachments when typing starts
           }
         });
-        
+
         // Report typing status to backend
-        final currentUserId = FirebaseAuth.instance.currentUser?.uid;
         if (mounted && currentUserId != null) {
           (_messagingRepo ?? ref.read<MessagingRepository>(messagingRepositoryProvider))
               .setTypingStatus(widget.chatId, currentUserId, isTyping);
         }
       }
     });
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.paused || state == AppLifecycleState.inactive || state == AppLifecycleState.detached) {
+      _typingIdleTimer?.cancel();
+      final uid = FirebaseAuth.instance.currentUser?.uid;
+      if (uid != null && _isTyping) {
+        _messagingRepo?.setTypingStatus(widget.chatId, uid, false);
+      }
+    }
   }
 
   @override
@@ -477,6 +515,22 @@ class _ChatDetailScreenState extends ConsumerState<ChatDetailScreen> with Single
       }
     }
 
+    if (messages.isNotEmpty) {
+      final latest = messages.first;
+      if (latest.isEncrypted && _decryptedCache.containsKey(latest.id)) {
+        final me = FirebaseAuth.instance.currentUser?.uid;
+        final plain = _decryptedCache[latest.id]!;
+        if (plain.isNotEmpty && !plain.startsWith('🔒')) {
+          final prefix = latest.senderId == me ? 'You: ' : '';
+          await ChatLocalPreviewStore.instance.save(
+            widget.chatId,
+            '$prefix$plain',
+            latest.timestamp.millisecondsSinceEpoch,
+          );
+        }
+      }
+    }
+
     if (updated && mounted) {
       setState(() {});
     }
@@ -487,7 +541,7 @@ class _ChatDetailScreenState extends ConsumerState<ChatDetailScreen> with Single
     return _decryptedCache[message.id] ?? '🔒 Decrypting...';
   }
 
-  void _sendMessage() {
+  Future<void> _sendMessage() async {
     final text = _messageController.text.trim();
     if (text.isEmpty) return;
 
@@ -497,20 +551,119 @@ class _ChatDetailScreenState extends ConsumerState<ChatDetailScreen> with Single
     }
 
     final currentUserId = FirebaseAuth.instance.currentUser?.uid ?? 'guest';
-    ref.read(messagingRepositoryProvider).sendMessage(
-      widget.chatId, 
-      currentUserId, 
-      text, 
-      recipientId: _chatPartnerId,
-      replyToMessageId: _replyingTo?.id,
+    final repo = ref.read(messagingRepositoryProvider);
+
+    if (_editingMessage != null) {
+      final editing = _editingMessage!;
+      _messageController.clear();
+      setState(() {
+        _editingMessage = null;
+        _replyingTo = null;
+      });
+      await repo.setTypingStatus(widget.chatId, currentUserId, false);
+      try {
+        await repo.editMessage(
+          widget.chatId,
+          editing.id,
+          currentUserId,
+          text,
+          recipientId: _chatPartnerId,
+        );
+        if (_lastMessages.isNotEmpty && _lastMessages.first.id == editing.id && _e2eeActive) {
+          await ChatLocalPreviewStore.instance.save(
+            widget.chatId,
+            'You: $text',
+            editing.timestamp.millisecondsSinceEpoch,
+          );
+        }
+        _decryptedCache[editing.id] = text;
+        if (mounted) setState(() {});
+      } catch (e) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text("Couldn't edit this message."), backgroundColor: AppColors.brandPink),
+          );
+        }
+      }
+      return;
+    }
+
+    final msgId = const Uuid().v4();
+    final replyToId = _replyingTo?.id;
+    final optimistic = MessageModel(
+      id: msgId,
+      senderId: currentUserId,
+      text: text,
+      timestamp: Timestamp.now(),
+      readBy: const [],
+      replyToMessageId: replyToId,
+      localStatus: 'sending',
     );
-    ref.read(messagingRepositoryProvider).setTypingStatus(widget.chatId, currentUserId, false); // clear typing
+
     _messageController.clear();
     DraftStore.instance.clearDraft(DraftStore.chatKey(widget.chatId));
     setState(() {
+      _pendingLocalMessages.insert(0, optimistic);
       _replyingTo = null;
     });
+    repo.setTypingStatus(widget.chatId, currentUserId, false);
     if (_awayFromBottom) _jumpToLatest();
+
+    await _dispatchTextMessage(optimistic, repo);
+  }
+
+  Future<void> _dispatchTextMessage(MessageModel optimistic, MessagingRepository repo) async {
+    try {
+      await repo.sendMessage(
+        widget.chatId,
+        optimistic.senderId,
+        optimistic.text,
+        messageId: optimistic.id,
+        recipientId: _chatPartnerId,
+        replyToMessageId: optimistic.replyToMessageId,
+      );
+      if (_e2eeActive) {
+        await ChatLocalPreviewStore.instance.save(
+          widget.chatId,
+          'You: ${optimistic.text}',
+          optimistic.timestamp.millisecondsSinceEpoch,
+        );
+      }
+      if (mounted) {
+        setState(() {
+          _pendingLocalMessages.removeWhere((m) => m.id == optimistic.id);
+        });
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(() {
+          final idx = _pendingLocalMessages.indexWhere((m) => m.id == optimistic.id);
+          if (idx >= 0) {
+            if (e is StateError) {
+              _pendingLocalMessages.removeAt(idx);
+            } else {
+              _pendingLocalMessages[idx] = optimistic.copyWith(localStatus: 'failed');
+            }
+          }
+        });
+        if (e is StateError) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text(e.message), backgroundColor: AppColors.brandPink),
+          );
+        }
+      }
+    }
+  }
+
+  Future<void> _retryFailedMessage(MessageModel failed) async {
+    HapticFeedback.lightImpact();
+    final repo = ref.read(messagingRepositoryProvider);
+    final updated = failed.copyWith(localStatus: 'sending');
+    setState(() {
+      final idx = _pendingLocalMessages.indexWhere((m) => m.id == failed.id);
+      if (idx >= 0) _pendingLocalMessages[idx] = updated;
+    });
+    await _dispatchTextMessage(updated, repo);
   }
 
   void _openOvaAssistantOverlay() async {
@@ -800,17 +953,119 @@ class _ChatDetailScreenState extends ConsumerState<ChatDetailScreen> with Single
   Future<void> _pickImage(ImageSource source) async {
     final picker = ImagePicker();
     final pickedFile = await picker.pickImage(source: source);
-    if (pickedFile != null) {
-      _uploadFileAndSend(File(pickedFile.path), 'image', pickedFile.name);
+    if (pickedFile != null && mounted) {
+      final caption = await _promptMediaCaption(File(pickedFile.path), isVideo: false, fileName: pickedFile.name);
+      if (caption == null || !mounted) return;
+      _uploadFileAndSend(File(pickedFile.path), 'image', pickedFile.name, caption: caption);
     }
   }
 
   Future<void> _pickVideo() async {
     final picker = ImagePicker();
     final pickedFile = await picker.pickVideo(source: ImageSource.gallery);
-    if (pickedFile != null) {
-      _uploadFileAndSend(File(pickedFile.path), 'video', pickedFile.name);
+    if (pickedFile != null && mounted) {
+      final caption = await _promptMediaCaption(File(pickedFile.path), isVideo: true, fileName: pickedFile.name);
+      if (caption == null || !mounted) return;
+      _uploadFileAndSend(File(pickedFile.path), 'video', pickedFile.name, caption: caption);
     }
+  }
+
+  Future<String?> _promptMediaCaption(File file, {required bool isVideo, required String fileName}) async {
+    final ctrl = TextEditingController();
+    final res = await showModalBottomSheet<String>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (ctx) => Padding(
+        padding: EdgeInsets.only(bottom: MediaQuery.of(ctx).viewInsets.bottom),
+        child: Container(
+          decoration: BoxDecoration(
+            color: ctx.surface,
+            borderRadius: const BorderRadius.vertical(top: Radius.circular(AppRadius.xl)),
+            border: Border(top: BorderSide(color: ctx.border)),
+          ),
+          padding: const EdgeInsets.fromLTRB(16, 12, 16, 16),
+          child: SafeArea(
+            top: false,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Container(
+                  width: 36,
+                  height: 4,
+                  decoration: BoxDecoration(color: ctx.border, borderRadius: BorderRadius.circular(2)),
+                ),
+                const SizedBox(height: 12),
+                ClipRRect(
+                  borderRadius: BorderRadius.circular(AppRadius.md),
+                  child: Container(
+                    height: 180,
+                    width: double.infinity,
+                    color: ctx.surfaceMid,
+                    child: isVideo
+                        ? Center(
+                            child: Column(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                const Icon(Icons.videocam_rounded, color: AppColors.brandBlue, size: 42),
+                                const SizedBox(height: 6),
+                                Padding(
+                                  padding: const EdgeInsets.symmetric(horizontal: 16),
+                                  child: Text(
+                                    fileName,
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                    style: GoogleFonts.inter(color: ctx.textSecondary, fontSize: 12),
+                                  ),
+                                ),
+                              ],
+                            ),
+                          )
+                        : Image.file(file, fit: BoxFit.cover),
+                  ),
+                ),
+                const SizedBox(height: 12),
+                Row(
+                  children: [
+                    Expanded(
+                      child: TextField(
+                        controller: ctrl,
+                        autofocus: false,
+                        textCapitalization: TextCapitalization.sentences,
+                        style: GoogleFonts.inter(color: ctx.textPrimary, fontSize: 14),
+                        decoration: InputDecoration(
+                          hintText: 'Add a caption… (optional)',
+                          hintStyle: GoogleFonts.inter(color: ctx.textMuted, fontSize: 13),
+                          isDense: true,
+                          filled: true,
+                          fillColor: ctx.surfaceMid,
+                          contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                          border: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(AppRadius.full),
+                            borderSide: BorderSide(color: ctx.border),
+                          ),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    GestureDetector(
+                      onTap: () => Navigator.pop(ctx, ctrl.text.trim()),
+                      child: Container(
+                        padding: const EdgeInsets.all(11),
+                        decoration: const BoxDecoration(color: AppColors.brandPink, shape: BoxShape.circle),
+                        child: const Icon(Icons.send_rounded, color: Colors.white, size: 19),
+                      ),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+    ctrl.dispose();
+    return res;
   }
 
   Future<void> _pickDocument() async {
@@ -922,9 +1177,10 @@ class _ChatDetailScreenState extends ConsumerState<ChatDetailScreen> with Single
   }
 
   Future<void> _uploadFileAndSend(
-    File file, 
-    String type, 
+    File file,
+    String type,
     String fileName, {
+    String caption = '',
     String? voiceDuration,
     List<double>? voiceWaveform,
     bool silent = false,
@@ -996,9 +1252,10 @@ class _ChatDetailScreenState extends ConsumerState<ChatDetailScreen> with Single
           VoiceAudioDiskCache.seedLocalFile(downloadUrl, file.path);
         }
         await repo.sendMessage(
-          widget.chatId, 
-          currentUserId, 
-          '', 
+          widget.chatId,
+          currentUserId,
+          caption,
+          recipientId: _chatPartnerId,
           mediaUrl: downloadUrl,
           mediaEncrypted: peerKey != null,
           mediaType: type,
@@ -1402,14 +1659,21 @@ class _ChatDetailScreenState extends ConsumerState<ChatDetailScreen> with Single
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    _typingIdleTimer?.cancel();
     _uploadProgressSub?.cancel();
     _micHoldTimer?.cancel();
     _recordingTimer?.cancel();
     _amplitudeTimer?.cancel();
     _inChatSearchController.dispose();
     final currentUserId = FirebaseAuth.instance.currentUser?.uid;
-    if (currentUserId != null && _isRecordingVoice) {
-      _messagingRepo?.setRecordingStatus(widget.chatId, currentUserId, false);
+    if (currentUserId != null) {
+      if (_isRecordingVoice) {
+        _messagingRepo?.setRecordingStatus(widget.chatId, currentUserId, false);
+      }
+      if (_isTyping) {
+        _messagingRepo?.setTypingStatus(widget.chatId, currentUserId, false);
+      }
     }
     unawaited(_voiceMicLease?.release());
     _voiceMicLease = null;
@@ -1430,15 +1694,33 @@ class _ChatDetailScreenState extends ConsumerState<ChatDetailScreen> with Single
   @override
   Widget build(BuildContext context) {
     final currentUserId = FirebaseAuth.instance.currentUser?.uid ?? 'guest';
-    final messagesAsync = ref.watch(chatMessagesProvider(widget.chatId));
+    final messagesAsync = ref.watch(chatMessagesPaginatedProvider((chatId: widget.chatId, limit: _messagePageLimit)));
     final chat = ref.watch(chatStreamProvider((chatId: widget.chatId, currentUserId: currentUserId))).value;
     final isChannelReader = chat?.category == 'channel' && chat?.ownerId != null && chat!.ownerId != currentUserId;
     final isVipHost = chat?.category == 'vip_room' && chat?.ownerId == currentUserId;
+    final others = chat?.participants.where((id) => id != currentUserId).toList() ?? const <String>[];
+    final isGroup = others.length > 1 || chat?.category == 'group' || chat?.category == 'channel';
+    final otherUserId = !isGroup && others.length == 1 ? others.first : '';
+    final followRel = otherUserId.isEmpty
+        ? null
+        : ref.watch(followStateProvider((me: currentUserId, them: otherUserId))).value;
+    final isBlocked = chat?.isBlocked == true || followRel == FollowState.blocked;
 
-    // Mark as read when opened
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      ref.read(messagingRepositoryProvider).markMessagesAsRead(widget.chatId, currentUserId);
-    });
+    // Only mark read when unread or latest incoming message changes (no build loop).
+    final latestIncomingId = messagesAsync.value
+        ?.where((m) => m.senderId != currentUserId)
+        .firstOrNull
+        ?.id;
+    final unreadNow = chat?.unreadCounts[currentUserId] ?? 0;
+    final readKey = '${unreadNow > 0}_$latestIncomingId';
+    if (currentUserId != 'guest' && (unreadNow > 0 || latestIncomingId != null) && _lastReadReceiptKey != readKey) {
+      _lastReadReceiptKey = readKey;
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) {
+          ref.read(messagingRepositoryProvider).markMessagesAsRead(widget.chatId, currentUserId);
+        }
+      });
+    }
 
     // Background: this chat's own, else the all-chats default, else the
     // older per-device wallpaper.
@@ -1459,131 +1741,273 @@ class _ChatDetailScreenState extends ConsumerState<ChatDetailScreen> with Single
 
     return Scaffold(
       backgroundColor: context.bg,
-      appBar: _buildAppBar(currentUserId),
+      appBar: _buildAppBar(currentUserId, chat: chat),
       body: Stack(
         fit: StackFit.expand,
         children: [
           ChatBackgroundView(background: background),
           Column(
-          children: [
-            if (isVipHost) RoomJoinRequestsBanner(chatId: widget.chatId, roomTitle: chat?.title ?? 'your room'),
-            _buildFollowStrip(chat, currentUserId),
-            Expanded(
-              child: GestureDetector(
-                onTap: () {
-                  FocusScope.of(context).unfocus();
-                  if (_showAttachments) _toggleAttachments();
-                },
-                child: _buildMessagesList(messagesAsync, currentUserId),
+            children: [
+              if (isVipHost) RoomJoinRequestsBanner(chatId: widget.chatId, roomTitle: chat?.title ?? 'your room'),
+              _buildFollowStrip(chat, currentUserId),
+              if (chat?.pinnedMessageId != null && chat!.pinnedMessageId!.isNotEmpty)
+                _buildPinnedMessageBanner(chat, currentUserId),
+              Expanded(
+                child: GestureDetector(
+                  onTap: () {
+                    FocusScope.of(context).unfocus();
+                    if (_showAttachments) _toggleAttachments();
+                  },
+                  child: _buildMessagesList(messagesAsync, currentUserId, chat: chat),
+                ),
               ),
-            ),
-            
-            // Typing Indicator from others
-            _buildTypingIndicator(currentUserId),
-            
-            // Input Area (channel members read only)
-            if (isChannelReader) const ChannelReadOnlyBar() else _buildInputArea(),
-            
-            // Attachment Drawer
-            SizeTransition(
-              sizeFactor: _attachmentAnimation,
-              child: _buildAttachmentDrawer(),
-            ),
 
-            // Emoji & GIF panel (replaces the keyboard)
-            AnimatedSize(
-              duration: const Duration(milliseconds: 200),
-              curve: Curves.easeOutCubic,
-              child: _showEmojiPanel && !isChannelReader
-                  ? ChatEmojiGifPanel(
-                      onEmoji: _insertEmoji,
-                      onBackspace: _emojiBackspace,
-                      onGif: _sendGif,
-                      onCreateGif: _createCameraGif,
-                    )
-                  : const SizedBox.shrink(),
-            ),
-          ],
-        ),
+              // Typing Indicator from others (reuses chat stream)
+              _buildTypingIndicator(chat, currentUserId),
+
+              // Input Area
+              if (isBlocked)
+                _buildBlockedComposerBar(currentUserId, otherUserId, followRel == FollowState.blocked)
+              else if (isChannelReader)
+                const ChannelReadOnlyBar()
+              else
+                _buildInputArea(),
+
+              // Attachment Drawer
+              SizeTransition(
+                sizeFactor: _attachmentAnimation,
+                child: _buildAttachmentDrawer(),
+              ),
+
+              // Emoji & GIF panel (replaces the keyboard)
+              AnimatedSize(
+                duration: const Duration(milliseconds: 200),
+                curve: Curves.easeOutCubic,
+                child: _showEmojiPanel && !isChannelReader && !isBlocked
+                    ? ChatEmojiGifPanel(
+                        onEmoji: _insertEmoji,
+                        onBackspace: _emojiBackspace,
+                        onGif: _sendGif,
+                        onCreateGif: _createCameraGif,
+                      )
+                    : const SizedBox.shrink(),
+              ),
+            ],
+          ),
         ],
       ),
     );
   }
 
-  Widget _buildTypingIndicator(String currentUserId) {
-    return StreamBuilder<DocumentSnapshot>(
-      stream: FirebaseFirestore.instance.collection('chats').doc(widget.chatId).snapshots(),
-      builder: (context, snapshot) {
-        if (!snapshot.hasData || !snapshot.data!.exists) return const SizedBox.shrink();
-        
-        final data = snapshot.data!.data() as Map<String, dynamic>? ?? {};
-        final typingUsers = List<String>.from(data['typingUsers'] ?? []);
-        final recordingUsers = List<String>.from(data['recordingUsers'] ?? []);
-        final otherTyping = typingUsers.where((id) => id != currentUserId).toList();
-        final otherRecording = recordingUsers.where((id) => id != currentUserId).toList();
-        
-        if (otherTyping.isEmpty && otherRecording.isEmpty) return const SizedBox.shrink();
-        
-        final isRecording = otherRecording.isNotEmpty;
-        
-        return Container(
-          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-          alignment: Alignment.centerLeft,
+  Widget _buildPinnedMessageBanner(ChatModel chat, String currentUserId) {
+    final pinId = chat.pinnedMessageId!;
+    final loadedMatch = _lastMessages.where((m) => m.id == pinId).firstOrNull;
+    final preview = loadedMatch != null
+        ? (_getDisplayText(loadedMatch).trim().isNotEmpty
+            ? _getDisplayText(loadedMatch).trim()
+            : (loadedMatch.fileName ?? loadedMatch.mediaType ?? 'Pinned message'))
+        : (chat.pinnedMessagePreview ?? 'Pinned message');
+
+    return Material(
+      color: context.surface,
+      child: InkWell(
+        onTap: () {
+          final idx = _lastMessages.indexWhere((m) => m.id == pinId);
+          if (idx >= 0 && _listController.hasClients) {
+            _listController.animateTo(
+              (idx * 68.0).clamp(0.0, _listController.position.maxScrollExtent),
+              duration: const Duration(milliseconds: 350),
+              curve: Curves.easeOutCubic,
+            );
+          } else {
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(content: Text('Pinned: $preview')),
+            );
+          }
+        },
+        child: Container(
+          padding: const EdgeInsets.fromLTRB(14, 7, 8, 7),
+          decoration: BoxDecoration(
+            border: Border(
+              left: const BorderSide(color: AppColors.brandPink, width: 3),
+              bottom: BorderSide(color: context.border, width: 1),
+            ),
+          ),
           child: Row(
-            mainAxisSize: MainAxisSize.min,
             children: [
-              if (isRecording) ...[
-                const Icon(Icons.mic_rounded, color: AppColors.brandPink, size: 16)
-                    .animate(onPlay: (controller) => controller.repeat(reverse: true))
-                    .scale(begin: const Offset(0.9, 0.9), end: const Offset(1.25, 1.25), duration: 600.ms),
-                const SizedBox(width: 8),
-                Text(
-                  'Recording audio...',
+              const Icon(Icons.push_pin_rounded, size: 14, color: AppColors.brandPink),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  preview,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
                   style: GoogleFonts.inter(
-                    color: AppColors.brandPink,
-                    fontSize: 12.5,
-                    fontWeight: FontWeight.w600,
-                    fontStyle: FontStyle.italic,
-                  ),
-                ),
-              ] else ...[
-                Text(
-                  'Typing...',
-                  style: GoogleFonts.inter(
-                    color: context.textSecondary,
-                    fontSize: 12.5,
+                    color: context.textPrimary,
+                    fontSize: 12,
                     fontWeight: FontWeight.w500,
-                    fontStyle: FontStyle.italic,
                   ),
                 ),
-                const SizedBox(width: 8),
-                Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: List.generate(
-                    3,
-                    (dotIndex) => Container(
-                      width: 5,
-                      height: 5,
-                      margin: const EdgeInsets.symmetric(horizontal: 1.5),
-                      decoration: const BoxDecoration(
-                        color: AppColors.brandPink,
-                        shape: BoxShape.circle,
-                      ),
-                    ).animate(onPlay: (c) => c.repeat(reverse: true)).scale(
-                          delay: Duration(milliseconds: dotIndex * 180),
-                          duration: 500.ms,
-                        ),
-                  ),
+              ),
+              if (chat.category != 'channel' || chat.ownerId == currentUserId)
+                IconButton(
+                  tooltip: 'Unpin',
+                  visualDensity: VisualDensity.compact,
+                  constraints: const BoxConstraints(minWidth: 28, minHeight: 28),
+                  padding: EdgeInsets.zero,
+                  icon: Icon(Icons.close_rounded, size: 16, color: context.textMuted),
+                  onPressed: () {
+                    ref.read(messagingRepositoryProvider).togglePinMessage(
+                          widget.chatId,
+                          pinId,
+                          currentlyPinned: true,
+                        );
+                  },
                 ),
-              ],
             ],
           ),
-        ).animate().fadeIn(duration: 200.ms);
-      },
+        ),
+      ),
     );
   }
 
-  PreferredSizeWidget _buildAppBar(String currentUserId) {
+  Widget _buildBlockedComposerBar(String currentUserId, String otherUserId, bool iBlockedThem) {
+    return SafeArea(
+      top: false,
+      child: Container(
+        width: double.infinity,
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+        decoration: BoxDecoration(
+          color: context.surface,
+          border: Border(top: BorderSide(color: context.border)),
+        ),
+        child: Row(
+          children: [
+            const Icon(Icons.block_rounded, size: 18, color: AppColors.brandPink),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Text(
+                iBlockedThem
+                    ? 'You blocked this contact. Unblock to send messages or calls.'
+                    : 'You cannot reply to this conversation.',
+                style: GoogleFonts.inter(color: context.textSecondary, fontSize: 12.5, fontWeight: FontWeight.w500),
+              ),
+            ),
+            if (iBlockedThem && otherUserId.isNotEmpty)
+              TextButton(
+                onPressed: () async {
+                  await ref.read(relationshipRepositoryProvider).unblockUser(currentUserId, otherUserId);
+                  ref.read(messagingRepositoryProvider).invalidateRelationCache(currentUserId, otherUserId);
+                },
+                child: Text(
+                  'Unblock',
+                  style: GoogleFonts.inter(color: AppColors.brandBlue, fontWeight: FontWeight.w700, fontSize: 12.5),
+                ),
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildTypingIndicator(ChatModel? chat, String currentUserId) {
+    if (chat == null) return const SizedBox.shrink();
+    final otherTyping = chat.activeTypingUsers(currentUserId);
+    final otherRecording = chat.recordingUsers.where((id) => id != currentUserId).toList();
+    if (otherTyping.isEmpty && otherRecording.isEmpty) return const SizedBox.shrink();
+
+    final isRecording = otherRecording.isNotEmpty;
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+      alignment: Alignment.centerLeft,
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          if (isRecording) ...[
+            const Icon(Icons.mic_rounded, color: AppColors.brandPink, size: 16)
+                .animate(onPlay: (controller) => controller.repeat(reverse: true))
+                .scale(begin: const Offset(0.9, 0.9), end: const Offset(1.25, 1.25), duration: 600.ms),
+            const SizedBox(width: 8),
+            Text(
+              'Recording audio...',
+              style: GoogleFonts.inter(
+                color: AppColors.brandPink,
+                fontSize: 12.5,
+                fontWeight: FontWeight.w600,
+                fontStyle: FontStyle.italic,
+              ),
+            ),
+          ] else ...[
+            Text(
+              'Typing...',
+              style: GoogleFonts.inter(
+                color: context.textSecondary,
+                fontSize: 12.5,
+                fontWeight: FontWeight.w500,
+                fontStyle: FontStyle.italic,
+              ),
+            ),
+            const SizedBox(width: 8),
+            Row(
+              mainAxisSize: MainAxisSize.min,
+              children: List.generate(
+                3,
+                (dotIndex) => Container(
+                  width: 5,
+                  height: 5,
+                  margin: const EdgeInsets.symmetric(horizontal: 1.5),
+                  decoration: const BoxDecoration(
+                    color: AppColors.brandPink,
+                    shape: BoxShape.circle,
+                  ),
+                ).animate(onPlay: (c) => c.repeat(reverse: true)).scale(
+                      delay: Duration(milliseconds: dotIndex * 180),
+                      duration: 500.ms,
+                    ),
+              ),
+            ),
+          ],
+        ],
+      ),
+    ).animate().fadeIn(duration: 200.ms);
+  }
+
+  PreferredSizeWidget _buildAppBar(String currentUserId, {ChatModel? chat}) {
+    if (_isMultiSelecting) {
+      final fg = context.topBarFg;
+      return AppBar(
+        backgroundColor: AppColors.brandBlue,
+        elevation: 0,
+        leading: IconButton(
+          icon: Icon(Icons.close_rounded, color: fg, size: 22),
+          tooltip: 'Cancel selection',
+          onPressed: _clearSelection,
+        ),
+        title: Text(
+          '${_selectedMessageIds.length} selected',
+          style: GoogleFonts.inter(color: fg, fontSize: 16, fontWeight: FontWeight.w700),
+        ),
+        actions: [
+          IconButton(
+            icon: Icon(Icons.copy_rounded, color: fg, size: 20),
+            tooltip: 'Copy',
+            onPressed: _copySelectedMessages,
+          ),
+          IconButton(
+            icon: Icon(Icons.star_outline_rounded, color: fg, size: 21),
+            tooltip: 'Highlight',
+            onPressed: _highlightSelectedMessages,
+          ),
+          IconButton(
+            icon: Icon(Icons.delete_outline_rounded, color: fg, size: 21),
+            tooltip: 'Delete',
+            onPressed: _deleteSelectedMessages,
+          ),
+          const SizedBox(width: 4),
+        ],
+      );
+    }
+
     if (_isSearchingInChat) {
       return AppBar(
         backgroundColor: AppColors.brandBlue,
@@ -1633,15 +2057,15 @@ class _ChatDetailScreenState extends ConsumerState<ChatDetailScreen> with Single
       );
     }
 
-    final chat = ref.watch(chatStreamProvider((chatId: widget.chatId, currentUserId: currentUserId))).value;
-    final others = chat?.participants.where((id) => id != currentUserId).toList() ?? const <String>[];
-    final isGroup = others.length > 1 || chat?.category == 'group' || chat?.category == 'channel';
+    final activeChat = chat ?? ref.watch(chatStreamProvider((chatId: widget.chatId, currentUserId: currentUserId))).value;
+    final others = activeChat?.participants.where((id) => id != currentUserId).toList() ?? const <String>[];
+    final isGroup = others.length > 1 || activeChat?.category == 'group' || activeChat?.category == 'channel';
     final otherUserId = others.length == 1 ? others.first : '';
     final fg = context.topBarFg;
 
     Future<void> openInfo() async {
       final otherUser = otherUserId.isEmpty ? null : await _getUserCached(otherUserId);
-      if (mounted) _showChatSettingsSheet(context, chat, otherUser, otherUserId);
+      if (mounted) _showChatSettingsSheet(context, activeChat, otherUser, otherUserId);
     }
 
     return AppBar(
@@ -1664,17 +2088,17 @@ class _ChatDetailScreenState extends ConsumerState<ChatDetailScreen> with Single
           builder: (context, userSnapshot) {
             final user = userSnapshot.data;
             final name = isGroup
-                ? (chat?.title?.isNotEmpty == true ? chat!.title! : 'Group chat')
+                ? (activeChat?.title?.isNotEmpty == true ? activeChat!.title! : 'Group chat')
                 : (user != null && user.fullName.isNotEmpty)
                     ? user.fullName
-                    : (user?.username?.isNotEmpty == true ? user!.username! : (chat?.title ?? 'Chat'));
-            final avatarUrl = isGroup ? chat?.avatarUrl : (user?.profilePhotoUrl ?? chat?.avatarUrl);
-            final verified = chat?.isVerified == true || user?.isVerified == true;
+                    : (user?.username?.isNotEmpty == true ? user!.username! : (activeChat?.title ?? 'Chat'));
+            final avatarUrl = isGroup ? activeChat?.avatarUrl : (user?.profilePhotoUrl ?? activeChat?.avatarUrl);
+            final verified = activeChat?.isVerified == true || user?.isVerified == true;
             final presence = otherUserId.isEmpty
                 ? const UserPresence()
                 : (ref.watch(userPresenceDetailsProvider(otherUserId)).value ?? const UserPresence());
-            final typing = chat?.typingUsers.where((id) => id != currentUserId).isNotEmpty ?? false;
-            final recording = chat?.recordingUsers.where((id) => id != currentUserId).isNotEmpty ?? false;
+            final typing = activeChat?.activeTypingUsers(currentUserId).isNotEmpty ?? false;
+            final recording = activeChat?.recordingUsers.where((id) => id != currentUserId).isNotEmpty ?? false;
             final relation = otherUserId.isEmpty
                 ? null
                 : ref.watch(followStateProvider((me: currentUserId, them: otherUserId))).value;
@@ -1685,7 +2109,7 @@ class _ChatDetailScreenState extends ConsumerState<ChatDetailScreen> with Single
             } else if (typing) {
               subWidget = Text('typing…', style: GoogleFonts.inter(color: fg, fontSize: 11.5, fontWeight: FontWeight.w600));
             } else if (isGroup) {
-              subWidget = Text('${chat?.participants.length ?? 0} members', style: GoogleFonts.inter(color: fg.withValues(alpha: 0.8), fontSize: 11.5));
+              subWidget = Text('${activeChat?.participants.length ?? 0} members', style: GoogleFonts.inter(color: fg.withValues(alpha: 0.8), fontSize: 11.5));
             } else {
               subWidget = LivePresencePill(presence: presence, textColor: fg);
             }
@@ -1773,11 +2197,11 @@ class _ChatDetailScreenState extends ConsumerState<ChatDetailScreen> with Single
                               ),
                               const SizedBox(width: 6),
                               Icon(Icons.lock_rounded, size: 10, color: fg.withValues(alpha: 0.75)),
-                              if (chat != null && chat.disappearingDuration > 0) ...[
+                              if (activeChat != null && activeChat.disappearingDuration > 0) ...[
                                 const SizedBox(width: 5),
                                 Icon(Icons.timer_outlined, size: 11, color: fg.withValues(alpha: 0.85)),
                               ],
-                              if (chat?.mutedUsers.contains(currentUserId) == true) ...[
+                              if (activeChat?.mutedUsers.contains(currentUserId) == true) ...[
                                 const SizedBox(width: 5),
                                 Icon(Icons.notifications_off_rounded, size: 11, color: fg.withValues(alpha: 0.6)),
                               ],
@@ -1936,12 +2360,17 @@ class _ChatDetailScreenState extends ConsumerState<ChatDetailScreen> with Single
 
   void _showChatSettingsSheet(BuildContext context, ChatModel? chat, AppUser? otherUser, String otherUserId) {
     final currentUserId = FirebaseAuth.instance.currentUser?.uid ?? '';
-    final name = (otherUser != null && otherUser.fullName.isNotEmpty)
-        ? otherUser.fullName
-        : (chat?.title ?? 'Oneova Creator');
-    final avatarUrl = otherUser?.profilePhotoUrl ?? chat?.avatarUrl;
+    final isGroup = (chat?.participants.length ?? 0) > 2 || chat?.category == 'group' || chat?.category == 'channel';
+    final name = isGroup
+        ? (chat?.title?.isNotEmpty == true ? chat!.title! : 'Group Chat')
+        : ((otherUser != null && otherUser.fullName.isNotEmpty)
+            ? otherUser.fullName
+            : (chat?.title ?? 'Oneova Creator'));
+    final avatarUrl = isGroup ? chat?.avatarUrl : (otherUser?.profilePhotoUrl ?? chat?.avatarUrl);
     final initial = name.isNotEmpty ? name[0].toUpperCase() : '?';
-    final isOnline = ref.read(userPresenceProvider(otherUserId)).value ?? false;
+    final isOnline = !isGroup && otherUserId.isNotEmpty
+        ? (ref.read(userPresenceProvider(otherUserId)).value ?? false)
+        : false;
     final isMuted = chat?.mutedUsers.contains(currentUserId) ?? false;
     final disappearingSecs = chat?.disappearingDuration ?? 0;
 
@@ -1956,7 +2385,7 @@ class _ChatDetailScreenState extends ConsumerState<ChatDetailScreen> with Single
               height: MediaQuery.of(context).size.height * 0.88,
               decoration: BoxDecoration(
                 color: context.surface,
-                borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+                borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
                 border: Border(top: BorderSide(color: context.border, width: 1)),
               ),
               child: Column(
@@ -1979,7 +2408,7 @@ class _ChatDetailScreenState extends ConsumerState<ChatDetailScreen> with Single
                       mainAxisAlignment: MainAxisAlignment.spaceBetween,
                       children: [
                         Text(
-                          'Chat Info & Settings',
+                          isGroup ? 'Group Info & Settings' : 'Chat Info & Settings',
                           style: GoogleFonts.inter(
                             fontSize: 16,
                             fontWeight: FontWeight.w700,
@@ -1997,7 +2426,7 @@ class _ChatDetailScreenState extends ConsumerState<ChatDetailScreen> with Single
                     child: ListView(
                       padding: const EdgeInsets.fromLTRB(16, 4, 16, 32),
                       children: [
-                        // Profile Hero
+                        // Profile / Group Hero
                         Center(
                           child: Column(
                             children: [
@@ -2019,14 +2448,16 @@ class _ChatDetailScreenState extends ConsumerState<ChatDetailScreen> with Single
                                           ? NetworkImage(avatarUrl)
                                           : null,
                                       child: (avatarUrl == null || avatarUrl.isEmpty)
-                                          ? Text(
-                                              initial,
-                                              style: GoogleFonts.inter(
-                                                color: context.textPrimary,
-                                                fontWeight: FontWeight.w800,
-                                                fontSize: 28,
-                                              ),
-                                            )
+                                          ? (isGroup
+                                              ? const Icon(Icons.groups_rounded, size: 36, color: AppColors.brandBlue)
+                                              : Text(
+                                                  initial,
+                                                  style: GoogleFonts.inter(
+                                                    color: context.textPrimary,
+                                                    fontWeight: FontWeight.w800,
+                                                    fontSize: 28,
+                                                  ),
+                                                ))
                                           : null,
                                     ),
                                   ),
@@ -2059,13 +2490,13 @@ class _ChatDetailScreenState extends ConsumerState<ChatDetailScreen> with Single
                                       letterSpacing: -0.3,
                                     ),
                                   ),
-                                  if (chat?.isVerified == true || otherUser?.isVerified == true) ...[
+                                  if (!isGroup && (chat?.isVerified == true || otherUser?.isVerified == true)) ...[
                                     const SizedBox(width: 6),
                                     const Icon(Icons.verified_rounded, color: AppColors.brandBlue, size: 18),
                                   ],
                                 ],
                               ),
-                              if (otherUser?.username != null && otherUser!.username!.isNotEmpty) ...[
+                              if (!isGroup && otherUser?.username != null && otherUser!.username!.isNotEmpty) ...[
                                 const SizedBox(height: 2),
                                 Text(
                                   '@${otherUser.username}',
@@ -2084,7 +2515,9 @@ class _ChatDetailScreenState extends ConsumerState<ChatDetailScreen> with Single
                                   border: Border.all(color: AppColors.brandPink.withValues(alpha: 0.4), width: 0.8),
                                 ),
                                 child: Text(
-                                  isOnline ? 'Active Now' : 'End-to-End Encrypted',
+                                  isGroup
+                                      ? '${chat?.participants.length ?? 0} Members · Encrypted in transit'
+                                      : (isOnline ? 'Active Now' : (_e2eeActive ? 'End-to-End Encrypted' : 'Encrypted in transit')),
                                   style: GoogleFonts.inter(
                                     color: AppColors.brandPink,
                                     fontSize: 11,
@@ -2152,6 +2585,16 @@ class _ChatDetailScreenState extends ConsumerState<ChatDetailScreen> with Single
                         ),
                         const SizedBox(height: 24),
 
+                        if (isGroup && chat != null) ...[
+                          ChatGroupManagementSection(
+                            chat: chat,
+                            currentUserId: currentUserId,
+                            getUserCached: _getUserCached,
+                            onCloseSheet: () => Navigator.pop(ctx),
+                          ),
+                          const SizedBox(height: 24),
+                        ],
+
                         // Section 1: Chat Themes & Wallpaper
                         _buildSectionHeader('Chat Wallpaper & Mood', Icons.palette_outlined),
                         const SizedBox(height: 10),
@@ -2194,14 +2637,17 @@ class _ChatDetailScreenState extends ConsumerState<ChatDetailScreen> with Single
                         _buildSettingsTile(
                           icon: Icons.photo_library_outlined,
                           title: 'Media, Files & Links',
-                          subtitle: 'View shared photos, videos, and documents',
+                          subtitle: 'View shared photos, videos, documents & links',
                           onTap: () {
                             Navigator.pop(ctx);
-                            ScaffoldMessenger.of(context).showSnackBar(
-                              SnackBar(
-                                content: Text('Opening shared media gallery...'),
-                                backgroundColor: context.surfaceMid,
-                              ),
+                            showChatSharedMediaSheet(
+                              context,
+                              messages: _lastMessages,
+                              displayTextOf: _getDisplayText,
+                              peerPublicKey: _chatPartnerPublicKey,
+                              onOpenMedia: _openMediaStudio,
+                              onSaveFile: _saveFile,
+                              onOpenUrl: (url) => launchUrl(Uri.parse(url), mode: LaunchMode.externalApplication),
                             );
                           },
                         ),
@@ -2209,12 +2655,10 @@ class _ChatDetailScreenState extends ConsumerState<ChatDetailScreen> with Single
                         _buildSettingsTile(
                           icon: Icons.star_outline_rounded,
                           title: 'Starred Messages',
-                          subtitle: 'Messages saved with a star in this conversation',
+                          subtitle: 'Messages saved with a highlight in this chat',
                           onTap: () {
                             Navigator.pop(ctx);
-                            setState(() {
-                              _isSearchingInChat = true;
-                            });
+                            _showHighlights();
                           },
                         ),
                         const SizedBox(height: 24),
@@ -2236,18 +2680,29 @@ class _ChatDetailScreenState extends ConsumerState<ChatDetailScreen> with Single
                           iconColor: AppColors.brandPink,
                           title: 'Clear Chat History',
                           titleColor: AppColors.brandPink,
-                          subtitle: 'Permanently remove all messages for this chat',
+                          subtitle: 'Remove all messages from your view in this chat',
                           onTap: () => _confirmClearChat(ctx),
                         ),
-                        const SizedBox(height: 8),
-                        _buildSettingsTile(
-                          icon: Icons.block_rounded,
-                          iconColor: AppColors.brandPink,
-                          title: 'Block Contact',
-                          titleColor: AppColors.brandPink,
-                          subtitle: 'Stop receiving messages and calls from this user',
-                          onTap: () => _confirmBlockContact(ctx, currentUserId, otherUserId, name),
-                        ),
+                        if (!isGroup && otherUserId.isNotEmpty) ...[
+                          const SizedBox(height: 8),
+                          _buildSettingsTile(
+                            icon: Icons.block_rounded,
+                            iconColor: AppColors.brandPink,
+                            title: chat?.isBlocked == true ? 'Unblock Contact' : 'Block Contact',
+                            titleColor: AppColors.brandPink,
+                            subtitle: chat?.isBlocked == true
+                                ? 'Manage blocked contact settings'
+                                : 'Stop receiving messages and calls from this user',
+                            onTap: () {
+                              if (chat?.isBlocked == true) {
+                                Navigator.pop(ctx);
+                                context.push('/settings/blocked');
+                              } else {
+                                _confirmBlockContact(ctx, currentUserId, otherUserId, name);
+                              }
+                            },
+                          ),
+                        ],
                       ],
                     ),
                   ),
@@ -2261,6 +2716,7 @@ class _ChatDetailScreenState extends ConsumerState<ChatDetailScreen> with Single
   }
 
   void _confirmClearChat(BuildContext bottomSheetContext) {
+    final currentUserId = FirebaseAuth.instance.currentUser?.uid ?? '';
     showDialog(
       context: context,
       builder: (ctx) => AlertDialog(
@@ -2274,7 +2730,7 @@ class _ChatDetailScreenState extends ConsumerState<ChatDetailScreen> with Single
           style: GoogleFonts.inter(color: context.textPrimary, fontWeight: FontWeight.bold, fontSize: 16),
         ),
         content: Text(
-          'This will permanently delete all messages in this conversation. This action cannot be undone.',
+          'This removes all messages in this chat from your view. Messages stay intact for other participants.',
           style: GoogleFonts.inter(color: context.textSecondary, fontSize: 13, height: 1.35),
         ),
         actions: [
@@ -2292,18 +2748,22 @@ class _ChatDetailScreenState extends ConsumerState<ChatDetailScreen> with Single
             onPressed: () async {
               Navigator.pop(ctx);
               Navigator.pop(bottomSheetContext);
-              await ref.read(messagingRepositoryProvider).clearChatHistory(widget.chatId);
+              if (currentUserId.isNotEmpty) {
+                await ref.read(chatAssistServiceProvider).clearChatForMe(currentUserId, widget.chatId);
+                await ref.read(messagingRepositoryProvider).clearChatHistory(widget.chatId, userId: currentUserId);
+              }
+              await ChatLocalPreviewStore.instance.remove(widget.chatId);
               if (mounted) {
                 ScaffoldMessenger.of(context).showSnackBar(
                   SnackBar(
-                    content: Text('Chat history cleared'),
+                    content: const Text('Chat history cleared for you'),
                     backgroundColor: context.surfaceMid,
-                    duration: Duration(seconds: 2),
+                    duration: const Duration(seconds: 2),
                   ),
                 );
               }
             },
-            child: Text('Clear All Messages', style: GoogleFonts.inter(fontWeight: FontWeight.bold)),
+            child: Text('Clear Messages', style: GoogleFonts.inter(fontWeight: FontWeight.bold)),
           ),
         ],
       ),
@@ -2344,6 +2804,7 @@ class _ChatDetailScreenState extends ConsumerState<ChatDetailScreen> with Single
               Navigator.pop(bottomSheetContext);
               try {
                 await ref.read(relationshipRepositoryProvider).blockUser(currentUserId, otherUserId);
+                ref.read(messagingRepositoryProvider).invalidateRelationCache(currentUserId, otherUserId);
                 if (mounted) {
                   ScaffoldMessenger.of(context).showSnackBar(
                     SnackBar(
@@ -3099,7 +3560,16 @@ class _ChatDetailScreenState extends ConsumerState<ChatDetailScreen> with Single
     );
   }
 
-  Widget _buildMessagesList(AsyncValue<List<MessageModel>> messagesAsync, String currentUserId) {
+  Widget _buildMessagesList(
+    AsyncValue<List<MessageModel>> messagesAsync,
+    String currentUserId, {
+    ChatModel? chat,
+  }) {
+    final isGroup = (chat?.participants.length ?? 0) > 2 ||
+        chat?.category == 'group' ||
+        chat?.category == 'room' ||
+        chat?.category == 'vip_room' ||
+        chat?.category == 'channel';
     return messagesAsync.when(
       data: (allMessages) {
         final prefs = ref.watch(chatPrefsProvider((uid: currentUserId, chatId: widget.chatId))).value ?? const ChatPrefs();
@@ -3108,22 +3578,28 @@ class _ChatDetailScreenState extends ConsumerState<ChatDetailScreen> with Single
           _decryptPendingMessages(allMessages);
           if (mounted) _runAiAssist(allMessages, prefs);
         });
-        // Merge optimistic local voice notes until their Firestore counterpart arrives.
+        // Merge optimistic local messages/voice notes until Firestore counterpart arrives.
+        final remoteIds = <String>{for (final m in allMessages) m.id};
         final remoteFileNames = <String>{
           for (final m in allMessages)
             if (m.fileName != null && m.fileName!.isNotEmpty) m.fileName!,
         };
         final activeOptimistic = _pendingLocalMessages
-            .where((p) => p.fileName == null || !remoteFileNames.contains(p.fileName))
+            .where((p) =>
+                !remoteIds.contains(p.id) &&
+                (p.fileName == null || !remoteFileNames.contains(p.fileName)))
             .toList();
         final combinedMessages = activeOptimistic.isEmpty
             ? allMessages
             : <MessageModel>[...activeOptimistic, ...allMessages];
 
-        // "Delete for me" hides a message on this account only.
-        final messages = prefs.hidden.isEmpty
-            ? combinedMessages
-            : combinedMessages.where((m) => !prefs.hidden.contains(m.id)).toList();
+        // Respect per-user "Clear chat for me" and "Delete for me".
+        final clearedMs = prefs.clearedBefore?.millisecondsSinceEpoch;
+        final messages = combinedMessages.where((m) {
+          if (prefs.hidden.contains(m.id)) return false;
+          if (clearedMs != null && m.timestamp.millisecondsSinceEpoch <= clearedMs) return false;
+          return true;
+        }).toList();
         if (!_awayFromBottom && messages.isNotEmpty) _latestSeenId = messages.first.id;
 
         // Filter messages if search query is active
@@ -3185,7 +3661,7 @@ class _ChatDetailScreenState extends ConsumerState<ChatDetailScreen> with Single
             ),
           );
         }
-        
+
         return Column(
           children: [
             if (isSearching)
@@ -3219,265 +3695,383 @@ class _ChatDetailScreenState extends ConsumerState<ChatDetailScreen> with Single
             Expanded(
               child: Stack(
                 children: [
-              ListView.builder(
-                controller: _listController,
-                reverse: true,
-                padding: const EdgeInsets.only(top: 48, bottom: 16),
-                itemCount: displayMessages.length,
-                itemBuilder: (context, index) {
-                  final message = displayMessages[index];
-                  final day = message.timestamp.toDate();
-                  final olderDay = index + 1 < displayMessages.length
-                      ? displayMessages[index + 1].timestamp.toDate()
-                      : null;
-                  final startsDay = olderDay == null ||
-                      olderDay.year != day.year ||
-                      olderDay.month != day.month ||
-                      olderDay.day != day.day;
-                  final highlighted = _isHighlighted(message, prefs);
-                  final isMe = message.senderId == currentUserId;
-                  final timeStr = "${message.timestamp.toDate().hour.toString().padLeft(2, '0')}:${message.timestamp.toDate().minute.toString().padLeft(2, '0')}";
-                  final MessageModel? repliedMsg = message.replyToMessageId != null
-                      ? messages.where((m) => m.id == message.replyToMessageId).firstOrNull
-                      : null;
-                  final displayText = _getDisplayText(message);
-
-                  final bubble = Dismissible(
-                    key: ValueKey('swipe_msg_${message.id}'),
-                    direction: DismissDirection.startToEnd,
-                    confirmDismiss: (direction) async {
-                      HapticFeedback.lightImpact();
-                      setState(() {
-                        _replyingTo = message.copyWith(text: displayText);
-                      });
-                      return false;
-                    },
-                    background: Container(
-                      alignment: Alignment.centerLeft,
-                      padding: const EdgeInsets.only(left: 16),
-                      child: Container(
-                        padding: const EdgeInsets.all(7),
-                        decoration: BoxDecoration(
-                          color: AppColors.brandPink.withValues(alpha: 0.18),
-                          shape: BoxShape.circle,
-                          border: Border.all(color: AppColors.brandPink, width: 1.2),
-                        ),
-                        child: const Icon(Icons.reply_rounded, color: AppColors.brandPink, size: 16),
-                      ),
-                    ),
-                    child: Padding(
-                      padding: const EdgeInsets.symmetric(horizontal: 14.0, vertical: 3.5),
-                    child: GestureDetector(
-                      onDoubleTap: () {
-                        HapticFeedback.lightImpact();
-                        final currentUserId = FirebaseAuth.instance.currentUser?.uid;
-                        if (currentUserId != null) {
-                          ref.read(messagingRepositoryProvider).addReaction(widget.chatId, message.id, currentUserId, '❤️');
-                        }
-                      },
-                      onLongPress: () => _showMessageActions(message, isMe),
-                      child: Row(
-                        mainAxisAlignment: isMe ? MainAxisAlignment.end : MainAxisAlignment.start,
-                        crossAxisAlignment: CrossAxisAlignment.end,
-                        children: [
-                          if (!isMe) ...[
-                            CircleAvatar(
-                              radius: 13,
-                              backgroundColor: context.surfaceMid,
-                              child: Text(
-                                message.senderId.isNotEmpty ? message.senderId[0].toUpperCase() : '?',
-                                style: GoogleFonts.inter(color: context.textSecondary, fontSize: 10.5, fontWeight: FontWeight.bold),
-                              ),
-                            ),
-                            const SizedBox(width: 7),
-                          ],
-                          Flexible(
-                            child: ConstrainedBox(
-                              constraints: BoxConstraints(
-                                maxWidth: MediaQuery.of(context).size.width * 0.76,
-                              ),
-                              child: Container(
-                                padding: message.mediaType == 'audio' && displayText.isEmpty
-                                    ? const EdgeInsets.symmetric(horizontal: 8, vertical: 5.0)
-                                    : const EdgeInsets.symmetric(horizontal: 13, vertical: 8.0),
-                                decoration: BoxDecoration(
-                                  color: isMe ? AppColors.brandBlue : context.surface,
-                                  border: isMe
-                                      ? null
-                                      : Border.all(color: context.border, width: 1.0),
-                                  borderRadius: BorderRadius.only(
-                                    topLeft: Radius.circular(message.mediaType == 'audio' ? 14 : 16),
-                                    topRight: Radius.circular(message.mediaType == 'audio' ? 14 : 16),
-                                    bottomLeft: isMe
-                                        ? Radius.circular(message.mediaType == 'audio' ? 14 : 16)
-                                        : const Radius.circular(3),
-                                    bottomRight: isMe
-                                        ? const Radius.circular(3)
-                                        : Radius.circular(message.mediaType == 'audio' ? 14 : 16),
-                                  ),
-                                  boxShadow: [
-                                    BoxShadow(
-                                      color: Colors.black.withValues(alpha: isMe ? 0.25 : 0.08),
-                                      blurRadius: 4,
-                                      offset: const Offset(0, 1.5),
-                                    ),
-                                  ],
-                                ),
-                                child: Column(
-                                  crossAxisAlignment: isMe ? CrossAxisAlignment.end : CrossAxisAlignment.start,
-                                  mainAxisSize: MainAxisSize.min,
-                                  children: [
-                                    if (repliedMsg != null)
-                                      Container(
-                                        margin: const EdgeInsets.only(bottom: 6),
-                                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 5),
-                                        decoration: BoxDecoration(
-                                          color: isMe ? Colors.black.withValues(alpha: 0.22) : context.surfaceMid,
-                                          borderRadius: BorderRadius.circular(6),
-                                          border: Border(
-                                            left: BorderSide(
-                                              color: isMe ? Colors.white : AppColors.brandPink,
-                                              width: 2.5,
-                                            ),
-                                          ),
-                                        ),
-                                        child: Column(
-                                          crossAxisAlignment: CrossAxisAlignment.start,
-                                          children: [
-                                            Text(
-                                              repliedMsg.senderId == currentUserId ? 'You' : 'Replying',
-                                              style: GoogleFonts.inter(
-                                                color: isMe ? Colors.white : AppColors.brandPink,
-                                                fontSize: 10.5,
-                                                fontWeight: FontWeight.w700,
-                                              ),
-                                            ),
-                                            const SizedBox(height: 1),
-                                            Text(
-                                              _getDisplayText(repliedMsg),
-                                              maxLines: 1,
-                                              overflow: TextOverflow.ellipsis,
-                                              style: GoogleFonts.inter(
-                                                color: isMe ? Colors.white70 : context.textSecondary,
-                                                fontSize: 11.5,
-                                                fontStyle: FontStyle.italic,
-                                              ),
-                                            ),
-                                          ],
-                                        ),
-                                      ),
-                                    if (message.forwarded)
-                                      Padding(
-                                        padding: const EdgeInsets.only(bottom: 3),
-                                        child: Row(mainAxisSize: MainAxisSize.min, children: [
-                                          Icon(Icons.shortcut_rounded, size: 11, color: isMe ? Colors.white70 : context.textMuted),
-                                          const SizedBox(width: 3),
-                                          Text('Forwarded',
-                                              style: GoogleFonts.inter(
-                                                color: isMe ? Colors.white70 : context.textMuted,
-                                                fontSize: 10.5,
-                                                fontStyle: FontStyle.italic,
-                                              )),
-                                        ]),
-                                      ),
-                                    if (message.mediaUrl != null && message.mediaType != null)
-                                      _buildMediaAttachment(message, isMe: isMe, prefs: prefs),
-                                    if (displayText.isNotEmpty)
-                                      Text(
-                                        displayText,
-                                        style: GoogleFonts.inter(
-                                          color: isMe ? Colors.white : context.textPrimary,
-                                          fontSize: _bubbleFontSize,
-                                          fontWeight: FontWeight.w400,
-                                          height: 1.38,
-                                          letterSpacing: -0.15,
-                                        ),
-                                      ),
-                                    if (!isMe) _buildTranslation(message, isMe),
-                                    _buildLinkPreview(displayText, isMe: isMe, safety: message.safety),
-                                    SizedBox(height: message.mediaType == 'audio' && displayText.isEmpty ? 1.5 : 3),
-                                    Row(
-                                      mainAxisSize: MainAxisSize.min,
-                                      children: [
-                                        if (highlighted) ...[
-                                          const Icon(
-                                            Icons.star_rounded,
-                                            size: 11,
-                                            color: AppColors.brandPink,
-                                          ),
-                                          const SizedBox(width: 3),
-                                        ],
-                                        if (message.isEncrypted) ...[
-                                          Icon(
-                                            Icons.lock_rounded,
-                                            size: 10,
-                                            color: isMe ? Colors.white60 : context.textMuted,
-                                          ),
-                                          const SizedBox(width: 3),
-                                        ],
-                                        Text(
-                                          timeStr,
-                                          style: GoogleFonts.inter(
-                                            color: isMe ? Colors.white70 : context.textMuted,
-                                            fontSize: 9.5,
-                                            fontWeight: FontWeight.w500,
-                                          ),
-                                        ),
-                                        if (isMe) ...[
-                                          const SizedBox(width: 4),
-                                          Icon(
-                                            message.id.startsWith('local_vn_')
-                                                ? Icons.schedule_rounded
-                                                : (message.readBy.isNotEmpty
-                                                    ? Icons.done_all_rounded
-                                                    : Icons.done_rounded),
-                                            size: message.id.startsWith('local_vn_') ? 11.5 : 13.0,
-                                            color: message.readBy.isNotEmpty
-                                                ? AppColors.brandPink
-                                                : Colors.white60,
-                                          ),
-                                        ],
-                                      ],
-                                    ),
-                                    if (message.reactions != null && message.reactions!.isNotEmpty)
-                                      Padding(
-                                        padding: const EdgeInsets.only(top: 4.0),
-                                        child: Wrap(
-                                          spacing: 4,
-                                          children: message.reactions!.entries.map((e) {
-                                            return Container(
-                                              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                                              decoration: BoxDecoration(
-                                                color: context.surfaceMid,
-                                                borderRadius: BorderRadius.circular(12),
-                                                border: Border.all(
-                                                  color: AppColors.brandPink.withValues(alpha: 0.3),
-                                                  width: 0.8,
-                                                ),
-                                              ),
-                                              child: Text(e.value, style: const TextStyle(fontSize: 11.5)),
-                                            );
-                                          }).toList(),
-                                        ),
-                                      ),
-                                  ],
-                                ),
-                              ),
+                  ListView.builder(
+                    controller: _listController,
+                    reverse: true,
+                    padding: const EdgeInsets.only(top: 48, bottom: 16),
+                    itemCount: displayMessages.length + (_loadingOlder ? 1 : 0),
+                    itemBuilder: (context, index) {
+                      if (_loadingOlder && index == displayMessages.length) {
+                        return const Padding(
+                          padding: EdgeInsets.symmetric(vertical: 12),
+                          child: Center(
+                            child: SizedBox(
+                              width: 18,
+                              height: 18,
+                              child: CircularProgressIndicator(strokeWidth: 2, color: AppColors.brandBlue),
                             ),
                           ),
-                          if (isMe) const SizedBox(width: 4),
-                        ],
-                      ),
-                    ),
-                  ).animate().fade().slideY(begin: 0.08, end: 0),
-                );
-                  if (!startsDay) return bubble;
-                  return Column(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [ChatDateSeparator(day: day), bubble],
-                  );
-                },
-              ),
+                        );
+                      }
+                      final message = displayMessages[index];
+                      final day = message.timestamp.toDate();
+                      final olderDay = index + 1 < displayMessages.length
+                          ? displayMessages[index + 1].timestamp.toDate()
+                          : null;
+                      final startsDay = olderDay == null ||
+                          olderDay.year != day.year ||
+                          olderDay.month != day.month ||
+                          olderDay.day != day.day;
+                      final highlighted = _isHighlighted(message, prefs);
+                      final isSelected = _selectedMessageIds.contains(message.id);
+                      final isMe = message.senderId == currentUserId;
+                      final timeStr = "${day.hour.toString().padLeft(2, '0')}:${day.minute.toString().padLeft(2, '0')}";
+                      final MessageModel? repliedMsg = message.replyToMessageId != null
+                          ? messages.where((m) => m.id == message.replyToMessageId).firstOrNull
+                          : null;
+                      final displayText = _getDisplayText(message);
+                      final isFailed = message.localStatus == 'failed';
+                      final isSending = message.localStatus == 'sending' || message.id.startsWith('local_vn_');
+                      final isRead = isMe &&
+                          !isSending &&
+                          !isFailed &&
+                          (chat?.isMessageReadByOther(message, currentUserId) ??
+                              message.readBy.any((id) => id != currentUserId));
+                      final isDelivered = isMe &&
+                          !isSending &&
+                          !isFailed &&
+                          !isRead &&
+                          (chat?.isMessageDeliveredToOther(message, currentUserId) ??
+                              message.deliveredTo.any((id) => id != currentUserId));
+
+                      final bubble = Dismissible(
+                        key: ValueKey('swipe_msg_${message.id}'),
+                        direction: _isMultiSelecting ? DismissDirection.none : DismissDirection.startToEnd,
+                        confirmDismiss: (direction) async {
+                          HapticFeedback.lightImpact();
+                          setState(() {
+                            _editingMessage = null;
+                            _replyingTo = message.copyWith(text: displayText);
+                          });
+                          return false;
+                        },
+                        background: Container(
+                          alignment: Alignment.centerLeft,
+                          padding: const EdgeInsets.only(left: 16),
+                          child: Container(
+                            padding: const EdgeInsets.all(7),
+                            decoration: BoxDecoration(
+                              color: AppColors.brandPink.withValues(alpha: 0.18),
+                              shape: BoxShape.circle,
+                              border: Border.all(color: AppColors.brandPink, width: 1.2),
+                            ),
+                            child: const Icon(Icons.reply_rounded, color: AppColors.brandPink, size: 16),
+                          ),
+                        ),
+                        child: Container(
+                          color: isSelected ? AppColors.brandBlue.withValues(alpha: 0.14) : null,
+                          padding: const EdgeInsets.symmetric(horizontal: 14.0, vertical: 3.5),
+                          child: GestureDetector(
+                            onTap: _isMultiSelecting
+                                ? () => _toggleSelectMessage(message.id)
+                                : (isFailed ? () => _retryFailedMessage(message) : null),
+                            onDoubleTap: _isMultiSelecting
+                                ? null
+                                : () {
+                                    HapticFeedback.lightImpact();
+                                    final uid = FirebaseAuth.instance.currentUser?.uid;
+                                    if (uid != null) {
+                                      ref.read(messagingRepositoryProvider).toggleReaction(
+                                            widget.chatId,
+                                            message.id,
+                                            uid,
+                                            '❤️',
+                                            currentReaction: message.reactions?[uid],
+                                          );
+                                    }
+                                  },
+                            onLongPress: _isMultiSelecting
+                                ? () => _toggleSelectMessage(message.id)
+                                : () => _showMessageActions(message, isMe, chat: chat),
+                            child: Row(
+                              mainAxisAlignment: isMe ? MainAxisAlignment.end : MainAxisAlignment.start,
+                              crossAxisAlignment: CrossAxisAlignment.end,
+                              children: [
+                                if (_isMultiSelecting) ...[
+                                  Padding(
+                                    padding: const EdgeInsets.only(right: 8, bottom: 6),
+                                    child: Icon(
+                                      isSelected
+                                          ? Icons.check_circle_rounded
+                                          : Icons.radio_button_unchecked_rounded,
+                                      size: 20,
+                                      color: isSelected ? AppColors.brandBlue : context.textMuted,
+                                    ),
+                                  ),
+                                ],
+                                if (!isMe) ...[
+                                  FutureBuilder<AppUser?>(
+                                    future: _getUserCached(message.senderId),
+                                    builder: (context, snap) {
+                                      final sender = snap.data;
+                                      final sName = sender != null && sender.fullName.isNotEmpty
+                                          ? sender.fullName
+                                          : (sender?.username ?? '?');
+                                      final sPhoto = sender?.profilePhotoUrl;
+                                      return CircleAvatar(
+                                        radius: 13,
+                                        backgroundColor: context.surfaceMid,
+                                        backgroundImage:
+                                            sPhoto != null && sPhoto.isNotEmpty ? NetworkImage(sPhoto) : null,
+                                        child: sPhoto == null || sPhoto.isEmpty
+                                            ? Text(
+                                                sName.isNotEmpty ? sName[0].toUpperCase() : '?',
+                                                style: GoogleFonts.inter(
+                                                  color: context.textSecondary,
+                                                  fontSize: 10.5,
+                                                  fontWeight: FontWeight.bold,
+                                                ),
+                                              )
+                                            : null,
+                                      );
+                                    },
+                                  ),
+                                  const SizedBox(width: 7),
+                                ],
+                                Flexible(
+                                  child: ConstrainedBox(
+                                    constraints: BoxConstraints(
+                                      maxWidth: MediaQuery.of(context).size.width * 0.76,
+                                    ),
+                                    child: Container(
+                                      padding: message.mediaType == 'audio' && displayText.isEmpty
+                                          ? const EdgeInsets.symmetric(horizontal: 8, vertical: 5.0)
+                                          : const EdgeInsets.symmetric(horizontal: 13, vertical: 8.0),
+                                      decoration: BoxDecoration(
+                                        color: isMe ? AppColors.brandBlue : context.surface,
+                                        border: isMe
+                                            ? (isFailed ? Border.all(color: AppColors.brandPink, width: 1.3) : null)
+                                            : Border.all(color: context.border, width: 1.0),
+                                        borderRadius: BorderRadius.only(
+                                          topLeft: Radius.circular(message.mediaType == 'audio' ? 14 : 16),
+                                          topRight: Radius.circular(message.mediaType == 'audio' ? 14 : 16),
+                                          bottomLeft: isMe
+                                              ? Radius.circular(message.mediaType == 'audio' ? 14 : 16)
+                                              : const Radius.circular(3),
+                                          bottomRight: isMe
+                                              ? const Radius.circular(3)
+                                              : Radius.circular(message.mediaType == 'audio' ? 14 : 16),
+                                        ),
+                                        boxShadow: [
+                                          BoxShadow(
+                                            color: Colors.black.withValues(alpha: isMe ? 0.25 : 0.08),
+                                            blurRadius: 4,
+                                            offset: const Offset(0, 1.5),
+                                          ),
+                                        ],
+                                      ),
+                                      child: Column(
+                                        crossAxisAlignment: isMe ? CrossAxisAlignment.end : CrossAxisAlignment.start,
+                                        mainAxisSize: MainAxisSize.min,
+                                        children: [
+                                          if (!isMe && isGroup)
+                                            FutureBuilder<AppUser?>(
+                                              future: _getUserCached(message.senderId),
+                                              builder: (context, snap) {
+                                                final u = snap.data;
+                                                final senderName = u != null && u.fullName.isNotEmpty
+                                                    ? u.fullName
+                                                    : (u?.username ?? 'Member');
+                                                return Padding(
+                                                  padding: const EdgeInsets.only(bottom: 3),
+                                                  child: Text(
+                                                    senderName,
+                                                    style: GoogleFonts.inter(
+                                                      color: AppColors.brandBlue,
+                                                      fontSize: 11,
+                                                      fontWeight: FontWeight.w700,
+                                                    ),
+                                                  ),
+                                                );
+                                              },
+                                            ),
+                                          if (repliedMsg != null)
+                                            Container(
+                                              margin: const EdgeInsets.only(bottom: 6),
+                                              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 5),
+                                              decoration: BoxDecoration(
+                                                color: isMe ? Colors.black.withValues(alpha: 0.22) : context.surfaceMid,
+                                                borderRadius: BorderRadius.circular(6),
+                                                border: Border(
+                                                  left: BorderSide(
+                                                    color: isMe ? Colors.white : AppColors.brandPink,
+                                                    width: 2.5,
+                                                  ),
+                                                ),
+                                              ),
+                                              child: Column(
+                                                crossAxisAlignment: CrossAxisAlignment.start,
+                                                children: [
+                                                  repliedMsg.senderId == currentUserId
+                                                      ? Text(
+                                                          'You',
+                                                          style: GoogleFonts.inter(
+                                                            color: isMe ? Colors.white : AppColors.brandPink,
+                                                            fontSize: 10.5,
+                                                            fontWeight: FontWeight.w700,
+                                                          ),
+                                                        )
+                                                      : FutureBuilder<AppUser?>(
+                                                          future: _getUserCached(repliedMsg.senderId),
+                                                          builder: (context, snap) {
+                                                            final u = snap.data;
+                                                            final rName = u != null && u.fullName.isNotEmpty
+                                                                ? u.fullName
+                                                                : (u?.username ?? 'Reply');
+                                                            return Text(
+                                                              rName,
+                                                              style: GoogleFonts.inter(
+                                                                color: isMe ? Colors.white : AppColors.brandPink,
+                                                                fontSize: 10.5,
+                                                                fontWeight: FontWeight.w700,
+                                                              ),
+                                                            );
+                                                          },
+                                                        ),
+                                                  const SizedBox(height: 1),
+                                                  Text(
+                                                    _getDisplayText(repliedMsg),
+                                                    maxLines: 1,
+                                                    overflow: TextOverflow.ellipsis,
+                                                    style: GoogleFonts.inter(
+                                                      color: isMe ? Colors.white70 : context.textSecondary,
+                                                      fontSize: 11.5,
+                                                      fontStyle: FontStyle.italic,
+                                                    ),
+                                                  ),
+                                                ],
+                                              ),
+                                            ),
+                                          if (message.forwarded)
+                                            Padding(
+                                              padding: const EdgeInsets.only(bottom: 3),
+                                              child: Row(mainAxisSize: MainAxisSize.min, children: [
+                                                Icon(Icons.shortcut_rounded, size: 11, color: isMe ? Colors.white70 : context.textMuted),
+                                                const SizedBox(width: 3),
+                                                Text('Forwarded',
+                                                    style: GoogleFonts.inter(
+                                                      color: isMe ? Colors.white70 : context.textMuted,
+                                                      fontSize: 10.5,
+                                                      fontStyle: FontStyle.italic,
+                                                    )),
+                                              ]),
+                                            ),
+                                          if (message.mediaUrl != null && message.mediaType != null)
+                                            _buildMediaAttachment(message, isMe: isMe, prefs: prefs),
+                                          if (displayText.isNotEmpty)
+                                            Text(
+                                              displayText,
+                                              style: GoogleFonts.inter(
+                                                color: isMe ? Colors.white : context.textPrimary,
+                                                fontSize: _bubbleFontSize,
+                                                fontWeight: FontWeight.w400,
+                                                height: 1.38,
+                                                letterSpacing: -0.15,
+                                              ),
+                                            ),
+                                          if (!isMe) _buildTranslation(message, isMe),
+                                          _buildLinkPreview(displayText, isMe: isMe, safety: message.safety),
+                                          SizedBox(height: message.mediaType == 'audio' && displayText.isEmpty ? 1.5 : 3),
+                                          Row(
+                                            mainAxisSize: MainAxisSize.min,
+                                            children: [
+                                              if (highlighted) ...[
+                                                const Icon(
+                                                  Icons.star_rounded,
+                                                  size: 11,
+                                                  color: AppColors.brandPink,
+                                                ),
+                                                const SizedBox(width: 3),
+                                              ],
+                                              if (message.isEncrypted) ...[
+                                                Icon(
+                                                  Icons.lock_rounded,
+                                                  size: 10,
+                                                  color: isMe ? Colors.white60 : context.textMuted,
+                                                ),
+                                                const SizedBox(width: 3),
+                                              ],
+                                              if (message.edited) ...[
+                                                Text(
+                                                  'edited · ',
+                                                  style: GoogleFonts.inter(
+                                                    color: isMe ? Colors.white70 : context.textMuted,
+                                                    fontSize: 9.5,
+                                                    fontStyle: FontStyle.italic,
+                                                  ),
+                                                ),
+                                              ],
+                                              Text(
+                                                isFailed ? 'Failed · Tap to retry' : timeStr,
+                                                style: GoogleFonts.inter(
+                                                  color: isFailed
+                                                      ? AppColors.brandPink
+                                                      : (isMe ? Colors.white70 : context.textMuted),
+                                                  fontSize: 9.5,
+                                                  fontWeight: isFailed ? FontWeight.w700 : FontWeight.w500,
+                                                ),
+                                              ),
+                                              if (isMe) ...[
+                                                const SizedBox(width: 4),
+                                                Icon(
+                                                  isFailed
+                                                      ? Icons.error_outline_rounded
+                                                      : isSending
+                                                          ? Icons.schedule_rounded
+                                                          : (isRead || isDelivered
+                                                              ? Icons.done_all_rounded
+                                                              : Icons.done_rounded),
+                                                  size: isSending ? 11.5 : 13.0,
+                                                  color: isFailed || isRead
+                                                      ? AppColors.brandPink
+                                                      : Colors.white70,
+                                                ),
+                                              ],
+                                            ],
+                                          ),
+                                          if (message.reactions != null && message.reactions!.isNotEmpty)
+                                            ChatReactionStrip(
+                                              reactions: message.reactions!,
+                                              myUid: currentUserId,
+                                              getUser: _getUserCached,
+                                              onToggle: (emoji, myCurrent) {
+                                                ref.read(messagingRepositoryProvider).toggleReaction(
+                                                      widget.chatId,
+                                                      message.id,
+                                                      currentUserId,
+                                                      emoji,
+                                                      currentReaction: myCurrent,
+                                                    );
+                                              },
+                                            ),
+                                        ],
+                                      ),
+                                    ),
+                                  ),
+                                ),
+                                if (isMe) const SizedBox(width: 4),
+                              ],
+                            ),
+                          ),
+                        ),
+                      );
+                      if (!startsDay) return bubble;
+                      return Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [ChatDateSeparator(day: day), bubble],
+                      );
+                    },
+                  ),
                   // Sticky encryption banner; shrinks to a lock chip on scroll.
                   Positioned(
                     top: 0,
@@ -3505,10 +4099,10 @@ class _ChatDetailScreenState extends ConsumerState<ChatDetailScreen> with Single
                   ),
                 ],
               ),
-    ),
-  ],
-);
-},
+            ),
+          ],
+        );
+      },
       loading: () => const Center(child: CircularProgressIndicator(color: AppColors.brandBlue)),
       error: (err, stack) => Center(child: Text('Error: $err', style: TextStyle(color: AppColors.brandPink))),
     );
@@ -3553,6 +4147,49 @@ class _ChatDetailScreenState extends ConsumerState<ChatDetailScreen> with Single
             _buildAiStrip(
               ref.watch(chatPrefsProvider((uid: _myUid, chatId: widget.chatId))).value ?? const ChatPrefs(),
             ),
+            if (_editingMessage != null)
+              Container(
+                margin: const EdgeInsets.only(bottom: 8, left: 40, right: 40),
+                padding: const EdgeInsets.all(10),
+                decoration: BoxDecoration(
+                  color: context.surfaceMid,
+                  borderRadius: BorderRadius.circular(12),
+                  border: const Border(left: BorderSide(color: AppColors.brandPink, width: 4)),
+                ),
+                child: Row(
+                  children: [
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            'Editing message',
+                            style: GoogleFonts.inter(
+                              color: AppColors.brandPink,
+                              fontSize: 11.5,
+                              fontWeight: FontWeight.w700,
+                            ),
+                          ),
+                          const SizedBox(height: 2),
+                          Text(
+                            _editingMessage!.text,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: GoogleFonts.inter(color: context.textSecondary, fontSize: 13),
+                          ),
+                        ],
+                      ),
+                    ),
+                    IconButton(
+                      icon: Icon(Icons.close, color: context.textMuted, size: 19),
+                      onPressed: () {
+                        _messageController.clear();
+                        setState(() => _editingMessage = null);
+                      },
+                    ),
+                  ],
+                ),
+              ),
             if (_replyingTo != null)
               Container(
                 margin: const EdgeInsets.only(bottom: 8, left: 40, right: 40),

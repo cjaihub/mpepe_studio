@@ -18,6 +18,7 @@ class ChatPrefs {
   final bool aiAutoTranslateVoice;
   final Map<String, Timestamp> highlights;
   final Set<String> hidden;
+  final Timestamp? clearedBefore;
 
   /// Background for this chat, or (in the all-chats doc) the default.
   final ChatBackground? background;
@@ -28,6 +29,7 @@ class ChatPrefs {
     this.aiAutoTranslateVoice = false,
     this.highlights = const {},
     this.hidden = const {},
+    this.clearedBefore,
     this.background,
   });
 
@@ -43,6 +45,7 @@ class ChatPrefs {
       aiAutoTranslateVoice: d['aiAutoTranslateVoice'] == true,
       highlights: h,
       hidden: {...((d['hidden'] as List?) ?? const []).map((e) => e.toString())},
+      clearedBefore: d['clearedBefore'] as Timestamp?,
       background: ChatBackground.fromMap(d['background']),
     );
   }
@@ -53,6 +56,13 @@ typedef ChatPrefsKey = ({String uid, String chatId});
 final chatPrefsProvider = StreamProvider.family<ChatPrefs, ChatPrefsKey>((ref, k) {
   if (k.uid.isEmpty) return Stream.value(const ChatPrefs());
   return ref.read(chatAssistServiceProvider)._prefsDoc(k.uid, k.chatId).snapshots().map((s) => ChatPrefs.fromMap(s.data()));
+});
+
+typedef GlobalHighlightEntry = ({String chatId, String messageId, Timestamp highlightedAt});
+
+final allChatHighlightsProvider = StreamProvider.family<List<GlobalHighlightEntry>, String>((ref, uid) {
+  if (uid.isEmpty) return Stream.value(const []);
+  return ref.read(chatAssistServiceProvider).watchAllHighlights(uid);
 });
 
 /// One line of conversation handed to the AI.
@@ -118,6 +128,36 @@ class ChatAssistService {
         'hidden': FieldValue.arrayUnion([messageId]),
         'highlights': {messageId: FieldValue.delete()},
       }, SetOptions(merge: true));
+
+  Future<void> hideManyForMe(String uid, String chatId, List<String> messageIds) {
+    if (messageIds.isEmpty) return Future.value();
+    return _prefsDoc(uid, chatId).set({
+      'hidden': FieldValue.arrayUnion(messageIds),
+      'highlights': {for (final id in messageIds) id: FieldValue.delete()},
+    }, SetOptions(merge: true));
+  }
+
+  Future<void> clearChatForMe(String uid, String chatId) => _prefsDoc(uid, chatId).set({
+        'clearedBefore': FieldValue.serverTimestamp(),
+        'highlights': FieldValue.delete(),
+        'hidden': FieldValue.delete(),
+      }, SetOptions(merge: true));
+
+  Stream<List<GlobalHighlightEntry>> watchAllHighlights(String uid) {
+    return _db.collection('users').doc(uid).collection('chat_prefs').snapshots().map((snap) {
+      final list = <GlobalHighlightEntry>[];
+      for (final doc in snap.docs) {
+        if (doc.id == allChatsDoc) continue;
+        final prefs = ChatPrefs.fromMap(doc.data());
+        for (final entry in prefs.highlights.entries) {
+          if (prefs.hidden.contains(entry.key)) continue;
+          list.add((chatId: doc.id, messageId: entry.key, highlightedAt: entry.value));
+        }
+      }
+      list.sort((a, b) => b.highlightedAt.compareTo(a.highlightedAt));
+      return list;
+    });
+  }
 
   /// The device language, e.g. "fr" or "pt-BR".
   static String deviceLanguage() {

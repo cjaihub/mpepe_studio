@@ -14,7 +14,8 @@ extension _ChatUpgrades on _ChatDetailScreenState {
 
   void _onListScroll() {
     if (!_listController.hasClients) return;
-    final offset = _listController.offset;
+    final pos = _listController.position;
+    final offset = pos.pixels;
     final collapsed = offset > 24;
     final away = offset > 320;
     if (collapsed != _bannerCollapsed || away != _awayFromBottom) {
@@ -23,6 +24,134 @@ extension _ChatUpgrades on _ChatDetailScreenState {
         _awayFromBottom = away;
       });
     }
+    if (pos.maxScrollExtent > 0 && offset >= pos.maxScrollExtent - 200) {
+      _loadOlderMessages();
+    }
+  }
+
+  void _loadOlderMessages() {
+    if (_loadingOlder || _lastMessages.length < _messagePageLimit) return;
+    _refresh(() {
+      _loadingOlder = true;
+      _messagePageLimit += 50;
+    });
+    Future.delayed(const Duration(milliseconds: 500), () {
+      _refresh(() => _loadingOlder = false);
+    });
+  }
+
+  void _toggleSelectMessage(String messageId) {
+    HapticFeedback.selectionClick();
+    _refresh(() {
+      if (!_selectedMessageIds.remove(messageId)) {
+        _selectedMessageIds.add(messageId);
+      }
+    });
+  }
+
+  void _clearSelection() {
+    if (_selectedMessageIds.isEmpty) return;
+    _refresh(() => _selectedMessageIds.clear());
+  }
+
+  void _beginEditingMessage(MessageModel message, String decryptedText) {
+    _refresh(() {
+      _replyingTo = null;
+      _editingMessage = message.copyWith(text: decryptedText);
+      _messageController.text = decryptedText;
+      _messageController.selection = TextSelection.collapsed(offset: decryptedText.length);
+    });
+    _composerFocus.requestFocus();
+  }
+
+  Future<void> _togglePin(MessageModel message, bool currentlyPinned, String displayText) async {
+    try {
+      final preview = displayText.trim().isNotEmpty
+          ? displayText.trim()
+          : (message.fileName ?? message.mediaType ?? 'Pinned message');
+      await ref.read(messagingRepositoryProvider).togglePinMessage(
+            widget.chatId,
+            message.id,
+            currentlyPinned: currentlyPinned,
+            previewText: preview,
+          );
+      _toast(currentlyPinned ? 'Unpinned message' : 'Pinned to chat');
+    } catch (_) {
+      _toast("Couldn't update pinned message.");
+    }
+  }
+
+  Future<void> _highlightSelectedMessages() async {
+    if (_myUid.isEmpty || _selectedMessageIds.isEmpty) return;
+    final ids = _selectedMessageIds.toList();
+    final service = ref.read(chatAssistServiceProvider);
+    for (final id in ids) {
+      await service.setHighlight(_myUid, widget.chatId, id, true);
+    }
+    _clearSelection();
+    _toast('Added ${ids.length} to Highlights');
+  }
+
+  void _copySelectedMessages() {
+    final chosen = _lastMessages.where((m) => _selectedMessageIds.contains(m.id)).toList().reversed;
+    final lines = chosen.map((m) => _getDisplayText(m)).where((t) => t.trim().isNotEmpty).join('\n');
+    if (lines.isNotEmpty) {
+      Clipboard.setData(ClipboardData(text: lines));
+      _toast('Copied');
+    }
+    _clearSelection();
+  }
+
+  Future<void> _deleteSelectedMessages() async {
+    if (_myUid.isEmpty || _selectedMessageIds.isEmpty) return;
+    final selected = _lastMessages.where((m) => _selectedMessageIds.contains(m.id)).toList();
+    final allMine = selected.every((m) => m.senderId == _myUid);
+    final action = await showDialog<String>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: ctx.surface,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(AppRadius.lg),
+          side: BorderSide(color: ctx.border),
+        ),
+        title: Text(
+          'Delete ${selected.length} ${selected.length == 1 ? 'message' : 'messages'}?',
+          style: GoogleFonts.inter(color: ctx.textPrimary, fontWeight: FontWeight.w700, fontSize: 16),
+        ),
+        content: Text(
+          allMine
+              ? 'You can hide these from your view or unsend them for everyone.'
+              : 'Selected messages will be removed from your view.',
+          style: GoogleFonts.inter(color: ctx.textSecondary, fontSize: 13),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: Text('Cancel', style: GoogleFonts.inter(color: ctx.textMuted)),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, 'me'),
+            child: Text('Delete for me', style: GoogleFonts.inter(color: AppColors.brandBlue, fontWeight: FontWeight.w700)),
+          ),
+          if (allMine)
+            ElevatedButton(
+              style: ElevatedButton.styleFrom(backgroundColor: AppColors.brandPink, foregroundColor: Colors.white),
+              onPressed: () => Navigator.pop(ctx, 'all'),
+              child: const Text('Unsend for all'),
+            ),
+        ],
+      ),
+    );
+    if (action == null) return;
+    final ids = selected.map((m) => m.id).toList();
+    if (action == 'all') {
+      await ref.read(messagingRepositoryProvider).deleteMessages(widget.chatId, ids);
+      _toast('Messages unsent');
+    } else {
+      await ref.read(chatAssistServiceProvider).hideManyForMe(_myUid, widget.chatId, ids);
+      _toast('Deleted for you');
+    }
+    _clearSelection();
   }
 
   void _jumpToLatest() {
@@ -56,11 +185,12 @@ extension _ChatUpgrades on _ChatDetailScreenState {
 
   // ── Message actions ────────────────────────────────────────────────────
 
-  void _showMessageActions(MessageModel message, bool isMe) {
+  void _showMessageActions(MessageModel message, bool isMe, {ChatModel? chat}) {
     FocusScope.of(context).unfocus();
     HapticFeedback.mediumImpact();
     final prefs = _prefs;
     final highlighted = _isHighlighted(message, prefs);
+    final isPinned = chat?.pinnedMessageIds.contains(message.id) ?? (chat?.pinnedMessageId == message.id);
     final text = _getDisplayText(message);
     final hasText = text.isNotEmpty && (!message.isEncrypted || _decryptedCache.containsKey(message.id));
     final translation = _translations[message.id];
@@ -120,7 +250,13 @@ extension _ChatUpgrades on _ChatDetailScreenState {
                         return GestureDetector(
                           onTap: () {
                             if (_myUid.isNotEmpty) {
-                              ref.read(messagingRepositoryProvider).addReaction(widget.chatId, message.id, _myUid, emoji);
+                              ref.read(messagingRepositoryProvider).toggleReaction(
+                                    widget.chatId,
+                                    message.id,
+                                    _myUid,
+                                    emoji,
+                                    currentReaction: message.reactions?[_myUid],
+                                  );
                             }
                             Navigator.pop(sheetCtx);
                           },
@@ -138,14 +274,25 @@ extension _ChatUpgrades on _ChatDetailScreenState {
                   ),
                   const SizedBox(height: 8),
                   tile(Icons.reply_rounded, 'Reply', () {
-                    _refresh(() => _replyingTo = message.copyWith(text: text));
+                    _refresh(() {
+                      _editingMessage = null;
+                      _replyingTo = message.copyWith(text: text);
+                    });
                     _composerFocus.requestFocus();
                   }),
+                  if (isMe && hasText && message.mediaUrl == null)
+                    tile(Icons.edit_outlined, 'Edit message', () => _beginEditingMessage(message, text)),
                   if (hasText)
                     tile(Icons.copy_rounded, 'Copy text', () {
                       Clipboard.setData(ClipboardData(text: text));
                       _toast('Copied');
                     }),
+                  if (chat?.category != 'channel' || chat?.ownerId == _myUid)
+                    tile(
+                      isPinned ? Icons.push_pin_rounded : Icons.push_pin_outlined,
+                      isPinned ? 'Unpin message' : 'Pin in chat',
+                      () => _togglePin(message, isPinned, text),
+                    ),
                   if (hasText && !isMe)
                     translation != null && !translation.same
                         ? tile(Icons.translate_rounded, _hiddenTranslations.contains(message.id) ? 'Show translation' : 'Hide translation', () {
@@ -168,6 +315,7 @@ extension _ChatUpgrades on _ChatDetailScreenState {
                     () => _toggleHighlight(message, highlighted),
                     color: highlighted ? AppColors.brandPink : null,
                   ),
+                  tile(Icons.check_circle_outline_rounded, 'Select', () => _toggleSelectMessage(message.id)),
                   tile(Icons.shortcut_rounded, 'Forward', () => _forwardMessage(message)),
                   tile(Icons.visibility_off_outlined, 'Delete for me', () => _deleteForMe(message)),
                   if (isMe)

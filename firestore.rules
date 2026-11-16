@@ -15,6 +15,7 @@ rules_version = '2';
 //   - Subcollections:
 //     - notifications/{notificationId}: notification payload sent to user
 //     - youtube_accounts/{accountId}: linked YouTube accounts
+//     - chat_prefs/{chatId}: owner-only chat prefs (aiEnabled, highlights, hidden, clearedBefore, background)
 //     - {document=**}: other subcollections (settings, preferences, etc.)
 //
 // Collection: posts
@@ -173,6 +174,22 @@ rules_version = '2';
 // Subcollections:
 //   - commands/{commandId}: remote-control commands (owner_uid or paired agent_uid)
 //   - {sub}/{rest=**}: webrtc_signaling, telemetry, etc. (owner_uid or paired agent_uid)
+//
+// Collection: chats
+// Document ID: {chatId}
+// Fields:
+//   - participants: list<string> (1..5000 UIDs; members of the chat/room/channel)
+//   - ownerId: string (optional; required == creator UID for 'room', 'vip_room', 'channel', immutable)
+//   - category: string (optional; 'direct' | 'group' | 'room' | 'vip_room' | 'channel')
+//   - title, description, accessNote, lastMessage, pinnedMessageId: optional bounded strings
+//   - pinnedMessageIds, tags, typingUsers, recordingUsers, pinnedUsers, archivedUsers, mutedUsers: optional bounded lists/maps
+//   - unreadCounts, readWatermarks, deliveredWatermarks, typingAt: optional per-uid maps
+//   - lastMessageTime, createdAt: optional timestamps
+// Subcollections:
+//   - joinRequests/{requesterId}: VIP room access requests (doc id == requester UID)
+//   - messages/{messageId}: chat messages (senderId == auth.uid; immutable senderId/timestamp/mediaUrl/mediaType/safety;
+//     self-only readBy/deliveredTo/reactions updates; blocked 1:1 pairs denied create; sender/owner delete)
+//   - {sub}/{rest=**}: other chat subcollections (members only)
 //
 // ===============================================================
 
@@ -975,13 +992,17 @@ service cloud.firestore {
     // ─── Chats ───────────────────────────────────────────────────────────────
     // Only the people in `participants` can see or write a chat and its messages.
     match /chats/{chatId} {
+      function hasParticipant(data) {
+        let p = data.get('participants', []);
+        return p is list && request.auth.uid in p;
+      }
       function isChatMember() {
         return isSignedIn() &&
-               request.auth.uid in get(/databases/$(database)/documents/chats/$(chatId)).data.get('participants', []);
+               hasParticipant(get(/databases/$(database)/documents/chats/$(chatId)).data);
       }
       function isChatMemberAfter() {
         return isSignedIn() &&
-               request.auth.uid in getAfter(/databases/$(database)/documents/chats/$(chatId)).data.get('participants', []);
+               hasParticipant(getAfter(/databases/$(database)/documents/chats/$(chatId)).data);
       }
       // Rooms ('room'), VIP rooms ('vip_room') and broadcast channels
       // ('channel') are chats with an ownerId (messaging_repository).
@@ -995,39 +1016,105 @@ service cloud.firestore {
       function chatCategoryAfter() {
         return getAfter(/databases/$(database)/documents/chats/$(chatId)).data.get('category', '');
       }
+      function isBlockedPair(a, b) {
+        let fwd = /databases/$(database)/documents/relationships/$(a + '_' + b);
+        let rev = /databases/$(database)/documents/relationships/$(b + '_' + a);
+        return (exists(fwd) && get(fwd).data.get('status', '') == 'blocked') ||
+               (exists(rev) && get(rev).data.get('status', '') == 'blocked');
+      }
+      // Block messaging between blocked pairs in 1:1 chats (`participants.size() == 2`).
+      // Safely bypasses groups, channels, rooms, and malformed/legacy docs.
+      function notBlockedInDirectChatAfter() {
+        let chat = getAfter(/databases/$(database)/documents/chats/$(chatId)).data;
+        let participants = chat.get('participants', []);
+        return !(participants is list) ||
+               participants.size() != 2 ||
+               !(request.auth.uid in participants) ||
+               !(participants[0] is string) ||
+               !(participants[1] is string) ||
+               participants[0].size() == 0 ||
+               participants[1].size() == 0 ||
+               participants[0].matches('.*/.*') ||
+               participants[1].matches('.*/.*') ||
+               !isBlockedPair(
+                 request.auth.uid,
+                 participants[0] == request.auth.uid ? participants[1] : participants[0]
+               );
+      }
+      function isValidOptionalChatStr(data, field, maxLen) {
+        return !(field in data) ||
+               data[field] == null ||
+               (data[field] is string && data[field].size() <= maxLen);
+      }
+      function isValidOptionalChatBool(data, field) {
+        return !(field in data) ||
+               data[field] == null ||
+               data[field] is bool;
+      }
+      function isValidOptionalChatMap(data, field, maxKeys) {
+        return !(field in data) ||
+               data[field] == null ||
+               (data[field] is map && data[field].keys().size() <= maxKeys);
+      }
+      function isValidOptionalChatList(data, field, maxSize) {
+        return !(field in data) ||
+               data[field] == null ||
+               (data[field] is list && data[field].size() <= maxSize);
+      }
+      function isValidChatDoc(data) {
+        return data.keys().size() <= 60 &&
+               data.get('participants', []) is list &&
+               data.get('participants', []).size() <= 5000 &&
+               isValidOptionalChatStr(data, 'title', 500) &&
+               isValidOptionalChatStr(data, 'description', 4000) &&
+               isValidOptionalChatStr(data, 'accessNote', 1000) &&
+               isValidOptionalChatStr(data, 'lastMessage', 32768) &&
+               isValidOptionalChatStr(data, 'category', 32) &&
+               isValidOptionalChatStr(data, 'pinnedMessageId', 128) &&
+               isValidOptionalChatList(data, 'pinnedMessageIds', 100) &&
+               isValidOptionalChatList(data, 'tags', 50);
+      }
       // Set of uids added to or removed from participants by this update.
       function participantsDelta() {
-        let before = resource.data.get('participants', []).toSet();
-        let after = request.resource.data.get('participants', []).toSet();
+        let beforeRaw = resource.data.get('participants', []);
+        let afterRaw = request.resource.data.get('participants', []);
+        let before = beforeRaw is list ? beforeRaw.toSet() : [].toSet();
+        let after = afterRaw is list ? afterRaw.toSet() : [].toSet();
         return after.difference(before).union(before.difference(after));
       }
       // A signed-in non-member joins an open room: adds only themselves and
       // their own unread counter.
       function isJoiningOpenRoom() {
+        let beforeP = resource.data.get('participants', []);
+        let afterP = request.resource.data.get('participants', []);
+        let beforeU = resource.data.get('unreadCounts', {}) is map ? resource.data.get('unreadCounts', {}) : {};
+        let afterU = request.resource.data.get('unreadCounts', {});
         return resource.data.get('category', '') == 'room' &&
-               !(request.auth.uid in resource.data.get('participants', [])) &&
+               beforeP is list && afterP is list &&
+               afterU is map &&
+               !(request.auth.uid in beforeP) &&
                onlyChanges(['participants', 'unreadCounts']) &&
-               request.resource.data.get('participants', []).toSet()
-                 .difference(resource.data.get('participants', []).toSet()).hasOnly([request.auth.uid]) &&
-               resource.data.get('participants', []).toSet()
-                 .difference(request.resource.data.get('participants', []).toSet()).size() == 0 &&
-               request.resource.data.get('unreadCounts', {})
-                 .diff(resource.data.get('unreadCounts', {})).affectedKeys().hasOnly([request.auth.uid]);
+               afterP.toSet().difference(beforeP.toSet()).hasOnly([request.auth.uid]) &&
+               beforeP.toSet().difference(afterP.toSet()).size() == 0 &&
+               afterP.size() <= beforeP.size() + 1 &&
+               afterU.diff(beforeU).affectedKeys().hasOnly([request.auth.uid]);
       }
-      // Updates by an existing member. 1:1 and group chats are unchanged; in
-      // rooms/channels only the owner may change identity fields or add
-      // members, others may only remove themselves (leave), and in a channel
-      // only the owner sets the last-message preview.
+      // Updates by an existing member. 1:1 and group chats allow member updates
+      // (without escalating category to room/vip_room/channel); in rooms/channels
+      // only the owner may change identity/pin fields or add members, others may
+      // only remove themselves (leave), and in a channel only the owner sets the
+      // last-message preview.
       function isMemberUpdate() {
         let category = resource.data.get('category', '');
         let ownsRoom = resource.data.get('ownerId', '') == request.auth.uid;
-        return request.auth.uid in resource.data.get('participants', []) && (
-          !isRoomCategory(category) ||
-          (request.resource.data.get('category', '') == category &&
+        return hasParticipant(resource.data) && isValidChatDoc(request.resource.data) && (
+          (!isRoomCategory(category) && !isRoomCategory(request.resource.data.get('category', ''))) ||
+          (isRoomCategory(category) &&
+           request.resource.data.get('category', '') == category &&
            request.resource.data.get('ownerId', '') == resource.data.get('ownerId', '') &&
            (ownsRoom || (
              !request.resource.data.diff(resource.data).affectedKeys()
-               .hasAny(['title', 'description', 'tags', 'accessNote']) &&
+               .hasAny(['title', 'description', 'tags', 'accessNote', 'pinnedMessageId', 'pinnedMessageIds']) &&
              // Already a member, so the only possible self-change is leaving.
              participantsDelta().hasOnly([request.auth.uid]) &&
              (category != 'channel' ||
@@ -1043,7 +1130,8 @@ service cloud.firestore {
                      request.auth.uid in resource.data.get('participants', []) ||
                      resource.data.get('category', '') in ['room', 'vip_room']);
       allow create: if isSignedIn() && !isSuspended() &&
-                       request.auth.uid in request.resource.data.get('participants', []) &&
+                       isValidChatDoc(request.resource.data) &&
+                       hasParticipant(request.resource.data) &&
                        (!isRoomCategory(request.resource.data.get('category', '')) ||
                         (request.resource.data.get('ownerId', '') == request.auth.uid &&
                          // Rooms start with only the owner; channels also
@@ -1051,7 +1139,8 @@ service cloud.firestore {
                          (request.resource.data.category == 'channel' ||
                           request.resource.data.participants == [request.auth.uid])));
       allow update: if isSignedIn() && !isSuspended() && (isMemberUpdate() || isJoiningOpenRoom());
-      allow delete: if isSignedIn() && request.auth.uid in resource.data.get('participants', []) &&
+      allow delete: if isSignedIn() &&
+                       hasParticipant(resource.data) &&
                        (!isRoomCategory(resource.data.get('category', '')) ||
                         resource.data.get('ownerId', '') == request.auth.uid);
 
@@ -1076,31 +1165,137 @@ service cloud.firestore {
                          (requesterId == request.auth.uid || roomData().get('ownerId', '') == request.auth.uid);
       }
 
-      // Channel members can't post, but may still mark messages read and
-      // react, as themselves only.
+      // Messages across all chat types (direct, group, room, vip_room, channel).
+      // Only chat members read; only non-suspended, non-paused members create
+      // (and only the owner posts in a channel); blocked 1:1 pairs cannot create
+      // new messages; safety/isModerated are server-only; updates are limited to
+      // self-only receipts/reactions, sender edits, sender live-location updates,
+      // or member legacy isStarred toggles; only sender or chat owner deletes.
       match /messages/{messageId} {
-        allow update: if isChatMemberAfter() && !isSuspended() && chatCategoryAfter() == 'channel' &&
-                         onlyChanges(['readBy', 'reactions']) &&
-                         request.resource.data.get('readBy', []).toSet()
-                           .difference(resource.data.get('readBy', []).toSet()).hasOnly([request.auth.uid]) &&
-                         resource.data.get('readBy', []).toSet()
-                           .difference(request.resource.data.get('readBy', []).toSet()).size() == 0 &&
-                         request.resource.data.get('reactions', {})
-                           .diff(resource.data.get('reactions', {})).affectedKeys().hasOnly([request.auth.uid]);
+        function isValidMessageCreate(data) {
+          return data.keys().size() <= 35 &&
+                 !data.keys().hasAny(['safety', 'isModerated']) &&
+                 data.get('senderId', '') is string &&
+                 data.get('senderId', '') == request.auth.uid &&
+                 data.get('timestamp', null) is timestamp &&
+                 isValidOptionalChatStr(data, 'id', 128) &&
+                 isValidOptionalChatStr(data, 'text', 32768) &&
+                 isValidOptionalChatStr(data, 'replyToMessageId', 128) &&
+                 isValidOptionalChatStr(data, 'mediaUrl', 4096) &&
+                 isValidOptionalChatStr(data, 'mediaType', 64) &&
+                 isValidOptionalChatStr(data, 'fileName', 512) &&
+                 isValidOptionalChatStr(data, 'mimeType', 128) &&
+                 isValidOptionalChatStr(data, 'voiceDuration', 32) &&
+                 isValidOptionalChatStr(data, 'aiModelId', 128) &&
+                 isValidOptionalChatStr(data, 'messageType', 64) &&
+                 isValidOptionalChatStr(data, 'type', 64) &&
+                 (!('fileSize' in data) || data.fileSize == null ||
+                  (data.fileSize is int && data.fileSize >= 0)) &&
+                 isValidOptionalChatBool(data, 'isStarred') &&
+                 isValidOptionalChatBool(data, 'isEncrypted') &&
+                 isValidOptionalChatBool(data, 'mediaEncrypted') &&
+                 isValidOptionalChatBool(data, 'forwarded') &&
+                 (!('edited' in data) || data.edited == false) &&
+                 (!('expiresAt' in data) || data.expiresAt == null || data.expiresAt is timestamp) &&
+                 isValidOptionalChatList(data, 'voiceWaveform', 500) &&
+                 isValidOptionalChatMap(data, 'location', 20) &&
+                 (!('readBy' in data) || data.readBy == null ||
+                  (data.readBy is list && data.readBy.size() <= 1 && data.readBy.toSet().hasOnly([request.auth.uid]))) &&
+                 (!('deliveredTo' in data) || data.deliveredTo == null ||
+                  (data.deliveredTo is list && data.deliveredTo.size() <= 1 && data.deliveredTo.toSet().hasOnly([request.auth.uid]))) &&
+                 (!('reactions' in data) || data.reactions == null ||
+                  (data.reactions is map && data.reactions.keys().size() <= 1 && data.reactions.keys().hasOnly([request.auth.uid])));
+        }
+
+        function onlyAddsSelfToList(field) {
+          let beforeRaw = resource.data.get(field, []);
+          let afterRaw = request.resource.data.get(field, []);
+          let beforeList = beforeRaw is list ? beforeRaw : [];
+          let afterList = afterRaw is list ? afterRaw : [];
+          return !(field in request.resource.data.diff(resource.data).affectedKeys()) || (
+            afterRaw is list &&
+            afterRaw.size() <= (request.auth.uid in beforeList ? beforeList.size() : beforeList.size() + 1) &&
+            afterRaw.size() <= 5000 &&
+            afterList.toSet().difference(beforeList.toSet()).hasOnly([request.auth.uid]) &&
+            beforeList.toSet().difference(afterList.toSet()).size() == 0
+          );
+        }
+
+        function onlyUpdatesSelfReaction() {
+          let beforeRaw = resource.data.get('reactions', {});
+          let afterRaw = request.resource.data.get('reactions', {});
+          let beforeMap = beforeRaw is map ? beforeRaw : {};
+          let afterMap = afterRaw is map ? afterRaw : {};
+          return !('reactions' in request.resource.data.diff(resource.data).affectedKeys()) || (
+            afterRaw is map &&
+            afterMap.keys().size() <= beforeMap.keys().size() + 1 &&
+            afterMap.keys().size() <= 5000 &&
+            afterMap.diff(beforeMap).affectedKeys().hasOnly([request.auth.uid]) &&
+            (!(request.auth.uid in afterMap) ||
+             (afterMap[request.auth.uid] is string &&
+              afterMap[request.auth.uid].size() >= 1 &&
+              afterMap[request.auth.uid].size() <= 32))
+          );
+        }
+
+        function isValidMessageEdit() {
+          let data = request.resource.data;
+          return resource.data.get('senderId', '') == request.auth.uid &&
+                 onlyChanges(['text', 'isEncrypted', 'edited', 'editedAt', 'isStarred']) &&
+                 isValidOptionalChatStr(data, 'text', 32768) &&
+                 isValidOptionalChatBool(data, 'isEncrypted') &&
+                 isValidOptionalChatBool(data, 'edited') &&
+                 (!('editedAt' in data) || data.editedAt == null || data.editedAt is timestamp) &&
+                 isValidOptionalChatBool(data, 'isStarred');
+        }
+
+        function isValidLiveLocationUpdate() {
+          return resource.data.get('senderId', '') == request.auth.uid &&
+                 resource.data.get('mediaType', '') == 'location' &&
+                 onlyChanges(['location']) &&
+                 request.resource.data.get('location', null) is map &&
+                 request.resource.data.location.keys().size() <= 20;
+        }
+
+        function isValidLegacyStarUpdate() {
+          return onlyChanges(['isStarred']) &&
+                 request.resource.data.get('isStarred', null) is bool;
+        }
+
+        function isValidMessageUpdate() {
+          return request.resource.data.get('safety', null) == resource.data.get('safety', null) &&
+                 request.resource.data.get('isModerated', null) == resource.data.get('isModerated', null) &&
+                 request.resource.data.get('senderId', null) == resource.data.get('senderId', null) &&
+                 request.resource.data.get('timestamp', null) == resource.data.get('timestamp', null) &&
+                 request.resource.data.get('id', null) == resource.data.get('id', null) &&
+                 request.resource.data.get('mediaUrl', null) == resource.data.get('mediaUrl', null) &&
+                 request.resource.data.get('mediaType', null) == resource.data.get('mediaType', null) && (
+                   (onlyChanges(['readBy', 'deliveredTo', 'reactions']) &&
+                    onlyAddsSelfToList('readBy') &&
+                    onlyAddsSelfToList('deliveredTo') &&
+                    onlyUpdatesSelfReaction()) ||
+                   isValidMessageEdit() ||
+                   isValidLiveLocationUpdate() ||
+                   isValidLegacyStarUpdate()
+                 );
+        }
+
+        allow read: if isChatMember();
+        allow create: if isChatMemberAfter() && !isSuspended() && !guardPaused('messaging') &&
+                         (chatCategoryAfter() != 'channel' || isChatOwnerAfter()) &&
+                         isValidMessageCreate(request.resource.data) &&
+                         notBlockedInDirectChatAfter();
+        allow update: if isChatMemberAfter() && !isSuspended() &&
+                         isValidMessageUpdate();
+        allow delete: if isChatMember() &&
+                         (resource.data.get('senderId', '') == request.auth.uid ||
+                          get(/databases/$(database)/documents/chats/$(chatId)).data.get('ownerId', '') == request.auth.uid);
       }
 
-      // Messages and other chat subcollections: members only. In a channel
-      // only the owner writes messages. joinRequests has its own rules above.
+      // Other chat subcollections (excluding joinRequests and messages): members only.
       match /{sub}/{rest=**} {
-        allow read: if sub != 'joinRequests' && isChatMember();
-        allow write: if sub != 'joinRequests' && isChatMemberAfter() && !isSuspended() &&
-                        (sub != 'messages' || chatCategoryAfter() != 'channel' || isChatOwnerAfter()) &&
-                        // Ova Guard: paused senders can't post; link-safety marks are server-only.
-                        (sub != 'messages' || (
-                          (resource != null || !guardPaused('messaging')) &&
-                          (request.resource == null ||
-                           (resource == null && !request.resource.data.keys().hasAny(['safety'])) ||
-                           (resource != null && request.resource.data.get('safety', null) == resource.data.get('safety', null)))));
+        allow read: if !(sub in ['joinRequests', 'messages']) && isChatMember();
+        allow write: if !(sub in ['joinRequests', 'messages']) && isChatMemberAfter() && !isSuspended();
       }
     }
 
