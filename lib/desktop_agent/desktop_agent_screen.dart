@@ -18,6 +18,7 @@ import '../agent_workspace/ova_agent_models.dart';
 import '../agent_workspace/ova_agent_sync_controller.dart';
 import '../agent_workspace/widgets/oneova_workstation_auth_dialog.dart';
 import '../agent_workspace/widgets/ova_claude_agent_workspace.dart';
+import '../agent_workspace/widgets/ova_desktop_hud.dart';
 import '../auth/security/login_security.dart';
 import '../auth/services/oneova_biometrics_service.dart';
 import '../auth/services/oneova_smart_phone_engine.dart';
@@ -29,8 +30,11 @@ import '../backend/telemetry/desktop_telemetry_service.dart';
 import '../shared/theme/app_theme.dart';
 import '../shared/theme/theme_provider.dart';
 import 'desktop_firebase_rest_client.dart';
+import 'desktop_input_router.dart';
 import 'desktop_webrtc_responder.dart';
+import 'desktop_window_bridge.dart';
 import 'macos_mouse_ffi.dart';
+import 'windows_automation_ffi.dart';
 
 enum _DesktopAuthTab {
   signIn,
@@ -123,10 +127,11 @@ class _DesktopAgentScreenState extends ConsumerState<DesktopAgentScreen> {
   @override
   void initState() {
     super.initState();
+    unawaited(DesktopWindowBridge.instance.init());
     OvaAgentMacExecutor.instance
-      ..onSendHotkey = MacOSMouseController.sendHotkey
-      ..onTypeText = MacOSMouseController.typeString
-      ..onGetActiveWindow = MacOSMouseController.getActiveAppName
+      ..onSendHotkey = DesktopInputRouter.sendHotkey
+      ..onTypeText = DesktopInputRouter.typeString
+      ..onGetActiveWindow = DesktopInputRouter.getActiveAppName
       ..onAuditLog = _recordCommandLog;
     _webrtcResponder = DesktopWebRTCResponder(
       cloudClient: _cloud,
@@ -618,7 +623,7 @@ class _DesktopAgentScreenState extends ConsumerState<DesktopAgentScreen> {
 
     _heartbeatTimer?.cancel();
     _heartbeatTimer = Timer.periodic(const Duration(seconds: 6), (_) async {
-      final activeApp = await MacOSMouseController.getActiveAppName();
+      final activeApp = await DesktopInputRouter.getActiveAppName();
       if (activeApp != null && mounted && activeApp != _activeWindow) {
         setState(() => _activeWindow = activeApp);
         ref.read(ovaAgentSyncProvider.notifier).updateDesktopActiveWindow(activeApp);
@@ -685,11 +690,27 @@ class _DesktopAgentScreenState extends ConsumerState<DesktopAgentScreen> {
   }
 
   Future<List<String>> _getOpenGuiApps() async {
-    if (!Platform.isMacOS) return _cachedOpenApps;
     if (DateTime.now().difference(_lastOpenAppsFetch).inSeconds < 8) {
       return _cachedOpenApps;
     }
     try {
+      if (Platform.isWindows) {
+        final raw = await WindowsDesktopController.listOpenWindows();
+        final apps = raw
+            .split('\n')
+            .skip(2)
+            .map((l) => l.trim().split(RegExp(r'\s{2,}')).first)
+            .where((e) => e.isNotEmpty)
+            .toSet()
+            .take(12)
+            .toList();
+        if (apps.isNotEmpty) {
+          _cachedOpenApps = apps;
+          _lastOpenAppsFetch = DateTime.now();
+        }
+        return _cachedOpenApps;
+      }
+      if (!Platform.isMacOS) return _cachedOpenApps;
       final res = await Process.run('osascript', [
         '-e',
         'tell application "System Events" to get name of every application process whose background only is false',
@@ -715,34 +736,39 @@ class _DesktopAgentScreenState extends ConsumerState<DesktopAgentScreen> {
     String deviceId, {
     bool force = false,
   }) async {
-    if (!Platform.isMacOS) return;
+    if (!Platform.isMacOS && !Platform.isWindows) return;
     if (!force && !_hasActiveMobileViewer) return;
     if (_capturingLiveFrame) return;
 
     _capturingLiveFrame = true;
+    final sep = Platform.pathSeparator;
     final tmpPath =
-        '${Directory.systemTemp.path}/oneova_live_${deviceId.hashCode.abs()}.jpg';
+        '${Directory.systemTemp.path}${sep}oneova_live_${deviceId.hashCode.abs()}.${Platform.isWindows ? "png" : "jpg"}';
     try {
-      final capRes = await Process.run(
-        '/usr/sbin/screencapture',
-        ['-x', '-C', '-t', 'jpg', tmpPath],
-      );
       final file = File(tmpPath);
-      if (capRes.exitCode != 0 || !await file.exists()) {
-        return;
+      if (Platform.isWindows) {
+        final ok = await WindowsDesktopController.captureScreenToFile(tmpPath);
+        if (!ok || !await file.exists()) return;
+      } else {
+        final capRes = await Process.run(
+          '/usr/sbin/screencapture',
+          ['-x', '-C', '-t', 'jpg', tmpPath],
+        );
+        if (capRes.exitCode != 0 || !await file.exists()) {
+          return;
+        }
+        await Process.run(
+          '/usr/bin/sips',
+          ['-Z', '1024', '-s', 'formatOptions', '56', tmpPath],
+        );
       }
-
-      await Process.run(
-        '/usr/bin/sips',
-        ['-Z', '1024', '-s', 'formatOptions', '56', tmpPath],
-      );
 
       final bytes = await file.readAsBytes();
       unawaited(file.delete().catchError((_) => file));
       if (bytes.isEmpty || bytes.length > 720000) return;
 
-      final bounds = MacOSMouseController.getMainDisplayBounds();
-      final cursor = MacOSMouseController.getCursorPosition();
+      final bounds = DesktopInputRouter.getMainDisplayBounds();
+      final cursor = DesktopInputRouter.getCursorPosition();
       final apps = await _getOpenGuiApps();
       final cursorNx = bounds.width > 0
           ? (cursor.x / bounds.width).clamp(0.0, 1.0)
@@ -901,7 +927,11 @@ class _DesktopAgentScreenState extends ConsumerState<DesktopAgentScreen> {
         originOverride: 'mobile',
       );
     } else if (command == 'sleep_workstation') {
-      await Process.run('pmset', ['displaysleepnow']);
+      if (Platform.isWindows) {
+        await Process.run('rundll32.exe', const ['powrprof.dll,SetSuspendState', '0,1,0']);
+      } else {
+        await Process.run('pmset', ['displaysleepnow']);
+      }
       agentNotifier.recordLiveActionEvent(
         category: 'system',
         summary: 'Sleep workstation display',
@@ -909,7 +939,7 @@ class _DesktopAgentScreenState extends ConsumerState<DesktopAgentScreen> {
       );
     } else if (command == 'key_tap') {
       final key = (payloadMap['key'] ?? data['key'] ?? '').toString();
-      await MacOSMouseController.tapKey(key);
+      await DesktopInputRouter.tapKey(key);
       agentNotifier.recordLiveActionEvent(
         category: 'keyboard',
         summary: 'Key tap: $key',
@@ -917,7 +947,7 @@ class _DesktopAgentScreenState extends ConsumerState<DesktopAgentScreen> {
       );
     } else if (command == 'key_combination') {
       final combo = (payloadMap['combo'] ?? data['combo'] ?? '').toString();
-      await MacOSMouseController.sendHotkey(combo);
+      await DesktopInputRouter.sendHotkey(combo);
       agentNotifier.recordLiveActionEvent(
         category: 'keyboard',
         summary: 'Shortcut: $combo',
@@ -926,7 +956,7 @@ class _DesktopAgentScreenState extends ConsumerState<DesktopAgentScreen> {
     } else if (command == 'paste_text' || command == 'type_text') {
       final text = (payloadMap['text'] ?? data['text'] ?? '').toString();
       final pressEnter = payloadMap['pressEnter'] == true || data['pressEnter'] == true;
-      await MacOSMouseController.pasteTextInstant(text, pressEnter: pressEnter);
+      await DesktopInputRouter.pasteTextInstant(text, pressEnter: pressEnter);
       final isWispr = softwareId == 'wispr_flow' || payloadMap['source'] == 'wispr_mobile';
       agentNotifier.recordLiveActionEvent(
         category: isWispr ? 'wispr' : 'keyboard',
@@ -935,25 +965,25 @@ class _DesktopAgentScreenState extends ConsumerState<DesktopAgentScreen> {
         originOverride: 'mobile',
       );
     } else if (command == 'mouse_left_down') {
-      MacOSMouseController.leftClickDown();
+      if (Platform.isMacOS) MacOSMouseController.leftClickDown();
     } else if (command == 'mouse_left_up') {
-      MacOSMouseController.leftClickUp();
+      if (Platform.isMacOS) MacOSMouseController.leftClickUp();
     } else if (command == 'mouse_left_click') {
-      MacOSMouseController.click();
+      await DesktopInputRouter.clickCurrent();
       agentNotifier.recordLiveActionEvent(
         category: 'mouse',
         summary: 'Left click on $_activeWindow',
         originOverride: 'mobile',
       );
     } else if (command == 'mouse_right_click') {
-      MacOSMouseController.rightClick();
+      await DesktopInputRouter.rightClickCurrent();
       agentNotifier.recordLiveActionEvent(
         category: 'mouse',
         summary: 'Right click on $_activeWindow',
         originOverride: 'mobile',
       );
     } else if (command == 'mouse_double_click') {
-      MacOSMouseController.doubleClick();
+      await DesktopInputRouter.doubleClickCurrent();
       agentNotifier.recordLiveActionEvent(
         category: 'mouse',
         summary: 'Double click on $_activeWindow',
@@ -961,29 +991,29 @@ class _DesktopAgentScreenState extends ConsumerState<DesktopAgentScreen> {
       );
     } else if (command == 'mouse_scroll') {
       final dy = ((payloadMap['dy'] ?? data['dy']) as num?)?.toDouble() ?? 0.0;
-      MacOSMouseController.scroll(dy);
+      DesktopInputRouter.scroll(dy);
     } else if (command == 'mouse_move') {
       final dx = ((payloadMap['dx'] ?? data['dx']) as num?)?.toDouble() ?? 0.0;
       final dy = ((payloadMap['dy'] ?? data['dy']) as num?)?.toDouble() ?? 0.0;
-      MacOSMouseController.moveBy(dx, dy);
+      DesktopInputRouter.moveBy(dx, dy);
     } else if (command == 'mouse_move_to') {
       final x = ((payloadMap['x'] ?? data['x']) as num?)?.toDouble() ?? 0.0;
       final y = ((payloadMap['y'] ?? data['y']) as num?)?.toDouble() ?? 0.0;
-      MacOSMouseController.moveTo(x, y);
+      DesktopInputRouter.moveTo(x, y);
     } else if (command == 'mouse_move_normalized') {
       final nx = (((payloadMap['nx'] ?? data['nx']) as num?)?.toDouble() ?? 0.5)
           .clamp(0.0, 1.0);
       final ny = (((payloadMap['ny'] ?? data['ny']) as num?)?.toDouble() ?? 0.5)
           .clamp(0.0, 1.0);
-      final bounds = MacOSMouseController.getMainDisplayBounds();
-      MacOSMouseController.moveTo(nx * bounds.width, ny * bounds.height);
+      final bounds = DesktopInputRouter.getMainDisplayBounds();
+      DesktopInputRouter.moveTo(nx * bounds.width, ny * bounds.height);
     } else if (command == 'mouse_click_normalized') {
       final nx = (((payloadMap['nx'] ?? data['nx']) as num?)?.toDouble() ?? 0.5)
           .clamp(0.0, 1.0);
       final ny = (((payloadMap['ny'] ?? data['ny']) as num?)?.toDouble() ?? 0.5)
           .clamp(0.0, 1.0);
-      final bounds = MacOSMouseController.getMainDisplayBounds();
-      MacOSMouseController.clickAt(nx * bounds.width, ny * bounds.height);
+      final bounds = DesktopInputRouter.getMainDisplayBounds();
+      await DesktopInputRouter.clickAt(nx * bounds.width, ny * bounds.height);
       agentNotifier.recordLiveActionEvent(
         category: 'mouse',
         summary: 'Tap (${(nx * 100).round()}%, ${(ny * 100).round()}%) on $_activeWindow',
@@ -994,8 +1024,8 @@ class _DesktopAgentScreenState extends ConsumerState<DesktopAgentScreen> {
           .clamp(0.0, 1.0);
       final ny = (((payloadMap['ny'] ?? data['ny']) as num?)?.toDouble() ?? 0.5)
           .clamp(0.0, 1.0);
-      final bounds = MacOSMouseController.getMainDisplayBounds();
-      MacOSMouseController.clickAt(
+      final bounds = DesktopInputRouter.getMainDisplayBounds();
+      await DesktopInputRouter.clickAt(
         nx * bounds.width,
         ny * bounds.height,
         right: true,
@@ -1010,8 +1040,8 @@ class _DesktopAgentScreenState extends ConsumerState<DesktopAgentScreen> {
           .clamp(0.0, 1.0);
       final ny = (((payloadMap['ny'] ?? data['ny']) as num?)?.toDouble() ?? 0.5)
           .clamp(0.0, 1.0);
-      final bounds = MacOSMouseController.getMainDisplayBounds();
-      MacOSMouseController.clickAt(
+      final bounds = DesktopInputRouter.getMainDisplayBounds();
+      await DesktopInputRouter.clickAt(
         nx * bounds.width,
         ny * bounds.height,
         doubleClick: true,
@@ -1030,9 +1060,9 @@ class _DesktopAgentScreenState extends ConsumerState<DesktopAgentScreen> {
           .clamp(0.0, 1.0);
       final toNy = (((payloadMap['toNy'] ?? data['toNy']) as num?)?.toDouble() ?? 0.5)
           .clamp(0.0, 1.0);
-      final bounds = MacOSMouseController.getMainDisplayBounds();
-      MacOSMouseController.moveTo(fromNx * bounds.width, fromNy * bounds.height);
-      await MacOSMouseController.dragTo(toNx * bounds.width, toNy * bounds.height);
+      final bounds = DesktopInputRouter.getMainDisplayBounds();
+      DesktopInputRouter.moveTo(fromNx * bounds.width, fromNy * bounds.height);
+      await DesktopInputRouter.dragTo(toNx * bounds.width, toNy * bounds.height);
       agentNotifier.recordLiveActionEvent(
         category: 'mouse',
         summary: 'Dragged on $_activeWindow',
@@ -1043,8 +1073,12 @@ class _DesktopAgentScreenState extends ConsumerState<DesktopAgentScreen> {
     } else if (command == 'switch_app') {
       final appName = (payloadMap['appName'] ?? data['appName'] ?? '').toString().trim();
       if (appName.isNotEmpty) {
-        await Process.run('open', ['-a', appName]);
-        final nowActive = await MacOSMouseController.getActiveAppName();
+        if (Platform.isWindows) {
+          await Process.run('cmd', ['/c', 'start', '', appName]);
+        } else {
+          await Process.run('open', ['-a', appName]);
+        }
+        final nowActive = await DesktopInputRouter.getActiveAppName();
         if (nowActive != null && mounted) {
           setState(() => _activeWindow = nowActive);
         }
@@ -1057,20 +1091,20 @@ class _DesktopAgentScreenState extends ConsumerState<DesktopAgentScreen> {
     } else if (command == 'sync_clipboard') {
       final text = (payloadMap['text'] ?? data['text'] ?? '').toString();
       if (text.isNotEmpty) {
-        await MacOSMouseController.writeClipboard(text);
+        await DesktopInputRouter.writeClipboard(text);
         agentNotifier.recordLiveActionEvent(
           category: 'system',
-          summary: 'Synced mobile clipboard (${text.length} chars) to Mac',
+          summary: 'Synced mobile clipboard (${text.length} chars) to computer',
           originOverride: 'mobile',
         );
       } else {
-        final macClip = await MacOSMouseController.readClipboard();
+        final clip = await DesktopInputRouter.readClipboard();
         await _cloud.updateDocument(
           'registered_computers/$deviceId/commands/$docId',
           {
             'status': 'completed',
-            'clipboard_text': macClip,
-            'result_message': 'Read Mac clipboard (${macClip.length} chars)',
+            'clipboard_text': clip,
+            'result_message': 'Read computer clipboard (${clip.length} chars)',
           },
         );
         return;
@@ -1241,7 +1275,17 @@ class _DesktopAgentScreenState extends ConsumerState<DesktopAgentScreen> {
     final showStudioWorkspace =
         !_authInitializing && ownerUid != null && !_showSystemsPane;
 
-    return Scaffold(
+    return ValueListenableBuilder<bool>(
+      valueListenable: DesktopWindowBridge.instance.isHudMode,
+      builder: (context, hudMode, _) {
+        if (hudMode && showStudioWorkspace) {
+          return OvaDesktopHud(
+            onExpandStudio: () => unawaited(DesktopWindowBridge.instance.showStudio()),
+            onHideHud: () => unawaited(DesktopWindowBridge.instance.hideToTray()),
+          );
+        }
+
+        return Scaffold(
       backgroundColor: context.bg,
       extendBodyBehindAppBar: !showStudioWorkspace,
       appBar: showStudioWorkspace
@@ -1286,6 +1330,35 @@ class _DesktopAgentScreenState extends ConsumerState<DesktopAgentScreen> {
                 ),
                 centerTitle: false,
                 actions: [
+                  if (DesktopWindowBridge.isDesktop) ...[
+                    ValueListenableBuilder<bool>(
+                      valueListenable: DesktopWindowBridge.instance.startupEnabled,
+                      builder: (_, on, _) => IconButton(
+                        tooltip: on
+                            ? 'Auto-Start on Boot: ON (click to disable)'
+                            : 'Auto-Start on Boot: OFF (click to enable)',
+                        icon: Icon(
+                          Icons.power_settings_new_rounded,
+                          color: on ? AppColors.brandBlue : context.textSecondary,
+                          size: 19,
+                        ),
+                        onPressed: () => unawaited(
+                          DesktopWindowBridge.instance.setStartupEnabled(!on),
+                        ),
+                      ),
+                    ),
+                    IconButton(
+                      tooltip: 'Switch to Floating Ova HUD (${DesktopWindowBridge.instance.hotkeyLabel.value})',
+                      icon: const Icon(
+                        Icons.picture_in_picture_alt_rounded,
+                        color: AppColors.brandPink,
+                        size: 19,
+                      ),
+                      onPressed: () => unawaited(
+                        DesktopWindowBridge.instance.setHudMode(true),
+                      ),
+                    ),
+                  ],
                   IconButton(
                     tooltip: isDark
                         ? 'Switch to Light Mode'
@@ -1369,6 +1442,8 @@ class _DesktopAgentScreenState extends ConsumerState<DesktopAgentScreen> {
                 ),
               ),
             ),
+        );
+      },
     );
   }
 

@@ -1,3 +1,6 @@
+import 'dart:async';
+import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_core/firebase_core.dart';
 import 'package:oneova/backend/universal_ai/universal_ai_models.dart';
 import 'package:oneova/backend/universal_ai/universal_ai_services.dart';
 import 'package:oneova/backend/universal_ai/agent_control_models.dart';
@@ -7,11 +10,60 @@ class ControlledAgentService {
   final ToolExecutor _executor;
   final List<AutonomousActionAudit> _auditLogs = [];
 
-  // In memory state for limits testing
   int _dailyActionsUsed = 0;
   int _dailyMessagesUsed = 0;
+  String _usageDateKey = _todayKey();
 
   ControlledAgentService(this._registry, this._executor);
+
+  static String _todayKey() {
+    final now = DateTime.now().toUtc();
+    return '${now.year}-${now.month.toString().padLeft(2, '0')}-${now.day.toString().padLeft(2, '0')}';
+  }
+
+  Future<void> syncQuotaFromFirestore(String uid) async {
+    if (Firebase.apps.isEmpty || uid.isEmpty) return;
+    try {
+      final doc = await FirebaseFirestore.instance
+          .collection('users')
+          .doc(uid)
+          .collection('ai_settings')
+          .doc('quotas')
+          .get();
+      final data = doc.data();
+      if (data == null) return;
+      final dateKey = (data['dateKey'] ?? '').toString();
+      if (dateKey == _todayKey()) {
+        _usageDateKey = dateKey;
+        _dailyActionsUsed = (data['dailyActionsUsed'] as num?)?.toInt() ?? 0;
+        _dailyMessagesUsed = (data['dailyMessagesUsed'] as num?)?.toInt() ?? 0;
+      } else {
+        _usageDateKey = _todayKey();
+        _dailyActionsUsed = 0;
+        _dailyMessagesUsed = 0;
+      }
+    } catch (_) {}
+  }
+
+  void _persistAuditAndQuota(ControlledAgentProfile profile, AutonomousActionAudit log) {
+    if (Firebase.apps.isEmpty || profile.id.isEmpty) return;
+    try {
+      final userRef = FirebaseFirestore.instance.collection('users').doc(profile.id);
+      unawaited(userRef.collection('agent_audits').doc(log.id).set({
+        'agentId': log.agentId,
+        'toolName': log.toolName,
+        'authorized': log.authorized,
+        'reason': log.authorizationReason,
+        'timestamp': FieldValue.serverTimestamp(),
+      }));
+      unawaited(userRef.collection('ai_settings').doc('quotas').set({
+        'dateKey': _usageDateKey,
+        'dailyActionsUsed': _dailyActionsUsed,
+        'dailyMessagesUsed': _dailyMessagesUsed,
+        'updatedAt': FieldValue.serverTimestamp(),
+      }, SetOptions(merge: true)));
+    } catch (_) {}
+  }
 
   Future<dynamic> evaluateAndExecute(ControlledAgentProfile profile, String toolName, Map<String, dynamic> params) async {
     final def = _registry.getDefinition(toolName);
@@ -79,6 +131,7 @@ class ControlledAgentService {
       authorizationReason: reason,
     );
     _auditLogs.add(log);
+    _persistAuditAndQuota(profile, log);
     return {'error': reason};
   }
 
@@ -94,6 +147,7 @@ class ControlledAgentService {
       authorizationReason: reason,
     );
     _auditLogs.add(log);
+    _persistAuditAndQuota(profile, log);
   }
 
   List<AutonomousActionAudit> getAuditLogsForTesting() => _auditLogs;

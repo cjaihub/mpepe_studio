@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:cloud_functions/cloud_functions.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_animate/flutter_animate.dart';
@@ -27,7 +28,9 @@ import '../../shared/theme/app_theme.dart';
 import '../core/ova_tool_result.dart';
 import '../main_interface/ova_live_voice_view.dart';
 import '../main_interface/ova_sections_views.dart' show formatRelativeTime;
+import '../overlay/ova_screen_translate_overlay.dart';
 import '../services/ova_chat_controller.dart';
+import '../services/ova_native_service.dart';
 import '../services/ova_shared_history_service.dart';
 import '../services/ova_task_center.dart';
 import '../services/ova_voice_session_controller.dart';
@@ -309,6 +312,54 @@ class _OvaAssistantPanelState extends ConsumerState<OvaAssistantPanel> {
         _attachedToolChips.add(label);
       }
     });
+  }
+
+  Future<void> _openInAppScreenVision(OvaScreenMode mode) async {
+    HapticFeedback.lightImpact();
+    setState(() => _showAttachTools = false);
+
+    Uint8List? bytes = _screenBytes;
+    List<OvaScreenBlock> blocks = const [];
+
+    if (!kIsWeb && Platform.isAndroid) {
+      final snap = await OvaNativeService().captureAssistSnapshot();
+      final b64 = (snap['imageBase64'] ?? '').toString();
+      if (b64.isNotEmpty) {
+        try {
+          bytes = base64Decode(b64);
+        } catch (_) {}
+      }
+      final rawBlocks = snap['blocks'] is List ? (snap['blocks'] as List) : const [];
+      blocks = [
+        for (int i = 0; i < rawBlocks.length; i++)
+          if (rawBlocks[i] is Map) OvaScreenBlock.fromMap(rawBlocks[i] as Map, i),
+      ].where((b) => b.text.isNotEmpty).toList();
+    }
+
+    if (!mounted) return;
+    await showGeneralDialog<void>(
+      context: context,
+      barrierDismissible: false,
+      barrierColor: Colors.transparent,
+      pageBuilder: (dialogCtx, _, _) => Material(
+        type: MaterialType.transparency,
+        child: OvaScreenTranslateHighlightLayer(
+          screenshotBytes: bytes,
+          initialBlocks: blocks,
+          initialMode: mode,
+          onClose: () => Navigator.of(dialogCtx).pop(),
+          onAskOva: (prompt, regionBytes) {
+            Navigator.of(dialogCtx).pop();
+            if (!mounted) return;
+            setState(() {
+              _screenBytes = regionBytes ?? bytes;
+              _attachedMediaLabel = 'Highlighted Area';
+            });
+            _send(prompt);
+          },
+        ),
+      ),
+    );
   }
 
   void _navigate(String route) {
@@ -2066,6 +2117,22 @@ class _OvaAssistantPanelState extends ConsumerState<OvaAssistantPanel> {
                 setState(() => _showAttachTools = false);
                 _chat.send('where am I');
               },
+            ),
+            const SizedBox(width: 6),
+            _attachToolTile(
+              context,
+              icon: Icons.translate_rounded,
+              label: 'Translate Screen',
+              accent: AppColors.brandBlue,
+              onTap: () => unawaited(_openInAppScreenVision(OvaScreenMode.translate)),
+            ),
+            const SizedBox(width: 6),
+            _attachToolTile(
+              context,
+              icon: Icons.draw_rounded,
+              label: 'Highlight Area',
+              accent: AppColors.brandPink,
+              onTap: () => unawaited(_openInAppScreenVision(OvaScreenMode.highlight)),
             ),
             const SizedBox(width: 6),
             _attachToolTile(

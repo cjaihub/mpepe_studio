@@ -391,7 +391,83 @@ class OvaAssistantMethodHandler(
                 "getTriggerConfig" -> result.success(OvaTriggerConfig.load(this).toMap())
 
                 "openOvaOverlay" -> {
-                    OvaAssistActivity.open(this, "app")
+                    val assistAction = call.argument<String>("action") ?: "default"
+                    val svc = OvaAccessibilityService.instance
+                    if (svc != null && assistAction != "app") {
+                        svc.wakeAssistant("app", assistAction)
+                    } else {
+                        OvaAssistActivity.open(this, "app", assistAction)
+                    }
+                    result.success(true)
+                }
+
+                "isDefaultAssistant" -> {
+                    val isDef = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                        try {
+                            val rm = getSystemService(android.app.role.RoleManager::class.java)
+                            rm?.isRoleHeld(android.app.role.RoleManager.ROLE_ASSISTANT) == true
+                        } catch (_: Exception) {
+                            false
+                        }
+                    } else {
+                        val flat = Settings.Secure.getString(contentResolver, "assistant") ?: ""
+                        flat.contains(packageName)
+                    }
+                    result.success(isDef)
+                }
+
+                "requestDefaultAssistantRole" -> {
+                    try {
+                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                            val rm = getSystemService(android.app.role.RoleManager::class.java)
+                            if (rm != null && rm.isRoleAvailable(android.app.role.RoleManager.ROLE_ASSISTANT)) {
+                                if (rm.isRoleHeld(android.app.role.RoleManager.ROLE_ASSISTANT)) {
+                                    result.success(true)
+                                    return
+                                }
+                                startActivityForResult(
+                                    rm.createRequestRoleIntent(android.app.role.RoleManager.ROLE_ASSISTANT),
+                                    9042,
+                                )
+                                result.success(true)
+                                return
+                            }
+                        }
+                        val intent = Intent(Settings.ACTION_VOICE_INPUT_SETTINGS).apply {
+                            flags = Intent.FLAG_ACTIVITY_NEW_TASK
+                        }
+                        startActivity(intent)
+                        result.success(true)
+                    } catch (e: Exception) {
+                        result.error("ASSISTANT_ROLE_ERROR", e.message, null)
+                    }
+                }
+
+                "getAssistSnapshot" -> {
+                    result.success(
+                        OvaAssistSnapshotStore.latest?.toMap() ?: mapOf("hasBitmap" to false, "blocks" to emptyList<Any>()),
+                    )
+                }
+
+                "captureAssistSnapshot" -> {
+                    val svc = OvaAccessibilityService.instance
+                    if (svc != null) {
+                        svc.captureScreenSnapshotAsync { snap ->
+                            runOnUiThread {
+                                result.success(
+                                    snap?.toMap() ?: mapOf("hasBitmap" to false, "blocks" to emptyList<Any>()),
+                                )
+                            }
+                        }
+                    } else {
+                        result.success(
+                            OvaAssistSnapshotStore.latest?.toMap() ?: mapOf("hasBitmap" to false, "blocks" to emptyList<Any>()),
+                        )
+                    }
+                }
+
+                "clearAssistSnapshot" -> {
+                    OvaAssistSnapshotStore.clear()
                     result.success(true)
                 }
 

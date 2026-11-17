@@ -1,0 +1,48 @@
+name: Oneova Desktop Release (macOS & Windows)
+
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - 'desktop-v*'
+
+jobs:
+  build_windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+      - name: Build Oneova Windows Desktop Assistant
+        shell: pwsh
+        run: |
+          if (!(Test-Path ".env")) { Copy-Item ".env.example" ".env" }
+          flutter pub get
+          powershell -ExecutionPolicy Bypass -File tools/desktop/build_windows.ps1
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Oneova-Desktop-Windows-x64
+          path: public/downloads/Oneova-Desktop-Windows-x64.zip
+
+  build_macos:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+      - name: Build Oneova macOS Desktop Assistant
+        run: |
+          if [ ! -f ".env" ]; then cp .env.example .env; fi
+          flutter pub get
+          flutter config --enable-macos-desktop
+          flutter build macos --release
+          mkdir -p build/dmg_staging public/downloads
+          cp -R build/macos/Build/Products/Release/OneOva.app build/dmg_staging/Oneova.app
+          ln -s /Applications build/dmg_staging/Applications
+          hdiutil create -volname "Oneova Desktop Assistant" -srcfolder build/dmg_staging -ov -format UDBZ public/downloads/Oneova-Desktop-macOS.dmg
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Oneova-Desktop-macOS
+          path: public/downloads/Oneova-Desktop-macOS.dmg

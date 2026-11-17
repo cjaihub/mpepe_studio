@@ -13,10 +13,10 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:flutter_tts/flutter_tts.dart';
 import 'package:go_router/go_router.dart';
 import 'package:speech_to_text/speech_to_text.dart';
 
+import '../../shared/audio/ova_vertex_audio_engine.dart';
 import '../../shared/theme/app_theme.dart';
 import '../../social_hub/biz_commerce/checkout_screen.dart' show formatMoney;
 import '../data/currencies.dart';
@@ -441,7 +441,6 @@ class ShopProductChat extends ConsumerStatefulWidget {
 class _ShopProductChatState extends ConsumerState<ShopProductChat> {
   final _input = TextEditingController();
   final _scroll = ScrollController();
-  final _tts = FlutterTts();
   final _stt = SpeechToText();
   bool _busy = false;
   bool _listening = false;
@@ -449,7 +448,7 @@ class _ShopProductChatState extends ConsumerState<ShopProductChat> {
 
   @override
   void dispose() {
-    _tts.stop();
+    OvaVertexAudioEngine.instance.stop();
     _stt.stop();
     _input.dispose();
     _scroll.dispose();
@@ -476,7 +475,7 @@ class _ShopProductChatState extends ConsumerState<ShopProductChat> {
       await _stt.stop();
       return setState(() => _listening = false);
     }
-    await _tts.stop();
+    await OvaVertexAudioEngine.instance.stop();
     final ok = await _stt.initialize(onStatus: (s) {
       if ((s == 'done' || s == 'notListening') && mounted) setState(() => _listening = false);
     });
@@ -505,7 +504,7 @@ class _ShopProductChatState extends ConsumerState<ShopProductChat> {
     }
     if (last > _spoken && msgs[last].from != 'buyer') {
       _spoken = last;
-      _tts.speak(msgs[last].text);
+      unawaited(OvaVertexAudioEngine.instance.speak(msgs[last].text));
     }
   }
 
@@ -537,7 +536,7 @@ class _ShopProductChatState extends ConsumerState<ShopProductChat> {
         GestureDetector(
           onTap: () {
             setState(() => _voiceOn = !_voiceOn);
-            if (!_voiceOn) _tts.stop();
+            if (!_voiceOn) unawaited(OvaVertexAudioEngine.instance.stop());
           },
           child: Tooltip(
             message: _voiceOn ? 'Answers are read aloud' : 'Read answers aloud',

@@ -1,7 +1,7 @@
 import 'dart:async';
 import 'package:cloud_functions/cloud_functions.dart';
 import 'package:flutter/foundation.dart';
-import 'package:flutter_tts/flutter_tts.dart';
+import '../audio/ova_vertex_audio_engine.dart';
 
 /// Metadata for a supported language.
 class LanguageInfo {
@@ -56,15 +56,14 @@ class DetectedLanguage {
 /// - Stopword and n-gram scoring for Latin-script languages (Swahili, French, Spanish, Yoruba, Zulu, etc.)
 /// - Cloud-backed translation via Firebase Functions `chatAssist` with resilient offline phrase fallback
 /// - AI Text Polish & Tone styling (Studio, Concise, Friendly, Professional)
-/// - Integrated Text-to-Speech (TTS) via [FlutterTts]
+/// - Native Human Voice via Vertex AI ([OvaVertexAudioEngine])
 class OneovaLanguageService {
   OneovaLanguageService._();
   static final OneovaLanguageService instance = OneovaLanguageService._();
 
-  FlutterTts? _tts;
   bool _isTtsSpeaking = false;
 
-  bool get isTtsSpeaking => _isTtsSpeaking;
+  bool get isTtsSpeaking => _isTtsSpeaking || OvaVertexAudioEngine.instance.isSpeaking.value;
 
   // ───────────────────────────────────────────────────────────────────────────
   // Supported Languages Catalog
@@ -422,40 +421,28 @@ class OneovaLanguageService {
   }
 
   // ───────────────────────────────────────────────────────────────────────────
-  // Integrated Text-to-Speech (TTS)
+  // Native Vertex AI Human Voice Playback
   // ───────────────────────────────────────────────────────────────────────────
   Future<void> speak(String text, {String? languageCode}) async {
     final clean = text.trim();
     if (clean.isEmpty) return;
 
-    _tts ??= FlutterTts()
-      ..setCompletionHandler(() {
-        _isTtsSpeaking = false;
-      })
-      ..setCancelHandler(() {
-        _isTtsSpeaking = false;
-      })
-      ..setErrorHandler((_) {
-        _isTtsSpeaking = false;
-      });
-
     final lang = languageCode ?? detectLanguage(clean).code;
+    _isTtsSpeaking = true;
     try {
-      await _tts!.setLanguage(lang);
-      await _tts!.setSpeechRate(0.5);
-      await _tts!.setPitch(1.0);
-      _isTtsSpeaking = true;
-      await _tts!.speak(clean);
+      await OvaVertexAudioEngine.instance.speak(
+        clean,
+        languageCode: lang,
+        onComplete: () => _isTtsSpeaking = false,
+      );
     } catch (e) {
-      debugPrint('[OneovaLanguageService] TTS error: $e');
+      debugPrint('[OneovaLanguageService] Vertex voice notice: $e');
       _isTtsSpeaking = false;
     }
   }
 
   Future<void> stopSpeaking() async {
-    if (_tts != null) {
-      await _tts!.stop();
-      _isTtsSpeaking = false;
-    }
+    _isTtsSpeaking = false;
+    await OvaVertexAudioEngine.instance.stop();
   }
 }

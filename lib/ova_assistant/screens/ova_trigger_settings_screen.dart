@@ -38,6 +38,7 @@ class _OvaTriggerSettingsScreenState extends ConsumerState<OvaTriggerSettingsScr
   bool _overlayPermission = false;
   bool _bubble = false;
   bool _notifications = false;
+  bool _defaultAssistant = false;
 
   @override
   void initState() {
@@ -65,12 +66,14 @@ class _OvaTriggerSettingsScreenState extends ConsumerState<OvaTriggerSettingsScr
     final overlay = await native.canDrawOverlays();
     final bubble = await native.isSystemOverlayActive();
     final notif = await Permission.notification.isGranted;
+    final defAssist = await native.isDefaultAssistant();
     if (!mounted) return;
     setState(() {
       _a11y = a11y;
       _overlayPermission = overlay;
       _bubble = bubble;
       _notifications = notif;
+      _defaultAssistant = defAssist;
     });
   }
 
@@ -194,9 +197,17 @@ class _OvaTriggerSettingsScreenState extends ConsumerState<OvaTriggerSettingsScr
                     ),
                     SettingsNavTile(
                       icon: Icons.power_settings_new_rounded,
-                      title: 'Power button',
-                      subtitle: 'Choose Oneova as digital assistant, then hold power (or Home) to open Ova',
-                      onTap: () => ref.read(ovaNativeServiceProvider).openAssistantSettings(),
+                      accent: _defaultAssistant ? AppColors.brandBlue : AppColors.brandPink,
+                      title: 'Power button & Digital Assistant',
+                      subtitle: _defaultAssistant
+                          ? 'Active — hold power (or swipe corner) anywhere to open Ova, Translate & Highlight'
+                          : 'Set Oneova as your default digital assistant in one tap',
+                      value: _defaultAssistant ? 'On' : 'Set default',
+                      onTap: () async {
+                        await ref.read(ovaNativeServiceProvider).requestDefaultAssistantRole();
+                        await Future<void>.delayed(const Duration(milliseconds: 500));
+                        await _refresh();
+                      },
                     ),
                   ],
                 ),

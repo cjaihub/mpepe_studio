@@ -87,4 +87,6 @@ dependencies {
     implementation("com.google.android.material:material:1.12.0")
     // Payment device key (DeviceKeyChannel.kt): BiometricPrompt with a CryptoObject.
     implementation("androidx.biometric:biometric:1.1.0")
+    // On-device OCR for Ova Highlight & In-Place Screen Translation over any app/image.
+    implementation("com.google.mlkit:text-recognition:16.0.1")
 }

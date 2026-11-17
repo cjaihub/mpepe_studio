@@ -2,10 +2,10 @@
 import 'dart:async';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:flutter_tts/flutter_tts.dart';
 import 'package:oneova/backend/ai_brain_service.dart';
 import 'package:oneova/backend/ai_agents/omni_command/omni_assistant_service.dart';
 import 'package:oneova/backend/messaging_repository.dart';
+import 'package:oneova/shared/audio/ova_vertex_audio_engine.dart';
 
 final chatAgentServiceProvider = Provider<ChatAgentService>((ref) {
   final firestore = FirebaseFirestore.instance;
@@ -19,22 +19,13 @@ class ChatAgentService {
   final FirebaseFirestore _firestore;
   final AIBrainService _brainService;
   final MessagingRepository _messagingRepo;
-  final FlutterTts _tts = FlutterTts();
   final OmniAssistantService _omniAssistant;
   
   StreamSubscription? _chatSubscription;
   String? _activeChatId;
   final Set<String> _processedMessageIds = {};
 
-  ChatAgentService(this._firestore, this._brainService, this._messagingRepo, this._omniAssistant) {
-    _initTts();
-  }
-
-  Future<void> _initTts() async {
-    await _tts.setLanguage("en-US");
-    await _tts.setPitch(1.0);
-    await _tts.setSpeechRate(0.5); // slightly natural speed
-  }
+  ChatAgentService(this._firestore, this._brainService, this._messagingRepo, this._omniAssistant);
 
   void listenToChat(String chatId) async {
     if (_activeChatId == chatId) return;
@@ -126,8 +117,8 @@ class ChatAgentService {
         
       );
 
-      // Read out loud with TTS
-      await _tts.speak(replyText);
+      // Read out loud with natural Vertex AI audio
+      await OvaVertexAudioEngine.instance.speak(replyText);
 
     } catch (e) {
       print("Error processing AI reply: $e");

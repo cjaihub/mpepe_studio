@@ -3,13 +3,13 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:flutter_tts/flutter_tts.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:speech_to_text/speech_to_text.dart' as stt;
 
 import '../../agent_workspace/ova_agent_models.dart';
 import '../../agent_workspace/ova_agent_sync_controller.dart';
 import '../../shared/audio/mic_coordinator.dart';
+import '../../shared/audio/ova_vertex_audio_engine.dart';
 import '../../shared/audio/speech_hub.dart';
 import '../../shared/theme/app_theme.dart';
 
@@ -44,7 +44,6 @@ enum _VoicePhase { off, listening, waiting, speaking }
 class _OvaLiveCopilotState extends ConsumerState<OvaLiveCopilot> {
   final _input = TextEditingController();
   final _scroll = ScrollController();
-  final FlutterTts _tts = FlutterTts();
   final SpeechHub _speech = SpeechHub.instance;
 
   bool _expanded = false;
@@ -64,16 +63,9 @@ class _OvaLiveCopilotState extends ConsumerState<OvaLiveCopilot> {
   ];
 
   @override
-  void initState() {
-    super.initState();
-    _tts.setCompletionHandler(_onSpeechDone);
-    _tts.setCancelHandler(_onSpeechDone);
-  }
-
-  @override
   void dispose() {
     unawaited(_stopMic());
-    unawaited(_tts.stop());
+    unawaited(OvaVertexAudioEngine.instance.stop());
     _input.dispose();
     _scroll.dispose();
     super.dispose();
@@ -135,7 +127,7 @@ class _OvaLiveCopilotState extends ConsumerState<OvaLiveCopilot> {
       return false;
     }
     _lease = got as MicLease;
-    await _tts.stop();
+    await OvaVertexAudioEngine.instance.stop();
     setState(() => _heard = '');
     final ok = await _speech.listen(
       owner: this,
@@ -211,7 +203,7 @@ class _OvaLiveCopilotState extends ConsumerState<OvaLiveCopilot> {
         _phase = _VoicePhase.off;
       });
       await _stopMic();
-      await _tts.stop();
+      await OvaVertexAudioEngine.instance.stop();
       return;
     }
     setState(() {
@@ -251,7 +243,12 @@ class _OvaLiveCopilotState extends ConsumerState<OvaLiveCopilot> {
   void _speak(String text) {
     setState(() => _phase = _VoicePhase.speaking);
     final clipped = text.length > 600 ? '${text.substring(0, 600)}…' : text;
-    unawaited(_tts.speak(clipped));
+    unawaited(
+      OvaVertexAudioEngine.instance.speak(
+        clipped,
+        onComplete: _onSpeechDone,
+      ),
+    );
   }
 
   void _onSpeechDone() {
@@ -628,7 +625,8 @@ class _OvaLiveCopilotState extends ConsumerState<OvaLiveCopilot> {
         GestureDetector(
           onTap: () {
             if (_phase == _VoicePhase.speaking) {
-              unawaited(_tts.stop());
+              unawaited(OvaVertexAudioEngine.instance.stop());
+              _onSpeechDone();
             } else if (_phase == _VoicePhase.listening) {
               unawaited(_finishHearing());
             }

@@ -2031,7 +2031,7 @@ class OvaAgentSyncNotifier extends Notifier<OvaAgentWorkspaceState> {
         'prompt': fallbackPrompt,
       'agentMode': state.selectedMode.wireValue,
       'effort': state.selectedEffort.wireValue,
-      'originDevice': _isDesktop ? 'mac' : 'mobile',
+      'originDevice': _isDesktop ? Platform.operatingSystem : 'mobile',
       'phase': phase,
       'loopIteration': loopIteration,
       'fullComputerAccess':
@@ -2044,7 +2044,7 @@ class OvaAgentSyncNotifier extends Notifier<OvaAgentWorkspaceState> {
       'workstationContext': {
         'connected': state.workstationOnline,
         'computerName': state.workstationName ?? 'Unlinked',
-        'os': _isDesktop ? Platform.operatingSystem : 'macos',
+        'os': _isDesktop ? Platform.operatingSystem : 'desktop',
         'activeWindow': state.workstationActiveWindow ?? 'Desktop',
         'workspaceCwd': _isDesktop ? Directory.current.path : '~',
         'telemetry': state.workstationTelemetry,

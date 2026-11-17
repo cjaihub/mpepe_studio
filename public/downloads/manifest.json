@@ -1,0 +1,26 @@
+{
+  "version": "1.0.0",
+  "updatedAt": "2026-11-17",
+  "macos": {
+    "available": true,
+    "fileName": "Oneova-Desktop-macOS.dmg",
+    "url": "/downloads/Oneova-Desktop-macOS.dmg",
+    "fileSizeLabel": "87 MB",
+    "sizeLabel": "Universal (Apple Silicon + Intel)",
+    "requirements": "macOS 12.0 Monterey or newer",
+    "hotkey": "Option + Space (⌥Space)",
+    "startup": "Auto-launches at login via macOS LaunchAgent",
+    "sha256": "144f4c2d205c5554425dd58cbba7333dad75981d3ba722c95c0eceaec31e6509"
+  },
+  "windows": {
+    "available": false,
+    "fileName": "Oneova-Desktop-Windows-x64.zip",
+    "url": "https://github.com/cjaihub/mpepe_studio/releases/latest/download/Oneova-Desktop-Windows-x64.zip",
+    "buildRepoUrl": "https://github.com/cjaihub/mpepe_studio/actions/workflows/desktop-release.yml",
+    "sizeLabel": "Windows 10 / 11 (64-bit x64)",
+    "requirements": "Windows 10 (1903+) or Windows 11 x64",
+    "hotkey": "Alt + Space / Ctrl + Shift + O",
+    "startup": "Auto-launches at Windows login (HKCU Run) & System Tray",
+    "sha256": ""
+  }
+}

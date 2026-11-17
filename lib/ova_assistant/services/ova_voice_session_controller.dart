@@ -11,13 +11,13 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_pcm_sound/flutter_pcm_sound.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:flutter_tts/flutter_tts.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:record/record.dart';
 import 'package:speech_to_text/speech_to_text.dart' as stt;
 
 import '../../shared/audio/cloud_dictation.dart';
 import '../../shared/audio/mic_coordinator.dart';
+import '../../shared/audio/ova_vertex_audio_engine.dart';
 import '../../shared/audio/speech_hub.dart';
 
 import '../../backend/repair/oneova_auto_updater.dart';
@@ -36,6 +36,7 @@ import 'ova_notification_memory_service.dart';
 import 'ova_shared_history_service.dart';
 import 'ova_task_center.dart';
 import 'ova_tool_registry.dart';
+import '../../backend/ai_agents/omni_command/omni_assistant_service.dart';
 
 /// Natural Vertex Live voices available across Ova Voice, Overlay Voice, and Calls.
 const List<({String id, String label, String tone})> kOvaVertexVoices = [
@@ -206,7 +207,6 @@ abstract class OvaVoiceSessionBaseNotifier extends Notifier<OvaVoiceSessionState
 
   // Fallback dictation + wake-word standby when Vertex Live stream is resting
   final SpeechHub _speech = SpeechHub.instance;
-  final FlutterTts _tts = FlutterTts();
   CloudDictation? _cloud;
   MicLease? _lease;
   bool _heldByOtherApp = false;
@@ -217,7 +217,6 @@ abstract class OvaVoiceSessionBaseNotifier extends Notifier<OvaVoiceSessionState
   final List<Map<String, dynamic>> _voiceHistory = [];
 
   bool _speechReady = false;
-  bool _ttsReady = false;
   bool _disposed = false;
   String? _activeThreadId;
   String? _pendingQuestion;
@@ -311,32 +310,32 @@ abstract class OvaVoiceSessionBaseNotifier extends Notifier<OvaVoiceSessionState
     }
   }
 
-  Future<void> _ensureTts() async {
-    if (_ttsReady) return;
+  Future<void> _speakViaVertexNativeAudio(String line) async {
     try {
-      await _tts.setSharedInstance(true);
-      await _tts.setIosAudioCategory(
-        IosTextToSpeechAudioCategory.playback,
-        [
-          IosTextToSpeechAudioCategoryOptions.allowBluetooth,
-          IosTextToSpeechAudioCategoryOptions.allowBluetoothA2DP,
-          IosTextToSpeechAudioCategoryOptions.mixWithOthers,
-        ],
-      );
-      await _tts.setSpeechRate(state.speechRate);
-      await _tts.setPitch(1.0);
-      _tts.setCompletionHandler(() {
-        if (_disposed) return;
-        if (state.phase == OvaVoicePhase.speaking && _liveSession == null) {
-          if (!state.isMicMuted && !state.isPaused) {
-            _beginFallbackListening();
-          } else {
-            state = state.copyWith(phase: OvaVoicePhase.listening, amplitude: 0.0);
+      await OvaVertexAudioEngine.instance.speak(
+        line,
+        voiceName: state.voiceName,
+        languageCode: WidgetsBinding.instance.platformDispatcher.locale.languageCode,
+        onComplete: () {
+          if (_disposed) return;
+          if (state.phase == OvaVoicePhase.speaking && _liveSession == null) {
+            if (!state.isMicMuted && !state.isPaused) {
+              unawaited(_beginFallbackListening());
+            } else {
+              state = state.copyWith(phase: OvaVoicePhase.listening, amplitude: 0.0);
+            }
           }
+        },
+      );
+    } catch (_) {
+      if (!_disposed && state.phase == OvaVoicePhase.speaking) {
+        if (!state.isMicMuted && !state.isPaused) {
+          unawaited(_beginFallbackListening());
+        } else {
+          state = state.copyWith(phase: OvaVoicePhase.listening, amplitude: 0.0);
         }
-      });
-      _ttsReady = true;
-    } catch (_) {}
+      }
+    }
   }
 
   /// Starts or resumes a real-time Vertex Live voice session, sharing the exact
@@ -474,6 +473,11 @@ abstract class OvaVoiceSessionBaseNotifier extends Notifier<OvaVoiceSessionState
     final recentSummary =
         recentLines.isEmpty ? '' : '\nRecent conversation context (same thread as chat):\n$recentLines';
 
+    String styleBlock = '';
+    try {
+      styleBlock = '\n${ref.read(omniAssistantServiceProvider.notifier).generateSystemPromptAdditions()}';
+    } catch (_) {}
+
     return '''
 You are Ova, the warm, kind, and intelligent real-time voice companion inside Oneova (${_workspace.label} workspace).
 You share the exact same memory, tools, and conversation thread as the user's text chat.
@@ -485,7 +489,7 @@ How to communicate:
 - Reply in the exact language the user speaks to you.
 - Whenever the user asks to find places near them ("what's near me"), fly to a place on the map, get directions, check notifications, set reminders, message someone, or control their phone/computer, call the matching tool right away and tell them warmly what you found or did.
 
-${_liveContext(_currentTaskId ?? '')}$recentSummary
+${_liveContext(_currentTaskId ?? '')}$styleBlock$recentSummary
 ''';
   }
 
@@ -994,7 +998,7 @@ ${_liveContext(_currentTaskId ?? '')}$recentSummary
         await _speech.cancel(this);
         await _cloud?.cancel();
         try {
-          await _tts.stop();
+          await OvaVertexAudioEngine.instance.stop();
         } catch (_) {}
         if (!_disposed && state.isActive && !state.isPaused) {
           state = state.copyWith(phase: OvaVoicePhase.paused, amplitude: 0.0);
@@ -1447,14 +1451,7 @@ ${_liveContext(_currentTaskId ?? '')}$recentSummary
     );
 
     if (state.audioEnabled && spokenReply.isNotEmpty) {
-      await _ensureTts();
-      try {
-        await _tts.speak(spokenReply);
-      } catch (_) {
-        if (!_disposed) {
-          state = state.copyWith(phase: OvaVoicePhase.listening, amplitude: 0.0);
-        }
-      }
+      await _speakViaVertexNativeAudio(spokenReply);
     } else if (!state.isMicMuted && !state.isPaused) {
       await _beginFallbackListening();
     }
@@ -1491,7 +1488,7 @@ ${_liveContext(_currentTaskId ?? '')}$recentSummary
     if (state.phase == OvaVoicePhase.speaking) {
       // Barge-in: stop speaking immediately and listen to the user
       try {
-        await _tts.stop();
+        await OvaVertexAudioEngine.instance.stop();
       } catch (_) {}
       state = state.copyWith(
         phase: OvaVoicePhase.listening,
@@ -1530,7 +1527,7 @@ ${_liveContext(_currentTaskId ?? '')}$recentSummary
     state = state.copyWith(audioEnabled: nextAudio);
     if (!nextAudio && state.phase == OvaVoicePhase.speaking) {
       try {
-        await _tts.stop();
+        await OvaVertexAudioEngine.instance.stop();
       } catch (_) {}
       state = state.copyWith(phase: OvaVoicePhase.listening, amplitude: 0.0);
     }
@@ -1544,9 +1541,6 @@ ${_liveContext(_currentTaskId ?? '')}$recentSummary
   Future<void> setSpeechRate(double rate) async {
     final clamped = rate.clamp(0.35, 0.75);
     state = state.copyWith(speechRate: clamped);
-    try {
-      await _tts.setSpeechRate(clamped);
-    } catch (_) {}
   }
 
   Future<void> retryMicrophone() async {
@@ -1631,12 +1625,7 @@ ${_liveContext(_currentTaskId ?? '')}$recentSummary
       assistantReply: line,
       amplitude: 0.5,
     );
-    await _ensureTts();
-    try {
-      await _tts.speak(line);
-    } catch (_) {
-      if (!_disposed) await _beginFallbackListening();
-    }
+    await _speakViaVertexNativeAudio(line);
   }
 
   static String _toSpokenProse(String raw) {
@@ -1670,7 +1659,7 @@ ${_liveContext(_currentTaskId ?? '')}$recentSummary
     await _speech.cancel(this);
     await _cloud?.cancel();
     try {
-      await _tts.stop();
+      await OvaVertexAudioEngine.instance.stop();
     } catch (_) {}
     await _releaseLease();
   }

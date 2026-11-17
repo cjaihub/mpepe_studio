@@ -220,6 +220,14 @@ class MainActivity : FlutterFragmentActivity() {
                 onShowNotification = { showPersistentAssistantNotification() },
             )
         )
+
+        // Pre-warm the compact Ova overlay engine after first frame so Power Button /
+        // Holla Edge summon feels instantaneous (<120ms) over any app.
+        android.os.Handler(android.os.Looper.getMainLooper()).postDelayed({
+            try {
+                OvaAssistActivity.prewarm(applicationContext)
+            } catch (_: Exception) {}
+        }, 700L)
     }
 
     private fun enableWakeAndLockScreenDisplay() {

@@ -336,13 +336,71 @@ class OvaNativeService {
   }
 
   /// Opens the compact system overlay (as it appears over other apps).
-  Future<void> openSystemOverlayPreview() async {
+  Future<void> openSystemOverlayPreview({String action = 'default'}) async {
     if (kIsWeb || !Platform.isAndroid) return;
     try {
-      await _channel.invokeMethod('openOvaOverlay');
+      await _channel.invokeMethod('openOvaOverlay', {'action': action});
     } catch (e) {
       debugPrint('[OvaNativeService] Error opening Ova overlay: $e');
     }
+  }
+
+  /// Checks whether Oneova holds the Android Default Digital Assistant role
+  /// (`RoleManager.ROLE_ASSISTANT`) for long-press Power Button invocation.
+  Future<bool> isDefaultAssistant() async {
+    if (kIsWeb || !Platform.isAndroid) return false;
+    try {
+      return await _channel.invokeMethod<bool>('isDefaultAssistant') ?? false;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  /// Prompts the OS role picker so the user can make Oneova their default
+  /// Power Button Digital Assistant in one tap.
+  Future<bool> requestDefaultAssistantRole() async {
+    if (kIsWeb || !Platform.isAndroid) return false;
+    try {
+      return await _channel.invokeMethod<bool>('requestDefaultAssistantRole') ?? false;
+    } catch (_) {
+      return openAssistantSettings();
+    }
+  }
+
+  /// Reads the latest in-memory screen snapshot & OCR text boxes captured by
+  /// VoiceInteractionSession or AccessibilityService.
+  Future<Map<String, dynamic>> getAssistSnapshot() async {
+    if (kIsWeb || !Platform.isAndroid) {
+      return const {'hasBitmap': false, 'blocks': <dynamic>[]};
+    }
+    try {
+      final raw = await _channel.invokeMethod<Map<dynamic, dynamic>>('getAssistSnapshot');
+      if (raw != null) return Map<String, dynamic>.from(raw);
+    } catch (e) {
+      debugPrint('[OvaNativeService] getAssistSnapshot error: $e');
+    }
+    return const {'hasBitmap': false, 'blocks': <dynamic>[]};
+  }
+
+  /// Captures a fresh in-memory screen snapshot & spatial OCR text blocks.
+  Future<Map<String, dynamic>> captureAssistSnapshot() async {
+    if (kIsWeb || !Platform.isAndroid) {
+      return const {'hasBitmap': false, 'blocks': <dynamic>[]};
+    }
+    try {
+      final raw = await _channel.invokeMethod<Map<dynamic, dynamic>>('captureAssistSnapshot');
+      if (raw != null) return Map<String, dynamic>.from(raw);
+    } catch (e) {
+      debugPrint('[OvaNativeService] captureAssistSnapshot error: $e');
+    }
+    return const {'hasBitmap': false, 'blocks': <dynamic>[]};
+  }
+
+  Future<void> clearAssistSnapshot() async {
+    if (kIsWeb || !Platform.isAndroid) return;
+    try {
+      await _channel.invokeMethod('clearAssistSnapshot');
+    } catch (_) {}
   }
 
   /// Registers callback when background wake intent is received

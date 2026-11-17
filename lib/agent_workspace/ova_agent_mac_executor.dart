@@ -3,8 +3,12 @@ import 'dart:io';
 
 import '../backend/native_plugin_server.dart';
 import '../desktop_agent/desktop_firebase_rest_client.dart';
+import '../desktop_agent/desktop_input_router.dart';
+import '../desktop_agent/desktop_window_bridge.dart';
 import '../desktop_agent/macos_mouse_ffi.dart';
+import '../desktop_agent/windows_automation_ffi.dart';
 import 'ova_agent_models.dart';
+import 'ova_desktop_creative_skills.dart';
 
 class OvaMacToolExecutionResult {
   final bool ok;
@@ -45,11 +49,11 @@ class OvaAgentMacExecutor {
 
   Future<OvaMacToolExecutionResult> execute(OvaAgentToolCall call) async {
     final sw = Stopwatch()..start();
-    if (!Platform.isMacOS) {
+    if (!Platform.isMacOS && !Platform.isWindows) {
       sw.stop();
       return OvaMacToolExecutionResult(
         ok: false,
-        output: 'Workstation tool "${call.name}" requires an online macOS agent.',
+        output: 'Workstation tool "${call.name}" requires an online macOS or Windows agent.',
         exitCode: 1,
         durationMs: sw.elapsedMilliseconds,
       );
@@ -99,6 +103,17 @@ class OvaAgentMacExecutor {
           return await _readFileSnippet(call.args, sw);
         case 'nle_bridge_action':
           return await _nleBridgeAction(call.args, sw);
+        case 'creative_suite_skill':
+          final cr = await OvaDesktopCreativeSkills.execute(call.args);
+          sw.stop();
+          return OvaMacToolExecutionResult(
+            ok: cr.ok,
+            output: cr.output,
+            exitCode: cr.exitCode,
+            durationMs: sw.elapsedMilliseconds,
+          );
+        case 'desktop_startup_settings':
+          return await _desktopStartupSettings(call.args, sw);
         case 'send_mac_hotkey':
           return await _sendHotkey(call.args, sw);
         case 'type_on_workstation':
@@ -133,22 +148,53 @@ class OvaAgentMacExecutor {
     }
   }
 
+  Future<OvaMacToolExecutionResult> _desktopStartupSettings(
+    Map<String, dynamic> args,
+    Stopwatch sw,
+  ) async {
+    final action = (args['action'] ?? 'status').toString().toLowerCase().trim();
+    final bridge = DesktopWindowBridge.instance;
+    if (action == 'enable_startup') {
+      final ok = await bridge.setStartupEnabled(true);
+      sw.stop();
+      return OvaMacToolExecutionResult(
+        ok: ok,
+        output: ok
+            ? 'Enabled automatic startup at login on ${Platform.localHostname} (${bridge.hotkeyLabel.value} HUD shortcut ready everywhere).'
+            : 'Could not enable startup entry on ${Platform.localHostname}.',
+        exitCode: ok ? 0 : 1,
+        durationMs: sw.elapsedMilliseconds,
+      );
+    }
+    if (action == 'disable_startup') {
+      final ok = await bridge.setStartupEnabled(false);
+      sw.stop();
+      return OvaMacToolExecutionResult(
+        ok: ok,
+        output: ok
+            ? 'Disabled automatic startup at login on ${Platform.localHostname}.'
+            : 'Could not disable startup entry.',
+        exitCode: ok ? 0 : 1,
+        durationMs: sw.elapsedMilliseconds,
+      );
+    }
+    final enabled = await bridge.getStartupEnabled();
+    sw.stop();
+    return OvaMacToolExecutionResult(
+      ok: true,
+      output:
+          'Auto-start on boot is ${enabled ? "ON" : "OFF"} on ${Platform.localHostname} (${Platform.operatingSystem}). Global HUD hotkey: ${bridge.hotkeyLabel.value}.',
+      durationMs: sw.elapsedMilliseconds,
+    );
+  }
+
   Future<OvaMacToolExecutionResult> _inspectWorkstation(Stopwatch sw) async {
     String activeApp = (await onGetActiveWindow?.call()) ?? '';
     if (activeApp.isEmpty) {
-      activeApp = (await MacOSMouseController.getActiveAppName()) ?? '';
+      activeApp = (await DesktopInputRouter.getActiveAppName()) ?? '';
     }
-    final bounds = MacOSMouseController.getMainDisplayBounds();
-    final cursor = MacOSMouseController.getCursorPosition();
-    final uptimeRes = await Process.run('uptime', const []);
-    final dfRes = await Process.run('df', const ['-h', '/']);
-    final appsRes = await Process.run(
-      'zsh',
-      const [
-        '-lc',
-        r"ps -axo comm= | awk -F/ '{print $NF}' | sort -u | grep -Ei 'Finder|Xcode|Code|Cursor|Final Cut|Premiere|Resolve|Logic|Safari|Chrome|Notes|Terminal|OneOva' | head -n 20",
-      ],
-    );
+    final bounds = DesktopInputRouter.getMainDisplayBounds();
+    final cursor = DesktopInputRouter.getCursorPosition();
 
     final buf = StringBuffer()
       ..writeln('Host: ${Platform.localHostname}')
@@ -158,16 +204,40 @@ class OvaAgentMacExecutor {
       ..writeln(
         'Cursor Position: (${cursor.x.toStringAsFixed(0)}, ${cursor.y.toStringAsFixed(0)})',
       )
-      ..writeln('Foreground App: ${activeApp.isEmpty ? "Desktop" : activeApp}')
-      ..writeln('Uptime / Load: ${uptimeRes.stdout.toString().trim()}')
-      ..writeln('\nDisk (/):')
-      ..writeln(dfRes.stdout.toString().trim());
+      ..writeln('Foreground App: ${activeApp.isEmpty ? "Desktop" : activeApp}');
 
-    final runningNotable = appsRes.stdout.toString().trim();
-    if (runningNotable.isNotEmpty) {
+    if (Platform.isWindows) {
+      final appsRes = await Process.run('powershell', const [
+        '-NoProfile',
+        '-Command',
+        "Get-Process | Where-Object { \$_.ProcessName -match 'Resolve|Premiere|AfterFX|Photoshop|Illustrator|FL|chrome|Code|explorer|Oneova' } | Select-Object -Unique ProcessName | Out-String",
+      ]);
+      final running = appsRes.stdout.toString().trim();
+      if (running.isNotEmpty) {
+        buf
+          ..writeln('\nActive Studio & Dev Processes:')
+          ..writeln(running);
+      }
+    } else {
+      final uptimeRes = await Process.run('uptime', const []);
+      final dfRes = await Process.run('df', const ['-h', '/']);
+      final appsRes = await Process.run(
+        'zsh',
+        const [
+          '-lc',
+          r"ps -axo comm= | awk -F/ '{print $NF}' | sort -u | grep -Ei 'Finder|Xcode|Code|Cursor|Final Cut|Premiere|Resolve|Logic|Photoshop|Illustrator|Safari|Chrome|Notes|Terminal|OneOva' | head -n 24",
+        ],
+      );
       buf
-        ..writeln('\nActive Studio & Dev Processes:')
-        ..writeln(runningNotable);
+        ..writeln('Uptime / Load: ${uptimeRes.stdout.toString().trim()}')
+        ..writeln('\nDisk (/):')
+        ..writeln(dfRes.stdout.toString().trim());
+      final runningNotable = appsRes.stdout.toString().trim();
+      if (runningNotable.isNotEmpty) {
+        buf
+          ..writeln('\nActive Studio & Dev Processes:')
+          ..writeln(runningNotable);
+      }
     }
 
     sw.stop();
@@ -182,29 +252,42 @@ class OvaAgentMacExecutor {
     Map<String, dynamic> args,
     Stopwatch sw,
   ) async {
-    final bounds = MacOSMouseController.getMainDisplayBounds();
-    final cursor = MacOSMouseController.getCursorPosition();
+    final bounds = DesktopInputRouter.getMainDisplayBounds();
+    final cursor = DesktopInputRouter.getCursorPosition();
     final activeApp =
-        (await MacOSMouseController.getActiveAppName()) ?? 'Desktop';
-    final clip = await MacOSMouseController.readClipboard();
+        (await DesktopInputRouter.getActiveAppName()) ?? 'Desktop';
+    final clip = await DesktopInputRouter.readClipboard();
     final clipPreview = clip.trim().isEmpty
         ? '(empty)'
         : (clip.length > 260 ? '${clip.substring(0, 260)}…' : clip.trim());
 
-    final windowsRes = await Process.run('osascript', const [
-      '-e',
-      'tell application "System Events" to get {name, title of windows} of (every application process whose visible is true)',
-    ]);
+    final winOut = Platform.isWindows
+        ? await WindowsDesktopController.listOpenWindows()
+        : (await Process.run('osascript', const [
+            '-e',
+            'tell application "System Events" to get {name, title of windows} of (every application process whose visible is true)',
+          ]))
+            .stdout
+            .toString()
+            .trim();
 
     String snapNote = '';
     if (args['includeScreenshot'] != false) {
+      final sep = Platform.pathSeparator;
+      final ext = Platform.isWindows ? 'png' : 'jpg';
       final snapPath =
-          '${Directory.systemTemp.path}/oneova_agent_screen_${DateTime.now().millisecondsSinceEpoch}.jpg';
-      final sc = await Process.run(
-        'screencapture',
-        ['-x', '-t', 'jpg', snapPath],
-      );
-      if (sc.exitCode == 0 && await File(snapPath).exists()) {
+          '${Directory.systemTemp.path}${sep}oneova_agent_screen_${DateTime.now().millisecondsSinceEpoch}.$ext';
+      bool captured = false;
+      if (Platform.isWindows) {
+        captured = await WindowsDesktopController.captureScreenToFile(snapPath);
+      } else {
+        final sc = await Process.run(
+          'screencapture',
+          ['-x', '-t', 'jpg', snapPath],
+        );
+        captured = sc.exitCode == 0;
+      }
+      if (captured && await File(snapPath).exists()) {
         final sz = await File(snapPath).length();
         snapNote =
             'Captured live screen frame (${_formatBytes(sz)}) at $snapPath.';
@@ -216,7 +299,7 @@ class OvaAgentMacExecutor {
           }),
         );
       } else {
-        snapNote = 'Screen snapshot metadata collected via System Events.';
+        snapNote = 'Screen metadata collected.';
       }
     }
 
@@ -230,7 +313,6 @@ class OvaAgentMacExecutor {
     if (snapNote.isNotEmpty) {
       buf.writeln('Snapshot: $snapNote');
     }
-    final winOut = windowsRes.stdout.toString().trim();
     if (winOut.isNotEmpty) {
       buf
         ..writeln('\nVisible Application Windows:')
@@ -246,6 +328,15 @@ class OvaAgentMacExecutor {
   }
 
   Future<OvaMacToolExecutionResult> _listOpenWindows(Stopwatch sw) async {
+    if (Platform.isWindows) {
+      final out = await WindowsDesktopController.listOpenWindows();
+      sw.stop();
+      return OvaMacToolExecutionResult(
+        ok: true,
+        output: out.isNotEmpty ? _truncate(out) : 'No visible windows reported.',
+        durationMs: sw.elapsedMilliseconds,
+      );
+    }
     const script = '''
 set outputLines to {}
 tell application "System Events"
@@ -287,7 +378,12 @@ return outputLines as text
     final appName = (args['appName'] ?? args['app'] ?? '').toString().trim();
 
     ProcessResult res;
-    if (url.isNotEmpty && appName.isNotEmpty) {
+    if (Platform.isWindows) {
+      final target = url.isNotEmpty
+          ? url
+          : (appName.isEmpty ? 'explorer.exe' : appName);
+      res = await Process.run('cmd', ['/c', 'start', '', target]);
+    } else if (url.isNotEmpty && appName.isNotEmpty) {
       res = await Process.run('open', ['-a', appName, url]);
     } else if (url.isNotEmpty) {
       res = await Process.run('open', [url]);
@@ -320,39 +416,39 @@ return outputLines as text
     switch (action) {
       case 'move_to':
         if (x != null && y != null) {
-          MacOSMouseController.moveTo(x, y);
+          DesktopInputRouter.moveTo(x, y);
         }
       case 'move_by':
-        MacOSMouseController.moveBy(dx, dy);
+        DesktopInputRouter.moveBy(dx, dy);
       case 'click':
         if (x != null && y != null) {
-          MacOSMouseController.clickAt(x, y);
+          await DesktopInputRouter.clickAt(x, y);
         } else {
-          MacOSMouseController.click();
+          await DesktopInputRouter.clickCurrent();
         }
       case 'double_click':
         if (x != null && y != null) {
-          MacOSMouseController.clickAt(x, y, doubleClick: true);
+          await DesktopInputRouter.clickAt(x, y, doubleClick: true);
         } else {
-          MacOSMouseController.doubleClick();
+          await DesktopInputRouter.doubleClickCurrent();
         }
       case 'right_click':
         if (x != null && y != null) {
-          MacOSMouseController.clickAt(x, y, right: true);
+          await DesktopInputRouter.clickAt(x, y, right: true);
         } else {
-          MacOSMouseController.rightClick();
+          await DesktopInputRouter.rightClickCurrent();
         }
       case 'drag_to':
         if (x != null && y != null) {
-          await MacOSMouseController.dragTo(x, y);
+          await DesktopInputRouter.dragTo(x, y);
         }
       case 'scroll':
-        MacOSMouseController.scroll(dy != 0 ? dy : -120);
+        DesktopInputRouter.scroll(dy != 0 ? dy : -120);
       default:
-        MacOSMouseController.click();
+        await DesktopInputRouter.clickCurrent();
     }
 
-    final pos = MacOSMouseController.getCursorPosition();
+    final pos = DesktopInputRouter.getCursorPosition();
     sw.stop();
     return OvaMacToolExecutionResult(
       ok: true,
@@ -374,7 +470,7 @@ return outputLines as text
     final pressEnter = args['pressEnter'] == true;
 
     if (action == 'hotkey' && combo.isNotEmpty) {
-      await MacOSMouseController.sendHotkey(combo);
+      await DesktopInputRouter.sendHotkey(combo);
       sw.stop();
       return OvaMacToolExecutionResult(
         ok: true,
@@ -384,7 +480,7 @@ return outputLines as text
     }
 
     if (action == 'key_tap' && key.isNotEmpty) {
-      await MacOSMouseController.tapKey(key);
+      await DesktopInputRouter.tapKey(key);
       sw.stop();
       return OvaMacToolExecutionResult(
         ok: true,
@@ -394,17 +490,17 @@ return outputLines as text
     }
 
     if (action == 'type_keys' && text.isNotEmpty) {
-      await MacOSMouseController.typeString(text);
-      if (pressEnter) await MacOSMouseController.tapKey('enter');
+      await DesktopInputRouter.typeString(text);
+      if (pressEnter) await DesktopInputRouter.tapKey('enter');
       sw.stop();
       return OvaMacToolExecutionResult(
         ok: true,
-        output: 'Typed ${text.length} chars into active macOS window.',
+        output: 'Typed ${text.length} chars into active window.',
         durationMs: sw.elapsedMilliseconds,
       );
     }
 
-    await MacOSMouseController.pasteTextInstant(
+    await DesktopInputRouter.pasteTextInstant(
       text,
       pressEnter: pressEnter,
     );
@@ -412,7 +508,7 @@ return outputLines as text
     return OvaMacToolExecutionResult(
       ok: true,
       output:
-          'Injected ${text.length} chars instantaneously into focused Mac cursor${pressEnter ? " + Return" : ""}.',
+          'Injected ${text.length} chars instantaneously into focused cursor${pressEnter ? " + Enter" : ""}.',
       durationMs: sw.elapsedMilliseconds,
     );
   }
@@ -424,18 +520,18 @@ return outputLines as text
     final action = (args['action'] ?? 'read').toString().toLowerCase();
     if (action == 'write') {
       final text = (args['text'] ?? '').toString();
-      final ok = await MacOSMouseController.writeClipboard(text);
+      final ok = await DesktopInputRouter.writeClipboard(text);
       sw.stop();
       return OvaMacToolExecutionResult(
         ok: ok,
         output: ok
-            ? 'Copied ${text.length} chars to macOS clipboard.'
+            ? 'Copied ${text.length} chars to clipboard.'
             : 'Failed to write clipboard.',
         exitCode: ok ? 0 : 1,
         durationMs: sw.elapsedMilliseconds,
       );
     }
-    final content = await MacOSMouseController.readClipboard();
+    final content = await DesktopInputRouter.readClipboard();
     sw.stop();
     return OvaMacToolExecutionResult(
       ok: true,
@@ -488,6 +584,51 @@ return outputLines as text
         (args['action'] ?? 'wake_display').toString().trim().toLowerCase();
     final val = ((args['value'] as num?)?.toInt() ?? 50).clamp(0, 100);
     final query = (args['query'] ?? '').toString().trim();
+
+    if (Platform.isWindows) {
+      switch (action) {
+        case 'screenshot_to_desktop':
+          final target = expandHomePath(
+            '~/Desktop/Oneova_Capture_${DateTime.now().millisecondsSinceEpoch}.png',
+          );
+          final ok = await WindowsDesktopController.captureScreenToFile(target);
+          sw.stop();
+          return OvaMacToolExecutionResult(
+            ok: ok,
+            output: ok
+                ? 'Saved Windows screenshot to $target.'
+                : 'Screenshot failed on Windows.',
+            exitCode: ok ? 0 : 1,
+            durationMs: sw.elapsedMilliseconds,
+          );
+        case 'spotlight_search':
+          await WindowsDesktopController.sendHotkey('win');
+          if (query.isNotEmpty) {
+            await Future<void>.delayed(const Duration(milliseconds: 220));
+            await WindowsDesktopController.pasteTextInstant(query);
+          }
+          sw.stop();
+          return OvaMacToolExecutionResult(
+            ok: true,
+            output: 'Opened Windows Search${query.isNotEmpty ? ' for "$query"' : ''}.',
+            durationMs: sw.elapsedMilliseconds,
+          );
+        case 'sleep_display':
+          return _powerWorkstation({'action': 'sleep_display'}, sw);
+        default:
+          await Process.run('powershell', [
+            '-NoProfile',
+            '-Command',
+            "\$ws = New-Object -ComObject WScript.Shell; \$ws.SendKeys([char]173)",
+          ]);
+          sw.stop();
+          return OvaMacToolExecutionResult(
+            ok: true,
+            output: 'Executed Windows system control "$action".',
+            durationMs: sw.elapsedMilliseconds,
+          );
+      }
+    }
 
     switch (action) {
       case 'set_volume':
@@ -675,13 +816,14 @@ return outputLines as text
     final action = (args['action'] ?? 'play_pause').toString().trim();
     NativePluginServer().broadcastCommand(action, args);
 
+    final mod = Platform.isWindows ? 'ctrl' : 'cmd';
     final combo = switch (action) {
-      'save_project' => 'cmd+s',
-      'export_timeline' => 'cmd+e',
-      'fullscreen' => 'cmd+ctrl+f',
+      'save_project' => '$mod+s',
+      'export_timeline' => '$mod+e',
+      'fullscreen' => Platform.isWindows ? 'f11' : 'cmd+ctrl+f',
       'add_marker' => 'm',
-      'blade_cut' => 'cmd+b',
-      'undo' => 'cmd+z',
+      'blade_cut' => '$mod+b',
+      'undo' => '$mod+z',
       _ => 'space',
     };
     if (onSendHotkey != null) {
@@ -715,7 +857,7 @@ return outputLines as text
     if (onSendHotkey != null) {
       await onSendHotkey!(combo);
     } else {
-      await MacOSMouseController.sendHotkey(combo);
+      await DesktopInputRouter.sendHotkey(combo);
     }
     sw.stop();
     return OvaMacToolExecutionResult(
@@ -730,7 +872,7 @@ return outputLines as text
     Stopwatch sw,
   ) async {
     final text = (args['text'] ?? '').toString();
-    await MacOSMouseController.pasteTextInstant(
+    await DesktopInputRouter.pasteTextInstant(
       text,
       pressEnter: args['pressEnter'] == true,
     );
@@ -758,11 +900,17 @@ return outputLines as text
       );
     }
     final cwd = expandHomePath((args['cwd'] ?? '~').toString());
-    final res = await Process.run(
-      'zsh',
-      ['-lc', command],
-      workingDirectory: await Directory(cwd).exists() ? cwd : null,
-    ).timeout(const Duration(seconds: 30));
+    final res = Platform.isWindows
+        ? await Process.run(
+            'powershell',
+            ['-NoProfile', '-Command', command],
+            workingDirectory: await Directory(cwd).exists() ? cwd : null,
+          ).timeout(const Duration(seconds: 30))
+        : await Process.run(
+            'zsh',
+            ['-lc', command],
+            workingDirectory: await Directory(cwd).exists() ? cwd : null,
+          ).timeout(const Duration(seconds: 30));
 
     final stdoutStr = res.stdout.toString().trim();
     final stderrStr = res.stderr.toString().trim();
@@ -813,9 +961,11 @@ return outputLines as text
     Stopwatch sw,
   ) async {
     final action = (args['action'] ?? 'sleep_display').toString();
-    final res = action == 'wake_display'
-        ? await Process.run('caffeinate', const ['-u', '-t', '2'])
-        : await Process.run('pmset', const ['displaysleepnow']);
+    final res = Platform.isWindows
+        ? await Process.run('rundll32.exe', const ['powrprof.dll,SetSuspendState', '0,1,0'])
+        : (action == 'wake_display'
+            ? await Process.run('caffeinate', const ['-u', '-t', '2'])
+            : await Process.run('pmset', const ['displaysleepnow']));
     sw.stop();
     return OvaMacToolExecutionResult(
       ok: res.exitCode == 0,
@@ -985,6 +1135,45 @@ return outputLines as text
         (args['app_name'] ?? args['appName'] ?? args['app'] ?? '').toString().trim();
     final bundleId =
         (args['bundle_id'] ?? args['bundleId'] ?? '').toString().trim();
+
+    if (Platform.isWindows) {
+      ProcessResult res;
+      switch (action) {
+        case 'list_running':
+          res = await Process.run('powershell', const [
+            '-NoProfile',
+            '-Command',
+            "Get-Process | Where-Object { \$_.MainWindowTitle -ne '' } | Select-Object -Unique ProcessName | Out-String",
+          ]);
+          sw.stop();
+          return OvaMacToolExecutionResult(
+            ok: res.exitCode == 0,
+            output: (res.stdout ?? '').toString().trim(),
+            exitCode: res.exitCode,
+            durationMs: sw.elapsedMilliseconds,
+          );
+        case 'quit':
+          res = await Process.run('powershell', [
+            '-NoProfile',
+            '-Command',
+            "Get-Process -Name '${appName.replaceAll("'", "''")}' -ErrorAction SilentlyContinue | Stop-Process",
+          ]);
+          break;
+        default:
+          res = await Process.run('cmd', ['/c', 'start', '', appName.isEmpty ? 'explorer.exe' : appName]);
+          break;
+      }
+      sw.stop();
+      final ok = res.exitCode == 0;
+      return OvaMacToolExecutionResult(
+        ok: ok,
+        output: ok
+            ? 'App "$appName" action "$action" completed cleanly on Windows.'
+            : 'Failed app action "$action": ${res.stderr.toString().trim()}',
+        exitCode: res.exitCode,
+        durationMs: sw.elapsedMilliseconds,
+      );
+    }
 
     ProcessResult res;
     switch (action) {
@@ -1223,7 +1412,7 @@ return outputLines as text
       if (onSendHotkey != null) {
         await onSendHotkey!(combo);
       } else {
-        await MacOSMouseController.sendHotkey(combo);
+        await DesktopInputRouter.sendHotkey(combo);
       }
       if (i < repeat - 1) {
         await Future.delayed(const Duration(milliseconds: 60));
@@ -1249,6 +1438,38 @@ return outputLines as text
     final val = args['value'];
     final title = (args['title'] ?? 'Oneova Workstation').toString().trim();
     final message = (args['message'] ?? '').toString().trim();
+
+    if (Platform.isWindows) {
+      switch (action) {
+        case 'notify':
+          await Process.run('powershell', [
+            '-NoProfile',
+            '-Command',
+            "[Windows.UI.Notifications.ToastNotificationManager, Windows.UI.Notifications, ContentType = WindowsRuntime] | Out-Null; Write-Output 'Notified'",
+          ]);
+          sw.stop();
+          return OvaMacToolExecutionResult(
+            ok: true,
+            output: 'Sent Windows notification "$title".',
+            durationMs: sw.elapsedMilliseconds,
+          );
+        case 'sleep':
+          return _powerWorkstation({'action': 'sleep_display'}, sw);
+        case 'get_system_status':
+        default:
+          final ps = await Process.run('powershell', const [
+            '-NoProfile',
+            '-Command',
+            'Get-CimInstance Win32_LogicalDisk -Filter "DeviceID=\'C:\'" | Select-Object FreeSpace,Size | Out-String',
+          ]);
+          sw.stop();
+          return OvaMacToolExecutionResult(
+            ok: true,
+            output: ps.stdout.toString().trim(),
+            durationMs: sw.elapsedMilliseconds,
+          );
+      }
+    }
 
     ProcessResult res;
     switch (action) {
@@ -1341,7 +1562,7 @@ return outputLines as text
       await cloud.addDocument('users/$uid/agent_memories', {
         'key': key,
         'content': content,
-        'originDevice': 'mac',
+        'originDevice': Platform.isWindows ? 'windows' : 'mac',
         'updatedAt': now.toIso8601String(),
         'updatedAtMs': now.millisecondsSinceEpoch,
       });

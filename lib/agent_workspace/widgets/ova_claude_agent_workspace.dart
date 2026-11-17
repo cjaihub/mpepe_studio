@@ -12,7 +12,7 @@ import 'package:google_fonts/google_fonts.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:url_launcher/url_launcher.dart';
 
-import '../../desktop_agent/macos_mouse_ffi.dart';
+import '../../desktop_agent/desktop_input_router.dart';
 import '../../ova_assistant/services/ova_shared_history_service.dart';
 import '../../shared/services/oneova_language_service.dart';
 import '../../shared/theme/app_theme.dart';
@@ -3183,8 +3183,8 @@ class _OvaClaudeAgentWorkspaceState
 
   Future<void> _attachClipboardContext() async {
     String txt = '';
-    if (_isDesktop && Platform.isMacOS) {
-      txt = (await MacOSMouseController.readClipboard()).trim();
+    if (_isDesktop && (Platform.isMacOS || Platform.isWindows)) {
+      txt = (await DesktopInputRouter.readClipboard()).trim();
     } else {
       final clip = await Clipboard.getData(Clipboard.kTextPlain);
       txt = clip?.text?.trim() ?? '';

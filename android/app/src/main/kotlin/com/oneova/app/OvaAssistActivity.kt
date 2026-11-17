@@ -37,11 +37,46 @@ class OvaAssistActivity : FlutterFragmentActivity() {
         private const val ENGINE_ID = "ova_overlay_engine"
         private const val CHANNEL = "com.oneova.app/ova_overlay"
         const val EXTRA_SOURCE = "ova_source"
+        const val EXTRA_ACTION = "ova_action"
 
-        fun open(context: Context, source: String) {
+        @Volatile
+        private var activeInstance: java.lang.ref.WeakReference<OvaAssistActivity>? = null
+
+        @JvmStatic
+        fun prewarm(context: Context) {
+            if (FlutterEngineCache.getInstance().contains(ENGINE_ID)) return
+            try {
+                val app = context.applicationContext
+                val loader = FlutterInjector.instance().flutterLoader()
+                loader.startInitialization(app)
+                loader.ensureInitializationComplete(app, null)
+                val bundle = loader.findAppBundlePath()
+                val engine = FlutterEngine(app, null, true)
+                engine.dartExecutor.executeDartEntrypoint(
+                    DartExecutor.DartEntrypoint(bundle, "ovaOverlayMain")
+                )
+                FlutterEngineCache.getInstance().put(ENGINE_ID, engine)
+            } catch (e: Exception) {
+                android.util.Log.e("OvaAssistActivity", "Prewarm failed", e)
+            }
+        }
+
+        @JvmStatic
+        fun notifySnapshotUpdated() {
+            val inst = activeInstance?.get() ?: return
+            inst.runOnUiThread {
+                inst.overlayChannel?.invokeMethod(
+                    "onSnapshotUpdated",
+                    OvaAssistSnapshotStore.latest?.toMap() ?: emptyMap<String, Any>(),
+                )
+            }
+        }
+
+        fun open(context: Context, source: String, assistAction: String = "default") {
             val intent = Intent(context, OvaAssistActivity::class.java).apply {
                 addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
                 putExtra(EXTRA_SOURCE, source)
+                putExtra(EXTRA_ACTION, assistAction)
             }
             context.startActivity(intent)
         }
@@ -49,10 +84,12 @@ class OvaAssistActivity : FlutterFragmentActivity() {
 
     private var overlayChannel: MethodChannel? = null
     private var source = "app"
+    private var assistAction = "default"
     private var unlocked = true
     private var awaitingUnlock = false
 
     override fun onCreate(savedInstanceState: Bundle?) {
+        activeInstance = java.lang.ref.WeakReference(this)
         ensureOverlayEngine()
         super.onCreate(savedInstanceState)
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O_MR1) {
@@ -82,18 +119,7 @@ class OvaAssistActivity : FlutterFragmentActivity() {
     }
 
     private fun ensureOverlayEngine() {
-        if (FlutterEngineCache.getInstance().contains(ENGINE_ID)) return
-        try {
-            val loader = FlutterInjector.instance().flutterLoader()
-            loader.startInitialization(applicationContext)
-            loader.ensureInitializationComplete(applicationContext, null)
-            val bundle = loader.findAppBundlePath()
-            val engine = FlutterEngine(applicationContext, null, true)
-            engine.dartExecutor.executeDartEntrypoint(DartExecutor.DartEntrypoint(bundle, "ovaOverlayMain"))
-            FlutterEngineCache.getInstance().put(ENGINE_ID, engine)
-        } catch (e: Exception) {
-            android.util.Log.e("OvaAssistActivity", "Failed to initialize overlay engine", e)
-        }
+        prewarm(applicationContext)
     }
 
     override fun getCachedEngineId(): String = ENGINE_ID
@@ -141,16 +167,24 @@ class OvaAssistActivity : FlutterFragmentActivity() {
 
     private fun launchState(): Map<String, Any> = mapOf(
         "source" to source,
+        "action" to assistAction,
         "unlocked" to unlocked,
         "voiceMode" to OvaTriggerConfig.load(this).voiceMode,
+        "hasSnapshot" to OvaAssistSnapshotStore.hasFreshSnapshot(),
     )
 
     private fun handleLaunch(intent: Intent?) {
         source = intent?.getStringExtra(EXTRA_SOURCE)
             ?: if (intent?.action == Intent.ACTION_ASSIST) "assist" else "app"
+        assistAction = intent?.getStringExtra(EXTRA_ACTION) ?: "default"
 
         val km = getSystemService(KeyguardManager::class.java)
         unlocked = km == null || !km.isKeyguardLocked
+        if (unlocked && !OvaAssistSnapshotStore.hasFreshSnapshot(2500L)) {
+            OvaAccessibilityService.instance?.captureScreenSnapshotAsync {
+                notifySnapshotUpdated()
+            }
+        }
         // Fully visible on lock screen for instant voice mode, task planning, and message reading
         setContentVisible(true)
         notifyShown()

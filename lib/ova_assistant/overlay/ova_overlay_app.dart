@@ -1,3 +1,6 @@
+import 'dart:async';
+import 'dart:convert';
+
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_core/firebase_core.dart' hide FirebaseService;
 import 'package:flutter/material.dart';
@@ -11,7 +14,9 @@ import '../../backend/firebase_service.dart';
 import '../../firebase_options.dart';
 import '../../shared/theme/app_theme.dart';
 import '../../shared/theme/theme_provider.dart';
+import '../services/ova_native_service.dart';
 import '../widgets/ova_assistant_sheet.dart';
+import 'ova_screen_translate_overlay.dart';
 
 /// Runs the compact Ova overlay shown over other apps, the home screen and
 /// the lock screen (Android `OvaAssistActivity`, Dart entrypoint
@@ -45,9 +50,18 @@ class OvaOverlayApp extends ConsumerStatefulWidget {
 
 class _OvaOverlayAppState extends ConsumerState<OvaOverlayApp> {
   static const _channel = MethodChannel('com.oneova.app/ova_overlay');
+  final OvaNativeService _native = OvaNativeService();
 
   bool _unlocked = false;
   bool _voiceMode = false;
+  String _assistAction = 'default';
+  String? _initialPrompt;
+  Uint8List? _regionContextBytes;
+
+  // Holla / Gemini Screen Translate + Highlight layer state
+  OvaScreenMode? _screenMode;
+  Uint8List? _snapshotBytes;
+  List<OvaScreenBlock> _screenBlocks = const [];
 
   /// Bumped on every open so each one starts a fresh panel.
   int _session = 0;
@@ -58,7 +72,11 @@ class _OvaOverlayAppState extends ConsumerState<OvaOverlayApp> {
   void initState() {
     super.initState();
     _channel.setMethodCallHandler((call) async {
-      if (call.method == 'onShow') _apply(call.arguments, newSession: true);
+      if (call.method == 'onShow') {
+        _apply(call.arguments, newSession: true);
+      } else if (call.method == 'onSnapshotUpdated') {
+        _applySnapshotMap(call.arguments);
+      }
     });
     _channel
         .invokeMethod<Map>('getLaunchState')
@@ -69,11 +87,62 @@ class _OvaOverlayAppState extends ConsumerState<OvaOverlayApp> {
   void _apply(Object? state, {required bool newSession}) {
     debugPrint('[OvaOverlay] state $state');
     if (state is! Map || !mounted) return;
+    final action = (state['action'] ?? 'default').toString();
     setState(() {
       _unlocked = state['unlocked'] == true;
       _voiceMode = state['voiceMode'] == true;
+      _assistAction = action;
+      _initialPrompt = null;
+      _regionContextBytes = null;
+      _screenMode = switch (action) {
+        'translate_screen' => OvaScreenMode.translate,
+        'highlight' => OvaScreenMode.highlight,
+        _ => null,
+      };
       if (newSession) _session++;
     });
+    if (_unlocked) {
+      unawaited(_loadLatestSnapshot());
+    }
+  }
+
+  Future<void> _loadLatestSnapshot() async {
+    final map = await _native.getAssistSnapshot();
+    if (!mounted) return;
+    _applySnapshotMap(map);
+  }
+
+  void _applySnapshotMap(Object? raw) {
+    if (raw is! Map || !mounted) return;
+    final b64 = (raw['imageBase64'] ?? '').toString();
+    Uint8List? bytes;
+    if (b64.isNotEmpty) {
+      try {
+        bytes = base64Decode(b64);
+      } catch (_) {}
+    }
+    final rawBlocks = raw['blocks'] is List ? (raw['blocks'] as List) : const [];
+    final blocks = <OvaScreenBlock>[];
+    for (int i = 0; i < rawBlocks.length; i++) {
+      final item = rawBlocks[i];
+      if (item is Map) {
+        final blk = OvaScreenBlock.fromMap(item, i);
+        if (blk.text.isNotEmpty) blocks.add(blk);
+      }
+    }
+    setState(() {
+      if (bytes != null) _snapshotBytes = bytes;
+      if (blocks.isNotEmpty || _screenBlocks.isEmpty) _screenBlocks = blocks;
+    });
+  }
+
+  Future<void> _enterScreenMode(OvaScreenMode mode) async {
+    HapticFeedback.lightImpact();
+    setState(() => _screenMode = mode);
+    if (_snapshotBytes == null && _screenBlocks.isEmpty) {
+      final fresh = await _native.captureAssistSnapshot();
+      _applySnapshotMap(fresh);
+    }
   }
 
   /// Ova only runs for an account that passed the two-check sign-in on this
@@ -114,6 +183,7 @@ class _OvaOverlayAppState extends ConsumerState<OvaOverlayApp> {
   }
 
   Widget _buildOverlay(BuildContext context) {
+    final reduceMotion = MediaQuery.maybeDisableAnimationsOf(context) ?? false;
     return Scaffold(
       backgroundColor: Colors.transparent,
       // The panel pads itself for the keyboard.
@@ -123,75 +193,185 @@ class _OvaOverlayAppState extends ConsumerState<OvaOverlayApp> {
           ? const SizedBox.expand()
           : Stack(
               children: [
-                Positioned.fill(
-                  child: GestureDetector(
-                    behavior: HitTestBehavior.opaque,
-                    onTap: _close,
-                    child: ColoredBox(color: AppColors.brandBlack.withValues(alpha: 0.35)),
+                if (_screenMode == null)
+                  Positioned.fill(
+                    child: GestureDetector(
+                      behavior: HitTestBehavior.opaque,
+                      onTap: _close,
+                      child: ColoredBox(
+                        color: AppColors.brandBlack.withValues(alpha: 0.14),
+                      ),
+                    ),
                   ),
-                ),
-                Align(
-                  alignment: Alignment.bottomCenter,
-                  child: FutureBuilder<bool>(
-                    future: _signedIn,
-                    builder: (context, snap) {
-                      if (!snap.hasData) {
-                        return const Padding(
-                          padding: EdgeInsets.only(bottom: 64),
-                          child: SizedBox(
-                            width: 22,
-                            height: 22,
-                            child: CircularProgressIndicator(strokeWidth: 2, color: AppColors.brandBlue),
-                          ),
+
+                // Fluid Holla / Gemini perimeter edge-glow animation
+                if (_screenMode == null)
+                  Positioned.fill(
+                    key: ValueKey('aura_$_session'),
+                    child: OvaEdgeAuraOverlay(reduceMotion: reduceMotion),
+                  ),
+
+                if (_screenMode != null)
+                  Positioned.fill(
+                    child: OvaScreenTranslateHighlightLayer(
+                      screenshotBytes: _snapshotBytes,
+                      initialBlocks: _screenBlocks,
+                      initialMode: _screenMode!,
+                      onClose: () => setState(() => _screenMode = null),
+                      onAskOva: (prompt, bytes) {
+                        setState(() {
+                          _screenMode = null;
+                          _initialPrompt = prompt;
+                          _regionContextBytes = bytes;
+                          _session++;
+                        });
+                      },
+                    ),
+                  )
+                else
+                  Align(
+                    alignment: Alignment.bottomCenter,
+                    child: FutureBuilder<bool>(
+                      future: _signedIn,
+                      builder: (context, snap) {
+                        if (!snap.hasData) {
+                          return const Padding(
+                            padding: EdgeInsets.only(bottom: 64),
+                            child: SizedBox(
+                              width: 22,
+                              height: 22,
+                              child: CircularProgressIndicator(strokeWidth: 2, color: AppColors.brandBlue),
+                            ),
+                          );
+                        }
+                        if (snap.data != true) return _SignInCard(onOpen: () => _openFullApp(), onClose: _close);
+                        return Column(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            _HollaQuickBar(
+                              onTranslateScreen: () => unawaited(_enterScreenMode(OvaScreenMode.translate)),
+                              onHighlight: () => unawaited(_enterScreenMode(OvaScreenMode.highlight)),
+                              onVoiceToggle: () {
+                                setState(() {
+                                  _voiceMode = true;
+                                  _session++;
+                                });
+                              },
+                              onOpenFullApp: () => _openFullApp(),
+                            ),
+                            const SizedBox(height: 8),
+                            OvaAssistantPanel(
+                              key: ValueKey('${_session}_$_assistAction'),
+                              isSheet: true,
+                              initialPrompt: _initialPrompt,
+                              sendInitialPrompt: _initialPrompt != null,
+                              screenContextBytes: _regionContextBytes ?? _snapshotBytes,
+                              screenContextLabel: _regionContextBytes != null
+                                  ? 'Highlighted Area'
+                                  : (_snapshotBytes != null ? 'Active Screen' : null),
+                              autoStartVoice: _voiceMode,
+                              onClose: _close,
+                              onOpenRoute: _openFullApp,
+                            ),
+                          ],
                         );
-                      }
-                      if (snap.data != true) return _SignInCard(onOpen: () => _openFullApp(), onClose: _close);
-                      return Column(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          _OpenAppPill(onTap: () => _openFullApp()),
-                          const SizedBox(height: 8),
-                          OvaAssistantPanel(
-                            key: ValueKey(_session),
-                            isSheet: true,
-                            autoStartVoice: _voiceMode,
-                            onClose: _close,
-                            onOpenRoute: _openFullApp,
-                          ),
-                        ],
-                      );
-                    },
+                      },
+                    ),
                   ),
-                ),
               ],
             ),
     );
   }
 }
 
-/// "Open Oneova" above the panel: hands off to the full app.
-class _OpenAppPill extends StatelessWidget {
-  final VoidCallback onTap;
-  const _OpenAppPill({required this.onTap});
+/// Compact Holla / Gemini floating action bar above the overlay pill:
+/// 1-tap In-Place Screen Translate, Finger Highlight, Vertex Live Voice, and Open Full App.
+class _HollaQuickBar extends StatelessWidget {
+  final VoidCallback onTranslateScreen;
+  final VoidCallback onHighlight;
+  final VoidCallback onVoiceToggle;
+  final VoidCallback onOpenFullApp;
+
+  const _HollaQuickBar({
+    required this.onTranslateScreen,
+    required this.onHighlight,
+    required this.onVoiceToggle,
+    required this.onOpenFullApp,
+  });
 
   @override
   Widget build(BuildContext context) {
+    return SingleChildScrollView(
+      scrollDirection: Axis.horizontal,
+      padding: const EdgeInsets.symmetric(horizontal: 14),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          _pill(
+            context,
+            icon: Icons.translate_rounded,
+            label: 'Translate screen',
+            accent: AppColors.brandBlue,
+            onTap: onTranslateScreen,
+          ),
+          const SizedBox(width: 6),
+          _pill(
+            context,
+            icon: Icons.draw_rounded,
+            label: 'Highlight',
+            accent: AppColors.brandPink,
+            onTap: onHighlight,
+          ),
+          const SizedBox(width: 6),
+          _pill(
+            context,
+            icon: Icons.graphic_eq_rounded,
+            label: 'Live Voice',
+            accent: AppColors.brandBlue,
+            onTap: onVoiceToggle,
+          ),
+          const SizedBox(width: 6),
+          _pill(
+            context,
+            icon: Icons.open_in_new_rounded,
+            label: 'Full app',
+            accent: context.textSecondary,
+            onTap: onOpenFullApp,
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _pill(
+    BuildContext context, {
+    required IconData icon,
+    required String label,
+    required Color accent,
+    required VoidCallback onTap,
+  }) {
     return Material(
-      color: context.surface,
-      shape: StadiumBorder(side: BorderSide(color: context.border, width: 1)),
+      color: context.surface.withValues(alpha: 0.96),
+      shape: StadiumBorder(
+        side: BorderSide(color: accent.withValues(alpha: 0.35), width: 1),
+      ),
       child: InkWell(
         customBorder: const StadiumBorder(),
         onTap: onTap,
         child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
           child: Row(
             mainAxisSize: MainAxisSize.min,
             children: [
-              const Icon(Icons.open_in_new_rounded, size: 15, color: AppColors.brandBlue),
-              const SizedBox(width: 6),
+              Icon(icon, size: 14, color: accent),
+              const SizedBox(width: 5),
               Text(
-                'Open full app',
-                style: GoogleFonts.inter(fontSize: 12, fontWeight: FontWeight.w700, color: context.textPrimary),
+                label,
+                style: GoogleFonts.inter(
+                  fontSize: 11.5,
+                  fontWeight: FontWeight.w700,
+                  color: context.textPrimary,
+                ),
               ),
             ],
           ),

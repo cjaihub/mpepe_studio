@@ -8,7 +8,7 @@ import 'package:flutter_webrtc/flutter_webrtc.dart';
 
 import '../backend/ice_servers.dart';
 import 'desktop_firebase_rest_client.dart';
-import 'macos_mouse_ffi.dart';
+import 'desktop_input_router.dart';
 
 enum DesktopResponderStatus {
   stopped,
@@ -420,20 +420,20 @@ class DesktopWebRTCResponder {
       switch (action) {
         case 'mv':
         case 'mouse_move':
-          MacOSMouseController.moveBy(dx, dy);
+          DesktopInputRouter.moveBy(dx, dy);
           break;
         case 'sc':
-          MacOSMouseController.scrollPixels(dx, dy);
+          DesktopInputRouter.scrollPixels(dx, dy);
           break;
         case 'mt':
           // Absolute pointer from the phone's live screen view (0..1).
           final nx = ((packet['nx'] as num?)?.toDouble() ?? 0.5).clamp(0.0, 1.0);
           final ny = ((packet['ny'] as num?)?.toDouble() ?? 0.5).clamp(0.0, 1.0);
-          final b = MacOSMouseController.getMainDisplayBounds();
-          MacOSMouseController.moveTo(nx * b.width, ny * b.height);
+          final b = DesktopInputRouter.getMainDisplayBounds();
+          DesktopInputRouter.moveTo(nx * b.width, ny * b.height);
           break;
         case 'mouse_scroll':
-          MacOSMouseController.scroll(dy);
+          DesktopInputRouter.scroll(dy);
           break;
       }
     } catch (e) {
@@ -474,9 +474,9 @@ class DesktopWebRTCResponder {
   }
 
   Future<void> _replyStatus() async {
-    final b = MacOSMouseController.getMainDisplayBounds();
-    final app = await MacOSMouseController.getActiveAppName();
-    final locked = await MacOSMouseController.isScreenLocked();
+    final b = DesktopInputRouter.getMainDisplayBounds();
+    final app = await DesktopInputRouter.getActiveAppName();
+    final locked = await DesktopInputRouter.isScreenLocked();
     _reply({
       'action': 'status',
       'app': app,
@@ -487,7 +487,7 @@ class DesktopWebRTCResponder {
   }
 
   Future<void> _replyVolumeState() async {
-    final vol = await MacOSMouseController.getVolume();
+    final vol = await DesktopInputRouter.getVolume();
     if (vol == null) return;
     _reply({'action': 'volume_state', 'level': vol.level, 'muted': vol.muted});
   }
@@ -502,33 +502,33 @@ class DesktopWebRTCResponder {
         case 'mouse_move':
           final dx = (packet['dx'] as num?)?.toDouble() ?? 0.0;
           final dy = (packet['dy'] as num?)?.toDouble() ?? 0.0;
-          MacOSMouseController.moveBy(dx, dy);
+          DesktopInputRouter.moveBy(dx, dy);
           break;
         case 'mouse_move_normalized':
           final nx = ((packet['nx'] as num?)?.toDouble() ?? 0.5).clamp(0.0, 1.0);
           final ny = ((packet['ny'] as num?)?.toDouble() ?? 0.5).clamp(0.0, 1.0);
-          final bounds = MacOSMouseController.getMainDisplayBounds();
-          MacOSMouseController.moveTo(nx * bounds.width, ny * bounds.height);
+          final bounds = DesktopInputRouter.getMainDisplayBounds();
+          DesktopInputRouter.moveTo(nx * bounds.width, ny * bounds.height);
           break;
         case 'mouse_click_normalized':
           final nx = ((packet['nx'] as num?)?.toDouble() ?? 0.5).clamp(0.0, 1.0);
           final ny = ((packet['ny'] as num?)?.toDouble() ?? 0.5).clamp(0.0, 1.0);
-          final bounds = MacOSMouseController.getMainDisplayBounds();
-          MacOSMouseController.clickAt(nx * bounds.width, ny * bounds.height);
+          final bounds = DesktopInputRouter.getMainDisplayBounds();
+          await DesktopInputRouter.clickAt(nx * bounds.width, ny * bounds.height);
           onControlEvent?.call('Tap (${(nx * 100).round()}%, ${(ny * 100).round()}%)');
           break;
         case 'mouse_right_click_normalized':
           final nx = ((packet['nx'] as num?)?.toDouble() ?? 0.5).clamp(0.0, 1.0);
           final ny = ((packet['ny'] as num?)?.toDouble() ?? 0.5).clamp(0.0, 1.0);
-          final bounds = MacOSMouseController.getMainDisplayBounds();
-          MacOSMouseController.clickAt(nx * bounds.width, ny * bounds.height, right: true);
+          final bounds = DesktopInputRouter.getMainDisplayBounds();
+          await DesktopInputRouter.clickAt(nx * bounds.width, ny * bounds.height, right: true);
           onControlEvent?.call('Right Click (${(nx * 100).round()}%, ${(ny * 100).round()}%)');
           break;
         case 'mouse_double_click_normalized':
           final nx = ((packet['nx'] as num?)?.toDouble() ?? 0.5).clamp(0.0, 1.0);
           final ny = ((packet['ny'] as num?)?.toDouble() ?? 0.5).clamp(0.0, 1.0);
-          final bounds = MacOSMouseController.getMainDisplayBounds();
-          MacOSMouseController.clickAt(
+          final bounds = DesktopInputRouter.getMainDisplayBounds();
+          await DesktopInputRouter.clickAt(
             nx * bounds.width,
             ny * bounds.height,
             doubleClick: true,
@@ -537,7 +537,7 @@ class DesktopWebRTCResponder {
           break;
         case 'mouse_scroll':
           final dy = (packet['dy'] as num?)?.toDouble() ?? 0.0;
-          MacOSMouseController.scroll(dy);
+          DesktopInputRouter.scroll(dy);
           break;
         case 'mv':
         case 'sc':
@@ -548,14 +548,14 @@ class DesktopWebRTCResponder {
           await _replyStatus();
           break;
         case 'wake_display':
-          await MacOSMouseController.wakeDisplay();
+          await DesktopInputRouter.wakeDisplay();
           onControlEvent?.call('Wake display');
           await _replyStatus();
           break;
         case 'unlock_secure':
           // The password is used once and never logged or stored here.
           final secret = (packet['password'] ?? '').toString();
-          final ok = await MacOSMouseController.unlockWithPassword(secret);
+          final ok = await DesktopInputRouter.unlockWithPassword(secret);
           onControlEvent?.call(ok ? 'Unlock requested' : 'Unlock failed');
           await Future<void>.delayed(const Duration(milliseconds: 900));
           await _replyStatus();
@@ -565,7 +565,7 @@ class DesktopWebRTCResponder {
           break;
         case 'media_key':
           final key = (packet['key'] ?? '').toString();
-          await MacOSMouseController.mediaKey(key);
+          await DesktopInputRouter.mediaKey(key);
           onControlEvent?.call('Media: $key');
           if (key == 'mute' || key == 'vol_up' || key == 'vol_down') {
             // Let the system apply the key before reading the level back.
@@ -576,11 +576,11 @@ class DesktopWebRTCResponder {
         case 'volume_set':
           final level = (packet['level'] as num?)?.round();
           if (level != null) {
-            await MacOSMouseController.setVolume(level);
+            await DesktopInputRouter.setVolume(level);
           }
           break;
         case 'volume_mute':
-          await MacOSMouseController.setMuted(packet['muted'] == true);
+          await DesktopInputRouter.setMuted(packet['muted'] == true);
           await _replyVolumeState();
           break;
         case 'volume_get':
@@ -588,35 +588,35 @@ class DesktopWebRTCResponder {
           break;
         case 'mouse_left_click':
         case 'mouse_click':
-          MacOSMouseController.click();
+          await DesktopInputRouter.clickCurrent();
           onControlEvent?.call('Mouse Left Click');
           break;
         case 'mouse_double_click':
-          MacOSMouseController.doubleClick();
+          await DesktopInputRouter.doubleClickCurrent();
           onControlEvent?.call('Mouse Double Click');
           break;
         case 'mouse_right_click':
-          MacOSMouseController.rightClick();
+          await DesktopInputRouter.rightClickCurrent();
           onControlEvent?.call('Mouse Right Click');
           break;
         case 'mouse_left_down':
-          MacOSMouseController.leftClickDown();
+          DesktopInputRouter.leftClickDown();
           break;
         case 'mouse_left_up':
-          MacOSMouseController.leftClickUp();
+          DesktopInputRouter.leftClickUp();
           break;
         case 'key_tap':
         case 'key_press':
           final key = (packet['key'] ?? '').toString();
           if (key.isNotEmpty) {
-            await MacOSMouseController.tapKey(key);
+            await DesktopInputRouter.tapKey(key);
             onControlEvent?.call('Key: $key');
           }
           break;
         case 'key_combination':
           final combo = (packet['combo'] ?? '').toString();
           if (combo.isNotEmpty) {
-            await MacOSMouseController.sendHotkey(combo);
+            await DesktopInputRouter.sendHotkey(combo);
             onControlEvent?.call('Hotkey: $combo');
           }
           break;
@@ -625,13 +625,13 @@ class DesktopWebRTCResponder {
           final text = (packet['text'] ?? '').toString();
           final pressEnter = packet['pressEnter'] == true;
           if (text.isNotEmpty) {
-            await MacOSMouseController.pasteTextInstant(text, pressEnter: pressEnter);
+            await DesktopInputRouter.pasteTextInstant(text, pressEnter: pressEnter);
             onControlEvent?.call('Typed ${text.length} chars');
           }
           break;
         case 'wake_and_unlock':
           final passkey = (packet['passkey'] ?? '').toString();
-          await MacOSMouseController.wakeAndUnlock(passkey);
+          await DesktopInputRouter.wakeAndUnlock(passkey);
           onControlEvent?.call('Wake & Unlock');
           break;
         case 'ai_command':
@@ -658,9 +658,9 @@ class DesktopWebRTCResponder {
       await _fastChannel?.close();
     } catch (_) {}
     _fastChannel = null;
-    if (MacOSMouseController.isLeftButtonDown) {
+    if (DesktopInputRouter.isLeftButtonDown) {
       // Never leave the desktop stuck mid-drag when the phone drops off.
-      MacOSMouseController.leftClickUp();
+      DesktopInputRouter.leftClickUp();
     }
 
     _videoSenders.clear();

@@ -2,6 +2,7 @@ import React, { useState, useRef, useEffect, Suspense, lazy } from 'react';
 import Navbar from './components/Navbar';
 import Hero from './components/Hero';
 import FeaturesGrid from './components/FeaturesGrid';
+import DesktopDownloads from './components/DesktopDownloads';
 import AboutUs from './components/AboutUs';
 import DocsPortal from './components/DocsPortal';
 import FloatingVideoWidget from './components/FloatingVideoWidget';
@@ -68,6 +69,17 @@ export default function App() {
     setIsOvaAssistantOpen(true);
   };
 
+  useEffect(() => {
+    try {
+      const path = window.location.pathname.toLowerCase();
+      if (path === '/desktop' || window.location.hash === '#desktop') {
+        setTimeout(() => {
+          document.getElementById('desktop')?.scrollIntoView({ behavior: 'smooth' });
+        }, 120);
+      }
+    } catch {}
+  }, []);
+
   // Global shortcuts: Cmd/Ctrl + K (Search) and Cmd/Ctrl + Shift + E (Live Admin CMS)
   useEffect(() => {
     const handleKeyDown = (e) => {
@@ -127,6 +139,8 @@ export default function App() {
         <Hero onOpenDownload={() => setIsDownloadOpen(true)} />
 
         <FeaturesGrid onSelectDoc={handleSelectDoc} />
+
+        <DesktopDownloads />
 
         <AboutUs
           onOpenDownload={() => setIsDownloadOpen(true)}

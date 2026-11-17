@@ -1,10 +1,10 @@
 import 'dart:async';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:speech_to_text/speech_to_text.dart' as stt;
-import 'package:flutter_tts/flutter_tts.dart';
 import 'package:cloud_functions/cloud_functions.dart';
 import '../../shared/audio/cloud_dictation.dart';
 import '../../shared/audio/mic_coordinator.dart';
+import '../../shared/audio/ova_vertex_audio_engine.dart';
 import '../../shared/audio/speech_hub.dart';
 
 class AiVoiceState {
@@ -43,29 +43,20 @@ final aiVoiceServiceProvider = NotifierProvider<AiVoiceService, AiVoiceState>(()
 
 class AiVoiceService extends Notifier<AiVoiceState> {
   final SpeechHub _speech = SpeechHub.instance;
-  final FlutterTts _tts = FlutterTts();
   MicLease? _micLease;
   CloudDictation? _cloud;
   bool _usingCloud = false;
 
   @override
   AiVoiceState build() {
-    _initTts();
     ref.onDispose(() {
       unawaited(_speech.cancel(this));
       unawaited(_cloud?.dispose());
       unawaited(_micLease?.release());
       _micLease = null;
-      unawaited(_tts.stop());
+      unawaited(OvaVertexAudioEngine.instance.stop());
     });
     return AiVoiceState();
-  }
-
-  Future<void> _initTts() async {
-    await _tts.setLanguage("en-US");
-    await _tts.setSpeechRate(0.5);
-    await _tts.setVolume(1.0);
-    await _tts.setPitch(1.0);
   }
 
   Future<void> _releaseMic() async {
@@ -206,10 +197,10 @@ class AiVoiceService extends Notifier<AiVoiceState> {
   }
 
   Future<void> speak(String text) async {
-    await _tts.speak(text);
+    await OvaVertexAudioEngine.instance.speak(text);
   }
 
   Future<void> stopSpeaking() async {
-    await _tts.stop();
+    await OvaVertexAudioEngine.instance.stop();
   }
 }

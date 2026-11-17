@@ -2,9 +2,9 @@ import 'dart:async';
 import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:flutter_tts/flutter_tts.dart';
 import 'package:media_kit/media_kit.dart';
 import 'package:google_fonts/google_fonts.dart';
+import '../audio/ova_vertex_audio_engine.dart';
 import '../services/voice_audio_cache.dart';
 import '../theme/app_theme.dart';
 import '../../feed/widgets/reel_palette.dart';
@@ -265,7 +265,7 @@ class _LiveWaveformPainter extends CustomPainter {
 /// - Single-pass GPU scrubbable waveform ([_CompactScrubWaveformPainter])
 /// - Playback speed cycling (`1x` -> `1.5x` -> `2x`)
 /// - Auto-translation & 1-tap voice-matched speech synthesis in the speaker's
-///   vocal profile (with on-device [FlutterTts] fallback)
+///   vocal profile via Vertex AI ([OvaVertexAudioEngine])
 class InteractiveVoiceNotePlayer extends StatefulWidget {
   final String audioUrl;
   final String? initialDuration;
@@ -321,7 +321,6 @@ class _InteractiveVoiceNotePlayerState extends State<InteractiveVoiceNotePlayer>
   static const int _barCount = 20;
 
   Player? _player;
-  FlutterTts? _fallbackTts;
   bool _isPlaying = false;
   bool _isTtsSpeaking = false;
   Duration _duration = Duration.zero;
@@ -460,14 +459,16 @@ class _InteractiveVoiceNotePlayerState extends State<InteractiveVoiceNotePlayer>
     _posSub?.cancel();
     _durSub?.cancel();
     _completedSub?.cancel();
-    _fallbackTts?.stop();
+    if (_isTtsSpeaking) {
+      unawaited(OvaVertexAudioEngine.instance.stop());
+    }
     _player?.dispose();
     super.dispose();
   }
 
   Future<void> _stopAllPlayback() async {
     if (_isTtsSpeaking) {
-      await _fallbackTts?.stop();
+      await OvaVertexAudioEngine.instance.stop();
       if (mounted) setState(() => _isTtsSpeaking = false);
     }
     if (_player != null && _isPlaying) {
@@ -476,27 +477,19 @@ class _InteractiveVoiceNotePlayerState extends State<InteractiveVoiceNotePlayer>
   }
 
   Future<void> _speakFallbackTts(VoiceTranslationResult tr) async {
-    _fallbackTts ??= FlutterTts()
-      ..setCompletionHandler(() {
-        if (mounted) setState(() => _isTtsSpeaking = false);
-      })
-      ..setCancelHandler(() {
-        if (mounted) setState(() => _isTtsSpeaking = false);
-      })
-      ..setErrorHandler((_) {
-        if (mounted) setState(() => _isTtsSpeaking = false);
-      });
-    await _fallbackTts!.setLanguage(tr.target);
-    await _fallbackTts!.setPitch(tr.pitch.clamp(0.8, 1.25));
-    // FlutterTts speechRate uses ~0.5 as natural conversational speed on iOS/Android.
-    await _fallbackTts!.setSpeechRate((0.48 * tr.rate * _playbackSpeed).clamp(0.35, 0.95));
     if (mounted) {
       setState(() {
         _isLoading = false;
         _isTtsSpeaking = true;
       });
     }
-    await _fallbackTts!.speak(tr.translated);
+    await OvaVertexAudioEngine.instance.speak(
+      tr.translated,
+      languageCode: tr.target,
+      onComplete: () {
+        if (mounted) setState(() => _isTtsSpeaking = false);
+      },
+    );
   }
 
   Future<void> _togglePlayPause() async {

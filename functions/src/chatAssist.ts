@@ -15,6 +15,7 @@ import { limit } from './guard/protect';
 import { ownVoicePcm } from './voice/voice';
 
 const MODEL = 'gemini-2.5-flash';
+const FAST_MODEL = 'gemini-2.5-flash-lite';
 const TTS_MODEL = process.env.GEMINI_TTS_MODEL || 'gemini-2.5-flash-preview-tts';
 const MAX_TEXT = 4000;
 const MAX_LINES = 60;
@@ -108,9 +109,14 @@ function transcript(lines: unknown): string {
     .join('\n');
 }
 
-async function generateJson(system: string, user: string, maxTokens: number): Promise<any> {
+async function generateJson(
+  system: string,
+  user: string,
+  maxTokens: number,
+  model: string = MODEL,
+): Promise<any> {
   const res = await generateVertexContent({
-    model: MODEL,
+    model,
     contents: [{ role: 'user', parts: [{ text: user }] }],
     config: {
       systemInstruction: system,
@@ -326,6 +332,172 @@ export const chatAssist = onCall({ timeoutSeconds: 180, memory: '512MiB' }, asyn
             .filter((r: unknown) => typeof r === 'string' && r.trim())
             .map((r: string) => r.trim().slice(0, 120))
             .slice(0, 3),
+        };
+      }
+      case 'speakText': {
+        const text = cleanText(data.text, 2400);
+        if (!text) throw new HttpsError('invalid-argument', 'Nothing to speak.');
+        const requestedVoice = typeof data.voiceName === 'string' ? data.voiceName.trim() : 'Aoede';
+        const voiceName = PREBUILT_VOICES.has(requestedVoice) ? requestedVoice : 'Aoede';
+        const style = cleanText(data.style, 80) || 'warm natural conversational human voice';
+        const useOwnVoice = data.useOwnVoice === true;
+
+        let synthBase64 = '';
+        let synthMime = 'audio/wav';
+        let presetPcm: { pcm: Buffer; sr: number } | null = null;
+        let ownVoice = false;
+
+        try {
+          const ttsRes = await vertexAi().models.generateContent({
+            model: TTS_MODEL,
+            contents: [
+              {
+                role: 'user',
+                parts: [
+                  {
+                    text: `Speak naturally in language "${target}" with ${style}. Say only this text cleanly with human inflection:\n${text}`,
+                  },
+                ],
+              },
+            ],
+            config: {
+              responseModalities: [Modality.AUDIO],
+              speechConfig: {
+                voiceConfig: {
+                  prebuiltVoiceConfig: { voiceName },
+                },
+              },
+            },
+          });
+          const inline = ttsRes.candidates?.[0]?.content?.parts?.find((p: any) => p?.inlineData?.data)?.inlineData;
+          if (inline?.data) {
+            const outMime = String(inline.mimeType ?? '').toLowerCase();
+            if (!outMime || outMime.includes('l16') || outMime.includes('pcm')) {
+              const rateMatch = outMime.match(/rate=(\d+)/);
+              const sr = rateMatch ? Math.max(8000, Math.min(48000, Number(rateMatch[1]))) : 24000;
+              presetPcm = { pcm: Buffer.from(inline.data, 'base64'), sr };
+              synthBase64 = pcm16MonoToWavBase64(presetPcm.pcm, sr);
+              synthMime = 'audio/wav';
+            } else {
+              synthBase64 = inline.data;
+              synthMime = outMime.split(';')[0];
+            }
+          }
+        } catch (ttsErr: any) {
+          console.warn('chatAssist speakText error:', ttsErr?.message ?? ttsErr);
+        }
+
+        if (useOwnVoice && request.auth.uid) {
+          const own = await ownVoicePcm(request.auth.uid, text, target, presetPcm);
+          if (own && own.length > 0) {
+            synthBase64 = pcm16MonoToWavBase64(own, 24000);
+            synthMime = 'audio/wav';
+            ownVoice = true;
+          }
+        }
+
+        if (!synthBase64) {
+          throw new HttpsError('unavailable', 'Vertex voice audio could not be generated right now.');
+        }
+
+        return {
+          audioBase64: synthBase64,
+          audioMimeType: synthMime,
+          voiceName,
+          ownVoice,
+        };
+      }
+      case 'translateScreenBlocks': {
+        const rawBlocks = Array.isArray(data.blocks) ? data.blocks.slice(0, 60) : [];
+        const blocks = rawBlocks
+          .map((b: any, i: number) => ({
+            id: typeof b?.id === 'string' && b.id ? b.id : String(i),
+            text: cleanText(b?.text, 1000),
+          }))
+          .filter((b: { id: string; text: string }) => b.text.length > 0);
+        if (blocks.length === 0) {
+          return { target, translations: [] };
+        }
+        const out = await generateJson(
+          'You perform ultra-fast on-screen UI translation so translated pills fit cleanly over the original text boxes. ' +
+            'Reply ONLY with valid JSON: {"translations":[{"id":"...","translated":"...","source":"<BCP-47>","same":true|false}]}. ' +
+            `Translate each block naturally into "${target}". Keep proper nouns, handles (@name), numbers, prices, and short UI labels concise so they fit the box. ` +
+            'If a block is already in that language or is purely numeric/symbolic, set "same": true and repeat it unchanged.',
+          JSON.stringify({ target, blocks }),
+          Math.min(8192, 240 + blocks.map((b: { text: string }) => b.text.length).reduce((a: number, b: number) => a + b, 0) * 3),
+          FAST_MODEL,
+        );
+        const list = Array.isArray(out?.translations) ? out.translations : [];
+        return {
+          target,
+          translations: blocks.map((b: { id: string; text: string }, i: number) => {
+            const match = list.find((item: any) => item?.id === b.id) ?? list[i];
+            return {
+              id: b.id,
+              translated: typeof match?.translated === 'string' && match.translated.trim() ? match.translated : b.text,
+              source: typeof match?.source === 'string' ? match.source : '',
+              same: match?.same === true,
+            };
+          }),
+        };
+      }
+      case 'highlightAnalyze': {
+        const imageBase64 = typeof data.imageBase64 === 'string' ? data.imageBase64.trim() : '';
+        const selectedText = cleanText(data.selectedText, 2400);
+        const surroundingText = cleanText(data.surroundingText, 2400);
+        const question = cleanText(data.question, 600);
+        const mode = typeof data.mode === 'string' ? data.mode.trim() : 'explain';
+        if (!imageBase64 && !selectedText && !question) {
+          throw new HttpsError('invalid-argument', 'Highlight a part of the screen first.');
+        }
+
+        const parts: Array<{ text: string } | { inlineData: { mimeType: string; data: string } }> = [];
+        if (imageBase64 && imageBase64.length < MAX_AUDIO_B64) {
+          parts.push({ inlineData: { mimeType: 'image/jpeg', data: imageBase64 } });
+        }
+        parts.push({
+          text: JSON.stringify({
+            mode,
+            targetLanguage: target,
+            selectedText,
+            surroundingText,
+            question,
+          }),
+        });
+
+        const sys =
+          'You are Ova on Oneova, answering about a highlighted region on the user phone screen without leaving their app. ' +
+          'Speak like a warm, helpful friend in plain everyday words (2-4 short sentences). ' +
+          'Reply ONLY with JSON: {"title":"2-5 word heading","answer":"clear human answer","translated":"if mode=translate or foreign text detected, translation in targetLanguage else empty","extractedText":"clean recognized text in selection","suggestedActions":["Copy","Translate","Ask more"]}. ' +
+          `Translate or reply in "${target}".`;
+
+        const res = await generateVertexContent({
+          model: imageBase64 ? MODEL : FAST_MODEL,
+          contents: [{ role: 'user', parts }],
+          config: {
+            systemInstruction: sys,
+            responseMimeType: 'application/json',
+            temperature: 0.3,
+            maxOutputTokens: 900,
+            thinkingConfig: { thinkingBudget: 0 },
+          },
+        });
+        const raw = res.text ?? '{}';
+        let parsed: any = {};
+        try {
+          parsed = JSON.parse(raw);
+        } catch {
+          const m = raw.match(/\{[\s\S]*\}/);
+          if (m) parsed = JSON.parse(m[0]);
+        }
+        return {
+          title: cleanText(parsed?.title, 80) || 'Ova Screen Insight',
+          answer: cleanText(parsed?.answer, 2000) || selectedText || 'Highlighted region analyzed.',
+          translated: cleanText(parsed?.translated, 2000),
+          extractedText: cleanText(parsed?.extractedText, 2000) || selectedText,
+          suggestedActions: Array.isArray(parsed?.suggestedActions)
+            ? parsed.suggestedActions.filter((a: unknown) => typeof a === 'string').slice(0, 4)
+            : ['Translate', 'Copy', 'Ask Ova'],
         };
       }
       default:

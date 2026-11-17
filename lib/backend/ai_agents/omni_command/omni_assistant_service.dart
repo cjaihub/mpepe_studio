@@ -1,6 +1,11 @@
+import 'dart:async';
 import 'dart:convert';
+import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_auth/firebase_auth.dart';
+import 'package:firebase_core/firebase_core.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import '../../settings_service.dart';
 import 'omni_assistant_profile_models.dart';
 
 final omniAssistantServiceProvider = NotifierProvider<OmniAssistantService, ConversationStyleProfile>(() {
@@ -10,7 +15,7 @@ final omniAssistantServiceProvider = NotifierProvider<OmniAssistantService, Conv
 class OmniAssistantService extends Notifier<ConversationStyleProfile> {
   @override
   ConversationStyleProfile build() {
-    _loadProfile();
+    unawaited(_loadProfile());
     return const ConversationStyleProfile(preferredName: 'User');
   }
 
@@ -23,16 +28,38 @@ class OmniAssistantService extends Notifier<ConversationStyleProfile> {
       try {
         final json = jsonDecode(jsonStr);
         state = ConversationStyleProfile.fromJson(json);
-      } catch (e) {
-        // Fallback to default
-      }
+      } catch (_) {}
     }
+    try {
+      if (Firebase.apps.isNotEmpty) {
+        final uid = FirebaseAuth.instance.currentUser?.uid;
+        if (uid != null && uid.isNotEmpty) {
+          final settings = await SettingsService(firestore: FirebaseFirestore.instance).getSettings(uid);
+          final remote = settings['aiStyleProfile'];
+          if (remote is Map) {
+            final hydrated = ConversationStyleProfile.fromJson(Map<String, dynamic>.from(remote));
+            state = hydrated;
+            await prefs.setString(_profileKey, jsonEncode(hydrated.toJson()));
+          }
+        }
+      }
+    } catch (_) {}
   }
 
   Future<void> saveProfile(ConversationStyleProfile profile) async {
     state = profile;
+    final jsonMap = profile.toJson();
     final prefs = await SharedPreferences.getInstance();
-    await prefs.setString(_profileKey, jsonEncode(profile.toJson()));
+    await prefs.setString(_profileKey, jsonEncode(jsonMap));
+    try {
+      if (Firebase.apps.isNotEmpty) {
+        final uid = FirebaseAuth.instance.currentUser?.uid;
+        if (uid != null && uid.isNotEmpty) {
+          await SettingsService(firestore: FirebaseFirestore.instance)
+              .updateSettingsCategory(uid, 'aiStyleProfile', jsonMap);
+        }
+      }
+    } catch (_) {}
   }
 
   Future<void> resetPreferences() async {

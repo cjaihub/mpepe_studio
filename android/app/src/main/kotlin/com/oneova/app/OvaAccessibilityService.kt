@@ -9,6 +9,7 @@ import android.content.IntentFilter
 import android.accessibilityservice.GestureDescription
 import android.content.Context
 import android.content.Intent
+import android.graphics.Bitmap
 import android.graphics.Color
 import android.graphics.Path
 import android.graphics.PixelFormat
@@ -17,6 +18,7 @@ import android.os.Build
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
+import android.view.Display
 import android.view.Gravity
 import android.view.KeyEvent
 import android.view.WindowManager
@@ -83,6 +85,11 @@ class OvaAccessibilityService : AccessibilityService() {
             registerReceiver(screenReceiver, filter)
         }
         applyTriggerConfig()
+        main.postDelayed({
+            try {
+                OvaAssistActivity.prewarm(applicationContext)
+            } catch (_: Exception) {}
+        }, 900L)
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             accessibilityButtonController.registerAccessibilityButtonCallback(
                 object : AccessibilityButtonController.AccessibilityButtonCallback() {
@@ -144,9 +151,69 @@ class OvaAccessibilityService : AccessibilityService() {
     }
 
     // ---- Wake Ova (Accessibility button / handle / button shortcut) ----
-    fun wakeAssistant(source: String = "accessibility_button") {
+    fun wakeAssistant(source: String = "accessibility_button", assistAction: String = "default") {
         if (isLocked() && !triggerConfig.lockScreen) return
-        OvaAssistActivity.open(this, source)
+        if (isLocked()) {
+            OvaAssistActivity.open(this, source, assistAction)
+            return
+        }
+        captureScreenSnapshotAsync {
+            OvaAssistActivity.notifySnapshotUpdated()
+        }
+        OvaAssistActivity.open(this, source, assistAction)
+    }
+
+    fun captureScreenSnapshotAsync(onDone: (OvaAssistSnapshotStore.Snapshot?) -> Unit) {
+        val dm = resources.displayMetrics
+        val pkg = foregroundPackage()
+        val a11yBlocks = OvaAssistSnapshotStore.extractFromAccessibilityTree(
+            rootInActiveWindow,
+            dm.widthPixels,
+            dm.heightPixels,
+        )
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            try {
+                takeScreenshot(
+                    Display.DEFAULT_DISPLAY,
+                    mainExecutor,
+                    object : TakeScreenshotCallback {
+                        override fun onSuccess(screenshot: ScreenshotResult) {
+                            var softBitmap: Bitmap? = null
+                            try {
+                                val buffer = screenshot.hardwareBuffer
+                                val wrapped = Bitmap.wrapHardwareBuffer(buffer, screenshot.colorSpace)
+                                softBitmap = wrapped?.copy(Bitmap.Config.ARGB_8888, false)
+                                wrapped?.recycle()
+                                buffer.close()
+                            } catch (_: Exception) {}
+
+                            if (softBitmap != null) {
+                                OvaAssistSnapshotStore.captureWithOcr(
+                                    bitmap = softBitmap,
+                                    packageName = pkg,
+                                    webUrl = "",
+                                    existingBlocks = a11yBlocks,
+                                ) { snap ->
+                                    try { softBitmap.recycle() } catch (_: Exception) {}
+                                    onDone(snap)
+                                }
+                            } else {
+                                val fallback = OvaAssistSnapshotStore.storeTextBlocksOnly(pkg, "", a11yBlocks)
+                                onDone(fallback)
+                            }
+                        }
+
+                        override fun onFailure(errorCode: Int) {
+                            val fallback = OvaAssistSnapshotStore.storeTextBlocksOnly(pkg, "", a11yBlocks)
+                            onDone(fallback)
+                        }
+                    },
+                )
+                return
+            } catch (_: Exception) {}
+        }
+        val fallback = OvaAssistSnapshotStore.storeTextBlocksOnly(pkg, "", a11yBlocks)
+        onDone(fallback)
     }
 
     private fun isLocked(): Boolean =

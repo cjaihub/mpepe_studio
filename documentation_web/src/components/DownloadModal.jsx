@@ -1,6 +1,8 @@
-import React, { useEffect } from 'react';
+import React, { useEffect, useState } from 'react';
 
 export default function DownloadModal({ isOpen, onClose }) {
+  const [manifest, setManifest] = useState(null);
+
   useEffect(() => {
     const handleKeyDown = (e) => {
       if (e.key === 'Escape' && isOpen) {
@@ -11,87 +13,75 @@ export default function DownloadModal({ isOpen, onClose }) {
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [isOpen, onClose]);
 
+  useEffect(() => {
+    if (!isOpen) return;
+    fetch('/downloads/manifest.json', { cache: 'no-store' })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((json) => {
+        if (json) setManifest(json);
+      })
+      .catch(() => {});
+  }, [isOpen]);
+
   if (!isOpen) return null;
+
+  const macUrl = manifest?.macos?.url || '/downloads/Oneova-Desktop-macOS.dmg';
+  const winAvailable = manifest?.windows?.available === true;
+  const winUrl =
+    manifest?.windows?.url ||
+    'https://github.com/cjaihub/mpepe_studio/releases/latest/download/Oneova-Desktop-Windows-x64.zip';
 
   return (
     <div className="modal-overlay" role="dialog" aria-modal="true" aria-labelledby="modal-title" onClick={onClose}>
       <div className="modal-card" onClick={(e) => e.stopPropagation()}>
         <button className="modal-close-btn" onClick={onClose} aria-label="Close dialog">✕</button>
-        
-        <h2 className="modal-title" style={{ fontSize: '1.8rem', fontWeight: 900, marginBottom: '8px' }} id="modal-title">
-          Get Oneova Mobile
+
+        <h2 className="modal-title" style={{ fontSize: '1.65rem', fontWeight: 900, marginBottom: '8px' }} id="modal-title">
+          Get Oneova — Mobile &amp; Desktop
         </h2>
-        <p style={{ fontSize: '0.9rem', color: 'var(--text-secondary)', marginBottom: '16px' }}>
-          Scan the QR code with your phone camera or select your platform below to download immediately.
+        <p style={{ fontSize: '0.88rem', color: 'var(--text-secondary)', marginBottom: '18px', lineHeight: 1.5 }}>
+          Install Oneova on your phone or download the autonomous Desktop Assistant for macOS and Windows.
         </p>
 
-        {/* High-Resolution SVG QR Code */}
-        <div className="qr-code-box">
-          <svg viewBox="0 0 100 100" fill="#000000">
-            {/* Position Markers */}
-            <rect x="5" y="5" width="30" height="30" fill="#000000"/>
-            <rect x="9" y="9" width="22" height="22" fill="#FFFFFF"/>
-            <rect x="13" y="13" width="14" height="14" fill="#000000"/>
-
-            <rect x="65" y="5" width="30" height="30" fill="#000000"/>
-            <rect x="69" y="9" width="22" height="22" fill="#FFFFFF"/>
-            <rect x="73" y="13" width="14" height="14" fill="#000000"/>
-
-            <rect x="5" y="65" width="30" height="30" fill="#000000"/>
-            <rect x="9" y="69" width="22" height="22" fill="#FFFFFF"/>
-            <rect x="13" y="73" width="14" height="14" fill="#000000"/>
-
-            {/* Stylized QR Matrix Dots */}
-            <rect x="42" y="8" width="5" height="5"/>
-            <rect x="52" y="8" width="5" height="5"/>
-            <rect x="42" y="18" width="5" height="5"/>
-            <rect x="47" y="24" width="5" height="5"/>
-            <rect x="52" y="24" width="5" height="5"/>
-
-            <rect x="8" y="42" width="5" height="5"/>
-            <rect x="18" y="42" width="5" height="5"/>
-            <rect x="28" y="42" width="5" height="5"/>
-            <rect x="8" y="52" width="5" height="5"/>
-
-            <rect x="42" y="42" width="16" height="16" fill="#007AFF" rx="4"/>
-            <circle cx="50" cy="50" r="5" fill="#FFFFFF"/>
-
-            <rect x="65" y="42" width="5" height="5"/>
-            <rect x="75" y="42" width="5" height="5"/>
-            <rect x="85" y="42" width="5" height="5"/>
-            <rect x="70" y="52" width="5" height="5"/>
-            <rect x="80" y="52" width="5" height="5"/>
-
-            <rect x="42" y="65" width="5" height="5"/>
-            <rect x="52" y="65" width="5" height="5"/>
-            <rect x="42" y="75" width="5" height="5"/>
-            <rect x="47" y="85" width="5" height="5"/>
-            <rect x="52" y="85" width="5" height="5"/>
-
-            <rect x="65" y="65" width="5" height="5"/>
-            <rect x="75" y="65" width="5" height="5"/>
-            <rect x="85" y="75" width="5" height="5"/>
-            <rect x="70" y="85" width="5" height="5"/>
-            <rect x="85" y="85" width="5" height="5"/>
-          </svg>
-        </div>
-
-        {/* Download Buttons */}
         <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
-          <button
+          <a
+            href={macUrl}
+            download="Oneova-Desktop-macOS.dmg"
             className="btn-primary"
-            style={{ width: '100%' }}
-            onClick={() => alert('Opening Oneova iOS TestFlight link...')}
+            style={{ width: '100%', textAlign: 'center', textDecoration: 'none' }}
           >
-            Download for iOS (App Store / TestFlight)
-          </button>
-          <button
+             Download Desktop Assistant for macOS (.dmg)
+          </a>
+
+          <a
+            href={winUrl}
+            download={winAvailable ? 'Oneova-Desktop-Windows-x64.zip' : undefined}
+            target={winAvailable ? undefined : '_blank'}
+            rel={winAvailable ? undefined : 'noreferrer'}
             className="btn-secondary"
-            style={{ width: '100%' }}
-            onClick={() => alert('Starting Oneova Android APK download...')}
+            style={{ width: '100%', textAlign: 'center', textDecoration: 'none', borderColor: '#FF2D87' }}
           >
-            Download for Android (Google Play / APK)
-          </button>
+            ⊞ Download Desktop Assistant for Windows (.zip / .exe)
+          </a>
+
+          <a
+            href="#desktop"
+            onClick={onClose}
+            className="btn-secondary"
+            style={{ width: '100%', textAlign: 'center', textDecoration: 'none' }}
+          >
+            View Desktop Specs, Hotkeys &amp; Studio Skills
+          </a>
+
+          <a
+            href="https://play.google.com/store/apps/details?id=com.oneova.app"
+            target="_blank"
+            rel="noreferrer"
+            className="btn-secondary"
+            style={{ width: '100%', textAlign: 'center', textDecoration: 'none' }}
+          >
+            Android on Google Play (Power-Button Ova + Live Screen Translate)
+          </a>
         </div>
       </div>
     </div>

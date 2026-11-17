@@ -67,11 +67,12 @@ class GeminiLiveState {
 /// project's Vertex AI quota, and show up in Firebase AI monitoring.
 class GeminiLiveService extends Notifier<GeminiLiveState> {
   /// Vertex Live model; override with Remote Config `live_voice_model`.
-  static const String defaultModel = 'gemini-2.0-flash-exp';
+  static const String defaultModel =
+      'gemini-live-2.5-flash-preview-native-audio-09-2025';
   static const List<String> fallbackModels = [
+    'gemini-live-2.5-flash-preview-native-audio-09-2025',
     'gemini-2.0-flash-exp',
     'gemini-2.0-flash',
-    'gemini-live-2.5-flash-preview-native-audio-09-2025',
   ];
 
   /// Live models are served regionally on Vertex AI.

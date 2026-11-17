@@ -200,6 +200,24 @@ class OvaOverlayService : Service() {
             }
             addView(label)
 
+            val translateBtn = TextView(context).apply {
+                text = "A文"
+                setTextColor(Color.parseColor("#FF2D87"))
+                textSize = 11f
+                typeface = android.graphics.Typeface.DEFAULT_BOLD
+                setPadding((8 * dp).toInt(), (2 * dp).toInt(), (2 * dp).toInt(), (2 * dp).toInt())
+                contentDescription = "Translate current screen in place"
+                setOnClickListener {
+                    val svc = OvaAccessibilityService.instance
+                    if (svc != null) {
+                        svc.wakeAssistant("bubble_translate", "translate_screen")
+                    } else {
+                        OvaAssistActivity.open(context, "bubble_translate", "translate_screen")
+                    }
+                }
+            }
+            addView(translateBtn)
+
             tag = "collapsed_pill"
         }
 
@@ -223,8 +241,13 @@ class OvaOverlayService : Service() {
                     val diffX = Math.abs(event.rawX - initialTouchX)
                     val diffY = Math.abs(event.rawY - initialTouchY)
                     if (diffX < 10 && diffY < 10) {
-                        // Tap -> compact Ova over the current app.
-                        OvaAssistActivity.open(this, "bubble")
+                        // Tap -> capture snapshot if accessibility active & summon compact Ova pill.
+                        val svc = OvaAccessibilityService.instance
+                        if (svc != null) {
+                            svc.wakeAssistant("bubble")
+                        } else {
+                            OvaAssistActivity.open(this, "bubble")
+                        }
                     }
                     true
                 }

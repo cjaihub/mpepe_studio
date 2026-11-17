@@ -17,6 +17,7 @@ const vertexAi_1 = require("./vertexAi");
 const protect_1 = require("./guard/protect");
 const voice_1 = require("./voice/voice");
 const MODEL = 'gemini-2.5-flash';
+const FAST_MODEL = 'gemini-2.5-flash-lite';
 const TTS_MODEL = process.env.GEMINI_TTS_MODEL || 'gemini-2.5-flash-preview-tts';
 const MAX_TEXT = 4000;
 const MAX_LINES = 60;
@@ -109,10 +110,10 @@ function transcript(lines) {
         .filter(Boolean)
         .join('\n');
 }
-async function generateJson(system, user, maxTokens) {
+async function generateJson(system, user, maxTokens, model = MODEL) {
     var _a;
     const res = await (0, vertexAi_1.generateVertexContent)({
-        model: MODEL,
+        model,
         contents: [{ role: 'user', parts: [{ text: user }] }],
         config: {
             systemInstruction: system,
@@ -134,12 +135,12 @@ async function generateJson(system, user, maxTokens) {
     }
 }
 exports.chatAssist = (0, https_1.onCall)({ timeoutSeconds: 180, memory: '512MiB' }, async (request) => {
-    var _a, _b, _c, _d, _e;
-    var _f, _g, _h, _j, _k, _l;
+    var _a, _b, _c, _d, _e, _f, _g, _h, _j, _k;
+    var _l, _m, _o, _p, _q, _r, _s, _t, _u;
     if (!request.auth)
         throw new https_1.HttpsError('unauthenticated', 'Sign in to use AI in chat.');
     await (0, protect_1.limit)(request.auth.uid, 'chat_assist', 120, 10 * 60000);
-    const data = ((_f = request.data) !== null && _f !== void 0 ? _f : {});
+    const data = ((_l = request.data) !== null && _l !== void 0 ? _l : {});
     const op = data.op;
     const target = cleanLang(data.target);
     try {
@@ -183,12 +184,12 @@ exports.chatAssist = (0, https_1.onCall)({ timeoutSeconds: 180, memory: '512MiB'
                         thinkingConfig: { thinkingBudget: 0 },
                     },
                 });
-                const rawJson = (_g = analysisRes.text) !== null && _g !== void 0 ? _g : '{}';
+                const rawJson = (_m = analysisRes.text) !== null && _m !== void 0 ? _m : '{}';
                 let parsed = {};
                 try {
                     parsed = JSON.parse(rawJson);
                 }
-                catch (_m) {
+                catch (_v) {
                     const m = rawJson.match(/\{[\s\S]*\}/);
                     if (m)
                         parsed = JSON.parse(m[0]);
@@ -199,7 +200,7 @@ exports.chatAssist = (0, https_1.onCall)({ timeoutSeconds: 180, memory: '512MiB'
                 const targetBase = target.split(/[-_]/)[0].toLowerCase();
                 const sourceBase = sourceLang.split(/[-_]/)[0].toLowerCase();
                 const same = (parsed === null || parsed === void 0 ? void 0 : parsed.same) === true || (Boolean(sourceBase) && sourceBase === targetBase) || !translatedText;
-                const vp = (_h = parsed === null || parsed === void 0 ? void 0 : parsed.voiceProfile) !== null && _h !== void 0 ? _h : {};
+                const vp = (_o = parsed === null || parsed === void 0 ? void 0 : parsed.voiceProfile) !== null && _o !== void 0 ? _o : {};
                 const voiceName = PREBUILT_VOICES.has(vp === null || vp === void 0 ? void 0 : vp.prebuiltVoice) ? String(vp.prebuiltVoice) : 'Aoede';
                 const pitch = Math.min(1.18, Math.max(0.85, Number(vp === null || vp === void 0 ? void 0 : vp.pitch) || 1.0));
                 const rate = Math.min(1.15, Math.max(0.85, Number(vp === null || vp === void 0 ? void 0 : vp.rate) || 1.0));
@@ -233,7 +234,7 @@ exports.chatAssist = (0, https_1.onCall)({ timeoutSeconds: 180, memory: '512MiB'
                         });
                         const inline = (_e = (_d = (_c = (_b = (_a = ttsRes.candidates) === null || _a === void 0 ? void 0 : _a[0]) === null || _b === void 0 ? void 0 : _b.content) === null || _c === void 0 ? void 0 : _c.parts) === null || _d === void 0 ? void 0 : _d.find((p) => { var _a; return (_a = p === null || p === void 0 ? void 0 : p.inlineData) === null || _a === void 0 ? void 0 : _a.data; })) === null || _e === void 0 ? void 0 : _e.inlineData;
                         if (inline === null || inline === void 0 ? void 0 : inline.data) {
-                            const outMime = String((_j = inline.mimeType) !== null && _j !== void 0 ? _j : '').toLowerCase();
+                            const outMime = String((_p = inline.mimeType) !== null && _p !== void 0 ? _p : '').toLowerCase();
                             if (!outMime || outMime.includes('l16') || outMime.includes('pcm')) {
                                 const rateMatch = outMime.match(/rate=(\d+)/);
                                 const sr = rateMatch ? Math.max(8000, Math.min(48000, Number(rateMatch[1]))) : 24000;
@@ -248,7 +249,7 @@ exports.chatAssist = (0, https_1.onCall)({ timeoutSeconds: 180, memory: '512MiB'
                         }
                     }
                     catch (ttsErr) {
-                        console.warn('chatAssist translateVoice TTS fallback to client:', (_k = ttsErr === null || ttsErr === void 0 ? void 0 : ttsErr.message) !== null && _k !== void 0 ? _k : ttsErr);
+                        console.warn('chatAssist translateVoice TTS fallback to client:', (_q = ttsErr === null || ttsErr === void 0 ? void 0 : ttsErr.message) !== null && _q !== void 0 ? _q : ttsErr);
                     }
                     // My own note: say it in MY OWN voice (never someone else's).
                     if (senderUid && senderUid === request.auth.uid) {
@@ -312,6 +313,164 @@ exports.chatAssist = (0, https_1.onCall)({ timeoutSeconds: 180, memory: '512MiB'
                         .slice(0, 3),
                 };
             }
+            case 'speakText': {
+                const text = cleanText(data.text, 2400);
+                if (!text)
+                    throw new https_1.HttpsError('invalid-argument', 'Nothing to speak.');
+                const requestedVoice = typeof data.voiceName === 'string' ? data.voiceName.trim() : 'Aoede';
+                const voiceName = PREBUILT_VOICES.has(requestedVoice) ? requestedVoice : 'Aoede';
+                const style = cleanText(data.style, 80) || 'warm natural conversational human voice';
+                const useOwnVoice = data.useOwnVoice === true;
+                let synthBase64 = '';
+                let synthMime = 'audio/wav';
+                let presetPcm = null;
+                let ownVoice = false;
+                try {
+                    const ttsRes = await (0, vertexAi_1.vertexAi)().models.generateContent({
+                        model: TTS_MODEL,
+                        contents: [
+                            {
+                                role: 'user',
+                                parts: [
+                                    {
+                                        text: `Speak naturally in language "${target}" with ${style}. Say only this text cleanly with human inflection:\n${text}`,
+                                    },
+                                ],
+                            },
+                        ],
+                        config: {
+                            responseModalities: [genai_1.Modality.AUDIO],
+                            speechConfig: {
+                                voiceConfig: {
+                                    prebuiltVoiceConfig: { voiceName },
+                                },
+                            },
+                        },
+                    });
+                    const inline = (_k = (_j = (_h = (_g = (_f = ttsRes.candidates) === null || _f === void 0 ? void 0 : _f[0]) === null || _g === void 0 ? void 0 : _g.content) === null || _h === void 0 ? void 0 : _h.parts) === null || _j === void 0 ? void 0 : _j.find((p) => { var _a; return (_a = p === null || p === void 0 ? void 0 : p.inlineData) === null || _a === void 0 ? void 0 : _a.data; })) === null || _k === void 0 ? void 0 : _k.inlineData;
+                    if (inline === null || inline === void 0 ? void 0 : inline.data) {
+                        const outMime = String((_r = inline.mimeType) !== null && _r !== void 0 ? _r : '').toLowerCase();
+                        if (!outMime || outMime.includes('l16') || outMime.includes('pcm')) {
+                            const rateMatch = outMime.match(/rate=(\d+)/);
+                            const sr = rateMatch ? Math.max(8000, Math.min(48000, Number(rateMatch[1]))) : 24000;
+                            presetPcm = { pcm: Buffer.from(inline.data, 'base64'), sr };
+                            synthBase64 = pcm16MonoToWavBase64(presetPcm.pcm, sr);
+                            synthMime = 'audio/wav';
+                        }
+                        else {
+                            synthBase64 = inline.data;
+                            synthMime = outMime.split(';')[0];
+                        }
+                    }
+                }
+                catch (ttsErr) {
+                    console.warn('chatAssist speakText error:', (_s = ttsErr === null || ttsErr === void 0 ? void 0 : ttsErr.message) !== null && _s !== void 0 ? _s : ttsErr);
+                }
+                if (useOwnVoice && request.auth.uid) {
+                    const own = await (0, voice_1.ownVoicePcm)(request.auth.uid, text, target, presetPcm);
+                    if (own && own.length > 0) {
+                        synthBase64 = pcm16MonoToWavBase64(own, 24000);
+                        synthMime = 'audio/wav';
+                        ownVoice = true;
+                    }
+                }
+                if (!synthBase64) {
+                    throw new https_1.HttpsError('unavailable', 'Vertex voice audio could not be generated right now.');
+                }
+                return {
+                    audioBase64: synthBase64,
+                    audioMimeType: synthMime,
+                    voiceName,
+                    ownVoice,
+                };
+            }
+            case 'translateScreenBlocks': {
+                const rawBlocks = Array.isArray(data.blocks) ? data.blocks.slice(0, 60) : [];
+                const blocks = rawBlocks
+                    .map((b, i) => ({
+                    id: typeof (b === null || b === void 0 ? void 0 : b.id) === 'string' && b.id ? b.id : String(i),
+                    text: cleanText(b === null || b === void 0 ? void 0 : b.text, 1000),
+                }))
+                    .filter((b) => b.text.length > 0);
+                if (blocks.length === 0) {
+                    return { target, translations: [] };
+                }
+                const out = await generateJson('You perform ultra-fast on-screen UI translation so translated pills fit cleanly over the original text boxes. ' +
+                    'Reply ONLY with valid JSON: {"translations":[{"id":"...","translated":"...","source":"<BCP-47>","same":true|false}]}. ' +
+                    `Translate each block naturally into "${target}". Keep proper nouns, handles (@name), numbers, prices, and short UI labels concise so they fit the box. ` +
+                    'If a block is already in that language or is purely numeric/symbolic, set "same": true and repeat it unchanged.', JSON.stringify({ target, blocks }), Math.min(8192, 240 + blocks.map((b) => b.text.length).reduce((a, b) => a + b, 0) * 3), FAST_MODEL);
+                const list = Array.isArray(out === null || out === void 0 ? void 0 : out.translations) ? out.translations : [];
+                return {
+                    target,
+                    translations: blocks.map((b, i) => {
+                        var _a;
+                        const match = (_a = list.find((item) => (item === null || item === void 0 ? void 0 : item.id) === b.id)) !== null && _a !== void 0 ? _a : list[i];
+                        return {
+                            id: b.id,
+                            translated: typeof (match === null || match === void 0 ? void 0 : match.translated) === 'string' && match.translated.trim() ? match.translated : b.text,
+                            source: typeof (match === null || match === void 0 ? void 0 : match.source) === 'string' ? match.source : '',
+                            same: (match === null || match === void 0 ? void 0 : match.same) === true,
+                        };
+                    }),
+                };
+            }
+            case 'highlightAnalyze': {
+                const imageBase64 = typeof data.imageBase64 === 'string' ? data.imageBase64.trim() : '';
+                const selectedText = cleanText(data.selectedText, 2400);
+                const surroundingText = cleanText(data.surroundingText, 2400);
+                const question = cleanText(data.question, 600);
+                const mode = typeof data.mode === 'string' ? data.mode.trim() : 'explain';
+                if (!imageBase64 && !selectedText && !question) {
+                    throw new https_1.HttpsError('invalid-argument', 'Highlight a part of the screen first.');
+                }
+                const parts = [];
+                if (imageBase64 && imageBase64.length < MAX_AUDIO_B64) {
+                    parts.push({ inlineData: { mimeType: 'image/jpeg', data: imageBase64 } });
+                }
+                parts.push({
+                    text: JSON.stringify({
+                        mode,
+                        targetLanguage: target,
+                        selectedText,
+                        surroundingText,
+                        question,
+                    }),
+                });
+                const sys = 'You are Ova on Oneova, answering about a highlighted region on the user phone screen without leaving their app. ' +
+                    'Speak like a warm, helpful friend in plain everyday words (2-4 short sentences). ' +
+                    'Reply ONLY with JSON: {"title":"2-5 word heading","answer":"clear human answer","translated":"if mode=translate or foreign text detected, translation in targetLanguage else empty","extractedText":"clean recognized text in selection","suggestedActions":["Copy","Translate","Ask more"]}. ' +
+                    `Translate or reply in "${target}".`;
+                const res = await (0, vertexAi_1.generateVertexContent)({
+                    model: imageBase64 ? MODEL : FAST_MODEL,
+                    contents: [{ role: 'user', parts }],
+                    config: {
+                        systemInstruction: sys,
+                        responseMimeType: 'application/json',
+                        temperature: 0.3,
+                        maxOutputTokens: 900,
+                        thinkingConfig: { thinkingBudget: 0 },
+                    },
+                });
+                const raw = (_t = res.text) !== null && _t !== void 0 ? _t : '{}';
+                let parsed = {};
+                try {
+                    parsed = JSON.parse(raw);
+                }
+                catch (_w) {
+                    const m = raw.match(/\{[\s\S]*\}/);
+                    if (m)
+                        parsed = JSON.parse(m[0]);
+                }
+                return {
+                    title: cleanText(parsed === null || parsed === void 0 ? void 0 : parsed.title, 80) || 'Ova Screen Insight',
+                    answer: cleanText(parsed === null || parsed === void 0 ? void 0 : parsed.answer, 2000) || selectedText || 'Highlighted region analyzed.',
+                    translated: cleanText(parsed === null || parsed === void 0 ? void 0 : parsed.translated, 2000),
+                    extractedText: cleanText(parsed === null || parsed === void 0 ? void 0 : parsed.extractedText, 2000) || selectedText,
+                    suggestedActions: Array.isArray(parsed === null || parsed === void 0 ? void 0 : parsed.suggestedActions)
+                        ? parsed.suggestedActions.filter((a) => typeof a === 'string').slice(0, 4)
+                        : ['Translate', 'Copy', 'Ask Ova'],
+                };
+            }
             default:
                 throw new https_1.HttpsError('invalid-argument', 'Unknown chat assist operation.');
         }
@@ -319,7 +478,7 @@ exports.chatAssist = (0, https_1.onCall)({ timeoutSeconds: 180, memory: '512MiB'
     catch (e) {
         if (e instanceof https_1.HttpsError)
             throw e;
-        console.error('chatAssist failed', op, (_l = e === null || e === void 0 ? void 0 : e.message) !== null && _l !== void 0 ? _l : e);
+        console.error('chatAssist failed', op, (_u = e === null || e === void 0 ? void 0 : e.message) !== null && _u !== void 0 ? _u : e);
         throw new https_1.HttpsError('internal', 'Oneova AI could not help with that right now.');
     }
 });

@@ -89,13 +89,13 @@ BEGIN
     BEGIN
         BLOCK "040904e4"
         BEGIN
-            VALUE "CompanyName", "com.example" "\0"
-            VALUE "FileDescription", "mpepe_studio" "\0"
+            VALUE "CompanyName", "Oneova" "\0"
+            VALUE "FileDescription", "Oneova Desktop Assistant" "\0"
             VALUE "FileVersion", VERSION_AS_STRING "\0"
-            VALUE "InternalName", "mpepe_studio" "\0"
-            VALUE "LegalCopyright", "Copyright (C) 2026 com.example. All rights reserved." "\0"
-            VALUE "OriginalFilename", "mpepe_studio.exe" "\0"
-            VALUE "ProductName", "mpepe_studio" "\0"
+            VALUE "InternalName", "Oneova" "\0"
+            VALUE "LegalCopyright", "Copyright (C) 2026 Oneova. All rights reserved." "\0"
+            VALUE "OriginalFilename", "Oneova.exe" "\0"
+            VALUE "ProductName", "Oneova Desktop Assistant" "\0"
             VALUE "ProductVersion", VERSION_AS_STRING "\0"
         END
     END

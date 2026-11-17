@@ -68,3 +68,8 @@ node_modules/
 
 # Local plugin build outputs
 packages/**/build/
+
+# Large desktop installer binaries served via Hosting/CDN
+public/downloads/*.dmg
+public/downloads/*.zip
+public/downloads/*.exe

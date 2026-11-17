@@ -78,7 +78,6 @@ class _OvaAssistantGlobalWrapperState
       OneOvaAssistantOverlay.show(
         targetContext,
         service: service,
-        // The mic never opens by itself: "voice mode" only highlights it.
         autoStartVoice: voiceCallMode,
       );
     });
@@ -117,8 +116,7 @@ class _OvaAssistantGlobalWrapperState
           service: service,
           screenContextBytes: screenBytes,
           screenContextLabel: "Circled Area",
-          // The mic never opens by itself: "voice mode" only highlights it.
-        autoStartVoice: voiceCallMode,
+          autoStartVoice: voiceCallMode,
         );
       },
       onTriggerOva: () {
@@ -126,8 +124,7 @@ class _OvaAssistantGlobalWrapperState
         OneOvaAssistantOverlay.show(
           targetContext,
           service: service,
-          // The mic never opens by itself: "voice mode" only highlights it.
-        autoStartVoice: voiceCallMode,
+          autoStartVoice: voiceCallMode,
         );
       },
       child: withDock,

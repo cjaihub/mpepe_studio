@@ -1,10 +1,10 @@
 import 'dart:async';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:flutter_tts/flutter_tts.dart';
 import 'package:speech_to_text/speech_to_text.dart' as stt;
 import '../shared/audio/cloud_dictation.dart';
 import '../shared/audio/mic_coordinator.dart';
+import '../shared/audio/ova_vertex_audio_engine.dart';
 import '../shared/audio/speech_hub.dart';
 import 'ai_brain_service.dart';
 
@@ -43,7 +43,6 @@ class VoiceAssistantState {
 }
 
 class VoiceAssistantService extends Notifier<VoiceAssistantState> {
-  final FlutterTts _tts = FlutterTts();
   final SpeechHub _speech = SpeechHub.instance;
   MicLease? _micLease;
   CloudDictation? _cloud;
@@ -51,63 +50,29 @@ class VoiceAssistantService extends Notifier<VoiceAssistantState> {
 
   @override
   VoiceAssistantState build() {
-    _initTTS();
     ref.onDispose(() {
       unawaited(_speech.cancel(this));
       unawaited(_cloud?.dispose());
       unawaited(_micLease?.release());
       _micLease = null;
-      unawaited(_tts.stop());
+      unawaited(OvaVertexAudioEngine.instance.stop());
     });
-    return VoiceAssistantState();
-  }
-
-  Future<void> _initTTS() async {
-    await _tts.setSharedInstance(true);
-    await _tts.setIosAudioCategory(IosTextToSpeechAudioCategory.playback,
-        [
-          IosTextToSpeechAudioCategoryOptions.allowBluetooth,
-          IosTextToSpeechAudioCategoryOptions.allowBluetoothA2DP,
-          IosTextToSpeechAudioCategoryOptions.mixWithOthers
-        ]);
-    
-    _tts.setStartHandler(() {
-      state = state.copyWith(state: VoiceState.speaking);
-    });
-
-    _tts.setCompletionHandler(() {
-      state = state.copyWith(state: VoiceState.idle, currentText: '');
-      if (state.isContinuous) {
-        startListening(continuous: true);
-      }
-    });
-
-    _tts.setErrorHandler((msg) {
-      debugPrint("TTS Error: $msg");
-      state = state.copyWith(state: VoiceState.idle, isContinuous: false);
-    });
+    return VoiceAssistantState(currentVoice: 'Aoede');
   }
 
   Future<List<Map<String, String>>> getAvailableVoices() async {
-    try {
-      final voices = await _tts.getVoices;
-      List<Map<String, String>> voiceList = [];
-      for (var v in voices) {
-        voiceList.add({
-          "name": v["name"].toString(),
-          "locale": v["locale"].toString(),
-        });
-      }
-      return voiceList;
-    } catch (e) {
-      debugPrint("Error getting voices: $e");
-      return [];
-    }
+    return OvaVertexAudioEngine.allowedVoices
+        .map((v) => {'name': v, 'locale': 'en-US'})
+        .toList();
   }
 
   Future<void> setVoice(Map<String, String> voice) async {
-    await _tts.setVoice({"name": voice["name"]!, "locale": voice["locale"]!});
-    state = state.copyWith(currentVoice: voice["name"]);
+    final chosen = voice['name'] ?? 'Aoede';
+    state = state.copyWith(
+      currentVoice: OvaVertexAudioEngine.allowedVoices.contains(chosen)
+          ? chosen
+          : 'Aoede',
+    );
   }
 
   Future<void> _releaseMic() async {
@@ -142,7 +107,7 @@ class VoiceAssistantService extends Notifier<VoiceAssistantState> {
     _usingCloud = false;
 
     state = state.copyWith(state: VoiceState.listening, currentText: '', soundLevel: 0.0, isContinuous: continuous);
-    await _tts.stop(); // Stop any ongoing speech
+    await OvaVertexAudioEngine.instance.stop(); // Stop any ongoing speech
 
     final started = await _speech.listen(
       owner: this,
@@ -270,16 +235,25 @@ class VoiceAssistantService extends Notifier<VoiceAssistantState> {
 
   Future<void> speak(String text) async {
     state = state.copyWith(state: VoiceState.speaking, currentText: text);
-    // basic sanitization to avoid reading markdown symbols awkwardly
-    final cleanText = text.replaceAll(RegExp(r'[*#_`]'), '');
-    await _tts.speak(cleanText);
+    final voice = state.currentVoice.isEmpty ? 'Aoede' : state.currentVoice;
+    await OvaVertexAudioEngine.instance.speak(
+      text,
+      voiceName: voice,
+      onComplete: () {
+        if (!ref.mounted) return;
+        state = state.copyWith(state: VoiceState.idle, currentText: '');
+        if (state.isContinuous) {
+          unawaited(startListening(continuous: true));
+        }
+      },
+    );
   }
 
   Future<void> stopSpeaking({bool force = false}) async {
     if (force) {
       state = state.copyWith(isContinuous: false);
     }
-    await _tts.stop();
+    await OvaVertexAudioEngine.instance.stop();
     state = state.copyWith(state: VoiceState.idle);
   }
 }
