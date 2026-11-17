@@ -13,6 +13,8 @@ import 'package:image_picker/image_picker.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import '../../desktop_agent/desktop_input_router.dart';
+import '../../desktop_agent/desktop_window_bridge.dart';
+import '../../desktop_agent/widgets/desktop_permissions_sheet.dart';
 import '../../ova_assistant/services/ova_shared_history_service.dart';
 import '../../shared/services/oneova_language_service.dart';
 import '../../shared/theme/app_theme.dart';
@@ -1099,6 +1101,93 @@ class _OvaClaudeAgentWorkspaceState
                       ),
                     ),
                   ],
+                ),
+              ),
+            ),
+            const SizedBox(width: 6),
+          ],
+
+          if (DesktopWindowBridge.isDesktop && !widget.compactSheet) ...[
+            ValueListenableBuilder<DesktopPermissionsSnapshot>(
+              valueListenable: DesktopWindowBridge.instance.permissions,
+              builder: (_, p, _) {
+                final missing = p.missingCriticalCount;
+                return Tooltip(
+                  message: missing == 0
+                      ? 'Permissions, Storage & Screens'
+                      : '$missing permission(s) needed (Storage, Screens, Mouse/Keyboard)',
+                  child: InkWell(
+                    borderRadius: BorderRadius.circular(AppRadius.sm),
+                    onTap: () => DesktopPermissionsSheet.show(context),
+                    child: Container(
+                      width: 30,
+                      height: 30,
+                      alignment: Alignment.center,
+                      decoration: BoxDecoration(
+                        color: missing == 0
+                            ? context.surfaceMid
+                            : AppColors.brandPink.withValues(alpha: 0.14),
+                        borderRadius: BorderRadius.circular(AppRadius.sm),
+                        border: Border.all(
+                          color: missing == 0
+                              ? context.border
+                              : AppColors.brandPink.withValues(alpha: 0.45),
+                          width: 1.0,
+                        ),
+                      ),
+                      child: Stack(
+                        clipBehavior: Clip.none,
+                        children: [
+                          Icon(
+                            Icons.verified_user_rounded,
+                            size: 15,
+                            color: missing == 0
+                                ? AppColors.brandBlue
+                                : AppColors.brandPink,
+                          ),
+                          if (missing > 0)
+                            Positioned(
+                              right: -2,
+                              top: -2,
+                              child: Container(
+                                width: 6,
+                                height: 6,
+                                decoration: const BoxDecoration(
+                                  color: AppColors.brandPink,
+                                  shape: BoxShape.circle,
+                                ),
+                              ),
+                            ),
+                        ],
+                      ),
+                    ),
+                  ),
+                );
+              },
+            ),
+            const SizedBox(width: 6),
+            Tooltip(
+              message:
+                  'Floating Ova HUD (${DesktopWindowBridge.instance.hotkeyLabel.value})',
+              child: InkWell(
+                borderRadius: BorderRadius.circular(AppRadius.sm),
+                onTap: () => unawaited(
+                  DesktopWindowBridge.instance.setHudMode(true),
+                ),
+                child: Container(
+                  width: 30,
+                  height: 30,
+                  alignment: Alignment.center,
+                  decoration: BoxDecoration(
+                    color: context.surfaceMid,
+                    borderRadius: BorderRadius.circular(AppRadius.sm),
+                    border: Border.all(color: context.border, width: 1.0),
+                  ),
+                  child: const Icon(
+                    Icons.picture_in_picture_alt_rounded,
+                    size: 15,
+                    color: AppColors.brandPink,
+                  ),
                 ),
               ),
             ),
