@@ -49,5 +49,23 @@
 	<string>Oneova uses speech recognition for real-time Wispr voice typing and agent instructions.</string>
 	<key>NSAppleEventsUsageDescription</key>
 	<string>Oneova Computer Agent uses Apple Events to automate macOS apps, windows, and studio workflows at your request.</string>
+	<key>NSCameraUsageDescription</key>
+	<string>Oneova uses your camera for live streaming, video calls, and visual agent context.</string>
+	<key>NSScreenCaptureUsageDescription</key>
+	<string>Oneova captures your displays and app windows so you can view and control all connected screens remotely and let Ova assist with on-screen work.</string>
+	<key>NSDesktopFolderUsageDescription</key>
+	<string>Oneova Desktop Agent accesses your Desktop folder when you ask it to read, edit, or organize files.</string>
+	<key>NSDocumentsFolderUsageDescription</key>
+	<string>Oneova Desktop Agent accesses your Documents folder when you ask it to work with project files and scripts.</string>
+	<key>NSDownloadsFolderUsageDescription</key>
+	<string>Oneova Desktop Agent accesses your Downloads folder to manage downloaded media, LUTs, and files.</string>
+	<key>NSRemovableVolumesUsageDescription</key>
+	<string>Oneova Desktop Agent accesses external drives and SD cards to read, back up, or edit your studio media.</string>
+	<key>NSNetworkVolumesUsageDescription</key>
+	<string>Oneova Desktop Agent accesses mounted network storage when you inspect or edit remote project files.</string>
+	<key>NSPhotoLibraryUsageDescription</key>
+	<string>Oneova Desktop Agent accesses your Photo Library when you ask it to import or edit photos and clips.</string>
+	<key>NSLocalNetworkUsageDescription</key>
+	<string>Oneova uses your local network for ultra-low-latency phone-to-computer streaming and control.</string>
 </dict>
 </plist>

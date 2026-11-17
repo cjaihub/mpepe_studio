@@ -426,11 +426,11 @@ class DesktopWebRTCResponder {
           DesktopInputRouter.scrollPixels(dx, dy);
           break;
         case 'mt':
-          // Absolute pointer from the phone's live screen view (0..1).
+          // Absolute pointer from the phone's live screen view (0..1) on the active screen.
           final nx = ((packet['nx'] as num?)?.toDouble() ?? 0.5).clamp(0.0, 1.0);
           final ny = ((packet['ny'] as num?)?.toDouble() ?? 0.5).clamp(0.0, 1.0);
-          final b = DesktopInputRouter.getMainDisplayBounds();
-          DesktopInputRouter.moveTo(nx * b.width, ny * b.height);
+          final b = DesktopInputRouter.getActiveDisplayRect();
+          DesktopInputRouter.moveTo(b.x + nx * b.width, b.y + ny * b.height);
           break;
         case 'mouse_scroll':
           DesktopInputRouter.scroll(dy);
@@ -507,33 +507,49 @@ class DesktopWebRTCResponder {
         case 'mouse_move_normalized':
           final nx = ((packet['nx'] as num?)?.toDouble() ?? 0.5).clamp(0.0, 1.0);
           final ny = ((packet['ny'] as num?)?.toDouble() ?? 0.5).clamp(0.0, 1.0);
-          final bounds = DesktopInputRouter.getMainDisplayBounds();
-          DesktopInputRouter.moveTo(nx * bounds.width, ny * bounds.height);
+          final bounds = DesktopInputRouter.getActiveDisplayRect();
+          DesktopInputRouter.moveTo(
+            bounds.x + nx * bounds.width,
+            bounds.y + ny * bounds.height,
+          );
           break;
         case 'mouse_click_normalized':
           final nx = ((packet['nx'] as num?)?.toDouble() ?? 0.5).clamp(0.0, 1.0);
           final ny = ((packet['ny'] as num?)?.toDouble() ?? 0.5).clamp(0.0, 1.0);
-          final bounds = DesktopInputRouter.getMainDisplayBounds();
-          await DesktopInputRouter.clickAt(nx * bounds.width, ny * bounds.height);
+          final bounds = DesktopInputRouter.getActiveDisplayRect();
+          await DesktopInputRouter.clickAt(
+            bounds.x + nx * bounds.width,
+            bounds.y + ny * bounds.height,
+          );
           onControlEvent?.call('Tap (${(nx * 100).round()}%, ${(ny * 100).round()}%)');
           break;
         case 'mouse_right_click_normalized':
           final nx = ((packet['nx'] as num?)?.toDouble() ?? 0.5).clamp(0.0, 1.0);
           final ny = ((packet['ny'] as num?)?.toDouble() ?? 0.5).clamp(0.0, 1.0);
-          final bounds = DesktopInputRouter.getMainDisplayBounds();
-          await DesktopInputRouter.clickAt(nx * bounds.width, ny * bounds.height, right: true);
+          final bounds = DesktopInputRouter.getActiveDisplayRect();
+          await DesktopInputRouter.clickAt(
+            bounds.x + nx * bounds.width,
+            bounds.y + ny * bounds.height,
+            right: true,
+          );
           onControlEvent?.call('Right Click (${(nx * 100).round()}%, ${(ny * 100).round()}%)');
           break;
         case 'mouse_double_click_normalized':
           final nx = ((packet['nx'] as num?)?.toDouble() ?? 0.5).clamp(0.0, 1.0);
           final ny = ((packet['ny'] as num?)?.toDouble() ?? 0.5).clamp(0.0, 1.0);
-          final bounds = DesktopInputRouter.getMainDisplayBounds();
+          final bounds = DesktopInputRouter.getActiveDisplayRect();
           await DesktopInputRouter.clickAt(
-            nx * bounds.width,
-            ny * bounds.height,
+            bounds.x + nx * bounds.width,
+            bounds.y + ny * bounds.height,
             doubleClick: true,
           );
           onControlEvent?.call('Double Click (${(nx * 100).round()}%, ${(ny * 100).round()}%)');
+          break;
+        case 'select_display':
+          final idx = (packet['index'] as num?)?.toInt() ?? 0;
+          DesktopInputRouter.selectedDisplayIndex = idx;
+          onControlEvent?.call('Target screen #${idx + 1}');
+          await _replyStatus();
           break;
         case 'mouse_scroll':
           final dy = (packet['dy'] as num?)?.toDouble() ?? 0.0;

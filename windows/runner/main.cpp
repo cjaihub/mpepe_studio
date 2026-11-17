@@ -7,8 +7,25 @@
 
 int APIENTRY wWinMain(_In_ HINSTANCE instance, _In_opt_ HINSTANCE prev,
                       _In_ wchar_t *command_line, _In_ int show_command) {
+  std::vector<std::string> command_line_arguments =
+      GetCommandLineArguments();
+  bool start_hidden = false;
+  bool elevated_takeover = false;
+  for (const auto& arg : command_line_arguments) {
+    if (arg == "--startup") {
+      start_hidden = true;
+    } else if (arg == "--elevated-takeover") {
+      elevated_takeover = true;
+    }
+  }
+
   HANDLE mutex = ::CreateMutexW(nullptr, TRUE, L"Local\\OneovaDesktopAssistantSingleton");
-  if (mutex != nullptr && ::GetLastError() == ERROR_ALREADY_EXISTS) {
+  if (mutex != nullptr && ::GetLastError() == ERROR_ALREADY_EXISTS && elevated_takeover) {
+    // Wait briefly for the previous non-elevated instance to release the mutex.
+    if (::WaitForSingleObject(mutex, 3500) == WAIT_OBJECT_0) {
+      // Acquired after old instance exited cleanly.
+    }
+  } else if (mutex != nullptr && ::GetLastError() == ERROR_ALREADY_EXISTS) {
     HWND existing = ::FindWindowW(L"FLUTTER_RUNNER_WIN32_WINDOW", L"Oneova Desktop Assistant");
     if (existing != nullptr) {
       ::ShowWindow(existing, SW_RESTORE);
@@ -25,16 +42,6 @@ int APIENTRY wWinMain(_In_ HINSTANCE instance, _In_opt_ HINSTANCE prev,
   ::CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED);
 
   flutter::DartProject project(L"data");
-
-  std::vector<std::string> command_line_arguments =
-      GetCommandLineArguments();
-  bool start_hidden = false;
-  for (const auto& arg : command_line_arguments) {
-    if (arg == "--startup") {
-      start_hidden = true;
-      break;
-    }
-  }
 
   project.set_dart_entrypoint_arguments(std::move(command_line_arguments));
 

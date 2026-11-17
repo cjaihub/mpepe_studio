@@ -8,6 +8,8 @@
 #include <shellapi.h>
 
 #include <memory>
+#include <string>
+#include <vector>
 
 #include "win32_window.h"
 
@@ -34,6 +36,13 @@ class FlutterWindow : public Win32Window {
   void ToggleHudFromAnywhere();
   bool IsStartupEnabled() const;
   bool SetStartupEnabled(bool enabled) const;
+  bool IsProcessElevated() const;
+  flutter::EncodableMap CollectPermissionsStatus() const;
+  bool RequestWindowsPermission(const std::string& key);
+  void OpenWindowsSettingsPane(const std::string& pane) const;
+  std::vector<std::string> LoadAuthorizedFolders() const;
+  void SaveAuthorizedFolders(const std::vector<std::string>& folders) const;
+  std::vector<std::string> PromptAuthorizedFolder();
 
   flutter::DartProject project_;
   bool start_hidden_ = false;

@@ -75,6 +75,10 @@ class WindowsDesktopController {
     }
   }
 
+  static int selectedDisplayIndex = 0;
+  static List<({int index, int x, int y, int width, int height, bool isPrimary})>
+      _cachedDisplays = const [];
+
   static ({int width, int height}) getMainDisplayBounds() {
     if (!isSupported) return (width: 1920, height: 1080);
     final fn = _u32
@@ -82,6 +86,81 @@ class WindowsDesktopController {
     final w = fn(0); // SM_CXSCREEN
     final h = fn(1); // SM_CYSCREEN
     return (width: w > 0 ? w : 1920, height: h > 0 ? h : 1080);
+  }
+
+  static ({double minX, double minY, double maxX, double maxY})
+      getVirtualDesktopBounds() {
+    if (!isSupported) {
+      return (minX: 0, minY: 0, maxX: 1920, maxY: 1080);
+    }
+    final fn = _u32
+        .lookupFunction<GetSystemMetricsC, GetSystemMetricsDart>('GetSystemMetrics');
+    final minX = fn(76).toDouble(); // SM_XVIRTUALSCREEN
+    final minY = fn(77).toDouble(); // SM_YVIRTUALSCREEN
+    final w = fn(78); // SM_CXVIRTUALSCREEN
+    final h = fn(79); // SM_CYVIRTUALSCREEN
+    if (w > 0 && h > 0) {
+      return (minX: minX, minY: minY, maxX: minX + w, maxY: minY + h);
+    }
+    final b = getMainDisplayBounds();
+    return (
+      minX: 0,
+      minY: 0,
+      maxX: b.width.toDouble(),
+      maxY: b.height.toDouble(),
+    );
+  }
+
+  static Future<
+      List<({int index, int x, int y, int width, int height, bool isPrimary})>>
+      refreshDisplays() async {
+    if (!isSupported) return const [];
+    try {
+      final res = await Process.run('powershell', [
+        '-NoProfile',
+        '-Command',
+        r"Add-Type -AssemblyName System.Windows.Forms; $i = 0; [System.Windows.Forms.Screen]::AllScreens | ForEach-Object { [PSCustomObject]@{ index=$i; x=$_.Bounds.X; y=$_.Bounds.Y; width=$_.Bounds.Width; height=$_.Bounds.Height; isPrimary=$_.Primary }; $i++ } | ConvertTo-Json -Compress",
+      ]);
+      final raw = res.stdout.toString().trim();
+      if (raw.isEmpty) return _cachedDisplays;
+      final decoded = jsonDecode(raw);
+      final items = decoded is List ? decoded : [decoded];
+      final out =
+          <({int index, int x, int y, int width, int height, bool isPrimary})>[];
+      for (final item in items) {
+        if (item is Map) {
+          out.add((
+            index: (item['index'] as num?)?.toInt() ?? out.length,
+            x: (item['x'] as num?)?.toInt() ?? 0,
+            y: (item['y'] as num?)?.toInt() ?? 0,
+            width: (item['width'] as num?)?.toInt() ?? 1920,
+            height: (item['height'] as num?)?.toInt() ?? 1080,
+            isPrimary: item['isPrimary'] == true,
+          ));
+        }
+      }
+      if (out.isNotEmpty) _cachedDisplays = out;
+    } catch (_) {}
+    return _cachedDisplays;
+  }
+
+  static ({int x, int y, int width, int height}) getActiveDisplayRect() {
+    if (selectedDisplayIndex == -1) {
+      final vb = getVirtualDesktopBounds();
+      return (
+        x: vb.minX.round(),
+        y: vb.minY.round(),
+        width: (vb.maxX - vb.minX).round().clamp(1, 32768),
+        height: (vb.maxY - vb.minY).round().clamp(1, 32768),
+      );
+    }
+    if (_cachedDisplays.isNotEmpty) {
+      final idx = selectedDisplayIndex.clamp(0, _cachedDisplays.length - 1);
+      final d = _cachedDisplays[idx];
+      return (x: d.x, y: d.y, width: d.width, height: d.height);
+    }
+    final b = getMainDisplayBounds();
+    return (x: 0, y: 0, width: b.width, height: b.height);
   }
 
   static Future<String?> getActiveAppName() async {
@@ -108,8 +187,11 @@ class WindowsDesktopController {
 
   static void moveTo(double x, double y) {
     if (!isSupported) return;
+    final vb = getVirtualDesktopBounds();
+    final cx = x.clamp(vb.minX, vb.maxX - 1).round();
+    final cy = y.clamp(vb.minY, vb.maxY - 1).round();
     final fn = _u32.lookupFunction<SetCursorPosC, SetCursorPosDart>('SetCursorPos');
-    fn(x.round(), y.round());
+    fn(cx, cy);
   }
 
   static Future<void> clickAt(double x, double y, {bool right = false, bool doubleClick = false}) async {
@@ -363,13 +445,21 @@ class WindowsDesktopController {
     return res.stdout.toString().trim();
   }
 
-  static Future<bool> captureScreenToFile(String path) async {
+  static Future<bool> captureScreenToFile(String path, {int? displayIndex}) async {
     if (!isSupported) return false;
     final safePath = path.replaceAll("'", "''");
+    final idx = displayIndex ?? selectedDisplayIndex;
+    final boundsExpr = idx == -1
+        ? r'$bounds = [System.Windows.Forms.SystemInformation]::VirtualScreen'
+        : '''
+\$screens = [System.Windows.Forms.Screen]::AllScreens
+\$idx = [Math]::Max(0, [Math]::Min($idx, \$screens.Length - 1))
+\$bounds = \$screens[\$idx].Bounds
+''';
     final script = '''
 Add-Type -AssemblyName System.Windows.Forms
 Add-Type -AssemblyName System.Drawing
-\$bounds = [System.Windows.Forms.Screen]::PrimaryScreen.Bounds
+$boundsExpr
 \$bmp = New-Object System.Drawing.Bitmap(\$bounds.Width, \$bounds.Height)
 \$g = [System.Drawing.Graphics]::FromImage(\$bmp)
 \$g.CopyFromScreen(\$bounds.Location, [System.Drawing.Point]::Empty, \$bounds.Size)

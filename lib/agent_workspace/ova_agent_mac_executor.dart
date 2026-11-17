@@ -39,10 +39,12 @@ class OvaAgentMacExecutor {
 
   static String expandHomePath(String rawPath) {
     final trimmed = rawPath.trim();
-    final home = Platform.environment['HOME'] ?? Directory.current.path;
+    final home = Platform.environment['HOME'] ??
+        Platform.environment['USERPROFILE'] ??
+        Directory.current.path;
     if (trimmed.isEmpty || trimmed == '~') return home;
-    if (trimmed.startsWith('~/')) {
-      return '$home/${trimmed.substring(2)}';
+    if (trimmed.startsWith('~/') || trimmed.startsWith(r'~\')) {
+      return '$home${Platform.pathSeparator}${trimmed.substring(2)}';
     }
     return trimmed;
   }
@@ -277,13 +279,24 @@ class OvaAgentMacExecutor {
       final ext = Platform.isWindows ? 'png' : 'jpg';
       final snapPath =
           '${Directory.systemTemp.path}${sep}oneova_agent_screen_${DateTime.now().millisecondsSinceEpoch}.$ext';
+      final displayIdx = (args['displayIndex'] as num?)?.toInt() ??
+          DesktopInputRouter.selectedDisplayIndex;
       bool captured = false;
       if (Platform.isWindows) {
-        captured = await WindowsDesktopController.captureScreenToFile(snapPath);
+        captured = await WindowsDesktopController.captureScreenToFile(
+          snapPath,
+          displayIndex: displayIdx,
+        );
       } else {
         final sc = await Process.run(
           'screencapture',
-          ['-x', '-t', 'jpg', snapPath],
+          [
+            '-x',
+            if (displayIdx >= 0) ...['-D', '${displayIdx + 1}'],
+            '-t',
+            'jpg',
+            snapPath,
+          ],
         );
         captured = sc.exitCode == 0;
       }
@@ -299,7 +312,8 @@ class OvaAgentMacExecutor {
           }),
         );
       } else {
-        snapNote = 'Screen metadata collected.';
+        snapNote =
+            'Screen metadata collected (grant Screen Recording in Desktop Access if live pixels are blank).';
       }
     }
 
@@ -686,16 +700,37 @@ return outputLines as text
           durationMs: sw.elapsedMilliseconds,
         );
       case 'screenshot_to_desktop':
+        final ext = Platform.isWindows ? 'png' : 'png';
         final target = expandHomePath(
-          '~/Desktop/Oneova_Capture_${DateTime.now().millisecondsSinceEpoch}.png',
+          '~/Desktop/Oneova_Capture_${DateTime.now().millisecondsSinceEpoch}.$ext',
         );
-        final sc = await Process.run('screencapture', ['-x', target]);
+        final displayIdx = DesktopInputRouter.selectedDisplayIndex;
+        if (Platform.isWindows) {
+          final ok = await WindowsDesktopController.captureScreenToFile(
+            target,
+            displayIndex: displayIdx,
+          );
+          sw.stop();
+          return OvaMacToolExecutionResult(
+            ok: ok,
+            output: ok
+                ? 'Saved Windows screenshot to $target.'
+                : 'Screenshot failed. Check screen capture and folder permissions.',
+            exitCode: ok ? 0 : 1,
+            durationMs: sw.elapsedMilliseconds,
+          );
+        }
+        final sc = await Process.run('screencapture', [
+          '-x',
+          if (displayIdx >= 0) ...['-D', '${displayIdx + 1}'],
+          target,
+        ]);
         sw.stop();
         return OvaMacToolExecutionResult(
           ok: sc.exitCode == 0,
           output: sc.exitCode == 0
               ? 'Saved full-resolution macOS screenshot to $target.'
-              : 'Screenshot failed: ${sc.stderr}',
+              : 'Screenshot failed (grant Screen Recording & Desktop folder access in Desktop Permissions): ${sc.stderr}',
           exitCode: sc.exitCode,
           durationMs: sw.elapsedMilliseconds,
         );
@@ -736,7 +771,19 @@ return outputLines as text
       );
     }
 
-    final entities = await dir.list(followLinks: false).take(80).toList();
+    late final List<FileSystemEntity> entities;
+    try {
+      entities = await dir.list(followLinks: false).take(80).toList();
+    } on FileSystemException catch (e) {
+      sw.stop();
+      return OvaMacToolExecutionResult(
+        ok: false,
+        output:
+            'Storage access denied for "$targetPath" (${e.message}). Open the Shield icon → Desktop Permissions to grant Folders, External Drives, or Full Disk Access.',
+        exitCode: 1,
+        durationMs: sw.elapsedMilliseconds,
+      );
+    }
     final rows = <String>[];
     for (final entity in entities) {
       final stat = await entity.stat();

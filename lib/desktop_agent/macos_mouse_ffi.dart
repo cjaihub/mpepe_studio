@@ -17,6 +17,19 @@ base class CGPoint extends Struct {
   external double y;
 }
 
+base class CGSize extends Struct {
+  @Double()
+  external double width;
+
+  @Double()
+  external double height;
+}
+
+base class CGRect extends Struct {
+  external CGPoint origin;
+  external CGSize size;
+}
+
 // ─── Constants ──────────────────────────────────────────────────────────────
 const int kCGEventLeftMouseDown = 1;
 const int kCGEventLeftMouseUp = 2;
@@ -60,6 +73,14 @@ typedef CGMainDisplayIDDart = int Function();
 
 typedef CGDisplayPixelsC = IntPtr Function(Uint32 display);
 typedef CGDisplayPixelsDart = int Function(int display);
+
+typedef CGGetActiveDisplayListC = Int32 Function(
+    Uint32 maxDisplays, Pointer<Uint32> activeDisplays, Pointer<Uint32> displayCount);
+typedef CGGetActiveDisplayListDart = int Function(
+    int maxDisplays, Pointer<Uint32> activeDisplays, Pointer<Uint32> displayCount);
+
+typedef CGDisplayBoundsC = CGRect Function(Uint32 display);
+typedef CGDisplayBoundsDart = CGRect Function(int display);
 
 typedef CFReleaseC = Void Function(Pointer arg);
 typedef CFReleaseDart = void Function(Pointer arg);
@@ -114,6 +135,13 @@ final CGDisplayPixelsDart _cgDisplayPixelsWide = _coreGraphics
 final CGDisplayPixelsDart _cgDisplayPixelsHigh = _coreGraphics
     .lookupFunction<CGDisplayPixelsC, CGDisplayPixelsDart>(
         'CGDisplayPixelsHigh');
+
+final CGGetActiveDisplayListDart _cgGetActiveDisplayList = _coreGraphics
+    .lookupFunction<CGGetActiveDisplayListC, CGGetActiveDisplayListDart>(
+        'CGGetActiveDisplayList');
+
+final CGDisplayBoundsDart _cgDisplayBounds = _coreGraphics
+    .lookupFunction<CGDisplayBoundsC, CGDisplayBoundsDart>('CGDisplayBounds');
 
 final DynamicLibrary _coreFoundation = Platform.isMacOS
     ? DynamicLibrary.open('/System/Library/Frameworks/CoreFoundation.framework/CoreFoundation')
@@ -218,6 +246,8 @@ class MacOSMouseController {
     return (x: pos.x, y: pos.y);
   }
 
+  static int selectedDisplayIndex = 0;
+
   static ({int width, int height}) getMainDisplayBounds() {
     if (!Platform.isMacOS) return (width: 1920, height: 1080);
     try {
@@ -229,11 +259,86 @@ class MacOSMouseController {
     return (width: 1920, height: 1080);
   }
 
+  /// Enumerates all connected macOS displays in CoreGraphics global coordinates.
+  static List<({int index, int id, int x, int y, int width, int height, bool isPrimary})> getDisplays() {
+    if (!Platform.isMacOS) {
+      return const [
+        (index: 0, id: 1, x: 0, y: 0, width: 1920, height: 1080, isPrimary: true),
+      ];
+    }
+    try {
+      const maxDisplays = 16;
+      final idsPtr = calloc<Uint32>(maxDisplays);
+      final countPtr = calloc<Uint32>();
+      try {
+        final err = _cgGetActiveDisplayList(maxDisplays, idsPtr, countPtr);
+        final count = err == 0 ? countPtr.value.clamp(0, maxDisplays) : 0;
+        if (count == 0) {
+          final b = getMainDisplayBounds();
+          return [
+            (index: 0, id: _cgMainDisplayID(), x: 0, y: 0, width: b.width, height: b.height, isPrimary: true),
+          ];
+        }
+        final mainId = _cgMainDisplayID();
+        final out = <({int index, int id, int x, int y, int width, int height, bool isPrimary})>[];
+        for (int i = 0; i < count; i++) {
+          final did = idsPtr[i];
+          final rect = _cgDisplayBounds(did);
+          out.add((
+            index: i,
+            id: did,
+            x: rect.origin.x.round(),
+            y: rect.origin.y.round(),
+            width: rect.size.width.round().clamp(1, 32768),
+            height: rect.size.height.round().clamp(1, 32768),
+            isPrimary: did == mainId,
+          ));
+        }
+        return out;
+      } finally {
+        calloc.free(idsPtr);
+        calloc.free(countPtr);
+      }
+    } catch (_) {
+      final b = getMainDisplayBounds();
+      return [
+        (index: 0, id: 1, x: 0, y: 0, width: b.width, height: b.height, isPrimary: true),
+      ];
+    }
+  }
+
+  static ({int x, int y, int width, int height}) getActiveDisplayRect() {
+    final list = getDisplays();
+    if (list.isEmpty) return (x: 0, y: 0, width: 1920, height: 1080);
+    final idx = selectedDisplayIndex.clamp(0, list.length - 1);
+    final d = list[idx];
+    return (x: d.x, y: d.y, width: d.width, height: d.height);
+  }
+
+  /// Union bounding box across all active macOS screens so mouse moves seamlessly across monitors.
+  static ({double minX, double minY, double maxX, double maxY}) getVirtualDesktopBounds() {
+    final list = getDisplays();
+    if (list.isEmpty) {
+      return (minX: 0, minY: 0, maxX: 1920, maxY: 1080);
+    }
+    double minX = list.first.x.toDouble();
+    double minY = list.first.y.toDouble();
+    double maxX = (list.first.x + list.first.width).toDouble();
+    double maxY = (list.first.y + list.first.height).toDouble();
+    for (final d in list.skip(1)) {
+      if (d.x < minX) minX = d.x.toDouble();
+      if (d.y < minY) minY = d.y.toDouble();
+      if (d.x + d.width > maxX) maxX = (d.x + d.width).toDouble();
+      if (d.y + d.height > maxY) maxY = (d.y + d.height).toDouble();
+    }
+    return (minX: minX, minY: minY, maxX: maxX, maxY: maxY);
+  }
+
   static void moveTo(double x, double y) {
     if (!Platform.isMacOS) return;
-    final bounds = getMainDisplayBounds();
-    final clampedX = x.clamp(0.0, (bounds.width - 1).toDouble());
-    final clampedY = y.clamp(0.0, (bounds.height - 1).toDouble());
+    final bounds = getVirtualDesktopBounds();
+    final clampedX = x.clamp(bounds.minX, bounds.maxX - 1);
+    final clampedY = y.clamp(bounds.minY, bounds.maxY - 1);
 
     final ptr = calloc<CGPoint>();
     ptr.ref.x = clampedX;
@@ -250,13 +355,11 @@ class MacOSMouseController {
     if (!Platform.isMacOS) return;
 
     final currentPos = _getCurrentMousePosition();
-    final bounds = getMainDisplayBounds();
+    final bounds = getVirtualDesktopBounds();
 
     final newPosPtr = calloc<CGPoint>();
-    newPosPtr.ref.x =
-        (currentPos.x + dx).clamp(0.0, (bounds.width - 1).toDouble());
-    newPosPtr.ref.y =
-        (currentPos.y + dy).clamp(0.0, (bounds.height - 1).toDouble());
+    newPosPtr.ref.x = (currentPos.x + dx).clamp(bounds.minX, bounds.maxX - 1);
+    newPosPtr.ref.y = (currentPos.y + dy).clamp(bounds.minY, bounds.maxY - 1);
 
     if (_isLeftButtonDown) {
       _postMouseEvent(

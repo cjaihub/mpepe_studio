@@ -16,6 +16,15 @@ class DesktopInputRouter {
     return (x: 0, y: 0);
   }
 
+  static int get selectedDisplayIndex => Platform.isMacOS
+      ? MacOSMouseController.selectedDisplayIndex
+      : WindowsDesktopController.selectedDisplayIndex;
+
+  static set selectedDisplayIndex(int idx) {
+    if (Platform.isMacOS) MacOSMouseController.selectedDisplayIndex = idx;
+    if (Platform.isWindows) WindowsDesktopController.selectedDisplayIndex = idx;
+  }
+
   static ({int width, int height}) getMainDisplayBounds() {
     if (Platform.isMacOS) {
       final b = MacOSMouseController.getMainDisplayBounds();
@@ -23,6 +32,21 @@ class DesktopInputRouter {
     }
     if (Platform.isWindows) return WindowsDesktopController.getMainDisplayBounds();
     return (width: 1920, height: 1080);
+  }
+
+  static ({int x, int y, int width, int height}) getActiveDisplayRect() {
+    if (Platform.isMacOS) return MacOSMouseController.getActiveDisplayRect();
+    if (Platform.isWindows) return WindowsDesktopController.getActiveDisplayRect();
+    return (x: 0, y: 0, width: 1920, height: 1080);
+  }
+
+  static ({double minX, double minY, double maxX, double maxY})
+      getVirtualDesktopBounds() {
+    if (Platform.isMacOS) return MacOSMouseController.getVirtualDesktopBounds();
+    if (Platform.isWindows) {
+      return WindowsDesktopController.getVirtualDesktopBounds();
+    }
+    return (minX: 0, minY: 0, maxX: 1920, maxY: 1080);
   }
 
   static Future<String?> getActiveAppName() async {

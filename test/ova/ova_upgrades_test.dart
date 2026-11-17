@@ -127,5 +127,41 @@ void main() {
       expect(call.title, 'DaVinci Resolve Inspect');
       expect(call.args['app'], 'davinci_resolve');
     });
+
+    test('DesktopPermissionsSnapshot counts missing storage/screen/input permissions accurately', () {
+      final partial = DesktopPermissionsSnapshot.fromMap({
+        'platform': 'macos',
+        'accessibility': true,
+        'inputMonitoring': false,
+        'screenRecording': false,
+        'automation': true,
+        'desktopFolder': true,
+        'documentsFolder': false,
+        'downloadsFolder': true,
+        'displays': [
+          {'index': 0, 'name': 'Built-in Retina', 'x': 0, 'y': 0, 'width': 1512, 'height': 982, 'isPrimary': true},
+          {'index': 1, 'name': 'Studio Display', 'x': 1512, 'y': 0, 'width': 2560, 'height': 1440, 'isPrimary': false},
+        ],
+      });
+      expect(partial.mouseKeyboardReady, isFalse);
+      expect(partial.storageFoldersReady, isFalse);
+      expect(partial.displays.length, 2);
+      expect(partial.displays[1].x, 1512);
+      expect(partial.missingCriticalCount, 3);
+
+      final complete = DesktopPermissionsSnapshot.fromMap({
+        'platform': 'macos',
+        'accessibility': true,
+        'inputMonitoring': true,
+        'screenRecording': true,
+        'automation': true,
+        'desktopFolder': true,
+        'documentsFolder': true,
+        'downloadsFolder': true,
+      });
+      expect(complete.mouseKeyboardReady, isTrue);
+      expect(complete.storageFoldersReady, isTrue);
+      expect(complete.missingCriticalCount, 0);
+    });
   });
 }

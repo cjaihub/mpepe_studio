@@ -34,6 +34,7 @@ import 'desktop_input_router.dart';
 import 'desktop_webrtc_responder.dart';
 import 'desktop_window_bridge.dart';
 import 'macos_mouse_ffi.dart';
+import 'widgets/desktop_permissions_sheet.dart';
 import 'windows_automation_ffi.dart';
 
 enum _DesktopAuthTab {
@@ -750,10 +751,16 @@ class _DesktopAgentScreenState extends ConsumerState<DesktopAgentScreen> {
         final ok = await WindowsDesktopController.captureScreenToFile(tmpPath);
         if (!ok || !await file.exists()) return;
       } else {
-        final capRes = await Process.run(
-          '/usr/sbin/screencapture',
-          ['-x', '-C', '-t', 'jpg', tmpPath],
-        );
+        final displayIdx = DesktopInputRouter.selectedDisplayIndex;
+        final scArgs = <String>[
+          '-x',
+          '-C',
+          if (displayIdx >= 0) ...['-D', '${displayIdx + 1}'],
+          '-t',
+          'jpg',
+          tmpPath,
+        ];
+        final capRes = await Process.run('/usr/sbin/screencapture', scArgs);
         if (capRes.exitCode != 0 || !await file.exists()) {
           return;
         }
@@ -767,14 +774,14 @@ class _DesktopAgentScreenState extends ConsumerState<DesktopAgentScreen> {
       unawaited(file.delete().catchError((_) => file));
       if (bytes.isEmpty || bytes.length > 720000) return;
 
-      final bounds = DesktopInputRouter.getMainDisplayBounds();
+      final bounds = DesktopInputRouter.getActiveDisplayRect();
       final cursor = DesktopInputRouter.getCursorPosition();
       final apps = await _getOpenGuiApps();
       final cursorNx = bounds.width > 0
-          ? (cursor.x / bounds.width).clamp(0.0, 1.0)
+          ? ((cursor.x - bounds.x) / bounds.width).clamp(0.0, 1.0)
           : 0.5;
       final cursorNy = bounds.height > 0
-          ? (cursor.y / bounds.height).clamp(0.0, 1.0)
+          ? ((cursor.y - bounds.y) / bounds.height).clamp(0.0, 1.0)
           : 0.5;
 
       await _cloud.setDocument(
@@ -1005,15 +1012,21 @@ class _DesktopAgentScreenState extends ConsumerState<DesktopAgentScreen> {
           .clamp(0.0, 1.0);
       final ny = (((payloadMap['ny'] ?? data['ny']) as num?)?.toDouble() ?? 0.5)
           .clamp(0.0, 1.0);
-      final bounds = DesktopInputRouter.getMainDisplayBounds();
-      DesktopInputRouter.moveTo(nx * bounds.width, ny * bounds.height);
+      final bounds = DesktopInputRouter.getActiveDisplayRect();
+      DesktopInputRouter.moveTo(
+        bounds.x + nx * bounds.width,
+        bounds.y + ny * bounds.height,
+      );
     } else if (command == 'mouse_click_normalized') {
       final nx = (((payloadMap['nx'] ?? data['nx']) as num?)?.toDouble() ?? 0.5)
           .clamp(0.0, 1.0);
       final ny = (((payloadMap['ny'] ?? data['ny']) as num?)?.toDouble() ?? 0.5)
           .clamp(0.0, 1.0);
-      final bounds = DesktopInputRouter.getMainDisplayBounds();
-      await DesktopInputRouter.clickAt(nx * bounds.width, ny * bounds.height);
+      final bounds = DesktopInputRouter.getActiveDisplayRect();
+      await DesktopInputRouter.clickAt(
+        bounds.x + nx * bounds.width,
+        bounds.y + ny * bounds.height,
+      );
       agentNotifier.recordLiveActionEvent(
         category: 'mouse',
         summary: 'Tap (${(nx * 100).round()}%, ${(ny * 100).round()}%) on $_activeWindow',
@@ -1024,10 +1037,10 @@ class _DesktopAgentScreenState extends ConsumerState<DesktopAgentScreen> {
           .clamp(0.0, 1.0);
       final ny = (((payloadMap['ny'] ?? data['ny']) as num?)?.toDouble() ?? 0.5)
           .clamp(0.0, 1.0);
-      final bounds = DesktopInputRouter.getMainDisplayBounds();
+      final bounds = DesktopInputRouter.getActiveDisplayRect();
       await DesktopInputRouter.clickAt(
-        nx * bounds.width,
-        ny * bounds.height,
+        bounds.x + nx * bounds.width,
+        bounds.y + ny * bounds.height,
         right: true,
       );
       agentNotifier.recordLiveActionEvent(
@@ -1040,10 +1053,10 @@ class _DesktopAgentScreenState extends ConsumerState<DesktopAgentScreen> {
           .clamp(0.0, 1.0);
       final ny = (((payloadMap['ny'] ?? data['ny']) as num?)?.toDouble() ?? 0.5)
           .clamp(0.0, 1.0);
-      final bounds = DesktopInputRouter.getMainDisplayBounds();
+      final bounds = DesktopInputRouter.getActiveDisplayRect();
       await DesktopInputRouter.clickAt(
-        nx * bounds.width,
-        ny * bounds.height,
+        bounds.x + nx * bounds.width,
+        bounds.y + ny * bounds.height,
         doubleClick: true,
       );
       agentNotifier.recordLiveActionEvent(
@@ -1060,14 +1073,24 @@ class _DesktopAgentScreenState extends ConsumerState<DesktopAgentScreen> {
           .clamp(0.0, 1.0);
       final toNy = (((payloadMap['toNy'] ?? data['toNy']) as num?)?.toDouble() ?? 0.5)
           .clamp(0.0, 1.0);
-      final bounds = DesktopInputRouter.getMainDisplayBounds();
-      DesktopInputRouter.moveTo(fromNx * bounds.width, fromNy * bounds.height);
-      await DesktopInputRouter.dragTo(toNx * bounds.width, toNy * bounds.height);
+      final bounds = DesktopInputRouter.getActiveDisplayRect();
+      DesktopInputRouter.moveTo(
+        bounds.x + fromNx * bounds.width,
+        bounds.y + fromNy * bounds.height,
+      );
+      await DesktopInputRouter.dragTo(
+        bounds.x + toNx * bounds.width,
+        bounds.y + toNy * bounds.height,
+      );
       agentNotifier.recordLiveActionEvent(
         category: 'mouse',
         summary: 'Dragged on $_activeWindow',
         originOverride: 'mobile',
       );
+    } else if (command == 'select_display') {
+      final idx = ((payloadMap['index'] ?? data['index']) as num?)?.toInt() ?? 0;
+      DesktopWindowBridge.instance.selectDisplay(idx);
+      await _publishLiveScreenFrame(deviceId, force: true);
     } else if (command == 'capture_live_frame') {
       await _publishLiveScreenFrame(deviceId, force: true);
     } else if (command == 'switch_app') {
@@ -1331,6 +1354,43 @@ class _DesktopAgentScreenState extends ConsumerState<DesktopAgentScreen> {
                 centerTitle: false,
                 actions: [
                   if (DesktopWindowBridge.isDesktop) ...[
+                    ValueListenableBuilder<DesktopPermissionsSnapshot>(
+                      valueListenable: DesktopWindowBridge.instance.permissions,
+                      builder: (_, p, _) {
+                        final missing = p.missingCriticalCount;
+                        return IconButton(
+                          tooltip: missing == 0
+                              ? 'Desktop Permissions: Ready'
+                              : '$missing permission(s) needed (Storage, Screens, Mouse/Keyboard)',
+                          onPressed: () => DesktopPermissionsSheet.show(context),
+                          icon: Stack(
+                            clipBehavior: Clip.none,
+                            children: [
+                              Icon(
+                                Icons.verified_user_rounded,
+                                color: missing == 0
+                                    ? AppColors.brandBlue
+                                    : context.textSecondary,
+                                size: 19,
+                              ),
+                              if (missing > 0)
+                                Positioned(
+                                  right: -2,
+                                  top: -2,
+                                  child: Container(
+                                    width: 7,
+                                    height: 7,
+                                    decoration: const BoxDecoration(
+                                      color: AppColors.brandPink,
+                                      shape: BoxShape.circle,
+                                    ),
+                                  ),
+                                ),
+                            ],
+                          ),
+                        );
+                      },
+                    ),
                     ValueListenableBuilder<bool>(
                       valueListenable: DesktopWindowBridge.instance.startupEnabled,
                       builder: (_, on, _) => IconButton(
@@ -1384,15 +1444,92 @@ class _DesktopAgentScreenState extends ConsumerState<DesktopAgentScreen> {
             ),
       body: showStudioWorkspace
           ? SafeArea(
-              child: OvaAgentWorkspace(
-                showSessionSidebar: true,
-                onDisconnect: _confirmAndDisconnect,
-                onToggleBridges: () => setState(() => _showSystemsPane = true),
-                onOpenAuth: () => OneovaWorkstationAuthDialog.show(
-                  context,
-                  onSignedOut: _confirmAndDisconnect,
-                  onSignedIn: () => setState(() {}),
-                ),
+              child: Column(
+                children: [
+                  if (DesktopWindowBridge.isDesktop)
+                    ValueListenableBuilder<DesktopPermissionsSnapshot>(
+                      valueListenable: DesktopWindowBridge.instance.permissions,
+                      builder: (context, p, _) {
+                        if (p.missingCriticalCount == 0) {
+                          return const SizedBox.shrink();
+                        }
+                        return Container(
+                          margin: const EdgeInsets.fromLTRB(16, 8, 16, 0),
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 12,
+                            vertical: 8,
+                          ),
+                          decoration: BoxDecoration(
+                            color: AppColors.brandPink.withValues(alpha: 0.08),
+                            borderRadius: BorderRadius.circular(AppRadius.md),
+                            border: Border.all(
+                              color: AppColors.brandPink.withValues(alpha: 0.35),
+                              width: 1.0,
+                            ),
+                          ),
+                          child: Row(
+                            children: [
+                              const Icon(
+                                Icons.shield_outlined,
+                                size: 16,
+                                color: AppColors.brandPink,
+                              ),
+                              const SizedBox(width: 8),
+                              Expanded(
+                                child: Text(
+                                  'Desktop Agent needs ${p.missingCriticalCount} system permission(s) for device storage, other screens, mouse & keyboard.',
+                                  style: GoogleFonts.inter(
+                                    fontSize: 11.5,
+                                    fontWeight: FontWeight.w600,
+                                    color: context.textPrimary,
+                                  ),
+                                ),
+                              ),
+                              const SizedBox(width: 8),
+                              ElevatedButton(
+                                onPressed: () =>
+                                    DesktopPermissionsSheet.show(context),
+                                style: ElevatedButton.styleFrom(
+                                  backgroundColor: AppColors.brandBlue,
+                                  foregroundColor: Colors.white,
+                                  elevation: 0,
+                                  padding: const EdgeInsets.symmetric(
+                                    horizontal: 12,
+                                    vertical: 6,
+                                  ),
+                                  minimumSize: const Size(0, 30),
+                                  shape: RoundedRectangleBorder(
+                                    borderRadius:
+                                        BorderRadius.circular(AppRadius.sm),
+                                  ),
+                                ),
+                                child: Text(
+                                  'Fix Permissions',
+                                  style: GoogleFonts.inter(
+                                    fontSize: 11,
+                                    fontWeight: FontWeight.w700,
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+                        );
+                      },
+                    ),
+                  Expanded(
+                    child: OvaAgentWorkspace(
+                      showSessionSidebar: true,
+                      onDisconnect: _confirmAndDisconnect,
+                      onToggleBridges: () =>
+                          setState(() => _showSystemsPane = true),
+                      onOpenAuth: () => OneovaWorkstationAuthDialog.show(
+                        context,
+                        onSignedOut: _confirmAndDisconnect,
+                        onSignedIn: () => setState(() {}),
+                      ),
+                    ),
+                  ),
+                ],
               ),
             )
           : OneovaAuthBackdrop(

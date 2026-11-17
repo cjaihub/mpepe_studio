@@ -1,15 +1,21 @@
 #include "flutter_window.h"
 
 #include <flutter/standard_method_codec.h>
+#include <shlobj.h>
+#include <shobjidl.h>
 
+#include <algorithm>
 #include <optional>
+#include <sstream>
 #include <string>
+#include <vector>
 
 #include "flutter/generated_plugin_registrant.h"
 #include "resource.h"
 
 #pragma comment(lib, "shell32.lib")
 #pragma comment(lib, "advapi32.lib")
+#pragma comment(lib, "ole32.lib")
 
 namespace {
 constexpr UINT kTrayCallbackMsg = WM_APP + 101;
@@ -108,6 +114,37 @@ void FlutterWindow::SetupWindowChannel() {
           map[flutter::EncodableValue("hotkey")] = flutter::EncodableValue("Alt+Space / Ctrl+Shift+O");
           map[flutter::EncodableValue("platform")] = flutter::EncodableValue("windows");
           result->Success(flutter::EncodableValue(map));
+        } else if (method == "getPermissionsStatus") {
+          result->Success(flutter::EncodableValue(CollectPermissionsStatus()));
+        } else if (method == "requestPermission") {
+          std::string key = "all";
+          if (args) {
+            auto it = args->find(flutter::EncodableValue("permission"));
+            if (it != args->end()) {
+              if (const auto* s = std::get_if<std::string>(&it->second)) key = *s;
+            }
+          }
+          RequestWindowsPermission(key);
+          result->Success(flutter::EncodableValue(CollectPermissionsStatus()));
+        } else if (method == "openPermissionSettings") {
+          std::string pane = "privacy";
+          if (args) {
+            auto it = args->find(flutter::EncodableValue("pane"));
+            if (it != args->end()) {
+              if (const auto* s = std::get_if<std::string>(&it->second)) pane = *s;
+            }
+          }
+          OpenWindowsSettingsPane(pane);
+          result->Success(flutter::EncodableValue(true));
+        } else if (method == "authorizeStorageFolder") {
+          auto paths = PromptAuthorizedFolder();
+          flutter::EncodableList list;
+          for (const auto& p : paths) {
+            list.push_back(flutter::EncodableValue(p));
+          }
+          result->Success(flutter::EncodableValue(list));
+        } else if (method == "resetStalePermissions") {
+          result->Success(flutter::EncodableValue(CollectPermissionsStatus()));
         } else {
           result->NotImplemented();
         }
@@ -356,4 +393,238 @@ LRESULT FlutterWindow::MessageHandler(HWND hwnd, UINT const message,
   }
 
   return Win32Window::MessageHandler(hwnd, message, wparam, lparam);
+}
+
+namespace {
+std::string WideToUtf8(const wchar_t* wstr) {
+  if (!wstr || !*wstr) return "";
+  int needed = ::WideCharToMultiByte(CP_UTF8, 0, wstr, -1, nullptr, 0, nullptr, nullptr);
+  if (needed <= 1) return "";
+  std::string out(static_cast<size_t>(needed - 1), '\0');
+  ::WideCharToMultiByte(CP_UTF8, 0, wstr, -1, out.data(), needed, nullptr, nullptr);
+  return out;
+}
+
+std::wstring Utf8ToWide(const std::string& str) {
+  if (str.empty()) return L"";
+  int needed = ::MultiByteToWideChar(CP_UTF8, 0, str.c_str(), -1, nullptr, 0);
+  if (needed <= 1) return L"";
+  std::wstring out(static_cast<size_t>(needed - 1), L'\0');
+  ::MultiByteToWideChar(CP_UTF8, 0, str.c_str(), -1, out.data(), needed);
+  return out;
+}
+
+bool IsKnownFolderReadable(REFKNOWNFOLDERID fid) {
+  PWSTR path = nullptr;
+  if (FAILED(::SHGetKnownFolderPath(fid, 0, nullptr, &path)) || !path) {
+    return false;
+  }
+  DWORD attrs = ::GetFileAttributesW(path);
+  ::CoTaskMemFree(path);
+  return attrs != INVALID_FILE_ATTRIBUTES;
+}
+
+struct WinMonitorCaptureCtx {
+  flutter::EncodableList* list;
+  int index;
+};
+
+BOOL CALLBACK CollectMonitorCallback(HMONITOR mon, HDC, LPRECT, LPARAM lparam) {
+  auto* ctx = reinterpret_cast<WinMonitorCaptureCtx*>(lparam);
+  MONITORINFOEXW mi{};
+  mi.cbSize = sizeof(mi);
+  if (::GetMonitorInfoW(mon, &mi)) {
+    flutter::EncodableMap m;
+    m[flutter::EncodableValue("index")] = flutter::EncodableValue(ctx->index);
+    m[flutter::EncodableValue("name")] = flutter::EncodableValue(WideToUtf8(mi.szDevice));
+    m[flutter::EncodableValue("x")] = flutter::EncodableValue(static_cast<int>(mi.rcMonitor.left));
+    m[flutter::EncodableValue("y")] = flutter::EncodableValue(static_cast<int>(mi.rcMonitor.top));
+    m[flutter::EncodableValue("width")] = flutter::EncodableValue(static_cast<int>(mi.rcMonitor.right - mi.rcMonitor.left));
+    m[flutter::EncodableValue("height")] = flutter::EncodableValue(static_cast<int>(mi.rcMonitor.bottom - mi.rcMonitor.top));
+    m[flutter::EncodableValue("isPrimary")] = flutter::EncodableValue((mi.dwFlags & MONITORINFOF_PRIMARY) != 0);
+    ctx->list->push_back(flutter::EncodableValue(m));
+    ctx->index++;
+  }
+  return TRUE;
+}
+
+constexpr wchar_t kPermRegPath[] = L"Software\\Oneova\\DesktopAgent";
+constexpr wchar_t kPermFoldersVal[] = L"AuthorizedFolders";
+}  // namespace
+
+bool FlutterWindow::IsProcessElevated() const {
+  HANDLE token = nullptr;
+  if (!::OpenProcessToken(::GetCurrentProcess(), TOKEN_QUERY, &token)) {
+    return false;
+  }
+  TOKEN_ELEVATION elev{};
+  DWORD size = 0;
+  BOOL ok = ::GetTokenInformation(token, TokenElevation, &elev, sizeof(elev), &size);
+  ::CloseHandle(token);
+  return ok == TRUE && elev.TokenIsElevated != 0;
+}
+
+std::vector<std::string> FlutterWindow::LoadAuthorizedFolders() const {
+  std::vector<std::string> out;
+  HKEY key = nullptr;
+  if (::RegOpenKeyExW(HKEY_CURRENT_USER, kPermRegPath, 0, KEY_READ, &key) != ERROR_SUCCESS) {
+    return out;
+  }
+  DWORD size = 0;
+  if (::RegQueryValueExW(key, kPermFoldersVal, nullptr, nullptr, nullptr, &size) == ERROR_SUCCESS && size > 2) {
+    std::wstring raw(size / sizeof(wchar_t), L'\0');
+    if (::RegQueryValueExW(key, kPermFoldersVal, nullptr, nullptr, reinterpret_cast<LPBYTE>(raw.data()), &size) == ERROR_SUCCESS) {
+      std::string utf8 = WideToUtf8(raw.c_str());
+      std::stringstream ss(utf8);
+      std::string item;
+      while (std::getline(ss, item, '|')) {
+        if (!item.empty()) out.push_back(item);
+      }
+    }
+  }
+  ::RegCloseKey(key);
+  return out;
+}
+
+void FlutterWindow::SaveAuthorizedFolders(const std::vector<std::string>& folders) const {
+  HKEY key = nullptr;
+  if (::RegCreateKeyExW(HKEY_CURRENT_USER, kPermRegPath, 0, nullptr, 0, KEY_WRITE, nullptr, &key, nullptr) != ERROR_SUCCESS) {
+    return;
+  }
+  std::string joined;
+  for (size_t i = 0; i < folders.size(); ++i) {
+    if (i > 0) joined += '|';
+    joined += folders[i];
+  }
+  std::wstring wide = Utf8ToWide(joined);
+  ::RegSetValueExW(
+      key,
+      kPermFoldersVal,
+      0,
+      REG_SZ,
+      reinterpret_cast<const BYTE*>(wide.c_str()),
+      static_cast<DWORD>((wide.size() + 1) * sizeof(wchar_t)));
+  ::RegCloseKey(key);
+}
+
+flutter::EncodableMap FlutterWindow::CollectPermissionsStatus() const {
+  flutter::EncodableMap map;
+  const bool elevated = IsProcessElevated();
+  const bool desktopOk = IsKnownFolderReadable(FOLDERID_Desktop);
+  const bool docsOk = IsKnownFolderReadable(FOLDERID_Documents);
+  const bool dlOk = IsKnownFolderReadable(FOLDERID_Downloads);
+
+  flutter::EncodableList volumes;
+  wchar_t driveBuf[512]{};
+  DWORD dlen = ::GetLogicalDriveStringsW(511, driveBuf);
+  if (dlen > 0) {
+    const wchar_t* cur = driveBuf;
+    while (*cur) {
+      if (::GetFileAttributesW(cur) != INVALID_FILE_ATTRIBUTES) {
+        volumes.push_back(flutter::EncodableValue(WideToUtf8(cur)));
+      }
+      cur += ::wcslen(cur) + 1;
+    }
+  }
+
+  flutter::EncodableList displays;
+  WinMonitorCaptureCtx mctx{&displays, 0};
+  ::EnumDisplayMonitors(nullptr, nullptr, CollectMonitorCallback, reinterpret_cast<LPARAM>(&mctx));
+
+  flutter::EncodableList authFolders;
+  for (const auto& f : LoadAuthorizedFolders()) {
+    authFolders.push_back(flutter::EncodableValue(f));
+  }
+
+  map[flutter::EncodableValue("platform")] = flutter::EncodableValue("windows");
+  map[flutter::EncodableValue("accessibility")] = flutter::EncodableValue(true);
+  map[flutter::EncodableValue("inputMonitoring")] = flutter::EncodableValue(true);
+  map[flutter::EncodableValue("screenRecording")] = flutter::EncodableValue(!displays.empty());
+  map[flutter::EncodableValue("automation")] = flutter::EncodableValue(true);
+  map[flutter::EncodableValue("microphone")] = flutter::EncodableValue(true);
+  map[flutter::EncodableValue("desktopFolder")] = flutter::EncodableValue(desktopOk);
+  map[flutter::EncodableValue("documentsFolder")] = flutter::EncodableValue(docsOk);
+  map[flutter::EncodableValue("downloadsFolder")] = flutter::EncodableValue(dlOk);
+  map[flutter::EncodableValue("externalVolumes")] = flutter::EncodableValue(!volumes.empty());
+  map[flutter::EncodableValue("mountedVolumes")] = flutter::EncodableValue(volumes);
+  map[flutter::EncodableValue("fullDiskAccess")] = flutter::EncodableValue(elevated);
+  map[flutter::EncodableValue("isElevated")] = flutter::EncodableValue(elevated);
+  map[flutter::EncodableValue("displays")] = flutter::EncodableValue(displays);
+  map[flutter::EncodableValue("authorizedFolders")] = flutter::EncodableValue(authFolders);
+  return map;
+}
+
+bool FlutterWindow::RequestWindowsPermission(const std::string& key) {
+  if (key == "elevation" || key == "fullDiskAccess") {
+    if (IsProcessElevated()) return true;
+    wchar_t exePath[MAX_PATH]{};
+    if (::GetModuleFileNameW(nullptr, exePath, MAX_PATH) == 0) return false;
+    HINSTANCE res = ::ShellExecuteW(
+        GetHandle(), L"runas", exePath, L"--elevated-takeover", nullptr, SW_SHOWNORMAL);
+    if (reinterpret_cast<INT_PTR>(res) > 32) {
+      explicit_quit_ = true;
+      ::DestroyWindow(GetHandle());
+      return true;
+    }
+    return false;
+  }
+  if (key == "microphone") {
+    OpenWindowsSettingsPane("microphone");
+    return true;
+  }
+  if (key == "storage") {
+    OpenWindowsSettingsPane("storage");
+    return true;
+  }
+  return true;
+}
+
+void FlutterWindow::OpenWindowsSettingsPane(const std::string& pane) const {
+  const wchar_t* uri = L"ms-settings:privacy";
+  if (pane == "microphone") {
+    uri = L"ms-settings:privacy-microphone";
+  } else if (pane == "screenRecording" || pane == "displays") {
+    uri = L"ms-settings:display";
+  } else if (pane == "storage" || pane == "fullDiskAccess") {
+    uri = L"ms-settings:windowsdefender";
+  }
+  ::ShellExecuteW(GetHandle(), L"open", uri, nullptr, nullptr, SW_SHOWNORMAL);
+}
+
+std::vector<std::string> FlutterWindow::PromptAuthorizedFolder() {
+  std::vector<std::string> paths = LoadAuthorizedFolders();
+  IFileOpenDialog* pfd = nullptr;
+  if (FAILED(::CoCreateInstance(CLSID_FileOpenDialog, nullptr, CLSCTX_INPROC_SERVER, IID_PPV_ARGS(&pfd))) || !pfd) {
+    return paths;
+  }
+  DWORD options = 0;
+  if (SUCCEEDED(pfd->GetOptions(&options))) {
+    pfd->SetOptions(options | FOS_PICKFOLDERS | FOS_FORCEFILESYSTEM | FOS_ALLOWMULTISELECT);
+  }
+  pfd->SetTitle(L"Authorize Folder or Drive for Oneova Agent");
+  if (SUCCEEDED(pfd->Show(GetHandle()))) {
+    IShellItemArray* items = nullptr;
+    if (SUCCEEDED(pfd->GetResults(&items)) && items) {
+      DWORD count = 0;
+      items->GetCount(&count);
+      for (DWORD i = 0; i < count; ++i) {
+        IShellItem* item = nullptr;
+        if (SUCCEEDED(items->GetItemAt(i, &item)) && item) {
+          PWSTR pszPath = nullptr;
+          if (SUCCEEDED(item->GetDisplayName(SIGDN_FILESYSPATH, &pszPath)) && pszPath) {
+            std::string utf8 = WideToUtf8(pszPath);
+            if (!utf8.empty() && std::find(paths.begin(), paths.end(), utf8) == paths.end()) {
+              paths.push_back(utf8);
+            }
+            ::CoTaskMemFree(pszPath);
+          }
+          item->Release();
+        }
+      }
+      items->Release();
+      SaveAuthorizedFolders(paths);
+    }
+  }
+  pfd->Release();
+  return paths;
 }
