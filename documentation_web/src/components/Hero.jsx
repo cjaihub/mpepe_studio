@@ -1,25 +1,33 @@
 import React from 'react';
 import PhoneMockup from './PhoneMockup';
 
-export default function Hero({ onOpenDownload, onOpenHelp }) {
+export default function Hero({
+  theme = 'dark',
+  showcase,
+  onOpenDownload,
+  onOpenHelp,
+  onOpenOvaAssistant,
+  onSelectDoc,
+}) {
   return (
     <section className="hero-section" id="showcase">
       <div className="hero-grid">
         <div className="hero-content">
           <div className="status-pill">
             <span className="status-dot-pulse" />
-            <span>ONEOVA ECOSYSTEM · CREATOR STUDIO, AI &amp; HELP CENTER</span>
+            <span>AFRICA&apos;S CREATOR ECONOMY · MONETIZE · SELL · VERIFY</span>
           </div>
 
           <h1 className="hero-title">
-            Create, Stream, Grade &amp; Stay Supported.{' '}
-            <span className="hero-title-gradient">All In One Studio.</span>
+            Powering Africa&apos;s Creator Economy.{' '}
+            <span className="hero-title-gradient">Monetize Every Moment.</span>
           </h1>
 
           <p className="hero-subtitle">
-            Go live in 4K with real-time GPU Looks, edit Reels with AI cutouts, summon Ova
-            hands-free from your phone or Mac &amp; Windows Desktop Agent, and cash out via
-            M-Pesa and local payouts—backed by a guided Help Center and plain-language rules.
+            Built so African creators, merchants, and communities earn real income directly from
+            what they share. Launch verified <strong>Oneova 3D Shops</strong>, accept local
+            currencies and mobile money in <strong>Oneova Wallet</strong>, carry one trusted{' '}
+            <strong>Oneova Global ID</strong>, and get live help whenever you need it.
           </p>
 
           <div className="hero-cta-group">
@@ -51,7 +59,7 @@ export default function Hero({ onOpenDownload, onOpenHelp }) {
               type="button"
               className="app-store-btn android"
               onClick={onOpenDownload}
-              aria-label="Download Oneova Mobile App"
+              aria-label="Download Oneova App"
             >
               <span className="store-icon">
                 <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.3">
@@ -61,42 +69,49 @@ export default function Hero({ onOpenDownload, onOpenHelp }) {
                 </svg>
               </span>
               <div className="store-text-wrap">
-                <span className="store-label">iOS &amp; Android</span>
-                <span className="store-name">Get Mobile App</span>
+                <span className="store-label">Mobile &amp; Desktop</span>
+                <span className="store-name">Get Oneova</span>
               </div>
             </button>
 
-            <a href="#desktop" className="qr-trigger-btn" style={{ textDecoration: 'none' }}>
-              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2">
-                <rect x="2" y="3" width="20" height="14" rx="2" />
-                <line x1="8" y1="21" x2="16" y2="21" />
-                <line x1="12" y1="17" x2="12" y2="21" />
-              </svg>
-              <span>Mac &amp; Windows</span>
-            </a>
+            {onOpenOvaAssistant && (
+              <button
+                type="button"
+                className="qr-trigger-btn"
+                onClick={onOpenOvaAssistant}
+              >
+                <span style={{ color: 'var(--brand-pink)' }}>✦</span>
+                <span>Ask Live Support AI</span>
+              </button>
+            )}
           </div>
 
-          <div className="hero-trust-bar">
+          <div className="hero-trust-bar hero-trust-4">
             <div className="trust-item">
-              <span className="trust-stat"><span className="pink">1.</span> START</span>
-              <span className="trust-desc">Account, Passkeys &amp; Safety</span>
+              <span className="trust-stat"><span className="pink">01</span> SHOPS</span>
+              <span className="trust-desc">3D Showrooms &amp; Live Goods</span>
             </div>
             <div className="trust-item">
-              <span className="trust-stat"><span className="blue">2.</span> CREATE</span>
-              <span className="trust-desc">4K Live, Looks &amp; Studio</span>
+              <span className="trust-stat"><span className="blue">02</span> WALLET</span>
+              <span className="trust-desc">M-Pesa, MoMo &amp; Local Cashouts</span>
             </div>
             <div className="trust-item">
-              <span className="trust-stat"><span className="pink">3.</span> OVA AI</span>
-              <span className="trust-desc">Power-Button &amp; Desktop Skills</span>
+              <span className="trust-stat"><span className="pink">03</span> GLOBAL ID</span>
+              <span className="trust-desc">Verified Personal &amp; Business ID</span>
             </div>
             <div className="trust-item">
-              <span className="trust-stat"><span className="blue">4.</span> EARN</span>
-              <span className="trust-desc">M-Pesa, MoMo &amp; 3D Shops</span>
+              <span className="trust-stat"><span className="blue">04</span> OVA AI</span>
+              <span className="trust-desc">Live Diagnostics &amp; Desktop Agent</span>
             </div>
           </div>
         </div>
 
-        <PhoneMockup />
+        <PhoneMockup
+          theme={theme}
+          showcase={showcase}
+          onOpenOvaAssistant={onOpenOvaAssistant}
+          onSelectDoc={onSelectDoc}
+        />
       </div>
     </section>
   );

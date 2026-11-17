@@ -1,108 +1,78 @@
-import React, { useState, useRef, useEffect, useMemo } from 'react';
-import { getOfficialPdfHref, getStandaloneLegalHref } from '../data/platformCatalog';
+import React, { useEffect, useRef, useState } from 'react';
+import {
+  pollSupportSessionMessages,
+  runSupportAgentTurn,
+  sendSupportSessionMessage,
+  signInOneovaSupportUser,
+  signOutOneovaSupportUser,
+  subscribeOneovaAuth,
+  subscribeSignedInTicketMessages,
+} from '../services/publicDocsClient';
 
-const ISSUE_TILES = [
+const ISSUE_TYPES = [
   {
-    id: 'account',
-    label: 'Account',
+    id: 'wallet',
+    label: 'Wallet & Payouts',
+    icon: '💳',
+    tint: 'amber',
+    prompt: 'Check my Oneova Wallet balance, mobile-money setup, or pending payouts',
+  },
+  {
+    id: 'shops',
+    label: '3D Shops',
+    icon: '🛍️',
     tint: 'pink',
-    query: 'sign in account passkey oneova id deletion',
-    icon: (
-      <svg width="15" height="15" viewBox="0 0 24 24" fill="currentColor">
-        <path d="M12 12a4.5 4.5 0 1 0-4.5-4.5A4.5 4.5 0 0 0 12 12Zm0 2c-4.4 0-8 2.2-8 5v1h16v-1c0-2.8-3.6-5-8-5Z" />
-      </svg>
-    ),
+    prompt: 'Inspect my Oneova 3D Shop storefront and active products or fix missing featured items',
+  },
+  {
+    id: 'identity',
+    label: 'Global ID & KYC',
+    icon: '🪪',
+    tint: 'blue',
+    prompt: 'Check my Oneova Global ID verification status or KYC review progress',
   },
   {
     id: 'live',
-    label: 'LIVE',
+    label: 'Live & Gifts',
+    icon: '🎥',
     tint: 'pink',
-    query: '4k live broadcast studio pk shop',
-    icon: (
-      <svg width="15" height="15" viewBox="0 0 24 24" fill="currentColor">
-        <path d="M17 10.5V7a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v10a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-3.5l4 4v-11l-4 4Z" />
-      </svg>
-    ),
+    prompt: 'Help with Live Stage, Presenter Goods pinning, or fan gift earnings',
   },
   {
-    id: 'interaction',
-    label: 'Interaction',
+    id: 'account',
+    label: 'Account & Safety',
+    icon: '🛡️',
     tint: 'blue',
-    query: 'chat calls encryption translate notifications',
-    icon: (
-      <svg width="15" height="15" viewBox="0 0 24 24" fill="currentColor">
-        <path d="M4 4h16a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H8l-5 4V6a2 2 0 0 1 2-2Z" />
-      </svg>
-    ),
+    prompt: 'Diagnose my account status, SIM-recycle protection, or security holds',
   },
   {
     id: 'desktop',
-    label: 'Desktop',
-    tint: 'blue',
-    query: 'desktop agent mac windows permissions hotkey creative skills',
-    icon: (
-      <svg width="15" height="15" viewBox="0 0 24 24" fill="currentColor">
-        <path d="M3 4h18a1 1 0 0 1 1 1v11a1 1 0 0 1-1 1H3a1 1 0 0 1-1-1V5a1 1 0 0 1 1-1Zm6 15h6v2H9v-2Z" />
-      </svg>
-    ),
-  },
-  {
-    id: 'post',
-    label: 'Studio / Post',
-    tint: 'blue',
-    query: 'color grade lut editor post rotoscope',
-    icon: (
-      <svg width="15" height="15" viewBox="0 0 24 24" fill="currentColor">
-        <path d="M12 5v14M5 12h14" stroke="currentColor" strokeWidth="2.6" strokeLinecap="round" />
-      </svg>
-    ),
-  },
-  {
-    id: 'monetization',
-    label: 'Monetization',
-    tint: 'amber',
-    query: 'm-pesa momo payouts coins biz monetization',
-    icon: (
-      <svg width="15" height="15" viewBox="0 0 24 24" fill="currentColor">
-        <circle cx="12" cy="12" r="9" />
-      </svg>
-    ),
-  },
-  {
-    id: 'feed',
-    label: 'Feed & Reels',
-    tint: 'blue',
-    query: 'reels feed translate captions stories',
-    icon: (
-      <svg width="15" height="15" viewBox="0 0 24 24" fill="currentColor">
-        <path d="M8 5v14l11-7-11-7Z" />
-      </svg>
-    ),
-  },
-  {
-    id: 'other',
-    label: 'Other',
+    label: 'Desktop Agent',
+    icon: '🖥️',
     tint: 'slate',
-    query: 'privacy zero data sales safety law ticket',
-    icon: (
-      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4">
-        <line x1="4" y1="7" x2="20" y2="7" />
-        <line x1="4" y1="12" x2="20" y2="12" />
-        <line x1="4" y1="17" x2="14" y2="17" />
-      </svg>
-    ),
+    prompt: 'Help setting up Oneova Desktop on Mac or Windows, startup, and permissions',
+  },
+  {
+    id: 'reels',
+    label: 'Feed & Chat',
+    icon: '💬',
+    tint: 'blue',
+    prompt: 'Questions about Reels Remix attribution, encrypted chat, or live call translation',
+  },
+  {
+    id: 'human',
+    label: 'Human Admin',
+    icon: '👤',
+    tint: 'pink',
+    directHuman: true,
+    prompt: 'Connect me directly to a live human Oneova admin to review my issue in real time.',
   },
 ];
 
-/**
- * Modern Oneova Support & Ova Help Drawer.
- * Modeled on clean issue-first Help Center triage with real guide linking
- * and one-click Support Ticket escalation.
- */
 export default function OvaAssistantWidget({
   isOpen,
-  onClose,
   onOpen,
+  onClose,
   docs = [],
   onSelectDoc,
   onOpenTickets,
@@ -111,433 +81,556 @@ export default function OvaAssistantWidget({
   const [messages, setMessages] = useState([]);
   const [inputText, setInputText] = useState('');
   const [isThinking, setIsThinking] = useState(false);
-  const messagesEndRef = useRef(null);
-  const inputRef = useRef(null);
+  const [isMinimized, setIsMinimized] = useState(false);
+  const [activeCategory, setActiveCategory] = useState('other');
+  const [supportUser, setSupportUser] = useState(null);
+  const [authBusy, setAuthBusy] = useState(false);
+
+  // Live escalated ticket session (links user <-> AI <-> real-time /admin human operator)
+  const [liveSession, setLiveSession] = useState(() => {
+    try {
+      const saved = sessionStorage.getItem('oneova_live_support_session');
+      return saved ? JSON.parse(saved) : null;
+    } catch {
+      return null;
+    }
+  });
+  const [serverThreadMsgs, setServerThreadMsgs] = useState([]);
+  const scrollEndRef = useRef(null);
 
   useEffect(() => {
-    if (isOpen && messagesEndRef.current) {
-      messagesEndRef.current.scrollIntoView({ behavior: 'smooth' });
-    }
-  }, [messages, isOpen, isThinking]);
+    scrollEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+  }, [messages, serverThreadMsgs, isThinking, isOpen]);
 
+  // Lazy auth listener once drawer has been opened at least once
   useEffect(() => {
-    if (isOpen && inputRef.current) {
-      setTimeout(() => inputRef.current?.focus(), 140);
-    }
+    if (!isOpen) return undefined;
+    let active = true;
+    let unsub = () => {};
+    subscribeOneovaAuth((user) => {
+      if (active) setSupportUser(user);
+    })
+      .then((fn) => {
+        if (active && typeof fn === 'function') unsub = fn;
+        else if (typeof fn === 'function') fn();
+      })
+      .catch(() => {});
+    return () => {
+      active = false;
+      unsub();
+    };
   }, [isOpen]);
 
-  const knowledgeBase = useMemo(() => {
-    return docs.map((doc) => {
-      const allText = [
-        doc.title,
-        doc.category,
-        doc.inShort,
-        ...(doc.sections || []).flatMap((s) => [
-          s.heading,
-          s.summary,
-          s.callout,
-          ...(s.bullets || []),
-        ]),
-      ]
-        .join(' ')
-        .toLowerCase();
+  useEffect(() => {
+    try {
+      if (liveSession?.ticketId) {
+        sessionStorage.setItem('oneova_live_support_session', JSON.stringify(liveSession));
+      } else {
+        sessionStorage.removeItem('oneova_live_support_session');
+      }
+    } catch {}
+  }, [liveSession]);
 
-      return {
-        id: doc.id,
-        doc,
-        title: doc.title,
-        category: doc.category,
-        inShort: doc.inShort,
-        allText,
-      };
-    });
-  }, [docs]);
+  // Real-time Firestore listener when signed in; PIN-verified live polling when guest
+  useEffect(() => {
+    if (!isOpen || !liveSession?.ticketId) return undefined;
 
-  const answerQuery = (userQuery) => {
-    const q = userQuery.toLowerCase().trim();
-    let matchedDoc = null;
-    let skillName = 'Oneova Support';
-    let plainExplanation = '';
-    let keyPoints = [];
-
-    if (
-      q.includes('desktop') ||
-      q.includes('mac') ||
-      q.includes('windows') ||
-      q.includes('hotkey') ||
-      q.includes('permissions') ||
-      q.includes('davinci') ||
-      q.includes('logic')
-    ) {
-      matchedDoc = knowledgeBase.find((k) => k.id === 'security-desktop-ecosystem')?.doc;
-      skillName = 'Desktop Agent & Permissions';
-      plainExplanation =
-        'Oneova Desktop Agent runs natively on macOS and Windows with Launch on Startup, global hotkeys (⌥Space / Alt+Space), multi-monitor cursor control, and creative suite automation (DaVinci Resolve, Logic Pro, Adobe).';
-      keyPoints = [
-        'Tap the Shield icon in Desktop Agent to grant Storage, Screen Recording, Mouse/Keyboard, and Automation toggles.',
-        'If macOS toggles look stuck after updating, click "Reset Permission Cache" inside the Shield sheet and re-enable.',
-        'Use ⌥Space (Mac) or Alt+Space (Windows) over any full-screen studio app to summon the Floating HUD.',
-      ];
-    } else if (
-      q.includes('m-pesa') ||
-      q.includes('mpesa') ||
-      q.includes('momo') ||
-      q.includes('payout') ||
-      q.includes('coin') ||
-      q.includes('monetiz') ||
-      q.includes('wallet')
-    ) {
-      matchedDoc = knowledgeBase.find((k) => k.id === 'wallet-biz-commerce')?.doc;
-      skillName = 'Wallet & Mobile Money';
-      plainExplanation =
-        'You can open a Biz Shop with zero payout blocker and configure M-Pesa, MTN MoMo, Airtel Money, Orange, or Stripe withdrawals anytime inside Wallet → Payouts.';
-      keyPoints = [
-        'Creator gifts and Biz sales are held safely in local currency inside Oneova Wallet.',
-        'Oneova never requests, transmits, or stores mobile-money or bank PINs.',
-        'Chargeback and SIM-recycle protections shield your balance automatically.',
-      ];
-    } else if (
-      q.includes('power') ||
-      q.includes('holla') ||
-      q.includes('highlight') ||
-      q.includes('translate screen') ||
-      q.includes('ova')
-    ) {
-      matchedDoc = knowledgeBase.find((k) => k.id === 'ova-ai-lab')?.doc;
-      skillName = 'Ova AI & Screen Vision';
-      plainExplanation =
-        'Set Oneova as your Default Assistant under Settings → Ova Triggers to summon Ova with the Power button over any app—with Vertex Live voice, Circle/Highlight analysis, and instant in-place screen translation.';
-      keyPoints = [
-        'Zero app switching: tap Translate Screen ("A文") inside the overlay to read foreign text directly where it appears.',
-        'Voice modes run end-to-end on Vertex Live Native Audio with personalized natural tone.',
-        'All assistant threads and desktop commands stay synced with your account.',
-      ];
-    } else if (
-      q.includes('live') ||
-      q.includes('pk') ||
-      q.includes('3d') ||
-      q.includes('shop') ||
-      q.includes('broadcast')
-    ) {
-      matchedDoc = knowledgeBase.find((k) => k.id === 'live-studio')?.doc;
-      skillName = 'Live Studio & 3D Shops';
-      plainExplanation =
-        'Studio (+) → Live opens the 6-step Live wizard with real-time GPU Looks, Boost Beauty, multi-guest co-host panels, 3D product shelves, and RTMP restreaming.';
-      keyPoints = [
-        'Adaptive WebRTC simulcast scales cleanly from fast fiber down to low-bandwidth 3G bundles.',
-        'Hold auctions, raffles, polls, and live shopping checkouts directly on stage.',
-      ];
-    } else if (
-      q.includes('chat') ||
-      q.includes('call') ||
-      q.includes('notification') ||
-      q.includes('interaction')
-    ) {
-      matchedDoc = knowledgeBase.find((k) => k.id === 'creator-rooms')?.doc;
-      skillName = 'Chats, Voice & E2EE Calls';
-      plainExplanation =
-        '1:1 DMs, group rooms, and WebRTC video calls support FrameCryptor end-to-end encryption, live translated captions/audio, and quiet ring-only notification defaults.';
-      keyPoints = [
-        'Verify your peer safety code anytime via the Oneova Shield pill inside calls.',
-        'Live voice interpreter translates between spoken languages in real time.',
-      ];
-    } else if (
-      q.includes('privacy') ||
-      q.includes('teen') ||
-      q.includes('delete') ||
-      q.includes('safety') ||
-      q.includes('law')
-    ) {
-      matchedDoc = knowledgeBase.find((k) => k.id === 'policy-privacy')?.doc;
-      skillName = 'Trust, Privacy & Deletion';
-      plainExplanation =
-        'Oneova enforces zero personal-data sales, strict 13–17 teen safety defaults with 116 helplines, and 2-tap self-service data export and account deletion.';
-      keyPoints = [
-        'Private chats and unposted drafts are never used to train external public AI models.',
-        'Compliant with Kenya ODPC, Nigeria NDPA, South Africa POPIA, and EU GDPR/DSA.',
-      ];
-    } else if (q.includes('own') || q.includes('ip') || q.includes('sign') || q.includes('passkey') || q.includes('account')) {
-      matchedDoc = knowledgeBase.find((k) => k.id === 'policy-terms-of-service')?.doc;
-      skillName = 'Account & Creator Rights';
-      plainExplanation =
-        'You own 100% of every reel, look, and broadcast you create on Oneova, and your login is protected by WebAuthn passkeys and SIM-recycle verification.';
-      keyPoints = [
-        'Delete or export your original masters anytime with zero lock-in.',
-        'If you lost phone access, open Support Tickets to verify recovery.',
-      ];
-    } else {
-      let bestScore = 0;
-      let bestCandidate = knowledgeBase[0]?.doc;
-      const tokens = q.split(/\s+/).filter((w) => w.length > 2);
-      knowledgeBase.forEach((entry) => {
-        let score = 0;
-        tokens.forEach((token) => {
-          if (entry.title.toLowerCase().includes(token)) score += 5;
-          if (entry.category.toLowerCase().includes(token)) score += 3;
-          if (entry.inShort.toLowerCase().includes(token)) score += 4;
-          if (entry.allText.includes(token)) score += 1;
-        });
-        if (score > bestScore) {
-          bestScore = score;
-          bestCandidate = entry.doc;
-        }
+    let unsubSnapshot = () => {};
+    if (supportUser?.uid) {
+      unsubSnapshot = subscribeSignedInTicketMessages(liveSession.ticketId, (msgs) => {
+        setServerThreadMsgs(msgs);
       });
-      matchedDoc = bestCandidate;
-      skillName = matchedDoc?.category || 'Oneova Help Center';
-      plainExplanation =
-        matchedDoc?.inShort ||
-        'Here is the most relevant guide from the Oneova Help Center.';
-      keyPoints = (matchedDoc?.sections || [])
-        .flatMap((s) => (s.bullets || []).slice(0, 2))
-        .slice(0, 3);
     }
 
-    return { matchedDoc, skillName, plainExplanation, keyPoints };
+    let stopped = false;
+    const pollNow = async () => {
+      try {
+        const res = await pollSupportSessionMessages({
+          ticketId: liveSession.ticketId,
+          trackingCode: liveSession.trackingCode,
+          accessPin: liveSession.accessPin,
+        });
+        if (stopped || !res) return;
+        setLiveSession((prev) =>
+          prev
+            ? {
+                ...prev,
+                status: res.status || prev.status,
+                handledByName: res.handledByName || prev.handledByName || '',
+              }
+            : prev
+        );
+        if (Array.isArray(res.messages)) {
+          setServerThreadMsgs(res.messages);
+        }
+      } catch {
+        // Silent retry on transient network glitch
+      }
+    };
+
+    pollNow();
+    const timer = setInterval(pollNow, supportUser?.uid ? 12000 : 4000);
+
+    return () => {
+      stopped = true;
+      clearInterval(timer);
+      unsubSnapshot();
+    };
+  }, [isOpen, liveSession?.ticketId, supportUser?.uid]);
+
+  const handleSignIn = async () => {
+    setAuthBusy(true);
+    try {
+      await signInOneovaSupportUser();
+    } catch (err) {
+      setMessages((prev) => [
+        ...prev,
+        {
+          id: `auth-err-${Date.now()}`,
+          sender: 'ova',
+          skill: 'Sign-In Notice',
+          text: err?.message || 'Sign-in window closed. You can still ask questions or escalate to a human admin.',
+        },
+      ]);
+    } finally {
+      setAuthBusy(false);
+    }
   };
 
-  const handleSend = (textOverride = null) => {
-    const query = (textOverride ?? inputText).trim();
-    if (!query) return;
+  const handleSend = async (rawText, opts = {}) => {
+    const clean = String(rawText || '').trim();
+    if (!clean || isThinking) return;
+
+    const category = opts.category || activeCategory;
+    if (opts.category) setActiveCategory(opts.category);
+    setInputText('');
+
+    // If user is already inside an escalated live human thread & not explicitly invoking AI
+    if (liveSession?.ticketId && !opts.forceAi) {
+      setIsThinking(true);
+      try {
+        await sendSupportSessionMessage({
+          ticketId: liveSession.ticketId,
+          trackingCode: liveSession.trackingCode,
+          accessPin: liveSession.accessPin,
+          text: clean,
+        });
+        const refreshed = await pollSupportSessionMessages({
+          ticketId: liveSession.ticketId,
+          trackingCode: liveSession.trackingCode,
+          accessPin: liveSession.accessPin,
+        });
+        if (Array.isArray(refreshed?.messages)) {
+          setServerThreadMsgs(refreshed.messages);
+        }
+      } catch (err) {
+        setMessages((prev) => [
+          ...prev,
+          {
+            id: `msg-err-${Date.now()}`,
+            sender: 'ova',
+            skill: 'Connection Retry',
+            text: err?.message || 'Could not deliver message to live queue. Please retry.',
+          },
+        ]);
+      } finally {
+        setIsThinking(false);
+      }
+      return;
+    }
 
     const userMsg = {
       id: `user-${Date.now()}`,
       sender: 'user',
-      text: query,
+      text: clean,
     };
-
-    setMessages((prev) => [...prev, userMsg]);
-    if (!textOverride) setInputText('');
+    const nextHistory = [...messages, userMsg];
+    setMessages(nextHistory);
     setIsThinking(true);
 
-    setTimeout(() => {
-      const result = answerQuery(query);
+    try {
+      const res = await runSupportAgentTurn({
+        message: clean,
+        category,
+        requestHuman: Boolean(opts.directHuman),
+        history: nextHistory.slice(-8).map((m) => ({
+          sender: m.sender,
+          text: m.text,
+        })),
+        ticketId: liveSession?.ticketId || '',
+        trackingCode: liveSession?.trackingCode || '',
+        accessPin: liveSession?.accessPin || '',
+        pageContext: currentDocId || '',
+      });
+
+      const docLinks = (Array.isArray(res?.suggestedDocIds) ? res.suggestedDocIds : [])
+        .map((id) => docs.find((d) => d.id === id))
+        .filter(Boolean);
+
       setMessages((prev) => [
         ...prev,
         {
           id: `ova-${Date.now()}`,
           sender: 'ova',
-          text: result.plainExplanation,
-          skill: result.skillName,
-          bullets: result.keyPoints,
-          docLink: result.matchedDoc,
+          skill: res?.skillUsed || 'Oneova Live AI',
+          checks: Array.isArray(res?.liveChecksRun) ? res.liveChecksRun : [],
+          text: res?.reply || 'Checked live status cleanly.',
+          docLinks,
         },
       ]);
+
+      if (res?.escalation?.ticketId) {
+        setLiveSession({
+          ticketId: res.escalation.ticketId,
+          trackingCode: res.escalation.trackingCode,
+          accessPin: res.escalation.accessPin,
+          status: res.escalation.status || 'escalated_human',
+          handledByName: '',
+        });
+      }
+    } catch (err) {
+      setMessages((prev) => [
+        ...prev,
+        {
+          id: `err-${Date.now()}`,
+          sender: 'ova',
+          skill: 'Support Escalation',
+          text:
+            err?.message ||
+            'Unable to reach the live AI specialist right now. Tap "Talk to Human" below to open a real-time support session.',
+        },
+      ]);
+    } finally {
       setIsThinking(false);
-    }, 260);
+    }
   };
 
-  const handleDocJump = (docId) => {
-    onSelectDoc?.(docId);
-    const docsEl = document.getElementById('docs');
-    if (docsEl) docsEl.scrollIntoView({ behavior: 'smooth' });
+  const resetThread = () => {
+    setMessages([]);
+    setServerThreadMsgs([]);
+    setLiveSession(null);
+    setActiveCategory('other');
   };
 
-  const activeDoc = docs.find((d) => d.id === currentDocId) || docs[0];
-  const pdfHref = activeDoc ? getOfficialPdfHref(activeDoc) : null;
-  const standaloneHref = activeDoc ? getStandaloneLegalHref(activeDoc) : null;
-
-  if (!isOpen) {
-    return (
-      <button
-        type="button"
-        className="ova-floating-launcher"
-        onClick={onOpen}
-        aria-label="Open Oneova Support"
-        title="Oneova Support & AI Help"
-      >
-        <span className="ova-launcher-glow" aria-hidden="true" />
-        <span className="ova-launcher-icon">✦</span>
-        <span className="ova-launcher-text">Oneova Support</span>
-        <span className="ova-launcher-badge">HELP</span>
-      </button>
-    );
-  }
+  const isInTriageHome = messages.length === 0 && !liveSession?.ticketId;
 
   return (
-    <aside className="ova-chat-drawer modern-support" aria-label="Oneova Support Drawer">
-      <div className="ova-support-header">
-        <div className="ova-support-title-row">
-          <div className="ova-support-mark">
-            <img src="/assets/images/oneova_logo.jpg" alt="Oneova" />
-            <span className="ova-online-dot" />
-          </div>
-          <div>
-            <strong>Oneova Support</strong>
-            <span>Instant guide triage &amp; ticket help</span>
-          </div>
-        </div>
-        <div className="ova-header-controls">
-          {messages.length > 0 && (
-            <button
-              type="button"
-              className="ova-ctrl-btn"
-              onClick={() => setMessages([])}
-              title="Back to issue selector"
-              aria-label="Back to issue selector"
-            >
-              ↺
-            </button>
-          )}
-          <button
-            type="button"
-            className="ova-ctrl-btn"
-            onClick={onClose}
-            aria-label="Close support drawer"
-          >
-            ✕
-          </button>
-        </div>
-      </div>
+    <>
+      {!isOpen && (
+        <button
+          type="button"
+          className="ova-floating-launcher"
+          onClick={() => {
+            setIsMinimized(false);
+            onOpen();
+          }}
+          aria-label="Open Oneova Live Support"
+        >
+          <span className="ova-launcher-glow" />
+          <span className="ova-launcher-icon">✦</span>
+          <span className="ova-launcher-text">
+            {liveSession?.ticketId ? 'Live Support Active' : 'Oneova Support'}
+          </span>
+          <span className="ova-launcher-badge">LIVE AI</span>
+        </button>
+      )}
 
-      <div className="ova-messages-area">
-        {messages.length === 0 ? (
-          <div className="ova-triage-view">
-            <p className="ova-triage-sub">We’re here to help!</p>
-            <h4 className="ova-triage-title">Select an issue type.</h4>
-
-            <div className="ova-issue-grid">
-              {ISSUE_TILES.map((tile) => (
-                <button
-                  key={tile.id}
-                  type="button"
-                  className="ova-issue-tile"
-                  onClick={() => handleSend(`Help with ${tile.label}: ${tile.query}`)}
-                >
-                  <span className={`ova-tile-icon tint-${tile.tint}`}>{tile.icon}</span>
-                  <span className="ova-tile-label">{tile.label}</span>
-                </button>
-              ))}
+      {isOpen && (
+        <div
+          className={`ova-chat-drawer modern-support ${isMinimized ? 'minimized' : ''}`}
+          role="dialog"
+          aria-label="Oneova Live Support Agent"
+        >
+          <div className="ova-support-header">
+            <div className="ova-support-title-row">
+              <span className="ova-support-mark">O</span>
+              <span>Oneova Support</span>
+              <span
+                className="ova-online-dot"
+                title={liveSession?.ticketId ? 'Connected to Live Queue' : 'Live AI Specialist Ready'}
+              />
             </div>
 
-            <p className="ova-ai-disclaimer">
-              Responses are assisted by Ova AI &amp; Oneova Docs.{' '}
-              <a href="/privacy.html" target="_blank" rel="noreferrer">
-                Learn more
-              </a>
-            </p>
+            <div className="ova-header-controls">
+              {(messages.length > 0 || liveSession?.ticketId) && (
+                <button
+                  type="button"
+                  className="ova-ctrl-btn"
+                  onClick={resetThread}
+                  title="New support topic"
+                  aria-label="Start new topic"
+                >
+                  ↺
+                </button>
+              )}
+              <button
+                type="button"
+                className="ova-ctrl-btn"
+                onClick={() => setIsMinimized(!isMinimized)}
+                aria-label={isMinimized ? 'Expand' : 'Minimize'}
+              >
+                {isMinimized ? '□' : '—'}
+              </button>
+              <button
+                type="button"
+                className="ova-ctrl-btn"
+                onClick={onClose}
+                aria-label="Close Oneova Support"
+              >
+                ✕
+              </button>
+            </div>
           </div>
-        ) : (
-          <div className="ova-thread-list">
-            {messages.map((msg) => (
-              <div key={msg.id} className={`ova-msg-row ${msg.sender}`}>
-                {msg.sender === 'ova' ? (
-                  <div className="ova-bot-bubble">
-                    <span className="ova-skill-chip">{msg.skill}</span>
-                    <p>{msg.text}</p>
-                    {msg.bullets?.length > 0 && (
-                      <ul>
-                        {msg.bullets.map((b, idx) => (
-                          <li key={idx}>{b}</li>
-                        ))}
-                      </ul>
-                    )}
-                    <div className="ova-bot-links">
-                      {msg.docLink && (
-                        <button
-                          type="button"
-                          className="ova-doc-jump-btn"
-                          onClick={() => handleDocJump(msg.docLink.id)}
-                        >
-                          Read “{msg.docLink.title}” →
-                        </button>
-                      )}
-                      {onOpenTickets && (
-                        <button
-                          type="button"
-                          className="ova-ticket-esc-btn"
-                          onClick={() => {
-                            onClose();
-                            onOpenTickets();
-                          }}
-                        >
-                          Open Support Ticket
-                        </button>
-                      )}
-                    </div>
-                  </div>
+
+          {!isMinimized && (
+            <>
+              {/* Account Binding Strip for Real Live Diagnostics */}
+              <div className="ova-auth-bar">
+                {supportUser ? (
+                  <>
+                    <span className="ova-auth-status live">
+                      ✓ Live Linked: {supportUser.displayName}
+                    </span>
+                    <button
+                      type="button"
+                      className="ova-auth-mini-btn"
+                      onClick={signOutOneovaSupportUser}
+                    >
+                      Sign out
+                    </button>
+                  </>
                 ) : (
-                  <div className="ova-user-bubble">{msg.text}</div>
+                  <>
+                    <span className="ova-auth-status">
+                      Sign in for live Wallet, ID &amp; 3D Shop auto-fixes
+                    </span>
+                    <button
+                      type="button"
+                      className="ova-auth-mini-btn primary"
+                      disabled={authBusy}
+                      onClick={handleSignIn}
+                    >
+                      {authBusy ? 'Signing in…' : 'Sign in'}
+                    </button>
+                  </>
                 )}
               </div>
-            ))}
 
-            {isThinking && (
-              <div className="ova-bot-bubble thinking">
-                <div className="typing-dots">
-                  <span />
-                  <span />
-                  <span />
+              {/* Active Escalated Live Human Banner */}
+              {liveSession?.ticketId && (
+                <div className="ova-live-escalated-bar">
+                  <div className="ova-escalated-top">
+                    <span className="live-dot-mini" />
+                    <strong>
+                      {liveSession.handledByName
+                        ? `${liveSession.handledByName} (Human Admin)`
+                        : 'Live Human Queue Connected'}
+                    </strong>
+                    <span className="ova-esc-code">{liveSession.trackingCode}</span>
+                  </div>
+                  <div className="ova-escalated-sub">
+                    Status: <b>{String(liveSession.status || 'escalated').replace('_', ' ')}</b>
+                    {liveSession.accessPin ? ` · PIN: ${liveSession.accessPin}` : ''}
+                  </div>
                 </div>
+              )}
+
+              <div className="ova-messages-area">
+                {isInTriageHome ? (
+                  <div className="ova-triage-view">
+                    <p className="ova-triage-sub">Live AI Agent · Real-Time Admin Handoff</p>
+                    <h3 className="ova-triage-title">
+                      How can we help you today?
+                      <br />
+                      Select a topic or describe your issue.
+                    </h3>
+
+                    <div className="ova-issue-grid">
+                      {ISSUE_TYPES.map((tile) => (
+                        <button
+                          key={tile.id}
+                          type="button"
+                          className="ova-issue-tile"
+                          onClick={() =>
+                            handleSend(tile.prompt, {
+                              category: tile.id === 'human' ? 'other' : tile.id,
+                              directHuman: Boolean(tile.directHuman),
+                            })
+                          }
+                        >
+                          <span className={`ova-tile-icon tint-${tile.tint}`}>{tile.icon}</span>
+                          <span className="ova-tile-label">{tile.label}</span>
+                        </button>
+                      ))}
+                    </div>
+
+                    <p className="ova-ai-disclaimer">
+                      AI inspects only your signed-in account data.{' '}
+                      {onOpenTickets && (
+                        <button type="button" onClick={onOpenTickets}>
+                          Track Ticket PIN
+                        </button>
+                      )}
+                    </p>
+                  </div>
+                ) : (
+                  <div className="ova-thread-list">
+                    {/* Pre-escalation local messages */}
+                    {!liveSession?.ticketId &&
+                      messages.map((msg) => (
+                        <div key={msg.id} className={`ova-msg-row ${msg.sender}`}>
+                          {msg.sender === 'user' ? (
+                            <div className="ova-user-bubble">{msg.text}</div>
+                          ) : (
+                            <div className="ova-bot-bubble">
+                              {msg.skill && <span className="ova-skill-chip">✦ {msg.skill}</span>}
+                              {msg.checks?.length > 0 && (
+                                <div className="ova-checks-row">
+                                  {msg.checks.map((ck) => (
+                                    <span key={ck} className="ova-check-pill">
+                                      ✓ {ck}
+                                    </span>
+                                  ))}
+                                </div>
+                              )}
+                              <p>{msg.text}</p>
+                              <div className="ova-bot-links">
+                                {msg.docLinks?.map((d) => (
+                                  <button
+                                    key={d.id}
+                                    type="button"
+                                    className="ova-doc-jump-btn"
+                                    onClick={() => onSelectDoc?.(d.id)}
+                                  >
+                                    {d.title} →
+                                  </button>
+                                ))}
+                                <button
+                                  type="button"
+                                  className="ova-ticket-esc-btn"
+                                  onClick={() =>
+                                    handleSend(
+                                      `Please connect a human admin for this: ${msg.text.slice(0, 120)}`,
+                                      { directHuman: true }
+                                    )
+                                  }
+                                >
+                                  Talk to Human Admin
+                                </button>
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                      ))}
+
+                    {/* Live synced Firestore messages thread once escalated */}
+                    {liveSession?.ticketId &&
+                      serverThreadMsgs.map((m) => {
+                        const isUser = m.senderRole === 'user';
+                        return (
+                          <div
+                            key={m.id}
+                            className={`ova-msg-row ${isUser ? 'user' : 'ova'}`}
+                          >
+                            {isUser ? (
+                              <div className="ova-user-bubble">{m.text}</div>
+                            ) : (
+                              <div
+                                className={`ova-bot-bubble ${
+                                  m.senderRole === 'admin' ? 'human-admin' : ''
+                                }`}
+                              >
+                                <span className="ova-skill-chip">
+                                  {m.senderRole === 'admin'
+                                    ? `👤 ${m.senderName || 'Oneova Human Admin'}`
+                                    : '✦ Oneova AI Summary'}
+                                </span>
+                                <p>{m.text}</p>
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })}
+
+                    {isThinking && (
+                      <div className="ova-msg-row ova">
+                        <div className="ova-bot-bubble thinking">
+                          <div className="typing-dots">
+                            <span />
+                            <span />
+                            <span />
+                          </div>
+                        </div>
+                      </div>
+                    )}
+                    <div ref={scrollEndRef} />
+                  </div>
+                )}
               </div>
-            )}
-            <div ref={messagesEndRef} />
-          </div>
-        )}
-      </div>
 
-      <form
-        className="ova-support-composer"
-        onSubmit={(e) => {
-          e.preventDefault();
-          handleSend();
-        }}
-      >
-        <input
-          ref={inputRef}
-          type="text"
-          className="ova-support-input"
-          placeholder="Send a message..."
-          value={inputText}
-          onChange={(e) => setInputText(e.target.value)}
-        />
-        {onOpenTickets && (
-          <button
-            type="button"
-            className="ova-plus-ticket-btn"
-            onClick={() => {
-              onClose();
-              onOpenTickets();
-            }}
-            title="Create or track a Support Ticket"
-            aria-label="Create or track a Support Ticket"
-          >
-            +
-          </button>
-        )}
-        <button
-          type="submit"
-          className="ova-send-btn"
-          disabled={!inputText.trim() || isThinking}
-          aria-label="Send message"
-        >
-          <svg
-            width="15"
-            height="15"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="2.5"
-          >
-            <line x1="22" y1="2" x2="11" y2="13" />
-            <polygon points="22 2 15 22 11 13 2 9 22 2" />
-          </svg>
-        </button>
-      </form>
+              <form
+                className="ova-support-composer"
+                onSubmit={(e) => {
+                  e.preventDefault();
+                  handleSend(inputText);
+                }}
+              >
+                <input
+                  type="text"
+                  className="ova-support-input"
+                  placeholder={
+                    liveSession?.ticketId
+                      ? 'Reply live to Oneova Admin...'
+                      : 'Ask AI to check wallet, 3D shop, or ID...'
+                  }
+                  value={inputText}
+                  onChange={(e) => setInputText(e.target.value)}
+                  disabled={isThinking}
+                />
+                {!liveSession?.ticketId && (
+                  <button
+                    type="button"
+                    className="ova-plus-ticket-btn"
+                    onClick={() =>
+                      handleSend(
+                        inputText.trim() || 'I need a human Oneova admin to assist me live.',
+                        { directHuman: true }
+                      )
+                    }
+                    title="Escalate immediately to live Human Admin"
+                    aria-label="Talk to Human Admin"
+                  >
+                    👤
+                  </button>
+                )}
+                <button
+                  type="submit"
+                  className="ova-send-btn"
+                  disabled={!inputText.trim() || isThinking}
+                  aria-label="Send message"
+                >
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+                    <line x1="22" y1="2" x2="11" y2="13" />
+                    <polygon points="22 2 15 22 11 13 2 9 22 2" />
+                  </svg>
+                </button>
+              </form>
 
-      {(pdfHref || standaloneHref) && messages.length > 0 && (
-        <div className="ova-drawer-mini-footer">
-          {standaloneHref && (
-            <a href={standaloneHref} target="_blank" rel="noreferrer">
-              Legal Page ↗
-            </a>
-          )}
-          {pdfHref && (
-            <a href={pdfHref} download>
-              ⬇ Official PDF
-            </a>
+              <div className="ova-drawer-mini-footer">
+                <button
+                  type="button"
+                  onClick={() => {
+                    resetThread();
+                    onOpenTickets?.();
+                  }}
+                >
+                  Need a separate offline form? Submit or track Support Ticket →
+                </button>
+              </div>
+            </>
           )}
         </div>
       )}
-    </aside>
+    </>
   );
 }

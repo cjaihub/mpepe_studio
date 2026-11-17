@@ -6,86 +6,114 @@ import {
 
 const FAQ_ITEMS = [
   {
-    q: 'How to sign in, use Passkeys or recover your Oneova ID',
-    docId: 'security-desktop-ecosystem',
-    answer:
-      'Sign in using your phone number, email, Google account, or hardware Passkey. Every phone account includes SIM-recycle protection and encrypted cloud backups.',
-  },
-  {
-    q: 'How to set Power-Button Ova, Highlight & Zero-Switch Translate',
-    docId: 'ova-ai-lab',
-    answer:
-      'Go to Me → Settings → Ova Triggers and set Oneova as Default Assistant. Long-press your power button over any app to circle/highlight text or translate the whole screen in place.',
-  },
-  {
-    q: 'Mac & Windows Desktop Agent: startup, permissions & creative skills',
-    docId: 'security-desktop-ecosystem',
-    answer:
-      'Download Oneova Desktop from #desktop, enable Launch on Startup, and tap the Shield icon to allow Storage, Multiple Screens, Mouse, Keyboard, and Studio App Automation (DaVinci Resolve, Logic Pro, Adobe).',
-  },
-  {
-    q: 'How 4K Live Studio, PK duels & 3D Shops work',
-    docId: 'live-studio',
-    answer:
-      'Tap Studio (+) → Live to launch our unified 6-step Live Studio wizard with real-time GPU Looks, Co-Host stages, live polls, multi-platform RTMP restream, and interactive 3D shopping pins.',
-  },
-  {
-    q: 'M-Pesa, MTN MoMo, Airtel Money & Creator Balance payouts',
+    q: 'How do M-Pesa, MTN MoMo, Airtel Money & Creator Payouts work?',
     docId: 'wallet-biz-commerce',
     answer:
-      'Creator gift shares and Biz sales settle in local currency in your Oneova Wallet. Withdraw directly to M-Pesa, MTN MoMo, Airtel Money, Orange, or bank rails after quick KYC verification.',
+      'Earnings from Live Gifts and Oneova 3D Shops settle in your local currency Wallet. Verify your 18+ Oneova Global ID and withdraw directly via M-Pesa STK, MTN MoMo, Airtel Money, Orange, Wave, or bank transfer (1.5% MoMo / 1% bank fee).',
   },
   {
-    q: 'Who owns my Reels, Sounds & .oneovapack Looks?',
+    q: 'How do I open a Oneova 3D Shop & pin products to a Live broadcast?',
+    docId: 'biz-3d-shops',
+    answer:
+      'Open Biz / Studio → 3D Shop Setup, add your store name, location, and first product (with optional 3D model or photos). There is zero payout blocker to start selling, and you can pin Presenter’s Goods live on stage.',
+  },
+  {
+    q: 'What is Oneova Global ID and how do I verify Personal & Business identity?',
+    docId: 'global-id',
+    answer:
+      'Oneova Global ID gives African and global creators one verified digital identity and Business KYB credential. Complete ID + face liveness once to unlock higher payout limits, shop badges, and link up to 3 handles.',
+  },
+  {
+    q: 'How do Live Support AI & real-time human help resolve account problems?',
+    docId: 'ova-ai-lab',
+    answer:
+      'Open Oneova Support anytime in the bottom-right corner. Sign in with Oneova to let our live AI check and repair Wallet, Global ID, or 3D Shop issues directly—or request a live human admin in real time.',
+  },
+  {
+    q: 'How to protect your Oneova account against SIM recycling & scams',
+    docId: 'security-desktop-ecosystem',
+    answer:
+      'Link a recovery email or Passkey and enable App PIN + biometrics. Because carriers reassign inactive phone numbers, adding a second factor ensures nobody else can access your Wallet or Global ID.',
+  },
+  {
+    q: 'Who owns my Reels, original sounds, and 3D Shop assets?',
     docId: 'policy-terms-of-service',
     answer:
-      'You retain 100% copyright and ownership of every reel, voiceover, 3D scan, and `.oneovapack` grade you publish. Oneova takes only a limited license to host and stream it at your command.',
+      'You keep 100% ownership and copyright over everything you create on Oneova. Original sounds preserve creator attribution automatically whenever others remix them.',
   },
   {
-    q: 'Chats, Disappearing Messages & Encrypted WebRTC Calls',
-    docId: 'creator-rooms',
+    q: 'How does Power-Button Ova work over any phone screen + Desktop?',
+    docId: 'ova-ai-lab',
     answer:
-      '1:1 chats, voice notes, and WebRTC video calls support FrameCryptor end-to-end encryption, live two-way Vertex speech translation, and safety-number verification.',
+      'Set Oneova as your Default Assistant on mobile to highlight any text or translate foreign screens in place without switching apps, or install Mac & Windows Oneova Desktop for startup hands-free help.',
   },
   {
     q: 'Deleting your account or exporting your data in 2 taps',
     docId: 'policy-data-deletion',
     answer:
-      'Open Me → Settings → Privacy & Security → Delete Account (or visit /deletion.html) to export a full ZIP archive or schedule permanent erasure with a 30-day safety window.',
+      'Open Me → Settings → Privacy & Security → Delete Account (or visit /deletion.html) to export a full archive or schedule permanent erasure with a 30-day safety window.',
   },
 ];
 
 const CORE_CATEGORIES = [
   {
-    id: 'account',
-    title: 'Account & Oneova ID',
-    desc: 'Manage sign-in, passkeys, SIM-recycle shields, notifications & data export.',
-    docId: 'security-desktop-ecosystem',
+    id: 'wallet',
+    title: 'Oneova Wallet & Pay',
+    desc: 'Personal & Business balances, M-Pesa, MoMo, Airtel payouts, Scan-to-Pay QR & fees.',
+    docId: 'wallet-biz-commerce',
     accent: 'blue',
     icon: (
       <svg width="42" height="42" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
-        <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2" />
-        <circle cx="12" cy="7" r="4" />
+        <circle cx="12" cy="12" r="9" />
+        <path d="M12 7v10M9.5 9.5a2.5 2.5 0 0 1 5 0c0 1.5-5 1.5-5 3a2.5 2.5 0 0 0 5 0" />
       </svg>
     ),
   },
   {
-    id: 'using',
-    title: 'Reels, Feed & Creation',
-    desc: 'Master the Triple-Stream Feed, Stories, 1-tap Remix & multi-platform Share.',
-    docId: 'reels-feed',
+    id: 'shops',
+    title: 'Oneova 3D Shops & Biz',
+    desc: 'Launch 3D product rooms, sell live with Presenter’s Goods, manage escrow orders.',
+    docId: 'biz-3d-shops',
     accent: 'pink',
     icon: (
       <svg width="42" height="42" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
-        <rect x="3" y="3" width="18" height="18" rx="3" />
-        <polygon points="10 8 16 12 10 16 10 8" />
+        <path d="M6 2 3 6v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6l-3-4Z" />
+        <line x1="3" y1="6" x2="21" y2="6" />
+        <path d="M16 10a4 4 0 0 1-8 0" />
+      </svg>
+    ),
+  },
+  {
+    id: 'global-id',
+    title: 'Oneova Global ID & KYC',
+    desc: 'Personal verification, Business KYB, shareable ID card & linked handles.',
+    docId: 'global-id',
+    accent: 'blue',
+    icon: (
+      <svg width="42" height="42" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
+        <rect x="3" y="4" width="18" height="16" rx="2" />
+        <circle cx="9" cy="10" r="2.5" />
+        <path d="M6.5 16c.5-1.8 4.5-1.8 5 0" />
+      </svg>
+    ),
+  },
+  {
+    id: 'live',
+    title: 'Live Stage & Fan Gifts',
+    desc: 'Host Solo or Co-Host stages, run polls & raffles, and earn from fan Coins & Gifts.',
+    docId: 'live-studio',
+    accent: 'pink',
+    icon: (
+      <svg width="42" height="42" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
+        <polygon points="23 7 16 12 23 17 23 7" />
+        <rect x="1" y="5" width="15" height="14" rx="2" />
       </svg>
     ),
   },
   {
     id: 'ova-desktop',
-    title: 'Ova AI & Desktop Agent',
-    desc: 'Power-button Holla overlay, live screen translate, Mac & Windows studio control.',
+    title: 'Ova AI & Live Support',
+    desc: 'Power-button screen translate, Desktop startup agent & live human support escalation.',
     docId: 'ova-ai-lab',
     accent: 'blue',
     icon: (
@@ -97,35 +125,9 @@ const CORE_CATEGORIES = [
     ),
   },
   {
-    id: 'live',
-    title: 'Oneova LIVE & 3D Shops',
-    desc: 'Go live in 4K, run PK battles, Co-Host stages & pin 3D shoppable items.',
-    docId: 'live-studio',
-    accent: 'pink',
-    icon: (
-      <svg width="42" height="42" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
-        <polygon points="23 7 16 12 23 17 23 7" />
-        <rect x="1" y="5" width="15" height="14" rx="2" />
-      </svg>
-    ),
-  },
-  {
-    id: 'monetization',
-    title: 'Monetization & Wallet',
-    desc: 'Understand Coins, Gifts, M-Pesa/MoMo payouts, Biz shops & .oneovapack.',
-    docId: 'wallet-biz-commerce',
-    accent: 'blue',
-    icon: (
-      <svg width="42" height="42" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
-        <circle cx="12" cy="12" r="9" />
-        <path d="M12 7v10M9.5 9.5a2.5 2.5 0 0 1 5 0c0 1.5-5 1.5-5 3a2.5 2.5 0 0 0 5 0" />
-      </svg>
-    ),
-  },
-  {
     id: 'privacy',
-    title: 'Privacy, Safety & Laws',
-    desc: 'Zero data sales, 116 Teen Safety, anti-scam protection, ODPC, NDPA & POPIA.',
+    title: 'Safety, IP & African Laws',
+    desc: 'Zero data sales, anti-scam shields, 116 Teen Safety, ODPC, NDPA, POPIA & GDPR.',
     docId: 'policy-privacy',
     accent: 'pink',
     icon: (
@@ -138,24 +140,24 @@ const CORE_CATEGORIES = [
 
 const EXTRA_CATEGORIES = [
   {
-    id: 'looks',
-    title: 'Studio Editor, Looks & Color Grading',
-    desc: 'SAM 2 cutouts, GPU waveform scopes, Scope Sentinel fixes & hardware export.',
-    docId: 'looks-color-engine',
+    id: 'reels',
+    title: 'Creator Feed, Stories & Remix Attribution',
+    desc: 'Following · For You · Biz discovery tuned for affordable mobile data bundles.',
+    docId: 'reels-feed',
     accent: 'pink',
   },
   {
-    id: 'sharing',
-    title: 'Universal 4-Platform Publishing & Rooms',
-    desc: 'One-tap sync to TikTok, Reels, Shorts & E2EE voice-translated Rooms.',
-    docId: 'universal-sharing',
+    id: 'chat',
+    title: 'Encrypted Chat & Translated Calls',
+    desc: 'End-to-end encrypted messaging with live cross-language voice translation.',
+    docId: 'translated-chat',
     accent: 'blue',
   },
   {
-    id: 'thermal',
-    title: 'Device Performance & Thermal Shield',
-    desc: 'Smart resolution scaling for mid-range & flagship Android and iOS devices.',
-    docId: 'device-thermal-advisor',
+    id: 'security',
+    title: 'SIM-Recycle Guard & Account Health',
+    desc: 'Protect your phone account, biometric locks & device stability.',
+    docId: 'security-desktop-ecosystem',
     accent: 'blue',
   },
 ];
@@ -173,7 +175,7 @@ export default function HelpCenterHub({
   // Support Tickets modal
   const [isTicketsOpen, setIsTicketsOpen] = useState(initialTicketOpen);
   const [ticketTab, setTicketTab] = useState('new'); // 'new' | 'track'
-  const [category, setCategory] = useState('account');
+  const [category, setCategory] = useState('wallet');
   const [subject, setSubject] = useState('');
   const [contactEmail, setContactEmail] = useState('');
   const [message, setMessage] = useState('');
@@ -287,7 +289,7 @@ export default function HelpCenterHub({
               <input
                 type="search"
                 className="hc-search-input"
-                placeholder="Search help articles, M-Pesa, Desktop Agent, privacy..."
+                placeholder="Search Oneova Wallet, 3D Shops, Global ID, M-Pesa, safety..."
                 value={queryText}
                 onChange={(e) => setQueryText(e.target.value)}
                 aria-label="Search help articles"
@@ -511,12 +513,13 @@ export default function HelpCenterHub({
                     value={category}
                     onChange={(e) => setCategory(e.target.value)}
                   >
-                    <option value="account">Account, Login &amp; Oneova ID</option>
-                    <option value="live">4K Live Studio &amp; 3D Shops</option>
-                    <option value="interaction">Chats, Calls &amp; Notifications</option>
+                    <option value="wallet">Wallet, M-Pesa/MoMo &amp; Payouts</option>
+                    <option value="shops">Oneova 3D Shops &amp; Orders</option>
+                    <option value="identity">Oneova Global ID &amp; KYC</option>
+                    <option value="account">Account, Sign-In &amp; Security</option>
+                    <option value="live">Live Stage, Goods &amp; Fan Gifts</option>
                     <option value="desktop">Mac &amp; Windows Desktop Agent</option>
-                    <option value="post">Reels, Studio Editor &amp; Looks</option>
-                    <option value="monetization">Wallet, M-Pesa/MoMo &amp; Payouts</option>
+                    <option value="reels">Feed, Remix &amp; Encrypted Chat</option>
                     <option value="privacy">Privacy, Safety &amp; Reporting</option>
                     <option value="other">Other Question</option>
                   </select>

@@ -358,5 +358,11 @@ export { ledgerOutboxDeliver, ledgerOutboxRetry } from './ledger/outbox';
 export { mapsGateway } from './mapsGateway';
 // Chat message push notifications and disappearing message expiry sweep.
 export { onChatMessagePush, sweepExpiredChatMessages } from './chatMessaging';
-// Help Center support ticket intake & PIN-protected lookup.
-export { submitSupportTicket, lookupSupportTicket } from './supportTickets';
+// Help Center support ticket intake, PIN-protected lookup, live AI agent & realtime admin chat.
+export {
+  submitSupportTicket,
+  lookupSupportTicket,
+  supportAgentTurn,
+  supportSessionSendMessage,
+  pollSupportSession,
+} from './supportTickets';

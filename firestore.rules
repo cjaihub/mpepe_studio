@@ -201,12 +201,28 @@ rules_version = '2';
 //   - subject: string (immutable)
 //   - message: string (immutable)
 //   - contactEmail: string (immutable)
-//   - status: string ('open' | 'in_progress' | 'resolved' | 'closed')
+//   - aiSummary: string (optional server AI diagnostics summary, immutable)
+//   - status: string ('open' | 'in_progress' | 'escalated_human' | 'resolved' | 'closed')
+//   - needsHuman: bool (optional)
 //   - adminReply: string (optional, <= 2000 chars)
 //   - repliedByUid: string (optional, <= 128 chars)
 //   - repliedByName: string (optional, <= 120 chars)
+//   - handledByUid: string (optional, <= 128 chars)
+//   - handledByName: string (optional, <= 120 chars)
+//   - lastMessageAt: timestamp (optional)
+//   - lastMessagePreview: string (optional, <= 300 chars)
+//   - unreadByAdmin: bool (optional)
+//   - unreadByUser: bool (optional)
 //   - createdAt: timestamp (immutable)
 //   - updatedAt: timestamp (required on update)
+// Subcollections:
+//   - messages/{messageId}: immutable live chat messages (admin or ticket owner; AI via Admin SDK)
+//     - senderRole: string ('user' | 'admin' | 'ai')
+//     - senderUid: string (== request.auth.uid on client create)
+//     - senderName: string (0..120 chars)
+//     - text: string (1..2000 chars)
+//     - actionTaken: string (optional, <= 200 chars)
+//     - createdAt: timestamp (== request.time on client create)
 //
 // ===============================================================
 
@@ -2372,19 +2388,30 @@ service cloud.firestore {
              (data[field] is string && data[field].size() <= maxLen);
     }
 
+    function isValidSupportTicketOptionalBool(data, field) {
+      return !(field in data) || data[field] is bool;
+    }
+
     function isValidSupportTicketUpdate() {
       let data = request.resource.data;
       return data.keys().hasOnly([
                'uid', 'trackingCode', 'pinHash', 'category', 'subject',
-               'message', 'contactEmail', 'status', 'adminReply',
-               'repliedByUid', 'repliedByName', 'createdAt', 'updatedAt'
+               'message', 'contactEmail', 'aiSummary', 'status', 'needsHuman',
+               'adminReply', 'repliedByUid', 'repliedByName',
+               'handledByUid', 'handledByName', 'lastMessageAt',
+               'lastMessagePreview', 'unreadByAdmin', 'unreadByUser',
+               'createdAt', 'updatedAt'
              ]) &&
              data.diff(resource.data).affectedKeys().hasOnly([
-               'status', 'adminReply', 'repliedByUid', 'repliedByName', 'updatedAt'
+               'status', 'needsHuman', 'adminReply', 'repliedByUid',
+               'repliedByName', 'handledByUid', 'handledByName',
+               'lastMessageAt', 'lastMessagePreview', 'unreadByAdmin',
+               'unreadByUser', 'updatedAt'
              ]) &&
              data.get('uid', null) == resource.data.get('uid', null) &&
              data.get('trackingCode', null) == resource.data.get('trackingCode', null) &&
              data.get('pinHash', null) == resource.data.get('pinHash', null) &&
+             data.get('aiSummary', null) == resource.data.get('aiSummary', null) &&
              data.get('createdAt', null) == resource.data.get('createdAt', null) &&
              data.get('subject', null) == resource.data.get('subject', null) &&
              data.get('message', null) == resource.data.get('message', null) &&
@@ -2392,15 +2419,52 @@ service cloud.firestore {
              data.get('contactEmail', null) == resource.data.get('contactEmail', null) &&
              ('status' in data) &&
              data.status is string &&
-             data.status in ['open', 'in_progress', 'resolved', 'closed'] &&
+             data.status in ['open', 'in_progress', 'escalated_human', 'resolved', 'closed'] &&
+             isValidSupportTicketOptionalBool(data, 'needsHuman') &&
+             isValidSupportTicketOptionalBool(data, 'unreadByAdmin') &&
+             isValidSupportTicketOptionalBool(data, 'unreadByUser') &&
              isValidSupportTicketOptionalString(data, 'adminReply', 2000) &&
              isValidSupportTicketOptionalString(data, 'repliedByUid', 128) &&
              isValidSupportTicketOptionalString(data, 'repliedByName', 120) &&
+             isValidSupportTicketOptionalString(data, 'handledByUid', 128) &&
+             isValidSupportTicketOptionalString(data, 'handledByName', 120) &&
+             isValidSupportTicketOptionalString(data, 'lastMessagePreview', 300) &&
+             (!('lastMessageAt' in data) || data.lastMessageAt is timestamp) &&
              ('updatedAt' in data) &&
              data.updatedAt is timestamp;
     }
 
+    function isValidSupportMessageCreate(expectedRole) {
+      let data = request.resource.data;
+      return data.keys().hasOnly([
+               'senderRole', 'senderUid', 'senderName',
+               'text', 'actionTaken', 'createdAt'
+             ]) &&
+             data.keys().hasAll([
+               'senderRole', 'senderUid', 'senderName',
+               'text', 'createdAt'
+             ]) &&
+             data.senderRole is string &&
+             data.senderRole == expectedRole &&
+             data.senderUid is string &&
+             data.senderUid == request.auth.uid &&
+             data.senderName is string &&
+             data.senderName.size() <= 120 &&
+             data.text is string &&
+             data.text.size() >= 1 &&
+             data.text.size() <= 2000 &&
+             isValidSupportTicketOptionalString(data, 'actionTaken', 200) &&
+             data.createdAt is timestamp &&
+             data.createdAt == request.time;
+    }
+
     match /support_tickets/{ticketId} {
+      function isSupportTicketOwner() {
+        return isNonAnonymousSignedIn() &&
+               exists(/databases/$(database)/documents/support_tickets/$(ticketId)) &&
+               get(/databases/$(database)/documents/support_tickets/$(ticketId)).data.get('uid', '') == request.auth.uid;
+      }
+
       allow get, list: if isPlatformDocsAdmin() ||
                           (isNonAnonymousSignedIn() &&
                            resource != null &&
@@ -2408,6 +2472,13 @@ service cloud.firestore {
       allow create: if false;
       allow update: if isPlatformDocsAdmin() && isValidSupportTicketUpdate();
       allow delete: if isPlatformDocsAdmin();
+
+      match /messages/{messageId} {
+        allow get, list: if isPlatformDocsAdmin() || isSupportTicketOwner();
+        allow create: if (isPlatformDocsAdmin() && isValidSupportMessageCreate('admin')) ||
+                         (isSupportTicketOwner() && isValidSupportMessageCreate('user'));
+        allow update, delete: if false;
+      }
     }
 
     // ─── Deny everything else ────────────────────────────────────────────────

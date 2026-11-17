@@ -10,15 +10,19 @@ import FloatingVideoWidget from './components/FloatingVideoWidget';
 import OvaAssistantWidget from './components/OvaAssistantWidget';
 import WaveBackground from './components/WaveBackground';
 import Footer from './components/Footer';
-import { usePublicPlatformDocs } from './services/publicDocsClient';
+import {
+  useLiveShowcaseData,
+  usePublicPlatformDocs,
+} from './services/publicDocsClient';
 
 const DownloadModal = lazy(() => import('./components/DownloadModal'));
 const PolicyModal = lazy(() => import('./components/PolicyModal'));
 
 export default function App() {
   const { docs, isLiveConnected, liveOverrideCount } = usePublicPlatformDocs();
+  const showcase = useLiveShowcaseData();
 
-  const [currentDocId, setCurrentDocId] = useState('live-studio');
+  const [currentDocId, setCurrentDocId] = useState('wallet-biz-commerce');
   const [isDownloadOpen, setIsDownloadOpen] = useState(false);
   const [isPolicyOpen, setIsPolicyOpen] = useState(false);
   const [policyTab, setPolicyTab] = useState('guidelines');
@@ -137,8 +141,12 @@ export default function App() {
 
       <main>
         <Hero
+          theme={theme}
+          showcase={showcase}
           onOpenDownload={() => setIsDownloadOpen(true)}
           onOpenHelp={handleOpenHelpCenter}
+          onOpenOvaAssistant={handleOpenOvaAssistant}
+          onSelectDoc={handleSelectDoc}
         />
 
         <HelpCenterHub

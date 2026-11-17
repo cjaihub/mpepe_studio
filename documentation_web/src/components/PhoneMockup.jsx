@@ -1,145 +1,494 @@
-import React, { useState, useRef } from 'react';
+import React, { useMemo, useRef, useState } from 'react';
 
-export default function PhoneMockup() {
-  const [activeScreen, setActiveScreen] = useState('reels');
-  const [activeFeedTab, setActiveFeedTab] = useState('forYou');
+const WALLET_CURRENCIES = {
+  KES: { symbol: 'KES', personal: '48,920', business: '184,500', rail: 'M-Pesa STK · Airtel Money' },
+  NGN: { symbol: 'NGN', personal: '425,000', business: '1,940,000', rail: 'Bank Transfer · Mobile Rails' },
+  GHS: { symbol: 'GHS', personal: '6,840', business: '24,150', rail: 'MTN MoMo · Telecel Cash' },
+  UGX: { symbol: 'UGX', personal: '1,380,000', business: '4,890,000', rail: 'MTN MoMo · Airtel Money' },
+  USD: { symbol: 'USD', personal: '390.00', business: '1,480.00', rail: 'Bank Rail · Card Checkout' },
+};
+
+const ID_PROFILES = {
+  KE: { flag: '🇰🇪', country: 'Kenya', name: 'Amina Wanjiku', handle: '@amina.crafts', level: 'Level 3 · Verified Creator & Merchant', idCode: 'OVA-ID-KE-8841' },
+  NG: { flag: '🇳🇬', country: 'Nigeria', name: 'Tunde Adeyemi', handle: '@tunde.sound', level: 'Level 3 · Verified Creator & Merchant', idCode: 'OVA-ID-NG-5204' },
+  GH: { flag: '🇬🇭', country: 'Ghana', name: 'Kofi Mensah', handle: '@kofi.atelier', level: 'Level 3 · Verified Creator & Merchant', idCode: 'OVA-ID-GH-3197' },
+};
+
+export default function PhoneMockup({
+  theme = 'dark',
+  showcase = { shops: [], products: [], reels: [], liveConnected: false },
+  onOpenOvaAssistant,
+  onSelectDoc,
+}) {
+  const [activeScreen, setActiveScreen] = useState('shops');
+  const [activeFeedTab, setActiveFeedTab] = useState('biz');
   const [liked, setLiked] = useState(false);
-  const [likeCount, setLikeCount] = useState(42);
+  const [likeCount, setLikeCount] = useState(128);
   const [bookmarked, setBookmarked] = useState(false);
   const [floatingEmojis, setFloatingEmojis] = useState([]);
-  const [liveHearts, setLiveHearts] = useState(['💖', '🔥', '✨']);
   const [isMuted, setIsMuted] = useState(true);
   const [isPlaying, setIsPlaying] = useState(true);
+  const [walletKind, setWalletKind] = useState('business');
+  const [walletCurrency, setWalletCurrency] = useState('KES');
+  const [walletHidden, setWalletHidden] = useState(false);
+  const [shopSubMode, setShopSubMode] = useState('live'); // 'live' | 'catalog'
+  const [countryKey, setCountryKey] = useState('KE');
+  const [ovaTranslated, setOvaTranslated] = useState(false);
+  const [lightboxOpen, setLightboxOpen] = useState(false);
   const reelVideoRef = useRef(null);
 
+  const liveShop = useMemo(() => {
+    if (showcase?.shops?.length > 0) return showcase.shops[0];
+    return {
+      name: 'Oneova Creator Store',
+      tagline: 'Pan-African Apparel & Crafted Goods',
+      bio: 'Verified African business selling directly from Live broadcasts and 3D product rooms.',
+      verified: true,
+      categories: ['Fashion', 'Crafts'],
+      avatarUrl: '/assets/images/oneova_logo.jpg',
+    };
+  }, [showcase?.shops]);
+
+  const liveProducts = useMemo(() => {
+    if (showcase?.products?.length > 0) return showcase.products.slice(0, 3);
+    return [
+      {
+        id: 'demo-1',
+        title: 'Handcrafted Leather Sneakers',
+        price: 4500,
+        currency: 'KES',
+        category: 'Footwear',
+        inStock: true,
+        has3d: true,
+      },
+      {
+        id: 'demo-2',
+        title: 'Woven Heritage Jacket',
+        price: 6800,
+        currency: 'KES',
+        category: 'Apparel',
+        inStock: true,
+        has3d: true,
+      },
+    ];
+  }, [showcase?.products]);
+
+  const liveReel = useMemo(() => {
+    if (showcase?.reels?.length > 0) return showcase.reels[0];
+    return {
+      title: 'Building a borderless African creator economy with Oneova',
+      description: 'Go live, showcase 3D shop goods, accept M-Pesa & MoMo in seconds. #oneova #AfricaCreators',
+      likeCount: 128,
+    };
+  }, [showcase?.reels]);
+
+  const walletInfo = WALLET_CURRENCIES[walletCurrency] || WALLET_CURRENCIES.KES;
+  const idInfo = ID_PROFILES[countryKey] || ID_PROFILES.KE;
+
   const toggleReelPlay = () => {
-    if (reelVideoRef.current) {
-      if (reelVideoRef.current.paused) {
-        reelVideoRef.current.play();
-        setIsPlaying(true);
-      } else {
-        reelVideoRef.current.pause();
-        setIsPlaying(false);
-      }
+    if (!reelVideoRef.current) return;
+    if (reelVideoRef.current.paused) {
+      reelVideoRef.current.play();
+      setIsPlaying(true);
+    } else {
+      reelVideoRef.current.pause();
+      setIsPlaying(false);
     }
   };
 
   const toggleReelMute = (e) => {
     e.stopPropagation();
-    if (reelVideoRef.current) {
-      reelVideoRef.current.muted = !isMuted;
-      setIsMuted(!isMuted);
-    }
+    if (!reelVideoRef.current) return;
+    reelVideoRef.current.muted = !isMuted;
+    setIsMuted(!isMuted);
   };
 
   const handleLike = () => {
     if (!liked) {
       setLiked(true);
-      setLikeCount(prev => prev + 1);
+      setLikeCount((prev) => prev + 1);
       spawnEmoji('💖');
     } else {
       setLiked(false);
-      setLikeCount(prev => prev - 1);
+      setLikeCount((prev) => prev - 1);
     }
   };
 
   const spawnEmoji = (emoji) => {
     const id = Date.now() + Math.random();
-    setFloatingEmojis(prev => [...prev, { id, emoji, left: 60 + Math.random() * 25 }]);
+    setFloatingEmojis((prev) => [...prev, { id, emoji, left: 56 + Math.random() * 28 }]);
     setTimeout(() => {
-      setFloatingEmojis(prev => prev.filter(item => item.id !== id));
-    }, 1400);
+      setFloatingEmojis((prev) => prev.filter((item) => item.id !== id));
+    }, 1300);
   };
+
+  const stagePhoneSrc =
+    theme === 'light'
+      ? '/assets/images/live-stage-light.png'
+      : '/assets/images/live-stage-dark.png';
+  const stageWideSrc =
+    theme === 'light'
+      ? '/assets/images/live-studio-wide-light.png'
+      : '/assets/images/live-studio-wide-dark.png';
 
   return (
     <div className="showcase-stage-card">
-      {/* Pink & Blue Ambient Backlight Rays */}
       <div className="stage-pink-ambient-glow" aria-hidden="true" />
       <div className="stage-blue-ambient-glow" aria-hidden="true" />
 
-      {/* Floating Attraction Pill 1: 4K Live Broadcast */}
+      {/* Africa Creator Economy Floating Callouts */}
       <div className="floating-badge-pill top-left">
-        <span className="badge-pulse-dot pink"></span>
+        <span className="badge-pulse-dot pink" />
         <div className="badge-text-group">
-          <span className="badge-title">4K LIVE BROADCAST</span>
-          <span className="badge-sub">● 14.8k Viewers Streaming</span>
+          <span className="badge-title">AFRICA CREATOR ECONOMY</span>
+          <span className="badge-sub">
+            {showcase.liveConnected
+              ? `● ${showcase.shops.length || 1} Open Biz Shop · ${showcase.products.length || 2} Live Items`
+              : 'Live Commerce · 3D Shops · Gifts'}
+          </span>
         </div>
       </div>
 
-      {/* Floating Attraction Pill 2: 1-Tap Universal Share */}
       <div className="floating-badge-pill top-right">
-        <span className="badge-icon-star">✨</span>
+        <span className="badge-icon-star">💳</span>
         <div className="badge-text-group">
-          <span className="badge-title">1-TAP UNIVERSAL SHARE</span>
-          <span className="badge-sub">TikTok · Shorts · Reels · X</span>
+          <span className="badge-title">ONEOVA WALLET &amp; PAY</span>
+          <span className="badge-sub">M-Pesa · MoMo · Airtel · Bank</span>
         </div>
       </div>
 
-      {/* Floating Attraction Pill 3: Trending Sound */}
       <div className="floating-badge-pill bottom-left">
-        <span className="badge-icon-disc">♫</span>
+        <span className="badge-icon-disc">🪪</span>
         <div className="badge-text-group">
-          <span className="badge-title">ORIGINAL SOUND DISC</span>
-          <span className="badge-sub">Oneova Beats (128 BPM)</span>
+          <span className="badge-title">ONEOVA GLOBAL ID</span>
+          <span className="badge-sub">Verified Creators &amp; Merchants</span>
         </div>
       </div>
 
-      {/* Mode Switcher Tabs */}
-      <div className="emulator-controls" role="tablist" aria-label="Mobile Screen Simulator">
+      {/* Real App Interface Switcher */}
+      <div className="emulator-controls" role="tablist" aria-label="Oneova Live Feature Demo">
         <button
+          type="button"
+          className={`sim-tab-btn ${activeScreen === 'shops' ? 'active' : ''}`}
+          onClick={() => setActiveScreen('shops')}
+        >
+          <span>🛍️ Live &amp; 3D Shops</span>
+          <span className="tab-pill-mini pink">Real UI</span>
+        </button>
+        <button
+          type="button"
+          className={`sim-tab-btn ${activeScreen === 'wallet' ? 'active' : ''}`}
+          onClick={() => setActiveScreen('wallet')}
+        >
+          <span>💳 Wallet &amp; Pay</span>
+          <span className="tab-pill-mini">MoMo</span>
+        </button>
+        <button
+          type="button"
+          className={`sim-tab-btn ${activeScreen === 'globalId' ? 'active' : ''}`}
+          onClick={() => setActiveScreen('globalId')}
+        >
+          <span>🪪 Global ID</span>
+          <span className="tab-pill-mini">Verified</span>
+        </button>
+        <button
+          type="button"
           className={`sim-tab-btn ${activeScreen === 'reels' ? 'active' : ''}`}
           onClick={() => setActiveScreen('reels')}
         >
-          <span>⚡ Reels Feed</span>
-          <span className="tab-pill-mini pink">Reference</span>
+          <span>🎬 Feed &amp; Remix</span>
+          <span className="tab-pill-mini pink">Live</span>
         </button>
         <button
-          className={`sim-tab-btn ${activeScreen === 'live' ? 'active' : ''}`}
-          onClick={() => setActiveScreen('live')}
+          type="button"
+          className={`sim-tab-btn ${activeScreen === 'stageWide' ? 'active' : ''}`}
+          onClick={() => setActiveScreen('stageWide')}
         >
-          <span>📹 Live Studio</span>
-          <span className="tab-pill-mini">PK Mode</span>
+          <span>🎥 Studio Stage</span>
+          <span className="tab-pill-mini">Multi-Guest</span>
         </button>
         <button
-          className={`sim-tab-btn ${activeScreen === 'rooms' ? 'active' : ''}`}
-          onClick={() => setActiveScreen('rooms')}
+          type="button"
+          className={`sim-tab-btn ${activeScreen === 'ova' ? 'active' : ''}`}
+          onClick={() => setActiveScreen('ova')}
         >
-          <span>🎙️ Creator Rooms</span>
-          <span className="tab-pill-mini">Stage</span>
-        </button>
-        <button
-          className={`sim-tab-btn ${activeScreen === 'editor' ? 'active' : ''}`}
-          onClick={() => setActiveScreen('editor')}
-        >
-          <span>✂️ Mobile Editor</span>
-          <span className="tab-pill-mini pink">AI Mask</span>
+          <span>✦ Ova AI</span>
+          <span className="tab-pill-mini pink">Live Help</span>
         </button>
       </div>
 
-      {/* The Phone Mockup Frame with Glowing Pink Shadows */}
+      {/* Phone Mockup Frame */}
       <div className="phone-mockup-frame with-pink-shadows">
-        {/* Dynamic Screen Edge Glow */}
-        <div className="screen-edge-pink-highlight"></div>
+        <div className="screen-edge-pink-highlight" />
 
-        {/* Android / Dynamic Top Status Bar (Matching Screenshot 8:31, G, Shield, Wi-Fi, Batt) */}
         <div className="phone-status-bar-real">
           <div className="status-left">
-            <span className="status-clock">8:31</span>
-            <span className="status-icon-g">G</span>
-            <svg width="11" height="11" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2L4 5v6.09c0 5.05 3.41 9.76 8 10.91 4.59-1.15 8-5.86 8-10.91V5l-8-3z"/></svg>
+            <span className="status-clock">9:41</span>
+            <span className="status-icon-g">●</span>
+            <span style={{ fontSize: '0.62rem', fontWeight: 700, opacity: 0.85 }}>Oneova</span>
           </div>
           <div className="status-right">
-            <svg width="13" height="13" viewBox="0 0 24 24" fill="currentColor"><path d="M12 3c-4.97 0-9 4.03-9 9 0 2.12.74 4.07 1.97 5.61L12 22l7.03-4.39C20.26 16.07 21 14.12 21 12c0-4.97-4.03-9-9-9z"/></svg>
-            <svg width="16" height="11" viewBox="0 0 24 14" fill="currentColor"><rect x="1" y="1" width="18" height="12" rx="3" fill="none" stroke="currentColor" strokeWidth="2"/><rect x="3" y="3" width="12" height="8" rx="1.5"/></svg>
+            <span style={{ fontSize: '0.62rem', fontWeight: 700 }}>{walletCurrency}</span>
+            <svg width="15" height="11" viewBox="0 0 24 14" fill="currentColor">
+              <rect x="1" y="1" width="18" height="12" rx="3" fill="none" stroke="currentColor" strokeWidth="2" />
+              <rect x="3" y="3" width="12" height="8" rx="1.5" />
+            </svg>
           </div>
         </div>
 
-        {/* Phone Screen Canvas */}
         <div className="phone-screen-content">
-          {/* SCREEN 1: REELS FEED (FAITHFUL TO REAL SCREENSHOT WITH PLAYING VIDEO) */}
+          {/* SCREEN 1: LIVE COMMERCE & 3D SHOPS (REAL REFERENCE PNG + LIVE FIRESTORE DATA) */}
+          {activeScreen === 'shops' && (
+            <div className="sim-screen-view eco-screen-wrap">
+              <div className="eco-subswitch-bar">
+                <button
+                  type="button"
+                  className={`eco-sub-btn ${shopSubMode === 'live' ? 'active' : ''}`}
+                  onClick={() => setShopSubMode('live')}
+                >
+                  Live Commerce Stage
+                </button>
+                <button
+                  type="button"
+                  className={`eco-sub-btn ${shopSubMode === 'catalog' ? 'active' : ''}`}
+                  onClick={() => setShopSubMode('catalog')}
+                >
+                  Live Firestore Shop ({liveProducts.length})
+                </button>
+              </div>
+
+              {shopSubMode === 'live' ? (
+                <div className="ref-stage-canvas">
+                  <img
+                    src={stagePhoneSrc}
+                    alt="Oneova Live Broadcast and Presenter Goods 3D Shopping Interface"
+                    className="ref-phone-screenshot"
+                  />
+                  <div className="ref-overlay-actions">
+                    <span className="ref-pill-chip">Official UI · Presenter’s Goods 3D Pin</span>
+                    <button
+                      type="button"
+                      className="ref-jump-btn"
+                      onClick={() => setShopSubMode('catalog')}
+                    >
+                      Inspect Live Store →
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                <div className="eco-card-scroll">
+                  <div className="eco-store-banner">
+                    <img
+                      src={liveShop.avatarUrl || '/assets/images/oneova_logo.jpg'}
+                      alt={liveShop.name}
+                      className="eco-store-avatar"
+                    />
+                    <div className="eco-store-info">
+                      <div className="eco-store-title-row">
+                        <strong>{liveShop.name}</strong>
+                        {liveShop.verified && <span className="eco-verified-check">✓</span>}
+                      </div>
+                      <span>{liveShop.tagline}</span>
+                    </div>
+                    <span className="eco-live-tag">{showcase.liveConnected ? 'LIVE DATA' : 'OPEN'}</span>
+                  </div>
+
+                  {liveShop.bio && <p className="eco-store-bio">{liveShop.bio}</p>}
+
+                  <div className="eco-product-list">
+                    {liveProducts.map((p) => (
+                      <div key={p.id} className="eco-product-row">
+                        {p.imageUrl ? (
+                          <img src={p.imageUrl} alt={p.title} className="eco-product-thumb" />
+                        ) : (
+                          <div className="eco-product-thumb placeholder">🛍️</div>
+                        )}
+                        <div className="eco-product-meta">
+                          <strong>{p.title}</strong>
+                          <span>
+                            {p.category || 'Biz Item'} {p.has3d ? '· 3D Ready' : ''} · {p.inStock ? 'In Stock' : 'Sold Out'}
+                          </span>
+                        </div>
+                        <button
+                          type="button"
+                          className="eco-buy-btn"
+                          onClick={() => setActiveScreen('wallet')}
+                        >
+                          {p.currency} {Number(p.price || 0).toLocaleString()}
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+
+                  <button
+                    type="button"
+                    className="eco-full-action-btn"
+                    onClick={() => onSelectDoc?.('wallet-biz-commerce')}
+                  >
+                    Open Your Zero-Blocker Biz Shop Guide →
+                  </button>
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* SCREEN 2: ONEOVA WALLET & PAY (AFRICAN MOBILE MONEY + BUSINESS BALANCE) */}
+          {activeScreen === 'wallet' && (
+            <div className="sim-screen-view eco-screen-wrap eco-wallet-screen">
+              <div className="eco-wallet-head">
+                <div>
+                  <span className="eco-eyebrow">ONEOVA WALLET</span>
+                  <h4>{walletKind === 'business' ? 'Business & Creator Balance' : 'Personal Balance'}</h4>
+                </div>
+                <select
+                  className="eco-currency-select"
+                  aria-label="Select local currency"
+                  value={walletCurrency}
+                  onChange={(e) => setWalletCurrency(e.target.value)}
+                >
+                  {Object.keys(WALLET_CURRENCIES).map((c) => (
+                    <option key={c} value={c}>
+                      {c}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div className="eco-balance-toggle">
+                <button
+                  type="button"
+                  className={walletKind === 'personal' ? 'active' : ''}
+                  onClick={() => setWalletKind('personal')}
+                >
+                  Personal
+                </button>
+                <button
+                  type="button"
+                  className={walletKind === 'business' ? 'active' : ''}
+                  onClick={() => setWalletKind('business')}
+                >
+                  Business (Biz)
+                </button>
+              </div>
+
+              <div className="eco-balance-card">
+                <div className="eco-balance-top">
+                  <span>Available in {walletInfo.symbol}</span>
+                  <button
+                    type="button"
+                    className="eco-eye-btn"
+                    onClick={() => setWalletHidden((v) => !v)}
+                  >
+                    {walletHidden ? 'Show' : 'Hide'}
+                  </button>
+                </div>
+                <div className="eco-balance-amount">
+                  {walletHidden
+                    ? '••••••'
+                    : `${walletInfo.symbol} ${walletKind === 'business' ? walletInfo.business : walletInfo.personal}`}
+                </div>
+                <div className="eco-balance-sub">
+                  Rails: {walletInfo.rail} · Biometric Protected
+                </div>
+              </div>
+
+              <div className="eco-wallet-actions-grid">
+                <button type="button" className="eco-w-action" onClick={() => spawnEmoji('📲')}>
+                  <span>📲</span>
+                  <small>Add Money</small>
+                </button>
+                <button type="button" className="eco-w-action" onClick={() => spawnEmoji('⚡')}>
+                  <span>⚡</span>
+                  <small>Pay ID</small>
+                </button>
+                <button type="button" className="eco-w-action" onClick={() => spawnEmoji('📷')}>
+                  <span>📷</span>
+                  <small>Scan QR</small>
+                </button>
+                <button type="button" className="eco-w-action" onClick={() => spawnEmoji('🏦')}>
+                  <span>🏦</span>
+                  <small>Withdraw</small>
+                </button>
+              </div>
+
+              <div className="eco-ledger-feed">
+                <div className="eco-ledger-row">
+                  <span>Live Shop Order Escrow</span>
+                  <strong className="pos">+{walletInfo.symbol} 1,350</strong>
+                </div>
+                <div className="eco-ledger-row">
+                  <span>Mobile Money Cashout Fee</span>
+                  <strong>1.5% flat · Instant</strong>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* SCREEN 3: ONEOVA GLOBAL ID */}
+          {activeScreen === 'globalId' && (
+            <div className="sim-screen-view eco-screen-wrap eco-id-screen">
+              <div className="eco-wallet-head">
+                <div>
+                  <span className="eco-eyebrow">ONEOVA GLOBAL ID</span>
+                  <h4>Portable Creator Identity</h4>
+                </div>
+                <div className="eco-country-pills">
+                  {Object.keys(ID_PROFILES).map((k) => (
+                    <button
+                      key={k}
+                      type="button"
+                      className={countryKey === k ? 'active' : ''}
+                      onClick={() => setCountryKey(k)}
+                    >
+                      {ID_PROFILES[k].flag}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <div className="eco-id-credential-card">
+                <div className="eco-id-card-top">
+                  <span className="eco-id-flag">{idInfo.flag} {idInfo.country}</span>
+                  <span className="eco-verified-pill">✓ VERIFIED</span>
+                </div>
+                <strong className="eco-id-holder">{idInfo.name}</strong>
+                <span className="eco-id-handle">{idInfo.handle} · {idInfo.idCode}</span>
+                <div className="eco-id-badges-row">
+                  <span>Identity KYC ✓</span>
+                  <span>Business KYB ✓</span>
+                  <span>Biometric Lock ✓</span>
+                </div>
+              </div>
+
+              <div className="eco-id-checklist">
+                <div className="eco-check-item">
+                  <span>🛡️</span>
+                  <div>
+                    <strong>Instant Trust Across Borders</strong>
+                    <small>Unlocks 18+ local-currency payouts, Biz store verification, and fan gifts.</small>
+                  </div>
+                </div>
+                <div className="eco-check-item">
+                  <span>🔗</span>
+                  <div>
+                    <strong>Link Up to 3 Creator Handles</strong>
+                    <small>Verify all your creator &amp; store accounts with one hardware-backed ID.</small>
+                  </div>
+                </div>
+                <div className="eco-check-item">
+                  <span>📱</span>
+                  <div>
+                    <strong>SIM-Recycle &amp; Keystore Guard</strong>
+                    <small>Signed credentials stay inside your phone’s secure vault.</small>
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* SCREEN 4: CREATOR FEED & REMIX */}
           {activeScreen === 'reels' && (
             <div className="sim-screen-view reels-screen-view">
-              {/* Cinematic Video Element Playing in App */}
               <div className="sim-reel-video-bg" onClick={toggleReelPlay}>
                 <video
                   ref={reelVideoRef}
@@ -151,73 +500,57 @@ export default function PhoneMockup() {
                   muted={isMuted}
                   playsInline
                 />
-                {/* Dark Vignette Shading for High-Contrast Text */}
                 <div className="sim-reel-vignette-top" />
                 <div className="sim-reel-vignette-bottom" />
 
-                {/* Floating Sound Toggle Pill */}
                 <button
+                  type="button"
                   className="sim-reel-audio-control"
                   onClick={toggleReelMute}
-                  aria-label={isMuted ? "Unmute reel sound" : "Mute reel sound"}
+                  aria-label={isMuted ? 'Unmute reel sound' : 'Mute reel sound'}
                 >
-                  {isMuted ? (
-                    <>
-                      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M11 5L6 9H2v6h4l5 4V5z"/><line x1="23" y1="9" x2="17" y2="15"/><line x1="17" y1="9" x2="23" y2="15"/></svg>
-                      <span>Sound Off</span>
-                    </>
-                  ) : (
-                    <>
-                      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M11 5L6 9H2v6h4l5 4V5z"/><path d="M19.07 4.93a10 10 0 0 1 0 14.14"/><path d="M15.54 8.46a5 5 0 0 1 0 7.07"/></svg>
-                      <span>Sound On 🔊</span>
-                    </>
-                  )}
+                  <span>{isMuted ? '🔇 Sound Off' : '🔊 Sound On'}</span>
                 </button>
 
-                {/* Pause Icon when user clicks to pause */}
                 {!isPlaying && (
                   <div className="sim-reel-pause-indicator">
-                    <svg width="32" height="32" viewBox="0 0 24 24" fill="#FFFFFF"><polygon points="5 3 19 12 5 21 5 3"/></svg>
+                    <svg width="32" height="32" viewBox="0 0 24 24" fill="#FFFFFF">
+                      <polygon points="5 3 19 12 5 21 5 3" />
+                    </svg>
                   </div>
                 )}
               </div>
 
-              {/* Feed Header (Search · Following / For You / Biz · Bell) */}
               <div className="sim-feed-header-real">
-                <button className="feed-header-icon-btn" aria-label="Search">
-                  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4"><circle cx="11" cy="11" r="7"></circle><path d="m21 21-4.35-4.35"></path></svg>
+                <button type="button" className="feed-header-icon-btn" aria-label="Search">
+                  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4">
+                    <circle cx="11" cy="11" r="7" />
+                    <path d="m21 21-4.35-4.35" />
+                  </svg>
                 </button>
 
                 <div className="sim-tabs-row-real">
-                  <span
-                    className={`sim-feed-tab-real ${activeFeedTab === 'following' ? 'active' : ''}`}
-                    onClick={() => setActiveFeedTab('following')}
-                  >
-                    Following
-                  </span>
-                  <span
-                    className={`sim-feed-tab-real ${activeFeedTab === 'forYou' ? 'active' : ''}`}
-                    onClick={() => setActiveFeedTab('forYou')}
-                  >
-                    For You
-                  </span>
-                  <span
-                    className={`sim-feed-tab-real ${activeFeedTab === 'biz' ? 'active' : ''}`}
-                    onClick={() => setActiveFeedTab('biz')}
-                  >
-                    Biz
-                  </span>
+                  {['following', 'forYou', 'biz'].map((tab) => (
+                    <span
+                      key={tab}
+                      className={`sim-feed-tab-real ${activeFeedTab === tab ? 'active' : ''}`}
+                      onClick={() => setActiveFeedTab(tab)}
+                    >
+                      {tab === 'forYou' ? 'For You' : tab === 'biz' ? 'Biz' : 'Following'}
+                    </span>
+                  ))}
                 </div>
 
                 <div className="feed-header-bell-wrap">
-                  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"></path><path d="M13.73 21a2 2 0 0 1-3.46 0"></path></svg>
-                  <span className="bell-badge-dot"></span>
+                  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2">
+                    <path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9" />
+                    <path d="M13.73 21a2 2 0 0 1-3.46 0" />
+                  </svg>
+                  <span className="bell-badge-dot" />
                 </div>
               </div>
 
-              {/* Stories Bar with 'Your Story' & 'Alex' Portrait (Matches Screenshot) */}
               <div className="sim-stories-bar-real">
-                {/* Story 1: Your Story */}
                 <div className="story-item-real">
                   <div className="story-avatar-wrap story-ring-blue">
                     <div className="story-logo-badge">
@@ -227,128 +560,72 @@ export default function PhoneMockup() {
                   </div>
                   <span className="story-name-label">Your Story</span>
                 </div>
-
-                {/* Story 2: Alex (Exact match with real portrait in screenshot) */}
                 <div className="story-item-real">
                   <div className="story-avatar-wrap story-ring-blue">
                     <img src="/assets/images/alex_avatar.jpg" alt="Alex" className="story-img" />
                   </div>
                   <span className="story-name-label">Alex</span>
                 </div>
-
-                {/* Story 3: Maya (Pink Ring) */}
-                <div className="story-item-real">
+                <div className="story-item-real" onClick={() => setActiveScreen('shops')}>
                   <div className="story-avatar-wrap story-ring-pink">
-                    <div className="story-placeholder-avatar">M</div>
+                    <div className="story-placeholder-avatar live">🛍️</div>
                   </div>
-                  <span className="story-name-label">Maya</span>
-                </div>
-
-                {/* Story 4: Live Studio (Hot Pink Ring) */}
-                <div className="story-item-real">
-                  <div className="story-avatar-wrap story-ring-pink">
-                    <div className="story-placeholder-avatar live">🔥</div>
-                  </div>
-                  <span className="story-name-label" style={{ color: 'var(--brand-pink)' }}>Live</span>
+                  <span className="story-name-label" style={{ color: 'var(--brand-pink)' }}>Shop</span>
                 </div>
               </div>
 
-              {/* Bottom Video Metadata & Shopping Pill */}
               <div className="sim-feed-canvas-real">
-                {/* Left Side: Author Tag, Caption, Runway Tag, Quick Comments */}
                 <div className="sim-author-block-real">
                   <div className="author-tag-pill">
-                    <span className="author-u-badge">U</span>
-                    <span className="author-username">user_a</span>
-                    <svg width="12" height="12" viewBox="0 0 24 24" fill="#007AFF"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-2 15l-5-5 1.41-1.41L10 14.17l7.59-7.59L19 8l-9 9z"/></svg>
+                    <span className="author-u-badge">O</span>
+                    <span className="author-username">{liveShop.name}</span>
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="#007AFF">
+                      <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-2 15l-5-5 1.41-1.41L10 14.17l7.59-7.59L19 8l-9 9z" />
+                    </svg>
                   </div>
 
-                  <p className="author-caption-text">
-                    Exploring the new studio features! #oneova #studio ✨
-                  </p>
+                  <p className="author-caption-text">{liveReel.title}</p>
 
-                  {/* Shopping Pill (Matches Screenshot: Shop Runway Pieces (4) >) */}
-                  <div className="shopping-runway-pill" onClick={() => spawnEmoji('🛍️')}>
+                  <div
+                    className="shopping-runway-pill"
+                    onClick={() => {
+                      setShopSubMode('catalog');
+                      setActiveScreen('shops');
+                    }}
+                  >
                     <span className="shop-icon">🛍️</span>
-                    <span className="shop-text">Shop Runway Pieces (4)</span>
+                    <span className="shop-text">Shop {liveShop.name} ({liveProducts.length})</span>
                     <span className="shop-arrow">›</span>
-                  </div>
-
-                  {/* Add Comment Input with Quick Reactions (Matches Screenshot) */}
-                  <div className="quick-comment-bar-real">
-                    <span className="comment-placeholder">Add comment...</span>
-                    <div className="comment-emoji-tray">
-                      <button className="emoji-btn" onClick={() => spawnEmoji('😍')}>😍</button>
-                      <button className="emoji-btn" onClick={() => spawnEmoji('🔥')}>🔥</button>
-                      <button className="emoji-btn" onClick={() => spawnEmoji('🚀')}>🚀</button>
-                      <button className="emoji-btn" onClick={() => spawnEmoji('🎙️')}>🎙️</button>
-                    </div>
                   </div>
                 </div>
 
-                {/* Right Action Rail (Matches Screenshot: Avatar U+, Heart, Comment, Bookmark, Share, REMIX, Disc) */}
                 <div className="sim-action-rail-real">
-                  {/* Avatar U with (+) badge */}
-                  <div className="rail-avatar-item">
-                    <div className="rail-avatar-circle">U</div>
-                    <span className="rail-avatar-plus">+</span>
-                  </div>
-
-                  {/* Like Button */}
-                  <button className="rail-action-btn" onClick={handleLike} aria-label="Like Video">
+                  <button type="button" className="rail-action-btn" onClick={handleLike} aria-label="Like">
                     <div className={`rail-action-icon ${liked ? 'liked' : ''}`}>
-                      <svg width="22" height="22" viewBox="0 0 24 24" fill={liked ? '#FF2D87' : 'none'} stroke={liked ? '#FF2D87' : '#FFFFFF'} strokeWidth="2.2"><path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"></path></svg>
+                      <svg width="22" height="22" viewBox="0 0 24 24" fill={liked ? '#FF2D87' : 'none'} stroke={liked ? '#FF2D87' : '#FFFFFF'} strokeWidth="2.2">
+                        <path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z" />
+                      </svg>
                     </div>
                     <span className="rail-action-count">{likeCount}</span>
                   </button>
 
-                  {/* Comment Button */}
-                  <div className="rail-action-btn" onClick={() => spawnEmoji('💬')}>
+                  <div className="rail-action-btn" onClick={() => setBookmarked((v) => !v)}>
                     <div className="rail-action-icon">
-                      <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#FFFFFF" strokeWidth="2.2"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path></svg>
+                      <svg width="22" height="22" viewBox="0 0 24 24" fill={bookmarked ? '#FF2D87' : 'none'} stroke={bookmarked ? '#FF2D87' : '#FFFFFF'} strokeWidth="2.2">
+                        <path d="m19 21-7-5-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z" />
+                      </svg>
                     </div>
-                    <span className="rail-action-count">5</span>
+                    <span className="rail-action-count">{bookmarked ? 'Saved' : 'Save'}</span>
                   </div>
 
-                  {/* Bookmark Button */}
-                  <div className="rail-action-btn" onClick={() => setBookmarked(!bookmarked)}>
-                    <div className="rail-action-icon">
-                      <svg width="22" height="22" viewBox="0 0 24 24" fill={bookmarked ? '#FF2D87' : 'none'} stroke={bookmarked ? '#FF2D87' : '#FFFFFF'} strokeWidth="2.2"><path d="m19 21-7-5-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z"></path></svg>
-                    </div>
-                    <span className="rail-action-count">{bookmarked ? 1 : 0}</span>
-                  </div>
-
-                  {/* Share Button */}
-                  <div className="rail-action-btn" onClick={() => spawnEmoji('✨')}>
-                    <div className="rail-action-icon">
-                      <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#FFFFFF" strokeWidth="2.2"><circle cx="18" cy="5" r="3"></circle><circle cx="6" cy="12" r="3"></circle><circle cx="18" cy="19" r="3"></circle><line x1="8.59" y1="13.51" x2="15.42" y2="17.49"></line><line x1="15.41" y1="6.51" x2="8.59" y2="10.49"></line></svg>
-                    </div>
-                    <span className="rail-action-count">0</span>
-                  </div>
-
-                  {/* REMIX Button (Matches Screenshot: Glowing Blue/Purple button with stars) */}
                   <div className="rail-remix-btn" onClick={() => spawnEmoji('⚡')}>
-                    <div className="remix-icon-badge">
-                      <svg width="16" height="16" viewBox="0 0 24 24" fill="#FFFFFF"><path d="M12 2l2.4 7.2h7.6l-6.1 4.5 2.3 7.3-6.2-4.6-6.2 4.6 2.3-7.3-6.1-4.5h7.6z"/></svg>
-                    </div>
+                    <div className="remix-icon-badge">★</div>
                     <span className="remix-label">REMIX</span>
-                  </div>
-
-                  {/* Spinning Vinyl Sound Disc */}
-                  <div className="rail-disc-item">
-                    <div className="spinning-vinyl-disc">
-                      <img src="/assets/images/oneova_logo.jpg" alt="Disc Album Art" className="disc-art" />
-                    </div>
                   </div>
                 </div>
 
-                {/* Floating Emojis Animation */}
-                {floatingEmojis.map(item => (
-                  <div
-                    key={item.id}
-                    className="floating-spark-emoji"
-                    style={{ right: `${item.left}px` }}
-                  >
+                {floatingEmojis.map((item) => (
+                  <div key={item.id} className="floating-spark-emoji" style={{ right: `${item.left}px` }}>
                     {item.emoji}
                   </div>
                 ))}
@@ -356,205 +633,120 @@ export default function PhoneMockup() {
             </div>
           )}
 
-          {/* SCREEN 2: LIVE BROADCAST STUDIO */}
-          {activeScreen === 'live' && (
-            <div className="sim-screen-view">
-              <div style={{ position: 'relative', height: '100%', background: 'radial-gradient(circle at 50% 30%, #201224 0%, #08080c 100%)', display: 'flex', flexDirection: 'column', justifyContent: 'space-between', padding: '14px' }}>
-                {/* Live Top Bar */}
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '6px', background: 'rgba(0,0,0,0.6)', padding: '5px 12px', borderRadius: '16px', border: '1px solid rgba(255,45,135,0.4)' }}>
-                    <span style={{ width: 8, height: 8, borderRadius: '50%', background: 'var(--brand-pink)', boxShadow: '0 0 8px var(--brand-pink)' }}></span>
-                    <span style={{ fontSize: '0.72rem', fontWeight: 900, color: '#fff', letterSpacing: '0.5px' }}>LIVE</span>
-                    <span style={{ fontSize: '0.7rem', color: '#bbb' }}>• 4.8k viewers</span>
-                  </div>
-                  <div style={{ display: 'flex', gap: '6px' }}>
-                    <div style={{ background: 'var(--brand-pink)', color: '#fff', padding: '5px 10px', borderRadius: '12px', fontSize: '0.68rem', fontWeight: 800 }}>
-                      PK BATTLE
-                    </div>
-                  </div>
+          {/* SCREEN 5: OFFICIAL STUDIO STAGE WIDE REFERENCE */}
+          {activeScreen === 'stageWide' && (
+            <div className="sim-screen-view eco-screen-wrap">
+              <div className="eco-stage-preview-box">
+                <div className="eco-stage-head">
+                  <strong>Interactive Live Stage</strong>
+                  <span>Multi-Guest · Polls · Gifts · Goods</span>
                 </div>
-
-                {/* Co-Host Split Visual with Neon Pink & Blue Edges (Playing Video in Live Host Feed) */}
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px', margin: '14px 0' }}>
-                  <div style={{ height: '115px', borderRadius: '12px', overflow: 'hidden', position: 'relative', border: '2px solid var(--brand-blue)', boxShadow: '0 0 15px rgba(0,122,255,0.3)', background: '#000' }}>
-                    <video
-                      style={{ width: '100%', height: '100%', objectFit: 'cover' }}
-                      src="/assets/oneova_promo.mp4"
-                      autoPlay
-                      loop
-                      muted
-                      playsInline
-                    />
-                    <div style={{ position: 'absolute', bottom: 4, left: 6, zIndex: 2 }}>
-                      <span style={{ fontSize: '0.62rem', fontWeight: 800, color: '#fff', background: 'rgba(0,0,0,0.6)', padding: '2px 6px', borderRadius: '4px' }}>@host.alex</span>
-                    </div>
-                  </div>
-                  <div style={{ height: '115px', borderRadius: '12px', background: 'radial-gradient(circle at 50% 30%, #301025 0%, #0d0611 100%)', border: '2px solid var(--brand-pink)', boxShadow: '0 0 15px rgba(255,45,135,0.3)', display: 'flex', flexDirection: 'column', justifyContent: 'flex-end', padding: '8px', position: 'relative' }}>
-                    <div style={{ position: 'absolute', top: 6, right: 6, background: 'var(--brand-pink)', color: '#fff', fontSize: '0.52rem', fontWeight: 900, padding: '2px 5px', borderRadius: '4px' }}>PK DUEL</div>
-                    <span style={{ fontSize: '0.68rem', fontWeight: 700, color: 'var(--brand-pink)' }}>@guest.maya</span>
-                  </div>
-                </div>
-
-                {/* Floating Hearts & Stream Comments */}
-                <div>
-                  <div style={{ background: 'rgba(0,0,0,0.6)', padding: '8px 10px', borderRadius: '8px', marginBottom: '10px', borderLeft: '3px solid var(--brand-pink)' }}>
-                    <span style={{ fontSize: '0.7rem', fontWeight: 800, color: 'var(--brand-pink)' }}>PINNED: </span>
-                    <span style={{ fontSize: '0.7rem', color: '#fff' }}>Welcome to 4K Live Studio! Tap heart for pink sparks ✨</span>
-                  </div>
-
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                    <div style={{ background: 'rgba(255,255,255,0.1)', padding: '7px 14px', borderRadius: '18px', fontSize: '0.72rem', color: '#aaa', flex: 1, marginRight: '10px' }}>
-                      Say something...
-                    </div>
-                    <button
-                      onClick={() => spawnEmoji('💖')}
-                      style={{ background: 'var(--brand-pink)', border: 'none', color: '#fff', width: '36px', height: '36px', borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', boxShadow: '0 0 16px var(--brand-pink-glow)' }}
-                    >
-                      💖
-                    </button>
-                  </div>
-                </div>
-              </div>
-            </div>
-          )}
-
-          {/* SCREEN 3: CREATOR ROOMS */}
-          {activeScreen === 'rooms' && (
-            <div className="sim-screen-view">
-              <div style={{ padding: '16px', background: '#0e0f14', height: '100%', display: 'flex', flexDirection: 'column', gap: '12px' }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                  <span style={{ fontSize: '0.88rem', fontWeight: 900, color: '#fff' }}>CREATOR ROOM</span>
-                  <span style={{ fontSize: '0.65rem', color: 'var(--brand-pink)', fontWeight: 800, background: 'rgba(255,45,135,0.15)', padding: '3px 10px', borderRadius: '12px' }}>
-                    ● 24 On Stage
-                  </span>
-                </div>
-
-                <div style={{ fontSize: '0.82rem', fontWeight: 800, color: '#FFFFFF' }}>
-                  "Viral Reels Mastery & Live Editing Drop-in"
-                </div>
-
-                {/* Stage Speakers */}
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '10px', marginTop: '6px' }}>
-                  <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
-                    <div style={{ width: 48, height: 48, borderRadius: '50%', border: '2px solid var(--brand-pink)', background: '#222', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '1.2rem', boxShadow: '0 0 10px rgba(255,45,135,0.3)' }}>🎙️</div>
-                    <span style={{ fontSize: '0.65rem', fontWeight: 700, color: '#fff', marginTop: '3px' }}>Alex (Host)</span>
-                  </div>
-                  <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
-                    <div style={{ width: 48, height: 48, borderRadius: '50%', border: '2px solid var(--brand-blue)', background: '#222', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '1.2rem' }}>🎬</div>
-                    <span style={{ fontSize: '0.65rem', fontWeight: 700, color: '#fff', marginTop: '3px' }}>Maya (Pro)</span>
-                  </div>
-                  <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
-                    <div style={{ width: 48, height: 48, borderRadius: '50%', border: '2px solid var(--brand-pink)', background: '#222', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '1.2rem' }}>🎵</div>
-                    <span style={{ fontSize: '0.65rem', fontWeight: 700, color: '#fff', marginTop: '3px' }}>Beats Lab</span>
-                  </div>
-                </div>
-
-                {/* Backstage Greenroom Card */}
-                <div style={{ background: '#161820', border: '1px solid rgba(255,45,135,0.3)', borderRadius: '12px', padding: '12px', marginTop: '8px' }}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                    <span style={{ fontSize: '0.78rem', fontWeight: 800, color: 'var(--brand-pink)' }}>Backstage Greenroom</span>
-                    <span style={{ fontSize: '0.65rem', color: '#888' }}>Private Channel</span>
-                  </div>
-                  <div style={{ fontSize: '0.7rem', color: '#ccc', marginTop: '4px' }}>
-                    Co-hosts coordinate privately with synchronized frame scrubbing.
-                  </div>
-                </div>
-
-                <div style={{ marginTop: 'auto', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                  <button style={{ background: 'var(--brand-pink)', color: '#fff', border: 'none', padding: '8px 16px', borderRadius: '18px', fontSize: '0.75rem', fontWeight: 800, display: 'flex', alignItems: 'center', gap: '6px', cursor: 'pointer', boxShadow: '0 0 12px var(--brand-pink-glow)' }}>
-                    <span>✋</span> Raise Hand to Speak
-                  </button>
-                  <span style={{ fontSize: '0.68rem', color: '#777' }}>142 in audience</span>
-                </div>
-              </div>
-            </div>
-          )}
-
-          {/* SCREEN 4: MOBILE EDITOR & UNIVERSAL SHARING */}
-          {activeScreen === 'editor' && (
-            <div className="sim-screen-view">
-              <div className="sim-studio-screen">
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', color: '#fff' }}>
-                  <span style={{ fontSize: '0.88rem', fontWeight: 900 }}>PRO MOBILE EDITOR</span>
-                  <span style={{ fontSize: '0.72rem', color: 'var(--brand-pink)', fontWeight: 800 }}>4K 60FPS</span>
-                </div>
-
-                {/* Active 4K Video Preview Monitor with Rotoscoping Overlay */}
-                <div style={{ height: '110px', borderRadius: '10px', overflow: 'hidden', position: 'relative', border: '1.5px solid rgba(255,45,135,0.4)', boxShadow: '0 0 15px rgba(255,45,135,0.2)', background: '#000' }}>
-                  <video
-                    style={{ width: '100%', height: '100%', objectFit: 'cover' }}
-                    src="/assets/oneova_promo.mp4"
-                    autoPlay
-                    loop
-                    muted
-                    playsInline
+                <button
+                  type="button"
+                  className="eco-wide-thumb-btn"
+                  onClick={() => setLightboxOpen(true)}
+                  aria-label="Expand full Live Stage reference"
+                >
+                  <img
+                    src={stageWideSrc}
+                    alt="Oneova Live Stage multi-guest commerce layout"
+                    className="eco-wide-thumb"
                   />
-                  <div style={{ position: 'absolute', top: 6, left: 6, background: 'rgba(0,0,0,0.7)', border: '1px solid var(--brand-pink)', padding: '2px 6px', borderRadius: '4px', fontSize: '0.55rem', fontWeight: 900, color: 'var(--brand-pink)' }}>
-                    AI NEURAL MASK ACTIVE
-                  </div>
-                  <div style={{ position: 'absolute', bottom: 4, right: 6, background: 'rgba(0,0,0,0.6)', padding: '2px 5px', borderRadius: '3px', fontSize: '0.52rem', color: '#fff', fontFamily: 'monospace' }}>
-                    00:04.28 / 60FPS
-                  </div>
-                </div>
-
-                <div className="studio-tool-card" style={{ borderColor: 'rgba(255,45,135,0.4)', boxShadow: '0 0 15px rgba(255,45,135,0.15)' }}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                    <div className="studio-tool-title" style={{ color: 'var(--brand-pink)' }}>AI Subject Cutout</div>
-                    <span style={{ fontSize: '0.65rem', color: 'var(--brand-blue)', fontWeight: 800 }}>ACTIVE</span>
-                  </div>
-                  <div className="studio-tool-desc">Real-time subject rotoscoping. Place animated 3D text behind subjects.</div>
-                </div>
-
-                <div className="studio-tool-card">
-                  <div className="studio-tool-title">Multi-Layer Magnetic Timeline</div>
-                  <div className="timeline-track">
-                    <div className="track-block">Main 4K Video</div>
-                    <div className="track-block pink">AI Mask Overlay</div>
-                  </div>
-                  <div className="timeline-track">
-                    <div className="track-block" style={{ width: '80%', background: 'var(--brand-blue)', color: '#fff' }}>Smart Auto-Captions (Karaoke)</div>
-                  </div>
-                </div>
-
-                <div className="studio-tool-card" style={{ borderColor: 'rgba(0,122,255,0.4)' }}>
-                  <div className="studio-tool-title" style={{ color: 'var(--brand-blue)' }}>1-Tap Universal Sharer</div>
-                  <div style={{ display: 'flex', gap: '6px', marginTop: '6px' }}>
-                    <span style={{ background: '#000', border: '1px solid #333', padding: '3px 6px', borderRadius: '4px', fontSize: '0.62rem', color: '#fff' }}>TikTok</span>
-                    <span style={{ background: '#000', border: '1px solid #333', padding: '3px 6px', borderRadius: '4px', fontSize: '0.62rem', color: '#fff' }}>Shorts</span>
-                    <span style={{ background: '#000', border: '1px solid #333', padding: '3px 6px', borderRadius: '4px', fontSize: '0.62rem', color: '#fff' }}>Instagram</span>
-                    <span style={{ background: '#000', border: '1px solid #333', padding: '3px 6px', borderRadius: '4px', fontSize: '0.62rem', color: '#fff' }}>Facebook</span>
-                  </div>
+                  <span className="eco-expand-tag">Tap to expand widescreen UI ↗</span>
+                </button>
+                <div className="eco-stage-bullets">
+                  <span>• Host + up to 4 guest panels on stage</span>
+                  <span>• Live Presenter’s Goods 3D card &amp; fan Gifts</span>
+                  <span>• Clean audience mode, polls, countdowns &amp; raffles</span>
                 </div>
               </div>
             </div>
           )}
 
-          {/* Simulated Bottom Navigation (EXACTLY MATCHING ONENUM/ONEOVA BOTTOM NAV IN SCREENSHOT) */}
+          {/* SCREEN 6: OVA PERSONAL AI & LIVE DESKTOP HELPER */}
+          {activeScreen === 'ova' && (
+            <div className="sim-screen-view eco-screen-wrap eco-ova-demo">
+              <div className="eco-wallet-head">
+                <div>
+                  <span className="eco-eyebrow">OVA PERSONAL AI</span>
+                  <h4>Power-Button &amp; Screen Assist</h4>
+                </div>
+              </div>
+
+              <div className="eco-ova-aura-card">
+                <div className="eco-ova-chip">Active Over Any App</div>
+                <p>
+                  {ovaTranslated
+                    ? '“Karibu kwa Oneova Shop — Lipa kwa M-Pesa sasa.” (Swahili in-place overlay)'
+                    : '“Welcome to Oneova Shop — Pay with M-Pesa in seconds.”'}
+                </p>
+                <button
+                  type="button"
+                  className="eco-sub-btn active"
+                  onClick={() => setOvaTranslated((v) => !v)}
+                >
+                  {ovaTranslated ? 'Show Original English' : 'Translate In-Place (Swahili) ✦'}
+                </button>
+              </div>
+
+              <div className="eco-id-checklist">
+                <div className="eco-check-item">
+                  <span>🖥️</span>
+                  <div>
+                    <strong>Mac &amp; Windows Desktop Agent</strong>
+                    <small>Starts on boot and runs workflows across your computer (`⌥Space` / `Alt+Space`).</small>
+                  </div>
+                </div>
+                <div className="eco-check-item">
+                  <span>🤖</span>
+                  <div>
+                    <strong>Live AI Support Agent</strong>
+                    <small>Checks real Wallet, ID &amp; Shop state and escalates live to a human admin.</small>
+                  </div>
+                </div>
+              </div>
+
+              {onOpenOvaAssistant && (
+                <button type="button" className="eco-full-action-btn" onClick={onOpenOvaAssistant}>
+                  Open Live Oneova Support Agent Now →
+                </button>
+              )}
+            </div>
+          )}
+
+          {/* LOCKED BOTTOM NAVIGATION MATCHING lib/shared/widgets/oneova_bottom_nav.dart */}
           <nav className="phone-bottom-nav-real" aria-label="Oneova Bottom Navigation">
-            {/* Tab 1: Reels */}
             <button
+              type="button"
               className={`sim-nav-btn-real ${activeScreen === 'reels' ? 'active' : ''}`}
               onClick={() => setActiveScreen('reels')}
             >
               <div className="nav-btn-icon-wrap">
-                <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4"><path d="m3 9 9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"></path></svg>
+                <svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.3">
+                  <path d="m3 9 9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" />
+                </svg>
               </div>
               <span className="nav-btn-label">Reels</span>
             </button>
 
-            {/* Tab 2: Chat */}
-            <button className="sim-nav-btn-real">
+            <button
+              type="button"
+              className={`sim-nav-btn-real ${activeScreen === 'ova' ? 'active' : ''}`}
+              onClick={() => setActiveScreen('ova')}
+            >
               <div className="nav-btn-icon-wrap">
-                <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path></svg>
-                <span className="nav-badge-count">3</span>
+                <svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2">
+                  <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
+                </svg>
+                <span className="nav-badge-count">AI</span>
               </div>
               <span className="nav-btn-label">Chat</span>
             </button>
 
-            {/* Tab 3: STUDIO (+) (Matches Real Elevated Blue Button with Text STUDIO) */}
             <button
+              type="button"
               className="sim-nav-btn-real studio-center-btn"
-              onClick={() => setActiveScreen('editor')}
+              onClick={() => setActiveScreen('shops')}
             >
               <div className="studio-pill-glow">
                 <span className="studio-plus-icon">+</span>
@@ -562,28 +754,63 @@ export default function PhoneMockup() {
               <span className="nav-btn-label studio-text">STUDIO</span>
             </button>
 
-            {/* Tab 4: AI Lab */}
             <button
-              className={`sim-nav-btn-real ${activeScreen === 'rooms' ? 'active' : ''}`}
-              onClick={() => setActiveScreen('rooms')}
+              type="button"
+              className={`sim-nav-btn-real ${activeScreen === 'wallet' ? 'active' : ''}`}
+              onClick={() => setActiveScreen('wallet')}
             >
               <div className="nav-btn-icon-wrap">
-                <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2"><rect width="7" height="7" x="3" y="3" rx="1"></rect><rect width="7" height="7" x="14" y="3" rx="1"></rect><rect width="7" height="7" x="14" y="14" rx="1"></rect><rect width="7" height="7" x="3" y="14" rx="1"></rect></svg>
-                <span className="nav-dot-cyan"></span>
+                <svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2">
+                  <rect width="20" height="14" x="2" y="5" rx="2" />
+                  <line x1="2" x2="22" y1="10" y2="10" />
+                </svg>
+                <span className="nav-dot-cyan" />
               </div>
-              <span className="nav-btn-label">AI Lab</span>
+              <span className="nav-btn-label">Wallet</span>
             </button>
 
-            {/* Tab 5: Me */}
-            <button className="sim-nav-btn-real">
+            <button
+              type="button"
+              className={`sim-nav-btn-real ${activeScreen === 'globalId' ? 'active' : ''}`}
+              onClick={() => setActiveScreen('globalId')}
+            >
               <div className="nav-btn-icon-wrap">
-                <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2"><circle cx="12" cy="7" r="4"></circle><path d="M6 21v-2a4 4 0 0 1 4-4h4a4 4 0 0 1 4 4v2"></path></svg>
+                <svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2">
+                  <circle cx="12" cy="7" r="4" />
+                  <path d="M6 21v-2a4 4 0 0 1 4-4h4a4 4 0 0 1 4 4v2" />
+                </svg>
               </div>
               <span className="nav-btn-label">Me</span>
             </button>
           </nav>
         </div>
       </div>
+
+      {/* Expandable Widescreen Studio Reference Lightbox */}
+      {lightboxOpen && (
+        <div
+          className="modal-overlay"
+          role="dialog"
+          aria-modal="true"
+          aria-label="Oneova Live Stage Reference"
+          onClick={() => setLightboxOpen(false)}
+        >
+          <div className="eco-lightbox-card" onClick={(e) => e.stopPropagation()}>
+            <div className="eco-lightbox-top">
+              <strong>Oneova Live Stage &amp; Presenter’s Goods Reference</strong>
+              <button
+                type="button"
+                className="modal-close-btn"
+                onClick={() => setLightboxOpen(false)}
+                aria-label="Close Preview"
+              >
+                ✕
+              </button>
+            </div>
+            <img src={stageWideSrc} alt="Oneova Live Stage Full Screen Reference" className="eco-lightbox-img" />
+          </div>
+        </div>
+      )}
     </div>
   );
 }

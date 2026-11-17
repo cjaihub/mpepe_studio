@@ -18,17 +18,18 @@ export default function Footer({
   return (
     <footer className="site-footer">
       <div className="footer-container">
-        {/* Pre-Footer Floating CTA Card */}
         <div className="footer-cta-card">
           <div className="footer-cta-content">
             <div className="footer-cta-badge">
               <span className="cta-dot-pulse" />
-              <span>AFRICA-FIRST · GLOBAL CREATOR STUDIO</span>
+              <span>AFRICA-FIRST CREATOR ECONOMY</span>
             </div>
-            <h2 className="footer-cta-title">Ready to Broadcast, Grade & Monetize in 4K?</h2>
+            <h2 className="footer-cta-title">
+              Ready to Launch Your 3D Shop, Wallet &amp; Global ID?
+            </h2>
             <p className="footer-cta-desc">
-              Experience real-time WebRTC GPU Looks, interactive Creator Rooms, natural-language AI
-              rotoscoping, M-Pesa/MoMo & global payouts, and ironclad creator IP protection.
+              Monetize your creativity with M-Pesa &amp; MoMo payouts, interactive 3D showrooms,
+              Live Commerce gifts, verified identity credentials, and live human support.
             </p>
           </div>
           <div className="footer-cta-actions">
@@ -45,15 +46,13 @@ export default function Footer({
               className="btn-secondary footer-btn-alt"
               onClick={() => onSelectDoc('policy-community-guidelines')}
             >
-              <span>Read Rules & Legal Charter</span>
+              <span>Read Rules &amp; Legal Charter</span>
               <span className="btn-arrow">→</span>
             </button>
           </div>
         </div>
 
-        {/* Main Footer Links Grid */}
         <div className="footer-top">
-          {/* Col 1: Brand Info */}
           <div className="footer-brand-col">
             <div className="footer-brand-identity">
               <div className="footer-logo-ring">
@@ -65,91 +64,85 @@ export default function Footer({
               </div>
             </div>
             <p className="footer-brand-bio">
-              Oneova Technologies Inc. unifies 4K interactive live broadcasting, GLSL color science,
-              frame-accurate mobile editing, local-currency creator payouts, and transparent African
-              & global data governance.
+              Oneova Technologies Inc. powers Africa&apos;s creator economy with Oneova 3D Shops,
+              Oneova Wallet &amp; Mobile Money payouts, Oneova Global ID, Live Commerce, and
+              transparent continental &amp; global compliance.
             </p>
 
-            {/* Live Operational Status */}
             <div className="footer-status-pill">
               <span className="status-live-dot" />
               <span>
                 {isLiveConnected
-                  ? 'Live Synced with Oneova App · Help Center Online'
-                  : 'All Systems Operational · Offline-Ready Guides Active'}
+                  ? 'Live Synced with Oneova App · Support AI Active'
+                  : 'All Systems Operational · Help Center Online'}
               </span>
             </div>
 
-            {/* Social Icons */}
             <div className="footer-social-row">
-              <a href="https://tiktok.com" target="_blank" rel="noreferrer" className="footer-social-btn" aria-label="Oneova on TikTok">
-                <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor">
-                  <path d="M19.59 6.69a4.83 4.83 0 0 1-3.77-4.25V2h-3.45v13.67a2.89 2.89 0 0 1-2.88 2.89 2.89 2.89 0 0 1-2.89-2.89 2.89 2.89 0 0 1 2.89-2.89c.32 0 .62.06.9.16V9.4a6.34 6.34 0 0 0-.9-.06 6.35 6.35 0 0 0-6.35 6.35 6.35 6.35 0 0 0 6.35 6.35 6.35 6.35 0 0 0 6.35-6.35V8.51c1.3.93 2.87 1.48 4.58 1.49V6.69z" />
-                </svg>
+              <a href="#help" className="footer-social-btn" aria-label="Oneova Help Center">
+                ?
               </a>
-              <a href="https://instagram.com" target="_blank" rel="noreferrer" className="footer-social-btn" aria-label="Oneova on Instagram">
-                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                  <rect width="20" height="20" x="2" y="2" rx="5" ry="5" />
-                  <path d="M16 11.37A4 4 0 1 1 12.63 8 4 4 0 0 1 16 11.37z" />
-                  <line x1="17.5" x2="17.51" y1="6.5" y2="6.5" />
-                </svg>
+              <a href="#desktop" className="footer-social-btn" aria-label="Oneova Desktop">
+                ⌘
               </a>
-              <a href="https://youtube.com" target="_blank" rel="noreferrer" className="footer-social-btn" aria-label="Oneova on YouTube">
-                <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor">
-                  <path d="M23.498 6.186a3.016 3.016 0 0 0-2.122-2.136C19.505 3.545 12 3.545 12 3.545s-7.505 0-9.377.505A3.017 3.017 0 0 0 .502 6.186C0 8.07 0 12 0 12s0 3.93.502 5.814a3.016 3.016 0 0 0 2.122 2.136c1.871.505 9.376.505 9.376.505s7.505 0 9.377-.505a3.015 3.015 0 0 0 2.122-2.136C24 15.93 24 12 24 12s0-3.93-.502-5.814zM9.545 15.568V8.432L15.818 12l-6.273 3.568z" />
-                </svg>
+              <a href="/legal.html" className="footer-social-btn" aria-label="Oneova Legal Hub">
+                ⚖
               </a>
-              <a href="https://x.com" target="_blank" rel="noreferrer" className="footer-social-btn" aria-label="Oneova on X">
-                <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor">
-                  <path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z" />
-                </svg>
-              </a>
+              {onOpenOvaAssistant && (
+                <button
+                  type="button"
+                  className="footer-social-btn"
+                  onClick={onOpenOvaAssistant}
+                  aria-label="Open Live Oneova Support"
+                >
+                  ✦
+                </button>
+              )}
             </div>
           </div>
 
-          {/* Col 2: Studio, AI & Hardware */}
           <div className="footer-nav-col">
             <div className="footer-col-header">
               <span className="col-header-dot blue" />
-              <span>Studio, AI & Hardware</span>
+              <span>Creator Economy</span>
             </div>
             <ul className="footer-nav-list">
+              <li>
+                <button type="button" className="footer-nav-item" onClick={() => onSelectDoc('biz-3d-shops')}>
+                  <span className="item-icon">🛍️</span>
+                  <div className="item-text-wrap">
+                    <span className="item-title">Oneova 3D Shops</span>
+                    <span className="item-badge pink">COMMERCE</span>
+                  </div>
+                  <span className="item-arrow">→</span>
+                </button>
+              </li>
+              <li>
+                <button type="button" className="footer-nav-item" onClick={() => onSelectDoc('wallet-biz-commerce')}>
+                  <span className="item-icon">💳</span>
+                  <div className="item-text-wrap">
+                    <span className="item-title">Wallet &amp; Mobile Money</span>
+                    <span className="item-badge pink">M-PESA · MOMO</span>
+                  </div>
+                  <span className="item-arrow">→</span>
+                </button>
+              </li>
+              <li>
+                <button type="button" className="footer-nav-item" onClick={() => onSelectDoc('global-id')}>
+                  <span className="item-icon">🪪</span>
+                  <div className="item-text-wrap">
+                    <span className="item-title">Oneova Global ID</span>
+                    <span className="item-badge blue">VERIFIED ID</span>
+                  </div>
+                  <span className="item-arrow">→</span>
+                </button>
+              </li>
               <li>
                 <button type="button" className="footer-nav-item" onClick={() => onSelectDoc('live-studio')}>
                   <span className="item-icon">📹</span>
                   <div className="item-text-wrap">
-                    <span className="item-title">4K Live Studio & PK</span>
-                    <span className="item-badge pink">4K LIVE</span>
-                  </div>
-                  <span className="item-arrow">→</span>
-                </button>
-              </li>
-              <li>
-                <button type="button" className="footer-nav-item" onClick={() => onSelectDoc('looks-color-engine')}>
-                  <span className="item-icon">🎨</span>
-                  <div className="item-text-wrap">
-                    <span className="item-title">GLSL Looks & Scope Sentinel</span>
-                    <span className="item-badge pink">AI COLOR</span>
-                  </div>
-                  <span className="item-arrow">→</span>
-                </button>
-              </li>
-              <li>
-                <button type="button" className="footer-nav-item" onClick={() => onSelectDoc('mobile-editor')}>
-                  <span className="item-icon">✂️</span>
-                  <div className="item-text-wrap">
-                    <span className="item-title">Pro Editor & AI Rotoscoping</span>
-                    <span className="item-badge blue">SAM 2</span>
-                  </div>
-                  <span className="item-arrow">→</span>
-                </button>
-              </li>
-              <li>
-                <button type="button" className="footer-nav-item" onClick={() => onSelectDoc('device-thermal-advisor')}>
-                  <span className="item-icon">🧊</span>
-                  <div className="item-text-wrap">
-                    <span className="item-title">Device Advisor & Thermal Shield</span>
-                    <span className="item-badge blue">ADPF</span>
+                    <span className="item-title">Live Stage &amp; Fan Gifts</span>
+                    <span className="item-badge blue">LIVE GIFTS</span>
                   </div>
                   <span className="item-arrow">→</span>
                 </button>
@@ -157,19 +150,18 @@ export default function Footer({
             </ul>
           </div>
 
-          {/* Col 3: Commerce, Safety & Youth */}
           <div className="footer-nav-col">
             <div className="footer-col-header">
               <span className="col-header-dot pink" />
-              <span>Wallet, Biz & Safety</span>
+              <span>Safety, AI &amp; Support</span>
             </div>
             <ul className="footer-nav-list">
               <li>
-                <button type="button" className="footer-nav-item" onClick={() => onSelectDoc('wallet-biz-commerce')}>
-                  <span className="item-icon">💳</span>
+                <button type="button" className="footer-nav-item" onClick={() => onSelectDoc('ova-ai-lab')}>
+                  <span className="item-icon">✦</span>
                   <div className="item-text-wrap">
-                    <span className="item-title">Wallet, M-Pesa/MoMo & Biz</span>
-                    <span className="item-badge pink">FINTECH</span>
+                    <span className="item-title">Ova AI &amp; Desktop Agent</span>
+                    <span className="item-badge pink">LIVE AI</span>
                   </div>
                   <span className="item-arrow">→</span>
                 </button>
@@ -178,7 +170,7 @@ export default function Footer({
                 <button type="button" className="footer-nav-item" onClick={() => handlePolicyClick('guidelines', '/guidelines.html')}>
                   <span className="item-icon">🛡️</span>
                   <div className="item-text-wrap">
-                    <span className="item-title">Community & Anti-Scam Rules</span>
+                    <span className="item-title">Community &amp; Anti-Scam Rules</span>
                     <span className="item-badge blue">3-STRIKE</span>
                   </div>
                   <span className="item-arrow">→</span>
@@ -188,7 +180,7 @@ export default function Footer({
                 <button type="button" className="footer-nav-item" onClick={() => handlePolicyClick('safety', '/child-safety.html')}>
                   <span className="item-icon">🧒</span>
                   <div className="item-text-wrap">
-                    <span className="item-title">Child & Teen Safety (116)</span>
+                    <span className="item-title">Child &amp; Teen Safety (116)</span>
                     <span className="item-badge pink">ZERO CSAE</span>
                   </div>
                   <span className="item-arrow">→</span>
@@ -196,10 +188,10 @@ export default function Footer({
               </li>
               <li>
                 <button type="button" className="footer-nav-item" onClick={() => handlePolicyClick('biz', '/biz-policy.html')}>
-                  <span className="item-icon">🛍️</span>
+                  <span className="item-icon">📦</span>
                   <div className="item-text-wrap">
-                    <span className="item-title">Biz & Monetization Policy</span>
-                    <span className="item-badge blue">KYC / AML</span>
+                    <span className="item-title">Biz &amp; Monetization Policy</span>
+                    <span className="item-badge blue">ESCROW · KYC</span>
                   </div>
                   <span className="item-arrow">→</span>
                 </button>
@@ -207,18 +199,17 @@ export default function Footer({
             </ul>
           </div>
 
-          {/* Col 4: Legal & Regulations */}
           <div className="footer-nav-col">
             <div className="footer-col-header">
               <span className="col-header-dot pink" />
-              <span>Legal & Global Regulations</span>
+              <span>Legal &amp; Global Laws</span>
             </div>
             <ul className="footer-nav-list">
               <li>
                 <button type="button" className="footer-nav-item" onClick={() => handlePolicyClick('privacy', '/privacy.html')}>
                   <span className="item-icon">🔒</span>
                   <div className="item-text-wrap">
-                    <span className="item-title">Privacy Policy & DPO</span>
+                    <span className="item-title">Privacy Policy &amp; DPO</span>
                     <span className="item-badge blue">NO SALES</span>
                   </div>
                   <span className="item-arrow">→</span>
@@ -228,7 +219,7 @@ export default function Footer({
                 <button type="button" className="footer-nav-item" onClick={() => handlePolicyClick('terms', '/terms.html')}>
                   <span className="item-icon">📜</span>
                   <div className="item-text-wrap">
-                    <span className="item-title">Terms of Service</span>
+                    <span className="item-title">Terms &amp; Creator Ownership</span>
                     <span className="item-badge pink">100% IP</span>
                   </div>
                   <span className="item-arrow">→</span>
@@ -238,7 +229,7 @@ export default function Footer({
                 <button type="button" className="footer-nav-item" onClick={() => handlePolicyClick('africa', '/legal.html')}>
                   <span className="item-icon">🌍</span>
                   <div className="item-text-wrap">
-                    <span className="item-title">African & Global Laws</span>
+                    <span className="item-title">African &amp; Global Laws</span>
                     <span className="item-badge pink">ODPC · NDPA · POPIA</span>
                   </div>
                   <span className="item-arrow">→</span>
@@ -248,36 +239,23 @@ export default function Footer({
                 <button type="button" className="footer-nav-item" onClick={() => handlePolicyClick('law_enforcement', '/law-enforcement.html')}>
                   <span className="item-icon">🏛️</span>
                   <div className="item-text-wrap">
-                    <span className="item-title">Law Enforcement &amp; Deletion</span>
-                    <span className="item-badge">DUE PROCESS</span>
+                    <span className="item-title">Law Enforcement Portal</span>
+                    <span className="item-badge blue">DUE PROCESS</span>
                   </div>
                   <span className="item-arrow">→</span>
                 </button>
               </li>
-              {onOpenOvaAssistant && (
-                <li>
-                  <button type="button" className="footer-nav-item highlight-pink" onClick={onOpenOvaAssistant}>
-                    <span className="item-icon">✨</span>
-                    <div className="item-text-wrap">
-                      <span className="item-title">Ask Ova AI Assistant</span>
-                      <span className="item-badge pink">18 SKILLS</span>
-                    </div>
-                    <span className="item-arrow">→</span>
-                  </button>
-                </li>
-              )}
             </ul>
           </div>
         </div>
 
-        {/* Footer Bottom Bar */}
         <div className="footer-bottom-bar">
           <div className="footer-bottom-left">
             <span className="copyright-text">© 2026 Oneova Technologies Inc. All rights reserved.</span>
             <div className="trust-cert-row">
-              <span className="cert-pill">🌍 ODPC · NDPA · POPIA · GDPR · DSA</span>
+              <span className="cert-pill">🌍 ODPC · NDPA · POPIA · GDPR · AfCFTA</span>
               <span className="cert-pill">🔒 Zero Personal Data Sales</span>
-              <span className="cert-pill">⚡ Real-Time App ↔ Web Sync</span>
+              <span className="cert-pill">⚡ Live Oneova App Sync</span>
             </div>
           </div>
 

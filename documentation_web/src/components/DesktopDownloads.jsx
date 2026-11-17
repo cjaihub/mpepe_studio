@@ -25,23 +25,23 @@ export default function DesktopDownloads() {
 
   const skills = [
     {
-      title: 'DaVinci Resolve Grading & Timeline',
-      desc: 'Controls nodes, CDL lift/gamma/gain color grades, LUTs, timeline razor cuts, markers, and Deliver exports.',
+      title: 'Store & Creator Business Automation',
+      desc: 'Upload catalog assets, manage live product launches, respond to buyers, and review orders hands-free.',
       accent: 'blue',
     },
     {
-      title: 'Logic Pro & Studio DAW Mixing',
-      desc: 'Creates audio & instrument tracks, opens Mixer and Smart Controls, bounces stems, and runs transport hands-free.',
+      title: 'Multi-Display Screen & Storage Access',
+      desc: 'Controlled safely with explicit Storage, Screen, Mouse, and Keyboard permissions via the Desktop Shield.',
       accent: 'pink',
     },
     {
-      title: 'Adobe Creative Cloud Automation',
-      desc: 'Runs native ExtendScript & shortcuts across Premiere Pro, After Effects, Photoshop, and Illustrator.',
+      title: 'Natural Voice & Workstation Workflows',
+      desc: 'Talk naturally to organize files, prepare creator drops, translate pages, and execute desktop workflows.',
       accent: 'blue',
     },
     {
       title: 'Starts on Boot · Summons Anywhere',
-      desc: 'Sits quietly in your Menu Bar or Windows System Tray, boots automatically, and pops the HUD over any full-screen app.',
+      desc: 'Sits quietly in your Menu Bar or Windows System Tray and opens the floating HUD over any window.',
       accent: 'pink',
     },
   ];
@@ -96,8 +96,7 @@ export default function DesktopDownloads() {
           </h2>
           <p style={{ color: 'var(--text-secondary)', fontSize: '1.02rem', lineHeight: 1.6 }}>
             Starts itself automatically when you turn on your computer, wakes from any app with{' '}
-            <strong>⌥Space</strong> (Mac) or <strong>Alt+Space</strong> (Windows), speaks in natural human voice via{' '}
-            <strong>Vertex Gemini Live</strong>, and knows how to drive <strong>DaVinci Resolve, Logic Pro, Adobe Premiere, After Effects, Photoshop</strong> &amp; your OS.
+            <strong>⌥Space</strong> (Mac) or <strong>Alt+Space</strong> (Windows), speaks in natural human voice, and automates your files, browser, and creator business workflows.
           </p>
         </div>
 
@@ -154,7 +153,7 @@ export default function DesktopDownloads() {
             >
               <li>Global Hotkey: <strong>{mac.hotkey}</strong></li>
               <li>{mac.startup}</li>
-              <li>Native Logic Pro, Final Cut Pro, DaVinci Resolve &amp; Adobe ExtendScript skills</li>
+              <li>Permission-shielded Storage, Multi-Screen &amp; Input Automation</li>
             </ul>
             {mac.available ? (
               <a
@@ -234,7 +233,7 @@ export default function DesktopDownloads() {
             >
               <li>Global Hotkey: <strong>{win.hotkey}</strong></li>
               <li>{win.startup}</li>
-              <li>Win32 FFI mouse/keys, DaVinci Resolve Python API, Adobe COM/JSX &amp; DAW automation</li>
+              <li>Native x64 Automation, Multi-Screen Focus &amp; Permission Shield</li>
             </ul>
             {win.available ? (
               <a

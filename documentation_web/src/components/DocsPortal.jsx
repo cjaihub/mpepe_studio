@@ -3,34 +3,34 @@ import { getStandaloneLegalHref, getOfficialPdfHref } from '../data/platformCata
 import { sanitizeHtmlFragment } from '../services/publicDocsClient';
 
 const GUIDED_JOURNEY_STEPS = [
-  { step: '01', label: 'Start & Account', docId: 'security-desktop-ecosystem' },
-  { step: '02', label: 'Reels & Studio Looks', docId: 'looks-color-engine' },
-  { step: '03', label: 'Live & 3D Shops', docId: 'live-studio' },
-  { step: '04', label: 'Ova & Desktop Agent', docId: 'ova-ai-lab' },
-  { step: '05', label: 'Earn & Safety Rules', docId: 'wallet-biz-commerce' },
+  { step: '01', label: 'Global ID & Security', docId: 'security-desktop-ecosystem' },
+  { step: '02', label: '3D Shops & Biz', docId: 'wallet-biz-commerce' },
+  { step: '03', label: 'Live Stage & Gifts', docId: 'live-studio' },
+  { step: '04', label: 'Feed & Remix Attribution', docId: 'reels-feed' },
+  { step: '05', label: 'Ova AI & Safety Rules', docId: 'ova-ai-lab' },
 ];
 
 const QUICK_TOPIC_PILLS = [
   { id: 'all', label: 'All Topics', icon: '✨' },
-  { id: '4k_live', label: '4K Live & WebRTC', icon: '🎥', query: '4k live' },
-  { id: 'looks', label: 'GPU Looks & LUTs', icon: '🎨', query: 'look' },
-  { id: 'ova_ai', label: 'Ova AI Lab', icon: '🤖', query: 'ova' },
-  { id: 'mpesa', label: 'M-Pesa & Mobile Money', icon: '💳', query: 'm-pesa' },
+  { id: 'mpesa', label: 'Wallet & Mobile Money', icon: '💳', query: 'm-pesa' },
+  { id: 'shops', label: '3D Shops & Biz', icon: '🛍️', query: 'shop' },
+  { id: 'global_id', label: 'Oneova Global ID', icon: '🪪', query: 'identity' },
+  { id: 'live_stage', label: 'Live Gifts & Stage', icon: '🎥', query: 'live' },
+  { id: 'ova_ai', label: 'Ova Support & Desktop', icon: '🤖', query: 'ova' },
   { id: 'creator_ip', label: '100% Creator IP', icon: '⚖️', query: 'ownership' },
   { id: 'teen_safety', label: 'Teen Safety 116', icon: '🛡️', query: 'teen' },
-  { id: 'privacy', label: 'Zero Data Sales', icon: '🔒', query: 'privacy' },
   { id: 'deletion', label: '2-Tap Deletion', icon: '🗑️', query: 'deletion' },
-  { id: 'african_law', label: 'African Laws (ODPC/POPIA)', icon: '🌍', query: 'africa' },
+  { id: 'african_law', label: 'African Laws (ODPC/NDPA/POPIA)', icon: '🌍', query: 'africa' },
 ];
 
 const SEARCH_SUGGESTIONS = [
-  'M-Pesa payouts',
-  '4K Live stream',
-  'Who owns reels?',
+  'M-Pesa & MoMo payouts',
+  'Open a 3D Shop',
+  'Oneova Global ID KYC',
+  'Who owns my reels?',
   'Teen safety 116',
   'Delete account',
-  'POPIA / GDPR',
-  'GPU LUTs',
+  'ODPC / NDPA / POPIA',
   'Zero data sales',
 ];
 
@@ -69,14 +69,14 @@ export default function DocsPortal({
   const currentDoc =
     docMap.get(currentDocId) ||
     docs[0] || {
-      id: 'live-studio',
+      id: 'wallet-biz-commerce',
       docType: 'feature',
-      category: 'Live & Broadcasting',
-      title: '4K Live Broadcast Studio & PK Stage',
-      badge: '4K LIVE',
+      category: 'Wallet, Shops & Global ID',
+      title: 'Oneova Wallet, Mobile Money & Creator Payouts',
+      badge: 'ONEOVA PAY',
       inShort: '',
-      version: 'v1.0',
-      effectiveDate: 'October 25, 2026',
+      version: 'v2.0',
+      effectiveDate: 'November 17, 2026',
       readTime: '5 min read',
       sections: [],
     };

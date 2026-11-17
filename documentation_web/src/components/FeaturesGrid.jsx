@@ -2,11 +2,54 @@ import React from 'react';
 
 const FEATURE_CARDS = [
   {
+    id: 'wallet-biz-commerce',
+    pink: true,
+    title: 'Oneova Wallet, Mobile Money & Payouts',
+    desc: 'Separate Personal and Business balances on an immutable double-entry ledger. Accept and withdraw via M-Pesa STK, MTN MoMo, Airtel Money, Orange Money, Telecel, Wave, and bank rails in local currencies.',
+    tags: ['M-Pesa & MoMo', 'Business Balance', 'Scan-to-Pay QR'],
+    icon: (
+      <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4">
+        <rect width="20" height="14" x="2" y="5" rx="2" />
+        <line x1="2" x2="22" y1="10" y2="10" />
+      </svg>
+    ),
+  },
+  {
+    id: 'biz-3d-shops',
+    pink: true,
+    title: 'Oneova 3D Shops & Biz Showrooms',
+    desc: 'Open a verified store in minutes with zero payout setup blocker. Display interactive 3D items right on your Live stage and sell 24/7 with live FX currency conversion and order escrow.',
+    tags: ['Interactive 3D Stage', 'Live Goods Pins', 'Order Escrow'],
+    icon: (
+      <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4">
+        <path d="M6 2 3 6v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6l-3-4Z" />
+        <line x1="3" y1="6" x2="21" y2="6" />
+        <path d="M16 10a4 4 0 0 1-8 0" />
+      </svg>
+    ),
+  },
+  {
+    id: 'global-id',
+    pink: false,
+    title: 'Oneova Global ID (Personal & Business)',
+    desc: 'One portable creator and merchant credential built for cross-border trust across Africa and worldwide—combining ID/selfie KYC, business ownership verification, biometric approvals, and linked handles.',
+    tags: ['Personal KYC', 'Business KYB', 'Biometric Keystore'],
+    icon: (
+      <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4">
+        <rect x="3" y="4" width="18" height="16" rx="2" />
+        <circle cx="9" cy="10" r="2.5" />
+        <path d="M6.5 16c.5-1.8 4.5-1.8 5 0" />
+        <line x1="14" y1="9" x2="18" y2="9" />
+        <line x1="14" y1="13" x2="18" y2="13" />
+      </svg>
+    ),
+  },
+  {
     id: 'live-studio',
     pink: true,
-    title: '4K Live Broadcast Studio & PK Stage',
-    desc: 'Broadcast up to 4K with real-time WebRTC GPU Looks, Boost Beauty, split-screen Co-Host PK Battles, Stream Health HUD, and live Biz product pins.',
-    tags: ['4K Simulcast', 'PK Co-Host Duels', 'Stream Health HUD'],
+    title: 'Live Commerce Stage, Co-Hosts & Gifts',
+    desc: 'Launch Solo or Multi-Guest broadcasts in seconds with Presenter’s Goods 3D cards, audience polls, countdowns, raffles, and instant fan Gifts that convert into creator earnings.',
+    tags: ['Multi-Guest Stage', 'Presenter Goods', 'Creator Gifts'],
     icon: (
       <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4">
         <circle cx="12" cy="12" r="10" />
@@ -15,55 +58,11 @@ const FEATURE_CARDS = [
     ),
   },
   {
-    id: 'creator-rooms',
-    pink: false,
-    title: 'Interactive Creator Collaboration Rooms',
-    desc: 'Drop-in spatial audio & video stages featuring dedicated speaker seats, private backstage greenrooms, hand-raise queues, and synchronized media review.',
-    tags: ['Speaker Stage', 'Backstage Greenroom', 'AI Voice Isolation'],
-    icon: (
-      <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4">
-        <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" />
-        <circle cx="9" cy="7" r="4" />
-        <path d="M23 21v-2a4 4 0 0 0-3-3.87" />
-        <path d="M16 3.13a4 4 0 0 1 0 7.75" />
-      </svg>
-    ),
-  },
-  {
-    id: 'looks-color-engine',
-    pink: true,
-    title: 'GLSL Looks Engine & AI Scope Sentinel',
-    desc: 'Unified shader graph across Live, Camera, Photo, and Video—paired with conversational AI Color Grading, Vectorscope skin-tone calibration, and 1-tap Sentinel fixes.',
-    tags: ['GLSL + Metal/GLES', 'AI Color Grader', 'GPU Scopes'],
-    icon: (
-      <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4">
-        <circle cx="13.5" cy="6.5" r=".5" fill="currentColor" />
-        <circle cx="17.5" cy="10.5" r=".5" fill="currentColor" />
-        <circle cx="8.5" cy="7.5" r=".5" fill="currentColor" />
-        <circle cx="6.5" cy="12.5" r=".5" fill="currentColor" />
-        <path d="M12 2C6.5 2 2 6.5 2 12s4.5 10 10 10c.926 0 1.648-.746 1.648-1.688 0-.437-.18-.835-.437-1.125-.29-.289-.438-.652-.438-1.125a1.64 1.64 0 0 1 1.668-1.668h1.996c3.051 0 5.555-2.503 5.555-5.554C21.965 6.012 17.461 2 12 2z" />
-      </svg>
-    ),
-  },
-  {
-    id: 'mobile-editor',
-    pink: false,
-    title: 'Pro Video Timeline, Photo Studio & AI Rotoscoping',
-    desc: 'Magnetic multi-track video editing, natural-language SAM 2 subject cutouts, text-behind-subject masking, karaoke captions, and lossless hardware export.',
-    tags: ['AI Rotoscoping', 'Multi-Track Timeline', 'HDR Hardware Export'],
-    icon: (
-      <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4">
-        <path d="M12 20h9" />
-        <path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z" />
-      </svg>
-    ),
-  },
-  {
     id: 'reels-feed',
     pink: false,
-    title: '60 FPS Reels, 24h Stories & Triple-Stream Feed',
-    desc: 'Zero-buffering vertical feed uniting Following, For You, and Biz streams with 24-hour Stories, spinning sound discs, 1-tap Remix, and low-data pre-caching.',
-    tags: ['Following · For You · Biz', 'Low-Data Caching', '24h Stories'],
+    title: 'African Creator Feed, Stories & Remix',
+    desc: 'Discovery across Following, For You, and Biz streams tuned for low-bandwidth mobile bundles—paired with 24-hour Stories, shoppable tags, and permanent original-sound Remix attribution.',
+    tags: ['Following · For You · Biz', 'Low-Data Ready', 'Audio Attribution'],
     icon: (
       <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4">
         <rect width="18" height="18" x="3" y="3" rx="2" />
@@ -74,9 +73,9 @@ const FEATURE_CARDS = [
   {
     id: 'ova-ai-lab',
     pink: true,
-    title: 'Ova Voice Assistant, AI Lab & Smart Post Studio',
-    desc: 'Hands-free voice camera capture, AI video frame analysis for high-retention titles/hashtags/covers, offline AI fallback, and AiSecurityGateway isolation.',
-    tags: ['Ova Voice Control', 'Smart Post Drafts', 'Offline AI Ready'],
+    title: 'Ova Personal AI, Live Help & Desktop Agent',
+    desc: 'Hands-free voice assistance, power-button Highlight & instant screen translation on mobile, plus live Support AI connected to real-time human admins and Mac & Windows desktop automation.',
+    tags: ['Live Support AI', 'In-Place Translate', 'Mac & Windows'],
     icon: (
       <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4">
         <path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z" />
@@ -86,24 +85,23 @@ const FEATURE_CARDS = [
     ),
   },
   {
-    id: 'wallet-biz-commerce',
-    pink: true,
-    title: 'Oneova Wallet, Mobile Money & Biz Marketplace',
-    desc: 'Double-entry local-currency Wallet supporting M-Pesa, MTN MoMo, Airtel, Orange, Wave & IAP—plus Biz product Reels and `.oneovapack` Look stores.',
-    tags: ['M-Pesa & MoMo', 'Biz Social Commerce', '.oneovapack Store'],
+    id: 'translated-chat',
+    pink: false,
+    title: 'Encrypted Chat & Real-Time Voice Calls',
+    desc: 'Private 1:1 and group conversations protected by end-to-end encryption, disappearing messages, and real-time voice translation so creators and buyers collaborate across any language.',
+    tags: ['Encrypted Calls', 'Voice Translation', 'Disappearing Chats'],
     icon: (
       <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4">
-        <rect width="20" height="14" x="2" y="5" rx="2" />
-        <line x1="2" x2="22" y1="10" y2="10" />
+        <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
       </svg>
     ),
   },
   {
-    id: 'device-thermal-advisor',
+    id: 'security-desktop-ecosystem',
     pink: false,
-    title: 'AI Device Advisor & Predictive Thermal Shield',
-    desc: 'Profiles every phone chipset and monitors Android ADPF / iOS thermal states in real time so entry-level to flagship devices stream smoothly without overheating.',
-    tags: ['Hardware Profiling', 'Thermal Governor', 'Cloud GPU Offload'],
+    title: 'Account Safety, SIM Shield & Device Health',
+    desc: 'Protects African phone accounts against SIM-swap and phone-number recycling, pairs biometric hardware locks to Wallet actions, and adapts quality for affordable smartphones.',
+    tags: ['SIM-Recycle Shield', 'Biometric Guard', 'Everyday Phones'],
     icon: (
       <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4">
         <rect width="16" height="16" x="4" y="4" rx="2" />
@@ -115,9 +113,9 @@ const FEATURE_CARDS = [
   {
     id: 'regulation-african-global-compliance',
     pink: true,
-    title: 'African & Global Trust, Safety & Legal Shield',
-    desc: '100% Creator IP ownership, zero data sales, anti-MoMo-scam shields, Teen Safe Defaults (116 helplines), and full ODPC, NDPA, POPIA, GDPR & DSA compliance.',
-    tags: ['ODPC · NDPA · POPIA', 'GDPR & EU DSA', '100% Creator IP'],
+    title: 'African & Global Trust & Compliance',
+    desc: '100% creator copyright ownership, zero personal data sales, anti-mobile-money-scam protection, Teen Safety (116 helplines), and compliance across ODPC, NDPA, POPIA & GDPR.',
+    tags: ['ODPC · NDPA · POPIA', 'Anti-Scam Shield', '100% Creator IP'],
     icon: (
       <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4">
         <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />
@@ -130,14 +128,14 @@ export default function FeaturesGrid({ onSelectDoc }) {
   return (
     <section className="showcase-section" id="features">
       <div className="section-header-center">
-        <span className="section-tag pink">COMPLETE PLATFORM ECOSYSTEM</span>
+        <span className="section-tag pink">THE ONEOVA CREATOR ECONOMY</span>
         <h2 className="section-title">
-          Advanced Mobile Creation, Africa-First Commerce & Global Legal Trust
+          Everything African Creators &amp; Merchants Need to Monetize &amp; Scale
         </h2>
         <p className="section-desc">
-          Explore Oneova’s complete technical and regulatory architecture—from 4K WebRTC GPU Looks
-          and conversational AI Color Grading to M-Pesa/MoMo creator payouts and statutory data
-          protection. Click any card to jump straight to its live-synced specification.
+          Explore the real features Oneova brings together in one platform—from 3D Shops, Wallet
+          &amp; Mobile Money payouts, and Oneova Global ID to Live Commerce and real-time Support
+          AI. Click any card to open its full guide.
         </p>
       </div>
 
@@ -161,7 +159,7 @@ export default function FeaturesGrid({ onSelectDoc }) {
             </div>
             {onSelectDoc && (
               <div className="feature-card-spec-link">
-                <span>Read Live Documentation →</span>
+                <span>Read Guide →</span>
               </div>
             )}
           </div>

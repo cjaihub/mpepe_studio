@@ -16,13 +16,13 @@ export default function Navbar({
       <div className="top-vision-banner">
         <div className="vision-banner-content">
           <div className="vision-banner-brand-chip">
-            <span className="vision-badge">ONEOVA PORTAL</span>
+            <span className="vision-badge">ONEOVA AFRICA</span>
             <span className="live-status-dot-pulse" aria-hidden="true" />
-            <span className="vision-status-text">Help Center · Live Docs</span>
+            <span className="vision-status-text">Creator Economy · Live Help</span>
           </div>
           <span className="vision-text">
-            Everything you need for 4K Live, Studio Editing, Ova AI &amp; Mobile Money—
-            <strong>all in plain language.</strong>
+            Oneova Shops, Mobile-Money Wallet, Global ID &amp; Live Support—
+            <strong>built to monetize African creativity.</strong>
           </span>
           <div className="vision-banner-right-actions">
             <a href="#help" className="vision-link">

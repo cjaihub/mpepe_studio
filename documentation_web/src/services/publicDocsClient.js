@@ -5,14 +5,16 @@ import {
   collection,
   query,
   where,
+  limit,
+  orderBy,
   onSnapshot,
 } from 'firebase/firestore';
 import { getFunctions, httpsCallable } from 'firebase/functions';
 import { PLATFORM_BASELINE_DOCS } from '../data/platformCatalog';
 
 /**
- * Public Firebase Web Configuration (`mpepe-2b4bd`) for published docs & support ticket intake.
- * Contains zero admin auth hooks, draft readers, or admin mutation helpers.
+ * Public Firebase Web Configuration (`mpepe-2b4bd`) for published docs, live
+ * showcase data, and real-time support agent sessions.
  */
 export const firebaseWebConfig = {
   apiKey: 'AIzaSyC7x52ADAM6rJZeiTJAeIYj-jdporiR8oA',
@@ -44,8 +46,19 @@ function normalizeSection(raw) {
 }
 
 /**
+ * Strips any legacy third-party brand hashtags or test placeholders from live
+ * public strings rendered inside the homepage demo.
+ */
+export function sanitizePublicCopy(rawText) {
+  return String(rawText ?? '')
+    .replace(/#(tiktok|instagram|youtubeshorts|youtube|facebook|meta|capcut)\b/gi, '')
+    .replace(/\b(TikTok|Instagram|YouTube Shorts|YouTube|Facebook|Meta|CapCut|Stripe)\b/gi, 'Creator Channels')
+    .replace(/\s{2,}/g, ' ')
+    .trim();
+}
+
+/**
  * Defense-in-depth HTML sanitizer for optional CMS `htmlOverride` content.
- * Removes scripts, frames, SVG scripts, inline event handlers, and unsafe URLs.
  */
 export function sanitizeHtmlFragment(rawHtml) {
   const html = String(rawHtml ?? '').trim();
@@ -146,10 +159,6 @@ function mergePublicDocs(liveMap) {
   return merged;
 }
 
-/**
- * Public-only reader hook subscribing strictly to published `platform_cms_docs`.
- * Never reads drafts, revision history, or admin identity metadata.
- */
 export function usePublicPlatformDocs() {
   const [state, setState] = useState(() => ({
     docs: mergePublicDocs(new Map()),
@@ -192,6 +201,124 @@ export function usePublicPlatformDocs() {
   return state;
 }
 
+/**
+ * Real-time public Firestore showcase reader for Open 3D Shops, Products & Creators.
+ * Filters out test placeholders, third-party hashtags, and private owner contact details.
+ */
+export function useLiveShowcaseData() {
+  const [shops, setShops] = useState([]);
+  const [products, setProducts] = useState([]);
+  const [reels, setReels] = useState([]);
+  const [liveConnected, setLiveConnected] = useState(false);
+
+  useEffect(() => {
+    const unsubShops = onSnapshot(
+      query(
+        collection(publicDb, 'biz_shops'),
+        where('status', '==', 'open'),
+        limit(6)
+      ),
+      (snap) => {
+        const clean = snap.docs
+          .map((d) => {
+            const x = d.data() || {};
+            const name = sanitizePublicCopy(x.name || '');
+            if (!name || /^(sample|test)/i.test(name)) return null;
+            return {
+              id: d.id,
+              name,
+              tagline: sanitizePublicCopy(x.tagline || 'Verified Creator Store'),
+              bio: sanitizePublicCopy(x.bio || ''),
+              verified: Boolean(x.verified),
+              categories: Array.isArray(x.categories) ? x.categories.slice(0, 3) : [],
+              avatarUrl: String(x.avatarUrl || ''),
+              bannerUrl: String(x.bannerUrl || ''),
+            };
+          })
+          .filter(Boolean);
+        setShops(clean);
+        setLiveConnected(true);
+      },
+      () => {}
+    );
+
+    const unsubProducts = onSnapshot(
+      query(collection(publicDb, 'products'), limit(12)),
+      (snap) => {
+        const clean = snap.docs
+          .map((d) => {
+            const x = d.data() || {};
+            const title = sanitizePublicCopy(x.title || x.name || '');
+            if (
+              !title ||
+              x.active === false ||
+              /^(sample|test)/i.test(title)
+            ) {
+              return null;
+            }
+            return {
+              id: d.id,
+              title,
+              price: Number(x.price || 0),
+              currency: String(x.currency || 'KES').toUpperCase(),
+              category: sanitizePublicCopy(x.category || 'Creator Goods'),
+              imageUrl: String(
+                x.imageUrl || (Array.isArray(x.imageUrls) ? x.imageUrls[0] : '') || ''
+              ),
+              inStock: x.inStock !== false,
+              has3d: Boolean(x.model3dUrl),
+              shopId: String(x.shopId || x.ownerId || ''),
+            };
+          })
+          .filter(Boolean);
+        setProducts(clean);
+        setLiveConnected(true);
+      },
+      () => {}
+    );
+
+    const unsubContent = onSnapshot(
+      query(
+        collection(publicDb, 'content'),
+        where('visibility', '==', 'public'),
+        limit(8)
+      ),
+      (snap) => {
+        const clean = snap.docs
+          .map((d) => {
+            const x = d.data() || {};
+            const title = sanitizePublicCopy(x.title || '');
+            const desc = sanitizePublicCopy(x.description || x.caption || '');
+            if (
+              !title ||
+              /^media\s+[0-9a-f]/i.test(title) ||
+              title.toLowerCase().includes('test_')
+            ) {
+              return null;
+            }
+            return {
+              id: d.id,
+              title: title.slice(0, 88),
+              description: desc.slice(0, 150),
+              likeCount: Number(x.likeCount || 0),
+            };
+          })
+          .filter(Boolean);
+        setReels(clean);
+      },
+      () => {}
+    );
+
+    return () => {
+      unsubShops();
+      unsubProducts();
+      unsubContent();
+    };
+  }, []);
+
+  return { shops, products, reels, liveConnected };
+}
+
 export async function submitSupportTicketPublic(payload) {
   const fn = httpsCallable(getFunctions(app, 'us-central1'), 'submitSupportTicket');
   const res = await fn(payload);
@@ -202,4 +329,81 @@ export async function lookupSupportTicketPublic({ trackingCode, accessPin }) {
   const fn = httpsCallable(getFunctions(app, 'us-central1'), 'lookupSupportTicket');
   const res = await fn({ trackingCode, accessPin });
   return res.data;
+}
+
+export async function runSupportAgentTurn(payload) {
+  const fn = httpsCallable(getFunctions(app, 'us-central1'), 'supportAgentTurn');
+  const res = await fn(payload);
+  return res.data;
+}
+
+export async function sendSupportSessionMessage(payload) {
+  const fn = httpsCallable(
+    getFunctions(app, 'us-central1'),
+    'supportSessionSendMessage'
+  );
+  const res = await fn(payload);
+  return res.data;
+}
+
+export async function pollSupportSessionMessages(payload) {
+  const fn = httpsCallable(getFunctions(app, 'us-central1'), 'pollSupportSession');
+  const res = await fn(payload);
+  return res.data;
+}
+
+export async function subscribeOneovaAuth(onUser) {
+  const { getAuth, onAuthStateChanged } = await import('firebase/auth');
+  const auth = getAuth(app);
+  return onAuthStateChanged(auth, (u) => {
+    if (!u || u.isAnonymous) {
+      onUser(null);
+    } else {
+      onUser({
+        uid: u.uid,
+        displayName: u.displayName || u.email || 'Oneova Creator',
+        photoURL: u.photoURL || '',
+      });
+    }
+  });
+}
+
+export async function signInOneovaSupportUser() {
+  const { getAuth, GoogleAuthProvider, signInWithPopup } = await import(
+    'firebase/auth'
+  );
+  const auth = getAuth(app);
+  const res = await signInWithPopup(auth, new GoogleAuthProvider());
+  return res.user;
+}
+
+export async function signOutOneovaSupportUser() {
+  const { getAuth, signOut } = await import('firebase/auth');
+  await signOut(getAuth(app));
+}
+
+export function subscribeSignedInTicketMessages(ticketId, onUpdate) {
+  if (!ticketId) return () => {};
+  const q = query(
+    collection(publicDb, 'support_tickets', ticketId, 'messages'),
+    orderBy('createdAt', 'asc'),
+    limit(60)
+  );
+  return onSnapshot(
+    q,
+    (snap) => {
+      const msgs = snap.docs.map((d) => {
+        const m = d.data() || {};
+        return {
+          id: d.id,
+          senderRole: String(m.senderRole || 'user'),
+          senderName: String(m.senderName || ''),
+          text: String(m.text || ''),
+          actionTaken: String(m.actionTaken || ''),
+        };
+      });
+      onUpdate(msgs);
+    },
+    () => {}
+  );
 }
