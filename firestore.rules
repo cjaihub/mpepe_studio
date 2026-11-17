@@ -191,6 +191,23 @@ rules_version = '2';
 //     self-only readBy/deliveredTo/reactions updates; blocked 1:1 pairs denied create; sender/owner delete)
 //   - {sub}/{rest=**}: other chat subcollections (members only)
 //
+// Collection: support_tickets
+// Document ID: {ticketId} (auto-ID, server-created via submitSupportTicket)
+// Fields:
+//   - uid: string (authenticated non-anonymous UID or '', immutable)
+//   - trackingCode: string (e.g. 'OVA-123456', immutable)
+//   - pinHash: string (SHA-256 hex of trackingCode:accessPin, immutable)
+//   - category: string (immutable)
+//   - subject: string (immutable)
+//   - message: string (immutable)
+//   - contactEmail: string (immutable)
+//   - status: string ('open' | 'in_progress' | 'resolved' | 'closed')
+//   - adminReply: string (optional, <= 2000 chars)
+//   - repliedByUid: string (optional, <= 128 chars)
+//   - repliedByName: string (optional, <= 120 chars)
+//   - createdAt: timestamp (immutable)
+//   - updatedAt: timestamp (required on update)
+//
 // ===============================================================
 
 service cloud.firestore {
@@ -199,6 +216,11 @@ service cloud.firestore {
     // ─── Helper functions ────────────────────────────────────────────────────
     function isSignedIn() {
       return request.auth != null;
+    }
+
+    function isNonAnonymousSignedIn() {
+      return isSignedIn() &&
+             request.auth.token.get('firebase', {}).get('sign_in_provider', '') != 'anonymous';
     }
 
     function isOwner(uid) {
@@ -218,6 +240,7 @@ service cloud.firestore {
 
     function isAdmin() {
       return isSignedIn() &&
+             exists(/databases/$(database)/documents/users/$(request.auth.uid)) &&
              get(/databases/$(database)/documents/users/$(request.auth.uid)).data.get('role', '') == 'admin';
     }
 
@@ -359,14 +382,16 @@ service cloud.firestore {
     }
     function keepsPrivilegesOnCreate() {
       return !isPrivilegedRoleValue(request.resource.data.get('role', 'user')) &&
-             request.resource.data.get('status', 'active') != 'suspended';
+             request.resource.data.get('status', 'active') != 'suspended' &&
+             request.resource.data.get('isAdmin', false) == false;
     }
     function keepsPrivilegesOnUpdate() {
       let prevRole = resource.data.get('role', 'user');
       let nextRole = request.resource.data.get('role', 'user');
       return (nextRole == prevRole || !isPrivilegedRoleValue(nextRole)) &&
              (resource.data.get('status', '') != 'suspended' ||
-              request.resource.data.get('status', '') == 'suspended');
+              request.resource.data.get('status', '') == 'suspended') &&
+             request.resource.data.get('isAdmin', false) == resource.data.get('isAdmin', false);
     }
 
     // Notifications may only be sent as yourself and may only deep-link to an
@@ -1887,22 +1912,96 @@ service cloud.firestore {
     }
 
     // ─── Moderation & audit (write-once from clients) ────────────────────────
+    function isValidModerationCategoryList(categories) {
+      return categories is list &&
+             categories.size() <= 10 &&
+             (categories.size() < 1 || (categories[0] is string && categories[0].size() >= 1 && categories[0].size() <= 120)) &&
+             (categories.size() < 2 || (categories[1] is string && categories[1].size() >= 1 && categories[1].size() <= 120)) &&
+             (categories.size() < 3 || (categories[2] is string && categories[2].size() >= 1 && categories[2].size() <= 120)) &&
+             (categories.size() < 4 || (categories[3] is string && categories[3].size() >= 1 && categories[3].size() <= 120)) &&
+             (categories.size() < 5 || (categories[4] is string && categories[4].size() >= 1 && categories[4].size() <= 120)) &&
+             (categories.size() < 6 || (categories[5] is string && categories[5].size() >= 1 && categories[5].size() <= 120)) &&
+             (categories.size() < 7 || (categories[6] is string && categories[6].size() >= 1 && categories[6].size() <= 120)) &&
+             (categories.size() < 8 || (categories[7] is string && categories[7].size() >= 1 && categories[7].size() <= 120)) &&
+             (categories.size() < 9 || (categories[8] is string && categories[8].size() >= 1 && categories[8].size() <= 120)) &&
+             (categories.size() < 10 || (categories[9] is string && categories[9].size() >= 1 && categories[9].size() <= 120));
+    }
+
+    function isValidModerationTicketClientWrite() {
+      let data = request.resource.data;
+      return data.keys().hasOnly([
+               'targetId', 'targetType', 'reportedByUserId',
+               'flaggedCategories', 'state', 'createdAt'
+             ]) &&
+             data.keys().hasAll([
+               'targetId', 'targetType', 'reportedByUserId',
+               'flaggedCategories', 'state', 'createdAt'
+             ]) &&
+             data.reportedByUserId is string &&
+             data.reportedByUserId == request.auth.uid &&
+             data.targetId is string &&
+             data.targetId.size() >= 1 &&
+             data.targetId.size() <= 128 &&
+             data.targetType is string &&
+             data.targetType.size() >= 1 &&
+             data.targetType.size() <= 64 &&
+             isValidModerationCategoryList(data.flaggedCategories) &&
+             data.state == 'pendingAutomatedReview' &&
+             data.createdAt is timestamp;
+    }
+
     match /moderation_tickets/{ticketId} {
-      allow create: if isSignedIn() && request.resource.data.reportedByUserId == request.auth.uid;
+      allow create: if isNonAnonymousSignedIn() && !isSuspended() &&
+                       isValidModerationTicketClientWrite() &&
+                       request.resource.data.createdAt == request.time;
       // Profile reports use a fixed id '<reporter>_user_<target>' and set(),
       // so reporting the same account again overwrites the reporter's own
       // ticket while it is still awaiting review.
-      allow update: if isSignedIn() &&
+      allow update: if isNonAnonymousSignedIn() && !isSuspended() &&
                        ticketId == request.auth.uid + '_user_' + resource.data.get('targetId', '') &&
                        resource.data.get('reportedByUserId', '') == request.auth.uid &&
                        resource.data.get('state', '') == 'pendingAutomatedReview' &&
-                       request.resource.data.reportedByUserId == request.auth.uid &&
-                       request.resource.data.get('targetId', '') == resource.data.get('targetId', '') &&
-                       request.resource.data.get('state', '') == 'pendingAutomatedReview';
+                       isValidModerationTicketClientWrite() &&
+                       request.resource.data.targetId == resource.data.get('targetId', '') &&
+                       (!('targetType' in resource.data) ||
+                        request.resource.data.targetType == resource.data.get('targetType', '')) &&
+                       (request.resource.data.createdAt == resource.data.get('createdAt', null) ||
+                        request.resource.data.createdAt == request.time);
       allow read, update, delete: if isAdmin();
     }
+
+    function isValidModerationCaseCreate() {
+      let data = request.resource.data;
+      return data.keys().hasOnly([
+               'targetUserId', 'contentId', 'actionTaken',
+               'rationale', 'status', 'isBurnNotice', 'createdAt'
+             ]) &&
+             data.keys().hasAll([
+               'targetUserId', 'contentId', 'actionTaken',
+               'rationale', 'status', 'isBurnNotice', 'createdAt'
+             ]) &&
+             data.targetUserId is string &&
+             data.targetUserId == request.auth.uid &&
+             data.contentId is string &&
+             data.contentId.size() >= 1 &&
+             data.contentId.size() <= 128 &&
+             data.actionTaken is string &&
+             data.actionTaken in ['none', 'warn', 'restrict', 'remove', 'ageRestrict', 'suspend', 'ban'] &&
+             data.rationale is string &&
+             data.rationale.size() >= 1 &&
+             data.rationale.size() <= 1000 &&
+             data.status is string &&
+             data.status in ['open', 'underReview', 'resolved', 'appealed'] &&
+             data.isBurnNotice is bool &&
+             data.createdAt is timestamp &&
+             data.createdAt == request.time;
+    }
+
     match /moderation_cases/{caseId} {
-      allow create: if isSignedIn();
+      // Server (Ova Guard Admin SDK) writes ova_guard cases directly; client
+      // safety engine only logs self-scan burn-notice cases for request.auth.uid.
+      allow create: if isAdmin() ||
+                       (isNonAnonymousSignedIn() && isValidModerationCaseCreate());
       allow read, update, delete: if isAdmin();
     }
     match /audit_logs/{logId} {
@@ -2169,10 +2268,11 @@ service cloud.firestore {
     // and post official replies. ai.*, counters and clusters are written by
     // Cloud Functions (functions/src/wishIdeas.ts) only.
     function isWishAdmin() {
-      return isSignedIn() && (
-        request.auth.token.get('admin', false) == true ||
-        get(/databases/$(database)/documents/users/$(request.auth.uid)).data.get('role', '') in ['admin', 'owner', 'founder'] ||
-        get(/databases/$(database)/documents/users/$(request.auth.uid)).data.get('isAdmin', false) == true);
+      return isPlatformDocsAdmin() || (
+        isSignedIn() &&
+        exists(/databases/$(database)/documents/users/$(request.auth.uid)) &&
+        get(/databases/$(database)/documents/users/$(request.auth.uid)).data.get('isAdmin', false) == true
+      );
     }
 
     function isWishText(field, minLen, maxLen) {
@@ -2265,6 +2365,50 @@ service cloud.firestore {
     }
     // pay_devices, pay_device_challenges: server only (functions/src/pay/devices.ts).
     // Device public keys, trust and cool-downs are never readable or writable by clients.
+
+    // ─── Support Tickets (submitted via submitSupportTicket Cloud Function) ──
+    function isValidSupportTicketOptionalString(data, field, maxLen) {
+      return !(field in data) ||
+             (data[field] is string && data[field].size() <= maxLen);
+    }
+
+    function isValidSupportTicketUpdate() {
+      let data = request.resource.data;
+      return data.keys().hasOnly([
+               'uid', 'trackingCode', 'pinHash', 'category', 'subject',
+               'message', 'contactEmail', 'status', 'adminReply',
+               'repliedByUid', 'repliedByName', 'createdAt', 'updatedAt'
+             ]) &&
+             data.diff(resource.data).affectedKeys().hasOnly([
+               'status', 'adminReply', 'repliedByUid', 'repliedByName', 'updatedAt'
+             ]) &&
+             data.get('uid', null) == resource.data.get('uid', null) &&
+             data.get('trackingCode', null) == resource.data.get('trackingCode', null) &&
+             data.get('pinHash', null) == resource.data.get('pinHash', null) &&
+             data.get('createdAt', null) == resource.data.get('createdAt', null) &&
+             data.get('subject', null) == resource.data.get('subject', null) &&
+             data.get('message', null) == resource.data.get('message', null) &&
+             data.get('category', null) == resource.data.get('category', null) &&
+             data.get('contactEmail', null) == resource.data.get('contactEmail', null) &&
+             ('status' in data) &&
+             data.status is string &&
+             data.status in ['open', 'in_progress', 'resolved', 'closed'] &&
+             isValidSupportTicketOptionalString(data, 'adminReply', 2000) &&
+             isValidSupportTicketOptionalString(data, 'repliedByUid', 128) &&
+             isValidSupportTicketOptionalString(data, 'repliedByName', 120) &&
+             ('updatedAt' in data) &&
+             data.updatedAt is timestamp;
+    }
+
+    match /support_tickets/{ticketId} {
+      allow get, list: if isPlatformDocsAdmin() ||
+                          (isNonAnonymousSignedIn() &&
+                           resource != null &&
+                           resource.data.get('uid', '') == request.auth.uid);
+      allow create: if false;
+      allow update: if isPlatformDocsAdmin() && isValidSupportTicketUpdate();
+      allow delete: if isPlatformDocsAdmin();
+    }
 
     // ─── Deny everything else ────────────────────────────────────────────────
     match /{document=**} {

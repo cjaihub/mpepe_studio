@@ -140,16 +140,16 @@
     );
     actionsWrap.appendChild(askOvaLink);
 
-    var editLink = el(
+    var helpLink = el(
       'a',
       {
-        href: '/?admin=1',
+        href: '/#help',
         style:
-          'font-size: 11.5px; font-weight: 700; color: var(--text-muted); text-decoration: none;',
+          'font-size: 11.5px; font-weight: 700; color: var(--brand-blue); text-decoration: none;',
       },
-      '✎ Admin CMS'
+      'Help Center'
     );
-    actionsWrap.appendChild(editLink);
+    actionsWrap.appendChild(helpLink);
     topRow.appendChild(actionsWrap);
     box.appendChild(topRow);
 
@@ -261,7 +261,51 @@
         style:
           'margin-top: 10px; padding: 12px; border-radius: 8px; background: var(--bg); border: 1px solid var(--border);',
       });
-      customWrap.innerHTML = doc.htmlOverride;
+      try {
+        var parsedDoc = new DOMParser().parseFromString(doc.htmlOverride, 'text/html');
+        var blockedTags = {
+          SCRIPT: 1,
+          IFRAME: 1,
+          OBJECT: 1,
+          EMBED: 1,
+          FORM: 1,
+          STYLE: 1,
+          LINK: 1,
+          META: 1,
+          BASE: 1,
+          SVG: 1,
+        };
+        var walkClean = function (node) {
+          Array.prototype.slice.call(node.childNodes || []).forEach(function (child) {
+            if (child.nodeType === 1) {
+              if (blockedTags[child.tagName]) {
+                node.removeChild(child);
+                return;
+              }
+              Array.prototype.slice.call(child.attributes || []).forEach(function (attr) {
+                var name = attr.name.toLowerCase();
+                var val = String(attr.value || '').trim().toLowerCase();
+                if (name.indexOf('on') === 0 || name === 'srcdoc') {
+                  child.removeAttribute(attr.name);
+                } else if (
+                  (name === 'href' || name === 'src') &&
+                  val &&
+                  !/^(https?:|mailto:|tel:|\/|#)/.test(val)
+                ) {
+                  child.removeAttribute(attr.name);
+                }
+              });
+              walkClean(child);
+            }
+          });
+        };
+        walkClean(parsedDoc.body);
+        Array.prototype.slice.call(parsedDoc.body.childNodes).forEach(function (child) {
+          customWrap.appendChild(document.importNode(child, true));
+        });
+      } catch (_) {
+        customWrap.textContent = doc.htmlOverride.replace(/<[^>]+>/g, '');
+      }
       box.appendChild(customWrap);
     }
 

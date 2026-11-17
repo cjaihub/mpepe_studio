@@ -1,15 +1,18 @@
 import React, { useState } from 'react';
 import { useCmsAdminAuth } from '../services/platformCmsClient';
+import AdminCmsModal from '../components/AdminCmsModal';
+import SupportTicketsAdmin from './SupportTicketsAdmin';
 import WishIdeasAdmin from './WishIdeasAdmin';
 import './adminDashboard.css';
 
 /**
- * oneova.web.app/admin — the Oneova admin dashboard (admin tools live here,
- * not in the app). Access: users/{uid}.role in admin/owner/founder, or the
- * `admin` custom claim; Firestore rules enforce the same.
+ * `/admin` — exclusive Oneova admin workspace.
+ * All admin data, CMS publishing, feedback moderation, and support tickets
+ * are accessible solely here behind Firebase Admin authentication & Firestore rules.
  */
 export default function AdminDashboard() {
   const { user, isAdmin, roleLabel, loading, signInEmail, signInGoogle, signOutAdmin } = useCmsAdminAuth();
+  const [activeTab, setActiveTab] = useState('feedback'); // 'feedback' | 'tickets' | 'cms'
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [busy, setBusy] = useState(false);
@@ -31,9 +34,28 @@ export default function AdminDashboard() {
     <div className="wa-page">
       <header className="wa-topbar">
         <a href="/" className="wa-brand">Oneova <span>Admin</span></a>
-        <nav className="wa-nav">
-          <span className="wa-nav-item is-active">User feedback</span>
-          <a className="wa-nav-item" href="/?admin=1">Docs &amp; rules CMS</a>
+        <nav className="wa-nav" aria-label="Admin Navigation">
+          <button
+            type="button"
+            className={`wa-nav-item ${activeTab === 'feedback' ? 'is-active' : ''}`}
+            onClick={() => setActiveTab('feedback')}
+          >
+            User feedback
+          </button>
+          <button
+            type="button"
+            className={`wa-nav-item ${activeTab === 'tickets' ? 'is-active' : ''}`}
+            onClick={() => setActiveTab('tickets')}
+          >
+            Support tickets
+          </button>
+          <button
+            type="button"
+            className={`wa-nav-item ${activeTab === 'cms' ? 'is-active' : ''}`}
+            onClick={() => setActiveTab('cms')}
+          >
+            Docs &amp; rules CMS
+          </button>
         </nav>
         {user && (
           <div className="wa-user">
@@ -75,6 +97,10 @@ export default function AdminDashboard() {
             </p>
             <button type="button" className="btn-secondary" onClick={signOutAdmin}>Switch account</button>
           </div>
+        ) : activeTab === 'cms' ? (
+          <AdminCmsModal isOpen embedded onClose={() => setActiveTab('feedback')} />
+        ) : activeTab === 'tickets' ? (
+          <SupportTicketsAdmin />
         ) : (
           <WishIdeasAdmin />
         )}

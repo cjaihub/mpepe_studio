@@ -7,133 +7,90 @@ export default function Navbar({
   onSearchFocus,
   onSelectDoc,
   onOpenPolicy,
-  onOpenAdminCms,
   onOpenOvaAssistant,
-  isAdmin = false,
 }) {
   const [mobileMenuOpen, setMobileMenuOpen] = React.useState(false);
 
   return (
     <>
-      {/* Top Futuristic Announcement & Status Banner */}
       <div className="top-vision-banner">
         <div className="vision-banner-content">
           <div className="vision-banner-brand-chip">
-            <span className="vision-badge">ONEOVA</span>
-            <span className="live-status-dot-pulse" aria-hidden="true"></span>
-            <span className="vision-status-text">Live Sync Operational</span>
+            <span className="vision-badge">ONEOVA PORTAL</span>
+            <span className="live-status-dot-pulse" aria-hidden="true" />
+            <span className="vision-status-text">Help Center · Live Docs</span>
           </div>
           <span className="vision-text">
-            Social media re-imagined from first principles. <strong>Is the reason you matter.</strong>
+            Everything you need for 4K Live, Studio Editing, Ova AI &amp; Mobile Money—
+            <strong>all in plain language.</strong>
           </span>
           <div className="vision-banner-right-actions">
-            <a href="#docs" className="vision-link" onClick={() => onSelectDoc('policy-community-guidelines')}>
-              <span>Rules &amp; Global Regulations</span>
+            <a href="#help" className="vision-link">
+              <span>Help Center</span>
               <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
                 <polyline points="9 18 15 12 9 6" />
               </svg>
             </a>
-            {onOpenOvaAssistant && (
-              <button
-                type="button"
-                className="vision-ask-ova-quick"
-                onClick={onOpenOvaAssistant}
-                title="Ask Ova AI Assistant"
-              >
-                <span>✨ Ask Ova</span>
-              </button>
-            )}
           </div>
         </div>
       </div>
 
       <header className="site-header" id="site-header">
         <div className="header-container">
-          <a href="#showcase" className="brand-identity">
+          <a href="#help" className="brand-identity">
             <img src="/assets/images/oneova_logo.jpg" alt="Oneova Logo" className="brand-logo-img" />
             <div className="brand-text-wrap">
               <span className="brand-title">ONEOVA</span>
-              <span className="brand-badge">Is the reason you matter.</span>
+              <span className="brand-badge">Help Center &amp; Guide</span>
             </div>
           </a>
 
-          {/* Desktop Navigation with Clear Non-Technical Labels */}
           <nav className="nav-menu" aria-label="Main Navigation">
-            <a href="#features" className="nav-link">
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2">
-                <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2" />
-              </svg>
-              <span>Features</span>
-            </a>
-
-            <a href="#desktop" className="nav-link">
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2">
-                <rect x="2" y="3" width="20" height="14" rx="2" />
-                <line x1="8" y1="21" x2="16" y2="21" />
-                <line x1="12" y1="17" x2="12" y2="21" />
-              </svg>
-              <span>Mac &amp; Windows</span>
-            </a>
-
-            <a href="#docs" className="nav-link" onClick={() => onSelectDoc('live-studio')}>
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2">
-                <polygon points="23 7 16 12 23 17 23 7" />
-                <rect x="1" y="5" width="15" height="14" rx="2" ry="2" />
-              </svg>
-              <span>Live &amp; Studio</span>
-            </a>
-
-            <a href="#docs" className="nav-link" onClick={() => onSelectDoc('wallet-biz-commerce')}>
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2">
-                <rect width="20" height="14" x="2" y="5" rx="2" />
-                <line x1="2" x2="22" y1="10" y2="10" />
-              </svg>
-              <span>Earnings &amp; M-Pesa</span>
+            <a href="#help" className="nav-link">
+              <span>Help Center</span>
             </a>
 
             <a
               href="#docs"
-              className="nav-link nav-highlight-pink"
-              onClick={() => onSelectDoc('policy-community-guidelines')}
+              className="nav-link"
+              onClick={() => onSelectDoc?.('live-studio')}
             >
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2">
-                <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />
-              </svg>
-              <span>Community Rules</span>
-              <span className="nav-mini-dot-pink" />
+              <span>User Guide</span>
+            </a>
+
+            <a href="#features" className="nav-link">
+              <span>Features</span>
+            </a>
+
+            <a href="#desktop" className="nav-link">
+              <span>Mac &amp; Windows</span>
             </a>
 
             <button
               type="button"
-              className="nav-link"
-              onClick={() => onOpenPolicy && onOpenPolicy('africa')}
+              className="nav-link nav-highlight-pink"
+              onClick={() => onOpenPolicy?.('guidelines')}
             >
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2">
-                <circle cx="12" cy="12" r="10" />
-                <line x1="2" y1="12" x2="22" y2="12" />
-                <path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z" />
-              </svg>
-              <span>Global Laws</span>
+              <span>Safety &amp; Legal</span>
+              <span className="nav-mini-dot-pink" />
             </button>
           </nav>
 
           <div className="header-actions">
-            {/* Ask Ova Assistant Button */}
-            {onOpenOvaAssistant && (
-              <button
-                type="button"
-                className="header-ova-ai-btn"
-                onClick={onOpenOvaAssistant}
-                aria-label="Open Ova Assistant"
-                title="Ask Ova AI about rules, features &amp; earnings"
-              >
-                <span className="ova-sparkle-icon">✨</span>
-                <span className="ova-btn-text">Ask Ova</span>
-                <span className="ova-btn-badge">AI</span>
-              </button>
-            )}
+            <button
+              type="button"
+              className="search-trigger-btn"
+              onClick={onSearchFocus}
+              aria-label="Search User Guide"
+            >
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+                <circle cx="11" cy="11" r="8" />
+                <path d="m21 21-4.35-4.35" />
+              </svg>
+              <span className="search-btn-label">Search</span>
+              <kbd className="search-kbd">⌘K</kbd>
+            </button>
 
-            {/* Dark / Light Mode Switcher */}
             <button
               type="button"
               className="theme-toggle-btn"
@@ -166,44 +123,23 @@ export default function Navbar({
               )}
             </button>
 
-            {/* Quick Search Shortcut */}
-            <button
-              type="button"
-              className="search-trigger-btn"
-              onClick={onSearchFocus}
-              aria-label="Search Documentation"
-            >
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
-                <circle cx="11" cy="11" r="8" />
-                <path d="m21 21-4.35-4.35" />
-              </svg>
-              <span className="search-btn-label">Search</span>
-              <kbd className="search-kbd">⌘K</kbd>
-            </button>
-
-            {/* Live Admin CMS Trigger — signed-in admins only; others use /admin or ⌘⇧E */}
-            {onOpenAdminCms && isAdmin && (
+            {onOpenOvaAssistant && (
               <button
                 type="button"
-                className="cms-nav-pill-btn"
-                onClick={() => onOpenAdminCms()}
-                title="Open Real-Time App + Web Admin CMS (⌘⇧E)"
+                className="header-ova-ai-btn"
+                onClick={onOpenOvaAssistant}
+                aria-label="Open Oneova Support"
               >
-                <span>✎ {isAdmin ? 'Live CMS' : 'CMS'}</span>
+                <span className="ova-sparkle-icon">✦</span>
+                <span className="ova-btn-text">Support</span>
               </button>
             )}
 
-            {/* Main CTA */}
             <button type="button" className="btn-primary header-cta-btn" onClick={onOpenDownload}>
               <span className="cta-full-label">Get App</span>
-              <span className="cta-short-label">Join</span>
-              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
-                <line x1="5" y1="12" x2="19" y2="12" />
-                <polyline points="12 5 19 12 12 19" />
-              </svg>
+              <span className="cta-short-label">App</span>
             </button>
 
-            {/* Mobile Hamburger Toggle */}
             <button
               type="button"
               className="mobile-menu-toggle"
@@ -226,13 +162,12 @@ export default function Navbar({
           </div>
         </div>
 
-        {/* Mobile Drawer */}
         {mobileMenuOpen && (
           <div className="mobile-nav-drawer">
             <div className="mobile-drawer-header">
               <div className="mobile-drawer-brand">
                 <span className="mobile-drawer-logo">ONEOVA</span>
-                <span className="mobile-drawer-slogan">Is the reason you matter.</span>
+                <span className="mobile-drawer-slogan">Help Center &amp; Creator Portal</span>
               </div>
               <button type="button" className="mobile-theme-pill" onClick={onToggleTheme}>
                 {theme === 'dark' ? '☀️ Light' : '🌙 Dark'}
@@ -240,84 +175,79 @@ export default function Navbar({
             </div>
 
             <div className="mobile-drawer-links">
+              <a
+                href="#help"
+                className="mobile-nav-card highlight-pink"
+                onClick={() => setMobileMenuOpen(false)}
+              >
+                <span className="mobile-card-icon pink">?</span>
+                <div className="mobile-card-text">
+                  <span className="mobile-card-title">Help Center &amp; FAQs</span>
+                  <span className="mobile-card-sub">Search answers or submit a support ticket</span>
+                </div>
+                <span className="mobile-card-arrow">→</span>
+              </a>
+
+              <a
+                href="#docs"
+                className="mobile-nav-card"
+                onClick={() => {
+                  onSelectDoc?.('live-studio');
+                  setMobileMenuOpen(false);
+                }}
+              >
+                <span className="mobile-card-icon blue">📖</span>
+                <div className="mobile-card-text">
+                  <span className="mobile-card-title">Advanced User Guide</span>
+                  <span className="mobile-card-sub">Step-by-step guides &amp; Table of Contents</span>
+                </div>
+                <span className="mobile-card-arrow">→</span>
+              </a>
+
+              <a
+                href="#desktop"
+                className="mobile-nav-card"
+                onClick={() => setMobileMenuOpen(false)}
+              >
+                <span className="mobile-card-icon blue">💻</span>
+                <div className="mobile-card-text">
+                  <span className="mobile-card-title">Mac &amp; Windows Desktop Agent</span>
+                  <span className="mobile-card-sub">Studio automation, hotkeys &amp; installers</span>
+                </div>
+                <span className="mobile-card-arrow">→</span>
+              </a>
+
+              <button
+                type="button"
+                className="mobile-nav-card highlight-pink"
+                style={{ width: '100%', textAlign: 'left', cursor: 'pointer' }}
+                onClick={() => {
+                  setMobileMenuOpen(false);
+                  onOpenPolicy?.('guidelines');
+                }}
+              >
+                <span className="mobile-card-icon pink">🛡️</span>
+                <div className="mobile-card-text">
+                  <span className="mobile-card-title">Safety, Privacy &amp; Legal</span>
+                  <span className="mobile-card-sub">Zero data sales, 116 Teen Safety &amp; Terms</span>
+                </div>
+                <span className="mobile-card-arrow">→</span>
+              </button>
+
               {onOpenOvaAssistant && (
                 <button
                   type="button"
-                  className="mobile-nav-card highlight-pink"
+                  className="mobile-nav-card"
                   style={{ width: '100%', textAlign: 'left', cursor: 'pointer' }}
                   onClick={() => {
                     setMobileMenuOpen(false);
                     onOpenOvaAssistant();
                   }}
                 >
-                  <span className="mobile-card-icon pink">✨</span>
+                  <span className="mobile-card-icon blue">✦</span>
                   <div className="mobile-card-text">
-                    <span className="mobile-card-title">Ask Ova AI Assistant</span>
-                    <span className="mobile-card-sub">Instant plain-language answers to all 18 topics</span>
-                  </div>
-                  <span className="mobile-card-arrow">→</span>
-                </button>
-              )}
-
-              <a
-                href="#features"
-                className="mobile-nav-card"
-                onClick={() => setMobileMenuOpen(false)}
-              >
-                <span className="mobile-card-icon blue">⚡</span>
-                <div className="mobile-card-text">
-                  <span className="mobile-card-title">Platform Features</span>
-                  <span className="mobile-card-sub">Live Studio, GLSL Looks, AI Lab &amp; Wallet</span>
-                </div>
-                <span className="mobile-card-arrow">→</span>
-              </a>
-
-              <a
-                href="#docs"
-                className="mobile-nav-card highlight-pink"
-                onClick={() => {
-                  onSelectDoc('policy-community-guidelines');
-                  setMobileMenuOpen(false);
-                }}
-              >
-                <span className="mobile-card-icon pink">🛡️</span>
-                <div className="mobile-card-text">
-                  <span className="mobile-card-title">Community Rules &amp; Safety</span>
-                  <span className="mobile-card-sub">Anti-scam shields, 116 Teen Safety &amp; Law</span>
-                </div>
-                <span className="mobile-card-arrow">→</span>
-              </a>
-
-              <a
-                href="#docs"
-                className="mobile-nav-card"
-                onClick={() => {
-                  onSelectDoc('wallet-biz-commerce');
-                  setMobileMenuOpen(false);
-                }}
-              >
-                <span className="mobile-card-icon blue">💳</span>
-                <div className="mobile-card-text">
-                  <span className="mobile-card-title">Earnings, M-Pesa &amp; Biz</span>
-                  <span className="mobile-card-sub">M-Pesa, MTN MoMo &amp; .oneovapack</span>
-                </div>
-                <span className="mobile-card-arrow">→</span>
-              </a>
-
-              {onOpenAdminCms && isAdmin && (
-                <button
-                  type="button"
-                  className="mobile-nav-card highlight-pink"
-                  style={{ width: '100%', textAlign: 'left', cursor: 'pointer' }}
-                  onClick={() => {
-                    setMobileMenuOpen(false);
-                    onOpenAdminCms();
-                  }}
-                >
-                  <span className="mobile-card-icon pink">✎</span>
-                  <div className="mobile-card-text">
-                    <span className="mobile-card-title">Admin Live CMS</span>
-                    <span className="mobile-card-sub">Real-time App + Website sync editor</span>
+                    <span className="mobile-card-title">Oneova Support Assistant</span>
+                    <span className="mobile-card-sub">Instant guided troubleshooting</span>
                   </div>
                   <span className="mobile-card-arrow">→</span>
                 </button>
@@ -328,11 +258,11 @@ export default function Navbar({
               type="button"
               className="btn-primary mobile-drawer-btn"
               onClick={() => {
-                onOpenDownload();
+                onOpenDownload?.();
                 setMobileMenuOpen(false);
               }}
             >
-              <span>Join Oneova Free</span>
+              <span>Download Oneova</span>
             </button>
           </div>
         )}

@@ -85,7 +85,12 @@ function bumpVersionString(v) {
   return 'v1.1';
 }
 
-export default function AdminCmsModal({ isOpen, onClose, initialDocId = null }) {
+export default function AdminCmsModal({
+  isOpen,
+  onClose,
+  initialDocId = null,
+  embedded = false,
+}) {
   const {
     user,
     isAdmin,
@@ -138,14 +143,15 @@ export default function AdminCmsModal({ isOpen, onClose, initialDocId = null }) 
     return () => unsub();
   }, [isOpen, isAdmin, isCreatingNew, selectedId]);
 
-  // Escape key closes modal
+  // Escape key closes modal when not embedded inside /admin
   useEffect(() => {
+    if (embedded) return undefined;
     const onKey = (e) => {
-      if (e.key === 'Escape' && isOpen) onClose();
+      if (e.key === 'Escape' && isOpen) onClose?.();
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [isOpen, onClose]);
+  }, [embedded, isOpen, onClose]);
 
   const filteredList = useMemo(() => {
     const q = searchText.trim().toLowerCase();
@@ -369,18 +375,21 @@ export default function AdminCmsModal({ isOpen, onClose, initialDocId = null }) 
     }));
   };
 
-  return (
-    <div className="cms-modal-overlay" role="dialog" aria-modal="true" onClick={onClose}>
-      <div className="cms-modal-shell" onClick={(e) => e.stopPropagation()}>
-        {/* Top Executive Bar */}
-        <div className="cms-modal-topbar">
-          <div className="cms-topbar-left">
-            <span className="cms-live-pill">
-              <span className="cms-live-dot" />
-              REAL-TIME APP ↔ WEB CMS
-            </span>
-            <h2 className="cms-topbar-title">Oneova Live Documentation, Rules & Regulations Studio</h2>
-          </div>
+  const content = (
+    <div
+      className={embedded ? 'cms-embedded-shell' : 'cms-modal-shell'}
+      onClick={embedded ? undefined : (e) => e.stopPropagation()}
+    >
+      {/* Top Executive Bar */}
+      <div className="cms-modal-topbar">
+        <div className="cms-topbar-left">
+          <span className="cms-live-pill">
+            <span className="cms-live-dot" />
+            REAL-TIME APP ↔ WEB CMS
+          </span>
+          <h2 className="cms-topbar-title">Oneova Live Documentation, Rules &amp; Regulations Studio</h2>
+        </div>
+        {!embedded && (
           <div className="cms-topbar-right">
             {user && (
               <div className="cms-user-chip">
@@ -395,7 +404,8 @@ export default function AdminCmsModal({ isOpen, onClose, initialDocId = null }) 
               ✕
             </button>
           </div>
-        </div>
+        )}
+      </div>
 
         {/* Body */}
         {authLoading ? (
@@ -934,7 +944,14 @@ export default function AdminCmsModal({ isOpen, onClose, initialDocId = null }) 
             </aside>
           </div>
         )}
-      </div>
+    </div>
+  );
+
+  if (embedded) return content;
+
+  return (
+    <div className="cms-modal-overlay" role="dialog" aria-modal="true" onClick={onClose}>
+      {content}
     </div>
   );
 }

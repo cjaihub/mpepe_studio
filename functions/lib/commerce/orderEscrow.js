@@ -309,8 +309,9 @@ exports.createOrderCheckout = (0, https_1.onCall)(async (req) => {
     }
     const basePrice = deal ? dealPrice(price, deal.percentOff, currency) : price;
     const unitPrice = basePrice + (0, storeLogic_1.customizationExtra)(custom);
-    if (!(await canReceive(sellerId)))
-        throw new https_1.HttpsError('failed-precondition', 'This shop can’t take payments yet.');
+    // Note: Sellers can open their shop and receive orders before setting up payouts;
+    // sales are held in escrow and released to their Oneova business balance (`biz:{sellerId}`),
+    // and `payoutReady` is only required when withdrawing out of the balance.
     let deliveryMinor = 0;
     let quote;
     if (quoteId) {

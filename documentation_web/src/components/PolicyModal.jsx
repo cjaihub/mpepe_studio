@@ -21,7 +21,6 @@ export default function PolicyModal({
   onClose,
   initialTab = 'guidelines',
   docs = [],
-  onOpenAdminCms,
 }) {
   const [activeTab, setActiveTab] = useState(initialTab);
 
@@ -77,18 +76,6 @@ export default function PolicyModal({
             </div>
           </div>
           <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-            {onOpenAdminCms && activeDoc && (
-              <button
-                type="button"
-                className="doc-inline-edit-btn"
-                onClick={() => {
-                  onClose();
-                  onOpenAdminCms(activeDoc.id);
-                }}
-              >
-                ✎ Edit Live
-              </button>
-            )}
             <button
               type="button"
               className="policy-close-btn"

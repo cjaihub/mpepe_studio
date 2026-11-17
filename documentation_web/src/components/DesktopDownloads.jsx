@@ -320,7 +320,7 @@ export default function DesktopDownloads() {
               style={{
                 padding: '16px',
                 borderRadius: '14px',
-                background: 'rgba(15,23,42,0.42)',
+                background: 'var(--dark-surface-elevated)',
                 border: `1px solid ${s.accent === 'pink' ? 'rgba(255,45,135,0.28)' : 'rgba(12,79,168,0.28)'}`,
               }}
             >

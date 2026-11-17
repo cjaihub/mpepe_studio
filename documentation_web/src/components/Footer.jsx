@@ -4,7 +4,6 @@ export default function Footer({
   onSelectDoc,
   onOpenDownload,
   onOpenPolicy,
-  onOpenAdminCms,
   onOpenOvaAssistant,
   isLiveConnected = false,
 }) {
@@ -76,8 +75,8 @@ export default function Footer({
               <span className="status-live-dot" />
               <span>
                 {isLiveConnected
-                  ? 'Live Synced with Oneova App · Cloud CMS Online'
-                  : 'All Systems Operational · Offline-Ready Docs Active'}
+                  ? 'Live Synced with Oneova App · Help Center Online'
+                  : 'All Systems Operational · Offline-Ready Guides Active'}
               </span>
             </div>
 
@@ -302,19 +301,6 @@ export default function Footer({
             <button type="button" className="footer-sub-link" onClick={() => handlePolicyClick('deletion', '/deletion.html')}>
               Delete Data
             </button>
-            {onOpenAdminCms && (
-              <>
-                <span className="footer-link-divider">•</span>
-                <button
-                  type="button"
-                  className="footer-sub-link"
-                  style={{ color: 'var(--brand-blue)', fontWeight: 700 }}
-                  onClick={() => onOpenAdminCms()}
-                >
-                  ✎ Admin Live CMS
-                </button>
-              </>
-            )}
           </div>
         </div>
       </div>

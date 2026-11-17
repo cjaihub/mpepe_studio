@@ -1,28 +1,28 @@
 import React, { useState, useRef, useEffect, Suspense, lazy } from 'react';
 import Navbar from './components/Navbar';
 import Hero from './components/Hero';
+import HelpCenterHub from './components/HelpCenterHub';
+import DocsPortal from './components/DocsPortal';
 import FeaturesGrid from './components/FeaturesGrid';
 import DesktopDownloads from './components/DesktopDownloads';
 import AboutUs from './components/AboutUs';
-import DocsPortal from './components/DocsPortal';
 import FloatingVideoWidget from './components/FloatingVideoWidget';
 import OvaAssistantWidget from './components/OvaAssistantWidget';
 import WaveBackground from './components/WaveBackground';
 import Footer from './components/Footer';
-import { usePlatformDocs, useCmsAdminAuth } from './services/platformCmsClient';
+import { usePublicPlatformDocs } from './services/publicDocsClient';
 
 const DownloadModal = lazy(() => import('./components/DownloadModal'));
 const PolicyModal = lazy(() => import('./components/PolicyModal'));
-const AdminCmsModal = lazy(() => import('./components/AdminCmsModal'));
 
 export default function App() {
-  const { docs, isLiveConnected, liveOverrideCount } = usePlatformDocs({ includeDrafts: false });
-  const { isAdmin } = useCmsAdminAuth();
+  const { docs, isLiveConnected, liveOverrideCount } = usePublicPlatformDocs();
 
   const [currentDocId, setCurrentDocId] = useState('live-studio');
   const [isDownloadOpen, setIsDownloadOpen] = useState(false);
   const [isPolicyOpen, setIsPolicyOpen] = useState(false);
   const [policyTab, setPolicyTab] = useState('guidelines');
+  const [ticketTriggerCount, setTicketTriggerCount] = useState(0);
   const [isOvaAssistantOpen, setIsOvaAssistantOpen] = useState(() => {
     try {
       return new URLSearchParams(window.location.search).get('ask') === '1';
@@ -30,14 +30,6 @@ export default function App() {
       return false;
     }
   });
-  const [isAdminCmsOpen, setIsAdminCmsOpen] = useState(() => {
-    try {
-      return new URLSearchParams(window.location.search).get('admin') === '1';
-    } catch {
-      return false;
-    }
-  });
-  const [adminCmsDocId, setAdminCmsDocId] = useState(null);
 
   const [theme, setTheme] = useState(() => {
     try {
@@ -48,7 +40,6 @@ export default function App() {
   });
   const searchInputRef = useRef(null);
 
-  // Sync theme attribute with <html> element and persist in localStorage
   useEffect(() => {
     document.documentElement.setAttribute('data-theme', theme);
     try {
@@ -60,40 +51,51 @@ export default function App() {
     setTheme((prev) => (prev === 'dark' ? 'light' : 'dark'));
   };
 
-  const handleOpenAdminCms = (docId = null) => {
-    setAdminCmsDocId(docId || currentDocId);
-    setIsAdminCmsOpen(true);
-  };
-
   const handleOpenOvaAssistant = () => {
     setIsOvaAssistantOpen(true);
+  };
+
+  const handleOpenHelpCenter = () => {
+    const el = document.getElementById('help');
+    if (el) el.scrollIntoView({ behavior: 'smooth' });
+  };
+
+  const handleOpenTickets = () => {
+    setTicketTriggerCount((c) => c + 1);
+    const el = document.getElementById('help');
+    if (el) el.scrollIntoView({ behavior: 'smooth' });
   };
 
   useEffect(() => {
     try {
       const path = window.location.pathname.toLowerCase();
-      if (path === '/desktop' || window.location.hash === '#desktop') {
+      const targetId =
+        path === '/desktop' || window.location.hash === '#desktop'
+          ? 'desktop'
+          : path === '/help' || window.location.hash === '#help'
+          ? 'help'
+          : path === '/guide' || window.location.hash === '#docs'
+          ? 'docs'
+          : null;
+      if (targetId) {
         setTimeout(() => {
-          document.getElementById('desktop')?.scrollIntoView({ behavior: 'smooth' });
+          document.getElementById(targetId)?.scrollIntoView({ behavior: 'smooth' });
         }, 120);
       }
     } catch {}
   }, []);
 
-  // Global shortcuts: Cmd/Ctrl + K (Search) and Cmd/Ctrl + Shift + E (Live Admin CMS)
+  // Global Cmd/Ctrl + K quick search shortcut
   useEffect(() => {
     const handleKeyDown = (e) => {
       if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') {
         e.preventDefault();
         handleSearchFocus();
-      } else if ((e.metaKey || e.ctrlKey) && e.shiftKey && e.key.toLowerCase() === 'e') {
-        e.preventDefault();
-        handleOpenAdminCms();
       }
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [currentDocId]);
+  }, []);
 
   const handleSearchFocus = () => {
     const docsSection = document.getElementById('docs');
@@ -130,21 +132,21 @@ export default function App() {
         onSearchFocus={handleSearchFocus}
         onSelectDoc={handleSelectDoc}
         onOpenPolicy={handleOpenPolicy}
-        onOpenAdminCms={handleOpenAdminCms}
         onOpenOvaAssistant={handleOpenOvaAssistant}
-        isAdmin={isAdmin}
       />
 
       <main>
-        <Hero onOpenDownload={() => setIsDownloadOpen(true)} />
-
-        <FeaturesGrid onSelectDoc={handleSelectDoc} />
-
-        <DesktopDownloads />
-
-        <AboutUs
+        <Hero
           onOpenDownload={() => setIsDownloadOpen(true)}
+          onOpenHelp={handleOpenHelpCenter}
+        />
+
+        <HelpCenterHub
+          key={`hc-${ticketTriggerCount}`}
+          docs={docs}
           onSelectDoc={handleSelectDoc}
+          onOpenSupportDrawer={handleOpenOvaAssistant}
+          initialTicketOpen={ticketTriggerCount > 0}
         />
 
         <DocsPortal
@@ -153,11 +155,19 @@ export default function App() {
           onSelectDoc={handleSelectDoc}
           searchRef={searchInputRef}
           onOpenDownload={() => setIsDownloadOpen(true)}
-          onOpenAdminCms={handleOpenAdminCms}
           onOpenOvaAssistant={handleOpenOvaAssistant}
+          onOpenTickets={handleOpenTickets}
           isLiveConnected={isLiveConnected}
           liveOverrideCount={liveOverrideCount}
-          isAdmin={isAdmin}
+        />
+
+        <FeaturesGrid onSelectDoc={handleSelectDoc} />
+
+        <DesktopDownloads />
+
+        <AboutUs
+          onOpenDownload={() => setIsDownloadOpen(true)}
+          onSelectDoc={handleSelectDoc}
         />
       </main>
 
@@ -169,6 +179,7 @@ export default function App() {
         onClose={() => setIsOvaAssistantOpen(false)}
         docs={docs}
         onSelectDoc={handleSelectDoc}
+        onOpenTickets={handleOpenTickets}
         currentDocId={currentDocId}
       />
 
@@ -176,7 +187,6 @@ export default function App() {
         onSelectDoc={handleSelectDoc}
         onOpenDownload={() => setIsDownloadOpen(true)}
         onOpenPolicy={handleOpenPolicy}
-        onOpenAdminCms={handleOpenAdminCms}
         onOpenOvaAssistant={handleOpenOvaAssistant}
         isLiveConnected={isLiveConnected}
       />
@@ -194,16 +204,7 @@ export default function App() {
             isOpen={isPolicyOpen}
             initialTab={policyTab}
             docs={docs}
-            onOpenAdminCms={handleOpenAdminCms}
             onClose={() => setIsPolicyOpen(false)}
-          />
-        )}
-
-        {isAdminCmsOpen && (
-          <AdminCmsModal
-            isOpen={isAdminCmsOpen}
-            initialDocId={adminCmsDocId}
-            onClose={() => setIsAdminCmsOpen(false)}
           />
         )}
       </Suspense>

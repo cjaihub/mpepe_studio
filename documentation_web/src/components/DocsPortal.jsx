@@ -1,5 +1,14 @@
-import React, { useState, useMemo, useEffect, useRef } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { getStandaloneLegalHref, getOfficialPdfHref } from '../data/platformCatalog';
+import { sanitizeHtmlFragment } from '../services/publicDocsClient';
+
+const GUIDED_JOURNEY_STEPS = [
+  { step: '01', label: 'Start & Account', docId: 'security-desktop-ecosystem' },
+  { step: '02', label: 'Reels & Studio Looks', docId: 'looks-color-engine' },
+  { step: '03', label: 'Live & 3D Shops', docId: 'live-studio' },
+  { step: '04', label: 'Ova & Desktop Agent', docId: 'ova-ai-lab' },
+  { step: '05', label: 'Earn & Safety Rules', docId: 'wallet-biz-commerce' },
+];
 
 const QUICK_TOPIC_PILLS = [
   { id: 'all', label: 'All Topics', icon: '✨' },
@@ -36,11 +45,10 @@ export default function DocsPortal({
   onSelectDoc,
   searchRef,
   onOpenDownload,
-  onOpenAdminCms,
   onOpenOvaAssistant,
+  onOpenTickets,
   isLiveConnected = false,
   liveOverrideCount = 0,
-  isAdmin = false,
 }) {
   const [searchQuery, setSearchQuery] = useState('');
   const [activeTrack, setActiveTrack] = useState('all'); // 'all' | 'features' | 'rules' | 'legal' | 'compliance'
@@ -48,6 +56,9 @@ export default function DocsPortal({
   const [copiedLink, setCopiedLink] = useState(false);
   const [showMatrixTable, setShowMatrixTable] = useState(false);
   const [activeSectionId, setActiveSectionId] = useState('');
+  const [readProgress, setReadProgress] = useState(0);
+  const [mobileTocOpen, setMobileTocOpen] = useState(false);
+  const [helpfulVote, setHelpfulVote] = useState(null);
 
   const docMap = useMemo(() => {
     const m = new Map();
@@ -70,12 +81,21 @@ export default function DocsPortal({
       sections: [],
     };
 
-  // Scroll spy to highlight active section in TOC
+  // Scroll spy + article reading progress indicator
   useEffect(() => {
+    setHelpfulVote(null);
     const handleScroll = () => {
       const sections = (currentDoc.sections || [])
         .map((_, idx) => document.getElementById(`doc-sec-${idx + 1}`))
         .filter(Boolean);
+
+      const mainEl = document.getElementById('docs-main-content');
+      if (mainEl) {
+        const rect = mainEl.getBoundingClientRect();
+        const total = Math.max(1, mainEl.offsetHeight - window.innerHeight * 0.55);
+        const passed = Math.min(total, Math.max(0, -rect.top + 140));
+        setReadProgress(Math.round((passed / total) * 100));
+      }
 
       const scrollPos = window.scrollY + 200;
       for (let i = sections.length - 1; i >= 0; i--) {
@@ -217,12 +237,12 @@ export default function DocsPortal({
             </p>
           </div>
           <div className="docs-banner-actions">
-            <div className="docs-sync-indicator" title="Connected to Firestore platform_cms_docs">
+            <div className="docs-sync-indicator">
               <span className={`sync-dot ${isLiveConnected ? 'online' : 'offline'}`} />
               <span>
                 {isLiveConnected
-                  ? `Live Synced with App${liveOverrideCount > 0 ? ` · ${liveOverrideCount} Cloud Live` : ''}`
-                  : 'Offline-Ready Baseline Active'}
+                  ? `Live Synced with App${liveOverrideCount > 0 ? ` · ${liveOverrideCount} Cloud Guides` : ''}`
+                  : 'Offline-Ready Guides Active'}
               </span>
             </div>
             {onOpenOvaAssistant && (
@@ -230,21 +250,28 @@ export default function DocsPortal({
                 type="button"
                 className="banner-ova-btn"
                 onClick={() => onOpenOvaAssistant(`Tell me about ${currentDoc.title}`)}
-                title="Ask Ova AI Assistant about this document"
+                title="Open Oneova Support Assistant"
               >
-                <span>✨ Ask Ova AI</span>
-              </button>
-            )}
-            {isAdmin && onOpenAdminCms && (
-              <button
-                type="button"
-                className="cms-open-trigger-btn"
-                onClick={() => onOpenAdminCms(currentDoc.id)}
-              >
-                <span>✎ Edit Live in CMS</span>
+                <span>✦ Ask Support</span>
               </button>
             )}
           </div>
+        </div>
+
+        {/* Step-by-Step Guided User Journey Bar */}
+        <div className="docs-journey-strip" role="navigation" aria-label="Guided User Journey">
+          <span className="journey-prefix">Guided Path:</span>
+          {GUIDED_JOURNEY_STEPS.map((g) => (
+            <button
+              key={g.step}
+              type="button"
+              className={`journey-step-chip ${currentDoc.id === g.docId ? 'active' : ''}`}
+              onClick={() => onSelectDoc(g.docId)}
+            >
+              <span className="journey-num">{g.step}</span>
+              <span>{g.label}</span>
+            </button>
+          ))}
         </div>
 
         {/* Master Multi-Track Advanced Switcher */}
@@ -492,19 +519,9 @@ export default function DocsPortal({
                     type="button"
                     className="doc-ask-ova-pill-btn"
                     onClick={() => onOpenOvaAssistant(`Explain ${currentDoc.title} in plain English`)}
-                    title="Ask Ova AI about this document"
+                    title="Get help on this guide"
                   >
-                    <span>✨ Ask Ova</span>
-                  </button>
-                )}
-                {isAdmin && onOpenAdminCms && (
-                  <button
-                    type="button"
-                    className="doc-inline-edit-btn"
-                    onClick={() => onOpenAdminCms(currentDoc.id)}
-                    title="Edit this document in real time (syncs App + Website)"
-                  >
-                    ✎ Edit Live
+                    <span>✦ Get Help</span>
                   </button>
                 )}
               </div>
@@ -551,11 +568,52 @@ export default function DocsPortal({
             </div>
           </div>
 
-          {/* Structured Sections OR Custom HTML Override */}
+          {/* Mobile / Tablet Collapsible Table of Contents */}
+          {(currentDoc.sections || []).length > 0 && (
+            <div className="mobile-toc-box">
+              <button
+                type="button"
+                className="mobile-toc-toggle"
+                onClick={() => setMobileTocOpen((v) => !v)}
+                aria-expanded={mobileTocOpen}
+              >
+                <span>
+                  On This Page ({(currentDoc.sections || []).length} sections · {readProgress}% read)
+                </span>
+                <span>{mobileTocOpen ? '▲' : '▼'}</span>
+              </button>
+              {mobileTocOpen && (
+                <ul className="mobile-toc-list">
+                  {(currentDoc.sections || []).map((sec, idx) =>
+                    sec.heading ? (
+                      <li key={idx}>
+                        <a
+                          href={`#doc-sec-${idx + 1}`}
+                          onClick={(e) => {
+                            e.preventDefault();
+                            setMobileTocOpen(false);
+                            const el = document.getElementById(`doc-sec-${idx + 1}`);
+                            if (el) el.scrollIntoView({ behavior: 'smooth' });
+                          }}
+                        >
+                          <span className="toc-idx">{String(idx + 1).padStart(2, '0')}</span>
+                          <span>{sec.heading}</span>
+                        </a>
+                      </li>
+                    ) : null
+                  )}
+                </ul>
+              )}
+            </div>
+          )}
+
+          {/* Structured Sections OR Sanitized Custom HTML */}
           {currentDoc.htmlOverride ? (
             <article
               className="doc-content"
-              dangerouslySetInnerHTML={{ __html: currentDoc.htmlOverride }}
+              dangerouslySetInnerHTML={{
+                __html: sanitizeHtmlFragment(currentDoc.htmlOverride),
+              }}
             />
           ) : (
             <article className="doc-content">
@@ -640,6 +698,32 @@ export default function DocsPortal({
             </div>
           )}
 
+          {/* Helpful Feedback + Pagination */}
+          <div className="doc-helpful-bar">
+            <div className="doc-helpful-copy">
+              <strong>Was this guide helpful?</strong>
+              <span>Let us know or open a ticket with our support team.</span>
+            </div>
+            <div className="doc-helpful-actions">
+              <button
+                type="button"
+                className={`helpful-pill ${helpfulVote === 'yes' ? 'active' : ''}`}
+                onClick={() => setHelpfulVote('yes')}
+              >
+                {helpfulVote === 'yes' ? '✓ Glad it helped!' : '👍 Yes'}
+              </button>
+              {onOpenTickets && (
+                <button
+                  type="button"
+                  className="helpful-pill ticket"
+                  onClick={onOpenTickets}
+                >
+                  🎫 Open Ticket
+                </button>
+              )}
+            </div>
+          </div>
+
           {/* Pagination (Prev / Next) */}
           <div className="doc-pagination">
             {prevDoc ? (
@@ -671,11 +755,20 @@ export default function DocsPortal({
           </div>
         </main>
 
-        {/* Small Enhanced Table of Contents (TOC) with Easy Navigation */}
+        {/* Enhanced Sticky Table of Contents (TOC) */}
         <aside className="docs-toc-pane" aria-label="Table of Contents">
+          <div className="toc-progress-track" title={`Reading progress: ${readProgress}%`}>
+            <div
+              className="toc-progress-fill"
+              style={{ width: `${Math.max(8, readProgress)}%` }}
+            />
+          </div>
+
           <div className="toc-header-bar">
             <span className="toc-title">ON THIS PAGE</span>
-            <span className="toc-reading-badge">{currentDoc.readTime || '4 min'}</span>
+            <span className="toc-reading-badge">
+              {currentDoc.readTime || '4 min'} · {readProgress}%
+            </span>
           </div>
 
           <ul className="toc-links">
@@ -696,7 +789,7 @@ export default function DocsPortal({
                       }
                     }}
                   >
-                    <span className="toc-bullet-indicator" aria-hidden="true" />
+                    <span className="toc-step-num">{String(idx + 1).padStart(2, '0')}</span>
                     <span className="toc-heading-text">{sec.heading}</span>
                   </a>
                 </li>

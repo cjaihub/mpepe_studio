@@ -7,10 +7,12 @@
 }
 .wa-brand { font-weight: 800; font-size: 18px; color: var(--text-primary); text-decoration: none; }
 .wa-brand span { color: var(--brand-blue); }
-.wa-nav { display: flex; gap: 6px; flex: 1; }
+.wa-nav { display: flex; gap: 6px; flex: 1; flex-wrap: wrap; }
 .wa-nav-item {
-  padding: 6px 12px; border-radius: 8px; font-size: 14px; color: var(--text-secondary); text-decoration: none;
+  padding: 6px 12px; border-radius: 8px; font-size: 13.5px; color: var(--text-secondary); text-decoration: none;
+  background: none; border: none; cursor: pointer; font-family: inherit; transition: background 0.16s ease, color 0.16s ease;
 }
+.wa-nav-item:hover { background: var(--dark-surface-highlight); color: var(--text-primary); }
 .wa-nav-item.is-active { background: var(--brand-blue-subtle); color: var(--brand-blue); font-weight: 600; }
 .wa-user { display: flex; align-items: center; gap: 10px; font-size: 13px; color: var(--text-secondary); }
 .wa-main { padding: 20px 24px 60px; }
@@ -104,3 +106,18 @@
 .wa-comments p { margin: 4px 0 0; font-size: 13.5px; color: var(--text-secondary); }
 .wa-comment-top { display: flex; gap: 8px; align-items: center; font-size: 13px; }
 .wa-comment-top .wa-link { margin-left: auto; font-size: 12px; }
+
+.cms-embedded-shell {
+  width: 100%;
+  height: min(84vh, 860px);
+  min-height: 680px;
+  max-width: none;
+  box-shadow: none;
+  border: 1px solid var(--border-color);
+  border-radius: 14px;
+  animation: none;
+}
+.cms-embedded-shell .cms-workspace-grid {
+  min-height: 0;
+  height: 100%;
+}

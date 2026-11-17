@@ -20,7 +20,12 @@ jobs:
       - name: Build Oneova Windows Desktop Assistant
         shell: pwsh
         run: |
-          if (!(Test-Path ".env")) { Copy-Item ".env.example" ".env" }
+          if (!(Test-Path ".env")) {
+            @(
+              "META_REDIRECT_URI=https://mpepe-2b4bd.web.app/meta-callback",
+              "TIKTOK_REDIRECT_URI=oneova://tiktok-callback"
+            ) | Set-Content -Path ".env" -Encoding UTF8
+          }
           flutter pub get
           powershell -ExecutionPolicy Bypass -File tools/desktop/build_windows.ps1
           $iscc = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe"
@@ -48,7 +53,9 @@ jobs:
           channel: stable
       - name: Build Oneova macOS Desktop Assistant
         run: |
-          if [ ! -f ".env" ]; then cp .env.example .env; fi
+          if [ ! -f ".env" ]; then
+            printf "META_REDIRECT_URI=https://mpepe-2b4bd.web.app/meta-callback\nTIKTOK_REDIRECT_URI=oneova://tiktok-callback\n" > .env
+          fi
           flutter pub get
           flutter config --enable-macos-desktop
           flutter build macos --release
