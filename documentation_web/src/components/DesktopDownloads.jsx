@@ -1,33 +1,11 @@
 import React, { useEffect, useState } from 'react';
-
-const DEFAULT_MANIFEST = {
-  version: '1.0.0',
-  updatedAt: '2026-11-17',
-  macos: {
-    available: true,
-    fileName: 'Oneova-Desktop-macOS.dmg',
-    url: '/downloads/Oneova-Desktop-macOS.dmg',
-    sizeLabel: 'Universal (Apple Silicon + Intel)',
-    requirements: 'macOS 12.0 Monterey or newer',
-    hotkey: 'Option + Space (⌥Space)',
-    startup: 'Auto-launches at login via macOS LaunchAgent',
-    sha256: '',
-  },
-  windows: {
-    available: false,
-    fileName: 'Oneova-Desktop-Windows-x64.zip',
-    url: 'https://github.com/cjaihub/mpepe_studio/releases/latest/download/Oneova-Desktop-Windows-x64.zip',
-    buildRepoUrl: 'https://github.com/cjaihub/mpepe_studio/actions/workflows/desktop-release.yml',
-    sizeLabel: 'Windows 10 / 11 (64-bit x64)',
-    requirements: 'Windows 10 (1903+) or Windows 11 x64',
-    hotkey: 'Alt + Space / Ctrl + Shift + O',
-    startup: 'Auto-launches at Windows login (HKCU Run) & System Tray',
-    sha256: '',
-  },
-};
+import {
+  DEFAULT_DESKTOP_MANIFEST,
+  loadDesktopManifest,
+} from './desktopManifest';
 
 export default function DesktopDownloads() {
-  const [manifest, setManifest] = useState(DEFAULT_MANIFEST);
+  const [manifest, setManifest] = useState(DEFAULT_DESKTOP_MANIFEST);
   const [detectedOs, setDetectedOs] = useState('mac');
   const [showWinGuide, setShowWinGuide] = useState(false);
 
@@ -36,19 +14,13 @@ export default function DesktopDownloads() {
     if (ua.includes('win')) setDetectedOs('win');
     else setDetectedOs('mac');
 
-    fetch('/downloads/manifest.json', { cache: 'no-store' })
-      .then((r) => (r.ok ? r.json() : null))
-      .then((json) => {
-        if (json && typeof json === 'object') {
-          setManifest((prev) => ({
-            ...prev,
-            ...json,
-            macos: { ...prev.macos, ...(json.macos || {}) },
-            windows: { ...prev.windows, ...(json.windows || {}) },
-          }));
-        }
-      })
-      .catch(() => {});
+    let alive = true;
+    loadDesktopManifest().then((m) => {
+      if (alive) setManifest(m);
+    });
+    return () => {
+      alive = false;
+    };
   }, []);
 
   const skills = [
@@ -276,9 +248,11 @@ export default function DesktopDownloads() {
                   alignItems: 'center',
                   textDecoration: 'none',
                   background: '#FF2D87',
+                  gap: '8px',
                 }}
               >
                 <span>Download {win.fileName}</span>
+                {win.fileSizeLabel ? <small>({win.fileSizeLabel})</small> : null}
               </a>
             ) : (
               <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>

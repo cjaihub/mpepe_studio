@@ -4,7 +4,7 @@
 #define MyAppExeName "Oneova.exe"
 
 [Setup]
-AppId={{7E81B4C2-92A1-4B6D-8F91-ONEOVA2026}}
+AppId={{7E81B4C2-92A1-4B6D-8F91-0E07A2026048}}
 AppName={#MyAppName}
 AppVersion=1.0.0
 AppPublisher={#MyAppPublisher}

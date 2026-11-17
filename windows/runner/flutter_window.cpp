@@ -46,7 +46,7 @@ bool FlutterWindow::OnCreate() {
   SetupTrayIcon();
   RegisterGlobalHotKeys();
 
-  flutter_controller_->engine()->SetNextFrameCallback([&]() {
+  flutter_controller_->engine()->SetNextFrameCallback([this]() {
     if (start_hidden_) {
       ::ShowWindow(GetHandle(), SW_HIDE);
     } else {
@@ -349,7 +349,9 @@ LRESULT FlutterWindow::MessageHandler(HWND hwnd, UINT const message,
       }
       break;
     case WM_FONTCHANGE:
-      flutter_controller_->engine()->ReloadSystemFonts();
+      if (flutter_controller_ && flutter_controller_->engine()) {
+        flutter_controller_->engine()->ReloadSystemFonts();
+      }
       break;
   }
 

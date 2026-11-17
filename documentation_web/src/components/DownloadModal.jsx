@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from 'react';
+import { loadDesktopManifest } from './desktopManifest';
 
 export default function DownloadModal({ isOpen, onClose }) {
   const [manifest, setManifest] = useState(null);
@@ -15,12 +16,13 @@ export default function DownloadModal({ isOpen, onClose }) {
 
   useEffect(() => {
     if (!isOpen) return;
-    fetch('/downloads/manifest.json', { cache: 'no-store' })
-      .then((r) => (r.ok ? r.json() : null))
-      .then((json) => {
-        if (json) setManifest(json);
-      })
-      .catch(() => {});
+    let alive = true;
+    loadDesktopManifest().then((m) => {
+      if (alive) setManifest(m);
+    });
+    return () => {
+      alive = false;
+    };
   }, [isOpen]);
 
   if (!isOpen) return null;
@@ -55,7 +57,7 @@ export default function DownloadModal({ isOpen, onClose }) {
 
           <a
             href={winUrl}
-            download={winAvailable ? 'Oneova-Desktop-Windows-x64.zip' : undefined}
+            download={winAvailable ? (manifest?.windows?.fileName || 'Oneova-Desktop-Windows-x64.zip') : undefined}
             target={winAvailable ? undefined : '_blank'}
             rel={winAvailable ? undefined : 'noreferrer'}
             className="btn-secondary"
