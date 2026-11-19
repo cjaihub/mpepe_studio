@@ -121,6 +121,17 @@ class ResolveToolsServicer(bridge_pb2_grpc.ResolveToolsServicer):
 from orchestrator.executor import Executor
 action_executor = Executor()
 
+def _fail_task(task_id: str, message: str):
+    """Tells a subscribed client why a task produced no plan, then closes its stream."""
+    from orchestrator.executor import get_task_bus, remove_task_bus
+    q = get_task_bus(task_id)
+    if q:
+        q.put({"task_id": task_id, "step_index": 0, "total_steps": 0, "agent": "Director",
+               "task_description": "Plan request", "status": "ERROR", "detail": message})
+        q.put({"status": "__DONE__"})
+    remove_task_bus(task_id)
+
+
 class OrchestratorServicer(orchestrator_pb2_grpc.OrchestratorServicer):
     def __init__(self):
         super().__init__()
@@ -146,8 +157,8 @@ class OrchestratorServicer(orchestrator_pb2_grpc.OrchestratorServicer):
 
                 # Fetch clip metadata if this is a timeline-scoped prompt
                 if request.scope == "timeline":
-                    from .tools.timeline_tools import get_timeline_clips
-                    clips = get_timeline_clips(request.timeline_id, request.track_index)
+                    from .tools.timeline_tools import get_all_clips
+                    clips = get_all_clips(request.timeline_id, request.track_index or 1)
                     plan = director.plan_timeline(request.prompt, clips, guided_mode=request.guided_mode)
                 else:
                     plan = director.analyze_intent(request.prompt, guided_mode=request.guided_mode)
@@ -155,19 +166,18 @@ class OrchestratorServicer(orchestrator_pb2_grpc.OrchestratorServicer):
                 if plan.get("status") == "success":
                     for step in plan.get("plan", []):
                         step["timeline_id"] = request.timeline_id
-                        step["track_index"] = request.track_index
-                        step["clip_index"]  = request.clip_index
+                        step["track_index"] = request.track_index or 1
+                        step["clip_index"]  = request.clip_index or 1
+                        if request.scope == "timeline":
+                            step.setdefault("scope", "timeline")
 
                     action_executor.execute_plan(plan, task_id=task_id)
                 else:
                     logger.error(f"Director plan failed: {plan}")
-                    from orchestrator.executor import get_task_bus, remove_task_bus
-                    q = get_task_bus(task_id)
-                    if q:
-                        q.put({"status": "__DONE__"})
-                    remove_task_bus(task_id)
+                    _fail_task(task_id, plan.get("message", "Could not plan that request."))
             except Exception as e:
-                logger.error(f"SubmitPrompt background task failed: {e}")
+                logger.exception("SubmitPrompt background task failed")
+                _fail_task(task_id, str(e))
 
         self.executor_pool.submit(run_grading_task)
 
@@ -206,7 +216,11 @@ class OrchestratorServicer(orchestrator_pb2_grpc.OrchestratorServicer):
             try:
                 event = bus.get(timeout=30)
             except queue.Empty:
-                logger.warning(f"StreamPlanEvents: timed out waiting for task {task_id}")
+                # Steps can legitimately wait (user confirmation, long renders);
+                # keep the stream open while the task is still alive.
+                if context.is_active() and get_task_bus(task_id) is bus:
+                    continue
+                logger.warning(f"StreamPlanEvents: task {task_id} ended without a sentinel")
                 return
 
             if event.get("status") == "__DONE__":
@@ -296,9 +310,10 @@ class LookProfileServicer(look_profile_pb2_grpc.LookProfileServiceServicer):
             with os.fdopen(fd, 'wb') as f:
                 f.write(request.image_data)
                 
-            result = agent._analyze_image_file(path, "Analyze image")
-            
-            os.remove(path)
+            try:
+                result = agent._analyze_image_file(path, "Analyze image")
+            finally:
+                os.remove(path)
             
             if result.get("status") == "success":
                 return look_profile_pb2.AnalyzeImageResponse(
@@ -324,7 +339,8 @@ class LookProfileServicer(look_profile_pb2_grpc.LookProfileServiceServicer):
         
         return look_profile_pb2.AnalyzeImageResponse(
             success=result.get("status") == "success",
-            message=result.get("message", "")
+            message=result.get("message", ""),
+            profile_json=result.get("profile", ""),
         )
 
 # ---------------------------------------------------------------------------

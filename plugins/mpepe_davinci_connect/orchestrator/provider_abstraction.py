@@ -5,6 +5,9 @@ from typing import List, Dict, Any
 
 logger = logging.getLogger("cj_grader.provider")
 
+# gemini-1.5-* models are retired; keep the model overridable without code changes.
+GEMINI_MODEL = os.environ.get("CJ_GRADER_GEMINI_MODEL", "gemini-2.5-flash")
+
 class GeminiProvider:
     def __init__(self, api_key: str = None, proxy_url: str = None):
         self.api_key = api_key or os.environ.get("GEMINI_API_KEY")
@@ -33,7 +36,7 @@ class GeminiProvider:
                 import google.generativeai as genai
                 genai.configure(api_key=self.api_key)
                 model = genai.GenerativeModel(
-                    model_name="gemini-1.5-flash",
+                    model_name=GEMINI_MODEL,
                     system_instruction=system_prompt,
                 )
                 result = model.generate_content(user_prompt)
@@ -59,7 +62,7 @@ class GeminiProvider:
                 import google.generativeai as genai
                 genai.configure(api_key=self.api_key)
                 model = genai.GenerativeModel(
-                    model_name="gemini-1.5-flash",
+                    model_name=GEMINI_MODEL,
                     system_instruction=system_prompt,
                 )
                 
@@ -111,10 +114,9 @@ class GeminiProvider:
         elif self.api_key:
             try:
                 import google.generativeai as genai
-                from google.generativeai.types import Part
                 genai.configure(api_key=self.api_key)
-                model = genai.GenerativeModel("gemini-1.5-flash")
-                image_part = Part.from_data(data=image_bytes, mime_type=mime_type)
+                model = genai.GenerativeModel(GEMINI_MODEL)
+                image_part = {"mime_type": mime_type, "data": image_bytes}
                 result = model.generate_content([system_prompt, image_part])
                 return {"role": "assistant", "content": result.text if hasattr(result, "text") else ""}
             except ImportError:
@@ -124,7 +126,7 @@ class GeminiProvider:
                 logger.error(f"Gemini vision call failed: {e}")
                 return {"error": str(e)}
         else:
-            return {"role": "assistant", "content": '{"status": "success", "look": {"description": "mocked vision", "cdl": {"slope_r": 1.0, "slope_g": 1.0, "slope_b": 1.0, "offset_r": 0.0, "offset_g": 0.0, "offset_b": 0.0, "power_r": 1.0, "power_g": 1.0, "power_b": 1.0, "saturation": 1.0}}}'}
+            return {"error": "Image analysis needs GEMINI_API_KEY or CJ_GRADER_PROXY_URL.", "content": ""}
 
     def transcribe(self, audio_bytes: bytes, mime_type: str = "audio/wav") -> str:
         """
@@ -135,10 +137,9 @@ class GeminiProvider:
         if self.api_key:
             try:
                 import google.generativeai as genai
-                from google.generativeai.types import Part
                 genai.configure(api_key=self.api_key)
-                model = genai.GenerativeModel("gemini-1.5-flash")
-                audio_part = Part.from_data(data=audio_bytes, mime_type=mime_type)
+                model = genai.GenerativeModel(GEMINI_MODEL)
+                audio_part = {"mime_type": mime_type, "data": audio_bytes}
                 result = model.generate_content(
                     ["Transcribe this audio exactly as spoken. Return only the transcript, no explanation.", audio_part]
                 )
@@ -194,3 +195,14 @@ class GeminiProvider:
         except Exception as e:
             logger.error(f"TTS synthesis failed: {e}")
             return b""
+
+
+_shared_provider = None
+
+
+def get_provider() -> "GeminiProvider":
+    """Process-wide provider built from GEMINI_API_KEY / CJ_GRADER_PROXY_URL."""
+    global _shared_provider
+    if _shared_provider is None:
+        _shared_provider = GeminiProvider(proxy_url=os.environ.get("CJ_GRADER_PROXY_URL"))
+    return _shared_provider

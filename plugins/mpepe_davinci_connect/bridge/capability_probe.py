@@ -22,8 +22,8 @@ VERSION_GATES = [
 class CapabilityProbe:
     def __init__(self, resolve: Any):
         self.resolve = resolve
-        self._version = self._parse_version(resolve.GetVersionString())
-        self._is_studio = "Studio" in resolve.GetProductName()
+        self._version = self._parse_version(str(resolve.GetVersionString() or "0"))
+        self._is_studio = "Studio" in str(resolve.GetProductName() or "")
         
     def _parse_version(self, version_str: str) -> Tuple[int, ...]:
         try:
@@ -80,3 +80,19 @@ class CapabilityProbe:
             logger.warning(f"Feature '{feature_name}' requires DaVinci Resolve Studio.")
             return False
         return True
+
+
+def current_capabilities() -> Dict[str, Any]:
+    """Capabilities of the running Resolve, or an empty matrix when it is not reachable."""
+    try:
+        from .connection import get_resolve
+        resolve = get_resolve()
+        if resolve:
+            return CapabilityProbe(resolve).get_capabilities()
+    except Exception as e:
+        logger.warning(f"Capability probe failed: {e}")
+    return {"features": {}, "is_studio": False, "version": "0"}
+
+
+def feature_available(feature: str) -> bool:
+    return bool(current_capabilities().get("features", {}).get(feature, {}).get("available", False))

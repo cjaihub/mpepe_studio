@@ -1,105 +1,79 @@
+"""look_profile_agent — turns a reference image or a text description into a reusable LookProfile."""
+import json
 import logging
-from typing import Dict, Any, Optional
-from orchestrator.agent_protocol import Agent
-from orchestrator.provider_abstraction import GeminiProvider
-from orchestrator.look_profile import LookProfile
+import os
 import uuid
+from typing import Any, Dict
+
+from orchestrator.look_profile import LookProfile
+from orchestrator.provider_abstraction import get_provider
+from .agent_base import AgentBase, CDL_JSON_PROMPT, cdl_from_vision_reply, parse_json_reply, ok, fail
 
 logger = logging.getLogger("cj_grader.agents.look_profile")
 
-class LookProfileAgent(Agent):
-    """
-    Agent responsible for analyzing reference images or text descriptions
-    to generate reusable LookProfile instances (CDL + metadata).
-    """
+_TEXT_PROMPT = (
+    "You are an expert colorist. Turn the user's description of a look into an ASC CDL for "
+    "DaVinci Resolve. Keep values subtle (slope 0.8-1.2, offset -0.05-0.05, power 0.8-1.2, "
+    "saturation 0.6-1.4). Respond ONLY with JSON: {\"description\": \"...\", \"tags\": [\"...\"], "
+    "\"cdl\": {\"slope_r\": 1.0, \"slope_g\": 1.0, \"slope_b\": 1.0, \"offset_r\": 0.0, \"offset_g\": 0.0, "
+    "\"offset_b\": 0.0, \"power_r\": 1.0, \"power_g\": 1.0, \"power_b\": 1.0, \"saturation\": 1.0}}"
+)
 
-    def __init__(self, bridge_client: Any = None):
-        # The agent can use the bridge client if it needs to query Resolve,
-        # but primarily it interacts with Gemini Vision.
-        self.bridge_client = bridge_client
-        self.provider = GeminiProvider() # Grabs key/proxy from env
+
+class LookProfileAgent(AgentBase):
+    name = "LookProfile"
+
+    def __init__(self, bridge_client: Any = None, provider=None):
+        super().__init__(bridge_client=bridge_client)
+        self._provider = provider
+
+    @property
+    def provider(self):
+        return self._provider or get_provider()
 
     def get_name(self) -> str:
         return "LookProfile Agent"
 
     def execute_task(self, step_info: Dict[str, Any]) -> Dict[str, Any]:
-        params = step_info.get("params", {})
-        task_desc = step_info.get("task", "")
-        
-        # Is this an image analysis task or just text?
+        params = step_info.get("params", {}) or {}
         image_path = params.get("image_path")
-        
         if image_path:
-            return self._analyze_image_file(image_path, task_desc)
-        else:
-            return self._generate_from_text(task_desc, params)
-            
+            return self._analyze_image_file(image_path, step_info.get("task", ""))
+        return self._generate_from_text(params.get("description") or step_info.get("task", ""), params)
+
+    def _profile_result(self, look: Dict[str, Any], name: str, image_uri: str = None) -> Dict[str, Any]:
+        profile = LookProfile(id=str(uuid.uuid4()), name=name,
+                              description=look.get("description") or name,
+                              cdl_params=look["cdl"], tags=look.get("tags", []),
+                              reference_image_uri=image_uri)
+        return ok(f"Look ready: {profile.description}", profile=profile.to_json(),
+                  detail=f"[LOOK_PROFILE] {profile.to_json()}")
+
     def _analyze_image_file(self, image_path: str, task_desc: str) -> Dict[str, Any]:
         logger.info(f"Analyzing reference image at {image_path}")
-        
         try:
             with open(image_path, "rb") as f:
                 image_bytes = f.read()
-                
-            prompt = (
-                "You are an expert colorist. Analyze this reference image and extract its cinematic look. "
-                "Determine the appropriate CDL parameters (slope, offset, power, saturation) "
-                "to achieve a similar look in DaVinci Resolve. "
-                "Also provide a short description of the look and 3-5 tags (e.g. 'warm', 'contrasty').\n\n"
-                "Respond ONLY with a JSON object in this format:\n"
-                "{\n"
-                '  "description": "...",\n'
-                '  "tags": ["..."],\n'
-                '  "cdl": {"slope_r": 1.0, ...}\n'
-                "}"
-            )
-            
-            response = self.provider.analyze_image(prompt, image_bytes)
-            
-            if "error" in response:
-                return {"status": "error", "message": response["error"]}
-                
-            # Parse the response
-            content = response.get("content", "")
-            
-            # Very basic cleanup (assuming it returns JSON directly as requested)
-            import re
-            import json
-            clean = re.sub(r"```(?:json)?", "", content).strip("` \n")
-            
-            try:
-                look_data = json.loads(clean)
-                
-                # Generate a profile
-                profile = LookProfile(
-                    id=str(uuid.uuid4()),
-                    name=f"Look from {image_path.split('/')[-1]}",
-                    description=look_data.get("description", "Generated from reference image"),
-                    cdl_params=look_data.get("cdl", {}),
-                    tags=look_data.get("tags", []),
-                    reference_image_uri=image_path
-                )
-                
-                return {
-                    "status": "success",
-                    "profile": profile.to_json(),
-                    "message": f"Successfully analyzed image: {profile.description}"
-                }
-            except json.JSONDecodeError as e:
-                logger.error(f"Failed to parse vision response: {content}")
-                return {"status": "error", "message": f"Invalid JSON from vision model: {e}"}
-                
+            look = cdl_from_vision_reply(self.provider.analyze_image(CDL_JSON_PROMPT, image_bytes))
         except Exception as e:
-            logger.error(f"Error in LookProfileAgent: {e}")
-            return {"status": "error", "message": str(e)}
+            logger.error(f"LookProfile image analysis failed: {e}")
+            return fail(str(e))
+        return self._profile_result(look, f"Look from {os.path.basename(image_path)}", image_path)
 
     def _generate_from_text(self, task_desc: str, params: Dict[str, Any]) -> Dict[str, Any]:
-        # For now, just a stub for purely text-based look generation
-        # (Could also just use Director + ColorScientist for this)
+        if not task_desc.strip():
+            return fail("Describe the look you want.")
         logger.info(f"Generating look from text: {task_desc}")
-        
-        # In a real implementation, we might call Gemini text here
-        return {
-            "status": "success", 
-            "message": "Text-based look generation not fully implemented yet."
-        }
+        reply = self.provider.generate_response(system_prompt=_TEXT_PROMPT, user_prompt=task_desc)
+        try:
+            if reply.get("error"):
+                raise ValueError(reply["error"])
+            data = parse_json_reply(reply.get("content", ""))
+            look = {"description": data.get("description", task_desc), "tags": data.get("tags", []),
+                    "cdl": {k: float(v) for k, v in (data.get("cdl") or {}).items()}}
+            if not look["cdl"]:
+                raise ValueError("model returned no CDL")
+        except Exception as e:
+            return fail(f"Could not build a look from that description ({e}). "
+                        "Is GEMINI_API_KEY or CJ_GRADER_PROXY_URL set?")
+        return self._profile_result(look, params.get("name") or task_desc[:40])
