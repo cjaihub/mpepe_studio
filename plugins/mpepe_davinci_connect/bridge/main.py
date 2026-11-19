@@ -2,7 +2,7 @@
 CJ Grader Python Bridge — Entry Point
 
 Usage:
-  python main.py                       # External mode (DaVinci Resolve Studio)
+  python -m bridge.main                # from plugins/mpepe_davinci_connect (Resolve Studio)
   # Or drop into Resolve > Workspace > Scripts for Free Edition mode
 """
 

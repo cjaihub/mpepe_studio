@@ -2,8 +2,11 @@ import sqlite3
 import json
 import logging
 import os
-import firebase_admin
-from firebase_admin import credentials, firestore
+try:  # cloud sync is optional; the local database works without firebase-admin
+    import firebase_admin
+    from firebase_admin import credentials, firestore
+except ImportError:
+    firebase_admin = None
 
 DB_PATH = os.path.join(os.path.dirname(__file__), 'studio_data.db')
 logger = logging.getLogger(__name__)
@@ -78,6 +81,9 @@ _firebase_db = None
 
 def _init_firebase():
     global _firebase_db
+    if firebase_admin is None:
+        logger.warning("firebase-admin not installed. Cloud sync disabled.")
+        return
     try:
         if not firebase_admin._apps:
             # Expects a serviceAccountKey.json in the data folder for prod
@@ -94,20 +100,23 @@ def _init_firebase():
         logger.error(f"Failed to init Firebase: {e}")
         _firebase_db = None
 
-def sync_to_cloud(user_id: int, username: str, preferences: dict):
+def sync_to_cloud(user_id: int, username: str, preferences: dict) -> bool:
     global _firebase_db
     if _firebase_db is None:
         _init_firebase()
-    if _firebase_db is None: return
-    
+    if _firebase_db is None:
+        return False
+
     try:
         _firebase_db.collection('users').document(str(user_id)).set({
             'username': username,
             'preferences': preferences
         }, merge=True)
         logger.info(f"Synced user {user_id} to Firebase.")
+        return True
     except Exception as e:
         logger.error(f"Cloud sync failed: {e}")
+        return False
 
 def pull_from_cloud(user_id: int):
     global _firebase_db

@@ -1,71 +1,55 @@
-import logging
+"""reference_agent — matches the clip to a reference image using Gemini Vision + CDL."""
 import base64
-from .agent_base import AgentBase
-from ..provider_abstraction import provider
-from bridge.tools import cdl_tools
+import logging
 
-logger = logging.getLogger(__name__)
+from ..provider_abstraction import get_provider
+from .agent_base import AgentBase, CDL_JSON_PROMPT, cdl_from_vision_reply, fail
+from .color_scientist import apply_cdl_to_target
+
+logger = logging.getLogger("cj_grader.agents.reference")
+
 
 class ReferenceAgent(AgentBase):
-    def __init__(self):
+    def __init__(self, provider=None):
         super().__init__(
-            name="ReferenceAgent",
-            description="Analyzes a reference image against the current DaVinci Resolve frame and matches its look."
+            name="Reference",
+            description="Analyzes a reference image and matches the current clip to its look.",
         )
+        self._provider = provider
+
+    @property
+    def provider(self):
+        return self._provider or get_provider()
 
     def execute(self, prompt: str, timeline_id: str = None, **kwargs) -> dict:
-        """
-        Executes a reference match.
-        Expected kwargs:
-        - frame_bytes: The reference image bytes.
-        """
+        reference = kwargs.get("frame_bytes")
+        if isinstance(reference, str):  # base64 from JSON plans
+            reference = base64.b64decode(reference)
+        if not reference and kwargs.get("image_path"):
+            try:
+                with open(kwargs["image_path"], "rb") as f:
+                    reference = f.read()
+            except OSError as e:
+                return fail(f"Cannot read reference image: {e}")
+        if not reference:
+            return fail("No reference image provided (frame_bytes or image_path).")
+
         self.emit_progress(1, 3, "Analyzing reference image...")
-        
-        reference_bytes = kwargs.get('frame_bytes')
-        if not reference_bytes:
-            self.emit_progress(1, 3, "Error: No reference image provided", status="ERROR")
-            return {"status": "error", "message": "No reference image provided"}
-            
-        # 1. Analyze Reference Image
-        analysis_prompt = (
-            "You are an expert colorist. Analyze the attached reference frame "
-            "and describe its precise color grading characteristics, specifically "
-            "focusing on contrast, exposure, white balance, and split toning (shadows/highlights). "
-            "Then, provide a math-based DaVinci Resolve CDL grading plan to achieve this look."
-        )
-        
-        vision_response = provider.analyze_image(analysis_prompt, reference_bytes)
-        vision_desc = vision_response.get("content", "")
-        
-        self.emit_progress(2, 3, "Generated match plan. Applying to DaVinci Resolve...")
-        logger.info(f"Vision Analysis for Reference Match:\n{vision_desc}")
-        
-        # In a fully fleshed out system, we would grab the CURRENT resolve frame and 
-        # ask the AI to calculate the EXACT delta. For now, we apply a generic "matched" 
-        # CDL look derived from the reference description or a pre-canned look.
-        # Since we don't have the current frame grabber yet, we will just apply a stylized match.
-        
+        hint = f"\nThe user also asked: {kwargs.get('prompt') or prompt}" if (kwargs.get("prompt") or prompt) else ""
         try:
-            # We simulate applying the match by adding some contrast and offset
-            slope = (1.05, 1.05, 1.1)
-            offset = (0.0, 0.0, -0.05)
-            power = (1.0, 1.0, 0.9)
-            saturation = 1.2
-            cdl_tools.apply_cdl(slope=slope, offset=offset, power=power, saturation=saturation)
-            
-            # Format the math for the Flutter visualizer
-            import json
-            grade_json = json.dumps({
-                "slope": slope,
-                "offset": offset,
-                "power": power,
-                "saturation": saturation
-            })
-            detail_msg = f"[GRADE_PARAMS] {grade_json}"
-            
-            self.emit_progress(3, 3, "Reference match applied successfully.", status="DONE", detail=detail_msg)
-            return {"status": "success", "message": f"Applied look based on reference: {vision_desc[:100]}..."}
+            look = cdl_from_vision_reply(self.provider.analyze_image(CDL_JSON_PROMPT + hint, reference))
         except Exception as e:
-            logger.error(f"Failed to apply reference match: {e}")
-            self.emit_progress(3, 3, f"Failed to apply match: {e}", status="ERROR")
-            return {"status": "error", "message": str(e)}
+            return fail(f"Could not derive a look from the reference: {e}")
+
+        self.emit_progress(2, 3, f"Matching look: {look['description'] or 'reference'}")
+        target = {
+            "timeline_id": timeline_id or "",
+            "track_index": int(kwargs.get("track_index", 1)),
+            "clip_index": int(kwargs.get("clip_index", 1)),
+            "node_index": int(kwargs.get("node_index", 1)),
+        }
+        result = apply_cdl_to_target(target, look["cdl"], "reference_agent",
+                                     append_new_node=bool(kwargs.get("append_new_node", True)))
+        if result["status"] == "success":
+            result["message"] = f"Matched reference ({look['description']}). " + result["message"]
+        return result

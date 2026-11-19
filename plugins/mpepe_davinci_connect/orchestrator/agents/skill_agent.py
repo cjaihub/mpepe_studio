@@ -1,49 +1,73 @@
-import logging
+"""skill_agent — applies saved Skills (reusable CDL looks) and learns new ones."""
 import json
-from bridge.tools.gallery_tools import apply_drx_grade
-from bridge.tools.cdl_tools import get_cdl
-from orchestrator.database import db_manager
+import logging
+
+from orchestrator.memory_store import get_memory_store
+from .agent_base import AgentBase, step_target, ok, fail
+from .color_scientist import apply_cdl_to_target
 
 logger = logging.getLogger("cj_grader.agents.skill_agent")
 
-class SkillAgent:
-    """Applies complex predefined skills or learns new macros (like Film Looks)."""
+
+def find_skill(name: str):
+    """Exact (case-insensitive) name match first, then substring match; newest wins."""
+    skills = get_memory_store().list_skills()
+    wanted = name.strip().lower()
+    for s in skills:
+        if s["name"].lower() == wanted:
+            return s
+    for s in skills:
+        if wanted in s["name"].lower():
+            return s
+    return None
+
+
+def _flatten(payload: dict) -> dict:
+    """SET_CDL ledger payload -> flat Director-style CDL params."""
+    flat = {"saturation": payload.get("saturation", 1.0)}
+    for part in ("slope", "offset", "power"):
+        for c in "rgb":
+            flat[f"{part}_{c}"] = (payload.get(part) or {}).get(c, 0.0 if part == "offset" else 1.0)
+    return flat
+
+
+class SkillAgent(AgentBase):
+    name = "Skill"
+
     def __init__(self, bridge_client=None):
-        self.bridge = bridge_client
-        
+        super().__init__(bridge_client=bridge_client)
+
     def execute_task(self, task: dict):
-        logger.info(f"Skill Agent executing task: {task['task']}")
-        
-        timeline_id = task.get("timeline_id", "")
-        track_index = task.get("track_index", 1)
-        clip_index = task.get("clip_index", 1)
-        
-        params = task.get("params", {})
+        params = task.get("params", {}) or {}
+        t = step_target(task)
         skill_name = params.get("skill_name", "")
-        action = params.get("action", "apply") # "apply" or "learn"
-        
+        action = params.get("action") or ("learn" if "learn" in task.get("task", "").lower() else "apply")
+        logger.info(f"Skill Agent: {action} '{skill_name}'")
+
+        if not skill_name:
+            return fail("No skill_name provided.")
+
         if action == "learn":
-            if not skill_name:
-                return {"status": "error", "message": "No skill_name provided for learning."}
-            try:
-                # Grab the current CDL state of the clip
-                cdl_data = get_cdl(timeline_id, track_index, clip_index)
-                if cdl_data.get("status") == "success":
-                    # Save to database (in a real scenario, this would use a 'skills' table)
-                    # For now, we simulate saving it to the current user's preferences
-                    return {"status": "success", "message": f"Learned new skill '{skill_name}' successfully."}
-                else:
-                    return {"status": "error", "message": f"Failed to read current grade: {cdl_data.get('message')}"}
-            except Exception as e:
-                return {"status": "error", "message": f"Exception during learning: {e}"}
-        
-        elif action == "apply":
-            if skill_name:
-                # We would look up the gallery still ID for the skill and apply it
-                # For this prototype, we'll just mock success
-                logger.info(f"Applying skill: {skill_name}")
-                return {"status": "success", "message": f"Applied skill '{skill_name}' successfully."}
-                
-            return {"status": "error", "message": "No skill_name provided."}
-        
-        return {"status": "error", "message": "Unknown action."}
+            # Resolve cannot read a node's CDL back, so learn from the last grade CJ applied.
+            store = get_memory_store()
+            cdl = params.get("cdl")
+            if not cdl:
+                history = [h for h in store.get_history(t["timeline_id"], t["track_index"], t["clip_index"])
+                           if h.get("action_type") == "SET_CDL"]
+                if not history:
+                    return fail("No CJ grade recorded on this clip yet. Grade it first, then teach the skill.")
+                cdl = _flatten(json.loads(history[0]["payload"]))
+            skill_id = store.save_skill(name=skill_name, description=params.get("description", "Learned from clip grade"),
+                                        tags=params.get("tags", []), cdl_json=json.dumps(cdl))
+            return ok(f"Learned skill '{skill_name}' (id {skill_id}).")
+
+        skill = find_skill(skill_name)
+        if not skill:
+            names = ", ".join(s["name"] for s in get_memory_store().list_skills()[:8]) or "none saved yet"
+            return fail(f"No skill named '{skill_name}'. Available: {names}.")
+        cdl = json.loads(skill["cdl_json"] or "{}")
+        result = apply_cdl_to_target(t, cdl, "skill_agent",
+                                     append_new_node=bool(params.get("append_new_node", True)))
+        if result["status"] == "success":
+            result["message"] = f"Applied skill '{skill['name']}'. " + result["message"]
+        return result

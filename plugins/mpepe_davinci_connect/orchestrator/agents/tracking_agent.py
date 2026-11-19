@@ -1,47 +1,40 @@
 """tracking_agent — Magic Mask, stabilization, and smart reframe tasks."""
 import logging
+
+from bridge.capability_probe import current_capabilities
 from bridge.tools.neural_engine_tools import create_magic_mask, stabilize, smart_reframe
-from bridge.capability_probe import CapabilityProbe
-from bridge.connection import get_current_project
+from .agent_base import AgentBase, step_target, fail, skipped, from_bool
 
 logger = logging.getLogger("cj_grader.agents.tracking")
 
-class TrackingAgent:
+
+class TrackingAgent(AgentBase):
+    name = "Tracking"
+
     def __init__(self, bridge_client=None):
-        self.bridge = bridge_client
+        super().__init__(bridge_client=bridge_client)
 
     def execute_task(self, task: dict) -> dict:
-        task_name = task.get("task", "")
-        params = task.get("params", {})
-        
-        timeline_id = task.get("timeline_id", "")
-        track_index = task.get("track_index", 1)
-        clip_index = task.get("clip_index", 1)
-        
+        task_name = task.get("task", "").lower()
+        params = task.get("params", {}) or {}
+        t = step_target(task)
         logger.info(f"Tracking Agent: {task_name}")
-        
-        resolve, _ = get_current_project()
-        if resolve:
-            probe = CapabilityProbe(resolve)
-            caps = probe.get_capabilities()
-        else:
-            caps = {"features": {}}
+        features = current_capabilities().get("features", {})
 
-        if "Magic Mask" in task_name or "mask" in task_name.lower():
-            if not caps.get("features", {}).get("magic_mask", {}).get("available", False):
-                return {"status": "SKIPPED", "message": "Magic Mask requires DaVinci Resolve Studio."}
-            mode = params.get("mode", "F")
-            success = create_magic_mask(timeline_id, track_index, clip_index, mode)
-            return {"status": "success" if success else "error", "action": f"MagicMask({mode})"}
+        if "mask" in task_name:
+            if not features.get("magic_mask", {}).get("available", False):
+                return skipped("Magic Mask requires DaVinci Resolve Studio.")
+            ok_ = create_magic_mask(t["timeline_id"], t["track_index"], t["clip_index"], params.get("direction", "F"))
+            return from_bool(ok_, "Magic Mask tracked.", "Magic Mask failed on this clip.")
 
-        elif "stabiliz" in task_name.lower():
-            success = stabilize(timeline_id, track_index, clip_index)
-            return {"status": "success" if success else "error", "action": "Stabilize"}
+        if "stabiliz" in task_name or "stabilis" in task_name:
+            ok_ = stabilize(t["timeline_id"], t["track_index"], t["clip_index"])
+            return from_bool(ok_, "Clip stabilized.", "Stabilization failed on this clip.")
 
-        elif "reframe" in task_name.lower():
-            if not caps.get("features", {}).get("smart_reframe", {}).get("available", False):
-                return {"status": "SKIPPED", "message": "Smart Reframe requires DaVinci Resolve Studio."}
-            success = smart_reframe(timeline_id, track_index, clip_index)
-            return {"status": "success" if success else "error", "action": "SmartReframe"}
+        if "reframe" in task_name:
+            if not features.get("smart_reframe", {}).get("available", False):
+                return skipped("Smart Reframe requires DaVinci Resolve Studio.")
+            ok_ = smart_reframe(t["timeline_id"], t["track_index"], t["clip_index"])
+            return from_bool(ok_, "Smart Reframe applied.", "Smart Reframe failed on this clip.")
 
-        return {"status": "error", "message": f"Unknown task for Tracking: {task_name}"}
+        return fail(f"Unknown task for Tracking: {task.get('task', '')}")

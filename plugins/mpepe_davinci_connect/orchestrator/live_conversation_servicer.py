@@ -6,10 +6,9 @@ import re
 
 import live_conversation_pb2
 import live_conversation_pb2_grpc
-from provider_abstraction import GeminiProvider
-from director import DirectorAgent
-from executor import Executor, get_active_tasks
-import database
+from .provider_abstraction import GeminiProvider
+from .director import DirectorAgent
+from .executor import Executor, get_active_tasks, create_task_bus
 
 logger = logging.getLogger("cj_grader.live_conversation")
 
@@ -20,6 +19,7 @@ class LiveConversationServicer(live_conversation_pb2_grpc.GeminiLiveServiceServi
         self.executor = executor
         # Memory can be a simple list of dicts for this session
         self.history = []
+        self.project_context = ""
 
     def _get_system_prompt(self):
         active_tasks = get_active_tasks()
@@ -40,6 +40,7 @@ If the user's message is a request to perform a grading action, color change, or
 For example: "I'll get right on that. <TRIGGER>make the shadows cooler and lift the exposure</TRIGGER>"
 
 Do NOT use the <TRIGGER> tag if the user is just asking a question or chatting.
+{self.project_context}
 """
 
     def ConverseLive(self, request_iterator, context):
@@ -77,23 +78,24 @@ Do NOT use the <TRIGGER> tag if the user is just asking a question or chatting.
                     clean_prompt = user_message.replace("[MATCH_REFERENCE]", "").strip()
                     yield live_conversation_pb2.LiveChunk(text="\n*Initiating Reference Match...*", role='assistant')
                     
-                    task_id = str(uuid.uuid4())
-                    self.executor.execute_plan(
-                        [{
-                            "agent": "ReferenceAgent",
-                            "action": "Match Reference Look",
-                            "parameters": {
-                                "prompt": clean_prompt,
-                                "frame_bytes": last_frame
-                            }
-                        }],
-                        task_id=task_id
-                    )
-                    
+                    task_id = str(uuid.uuid4())[:8]
+                    create_task_bus(task_id)
+                    plan = {"status": "success", "plan": [{
+                        "agent": "Reference",
+                        "task": "Match reference look",
+                        "params": {"prompt": clean_prompt, "frame_bytes": last_frame},
+                    }]}
+                    threading.Thread(target=self.executor.execute_plan, args=(plan,),
+                                     kwargs={"task_id": task_id}, daemon=True).start()
+
+                    yield live_conversation_pb2.LiveChunk(role="system", event_type="plan_triggered",
+                                                          plan_json=json.dumps({"task_id": task_id}))
                     yield live_conversation_pb2.LiveChunk(text="\n*I'm analyzing the reference image and applying the look.*", role='assistant', end_of_turn=True)
                     continue
                 
                 # Check for Login/Register/Project commands
+                if user_message.startswith(("[LOGIN]", "[REGISTER]", "[NEW_PROJECT]")):
+                    from . import database
                 if user_message.startswith("[LOGIN]"):
                     try:
                         data = json.loads(user_message.replace("[LOGIN]", "").strip())
@@ -123,7 +125,7 @@ Do NOT use the <TRIGGER> tag if the user is just asking a question or chatting.
                         data = json.loads(user_message.replace("[NEW_PROJECT]", "").strip())
                         project_id = database.create_project(data.get("user_id"), data.get("project_name"), data.get("category"))
                         # Update AI Provider context here
-                        self.provider.system_prompt += f"\nUser is working on a new project: {data.get('project_name')} (Category: {data.get('category')}). Bias grades accordingly."
+                        self.project_context = f"User is working on a new project: {data.get('project_name')} (Category: {data.get('category')}). Bias grades accordingly."
                         yield live_conversation_pb2.LiveChunk(text=f"[PROJECT_SUCCESS] {project_id}", role='system', end_of_turn=True)
                     except Exception as e:
                         yield live_conversation_pb2.LiveChunk(text=f"[PROJECT_FAIL] {str(e)}", role='system', end_of_turn=True)
@@ -166,10 +168,18 @@ Do NOT use the <TRIGGER> tag if the user is just asking a question or chatting.
                     instruction = trigger_match.group(1).strip()
                     logger.info(f"Conversational agent triggered background task: {instruction}")
                     
-                    def run_background_task():
-                        task_id = str(uuid.uuid4())
+                    task_id = str(uuid.uuid4())[:8]
+                    create_task_bus(task_id)
+                    yield live_conversation_pb2.LiveChunk(role="system", event_type="plan_triggered",
+                                                          plan_json=json.dumps({"task_id": task_id, "instruction": instruction}))
+
+                    def run_background_task(task_id=task_id):
                         plan = self.director.analyze_intent(instruction)
-                        self.executor.execute_plan(plan, task_id=task_id)
+                        if plan.get("status") == "success":
+                            self.executor.execute_plan(plan, task_id=task_id)
+                        else:
+                            from bridge.grpc_server import _fail_task
+                            _fail_task(task_id, plan.get("message", "Could not plan that request."))
                         
                     t = threading.Thread(target=run_background_task, daemon=True)
                     t.start()

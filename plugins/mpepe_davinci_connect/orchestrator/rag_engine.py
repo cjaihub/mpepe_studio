@@ -1,12 +1,21 @@
-import chromadb
 import os
 import logging
 from typing import List
 
 logger = logging.getLogger(__name__)
 
+DEFAULT_RAG_PATH = os.path.join(os.path.expanduser("~"), ".cj_grader", "chroma_db")
+
+
 class RAGEngine:
-    def __init__(self, db_path: str = "./data/chroma_db"):
+    def __init__(self, db_path: str = DEFAULT_RAG_PATH):
+        self.client = None
+        self.collection = None
+        try:
+            import chromadb
+        except ImportError:
+            logger.info("chromadb not installed; colour-theory retrieval disabled.")
+            return
         os.makedirs(db_path, exist_ok=True)
         try:
             self.client = chromadb.PersistentClient(path=db_path)
@@ -58,5 +67,12 @@ class RAGEngine:
             logger.error(f"Failed to query RAG Engine: {e}")
             return ""
 
-# Singleton instance
-rag = RAGEngine()
+_rag = None
+
+
+def get_rag() -> RAGEngine:
+    """Lazily created singleton, so importing the Director never needs chromadb."""
+    global _rag
+    if _rag is None:
+        _rag = RAGEngine()
+    return _rag

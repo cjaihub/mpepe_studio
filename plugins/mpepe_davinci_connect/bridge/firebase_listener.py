@@ -5,6 +5,7 @@ import time
 import json
 import logging
 import asyncio
+import threading
 
 try:
     import firebase_admin
@@ -14,12 +15,13 @@ except ImportError:
     print("Please install firebase-admin: pip install firebase-admin")
     sys.exit(1)
 
-import resolve_connection
-
-# Add parent directory to sys.path to import orchestrator
+# Plugin root (for the orchestrator/bridge packages) and this folder (for *_pb2 modules)
 parent_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-if parent_dir not in sys.path:
-    sys.path.append(parent_dir)
+for _p in (parent_dir, os.path.dirname(os.path.abspath(__file__))):
+    if _p not in sys.path:
+        sys.path.append(_p)
+
+from bridge import resolve_connection
 
 from orchestrator.director import DirectorAgent
 from orchestrator.provider_abstraction import GeminiProvider
@@ -42,8 +44,8 @@ class DaVinciFirebaseAgent:
         self.cred_path = cred_path
         
         # Init NLP Agent
-        provider = GeminiProvider(api_key=os.environ.get("GEMINI_API_KEY", "demo"))
-        self.director = DirectorAgent(provider=provider)
+        provider = GeminiProvider(api_key=os.environ.get("GEMINI_API_KEY"),
+                                  proxy_url=os.environ.get("CJ_GRADER_PROXY_URL"))
         self.director = DirectorAgent(provider=provider)
         
         self.init_firebase()
@@ -185,44 +187,67 @@ class DaVinciFirebaseAgent:
             })
             
     def execute_nlp_command(self, doc_id, command, payload):
+        """Plans the phone's request and runs it through the same Executor as the desktop UI."""
+        from orchestrator.executor import create_task_bus
+
         text = payload.get('text', '')
         self._update_nlp_status(doc_id, 'processing', 'Thinking...')
-        
+
         try:
-            plan = self.director.analyze_intent(text)
+            plan = self.director.analyze_intent(text, guided_mode=bool(payload.get('guided_mode', False)))
             steps = plan.get('plan', [])
-            
-            if not steps:
-                self._update_nlp_status(doc_id, 'completed', 'I could not figure out how to do that.')
+            if plan.get('status') != 'success' or not steps:
+                self._update_nlp_status(doc_id, 'completed',
+                                        plan.get('message', 'I could not figure out how to do that.'))
                 return
-                
-            self._update_nlp_status(doc_id, 'processing', f'Executing {len(steps)} steps...')
-            
+
             for step in steps:
-                agent = step.get('agent')
-                task = step.get('task')
-                params = step.get('params', {})
-                
-                self._update_nlp_status(doc_id, 'processing', f'Agent {agent}: {task}')
-                
-                if agent == 'OS':
-                    os_cmd = "open_app" if "open" in task.lower() else "unknown" # simplified for demo
-                    if "volume" in task.lower():
-                        os_cmd = "volume"
-                        
-                    self.execute_os_command(os_cmd, params)
-                elif agent == 'Color Scientist':
-                    # Simplified mapping for CDL
-                    self.execute_davinci_command('apply_lut', params) # Just spoofing for demo
-                    
-                time.sleep(1) # Fake delay for effect
-                
-            self._update_nlp_status(doc_id, 'completed', 'Task completed successfully.')
-            
+                for key in ('timeline_id', 'track_index', 'clip_index'):
+                    if key in payload:
+                        step[key] = payload[key]
+
+            task_id = f"nlp_{doc_id}"[:40]
+            bus = create_task_bus(task_id)
+            self._update_nlp_status(doc_id, 'processing', f'Executing {len(steps)} steps...')
+
+            # The phone has no confirm button yet, so a request sent from it counts as approval.
+            # CDL steps still snapshot the grade first, so they can be undone from the ledger.
+            outcome = {}
+            worker = threading.Thread(
+                target=lambda: outcome.update(self._executor().execute_plan(plan, task_id=task_id, auto_confirm=True)),
+                daemon=True)
+            worker.start()
+
+            errors, last_detail = [], ''
+            while True:
+                event = bus.get()
+                if event.get('status') == '__DONE__':
+                    break
+                label = f"Step {event.get('step_index')}/{event.get('total_steps')} {event.get('agent')}"
+                if event['status'] == 'ERROR':
+                    errors.append(f"{label}: {event.get('detail', '')}")
+                elif event['status'] == 'DONE':
+                    last_detail = event.get('detail', '')
+                self._update_nlp_status(doc_id, 'processing',
+                                        f"{label}: {event.get('task_description', '')} ({event['status'].lower()})")
+            worker.join(timeout=5)
+
+            if errors:
+                self._update_nlp_status(doc_id, 'failed', ' | '.join(errors)[:900])
+            else:
+                self._update_nlp_status(doc_id, 'completed',
+                                        f'Done: {len(steps)} step(s). {last_detail}'[:900])
+
         except Exception as e:
             logger.error(f"NLP Error: {e}")
             self._update_nlp_status(doc_id, 'failed', f'Error: {str(e)}')
-            
+
+    def _executor(self):
+        if not hasattr(self, '_executor_instance'):
+            from orchestrator.executor import Executor
+            self._executor_instance = Executor()
+        return self._executor_instance
+
     def _update_nlp_status(self, doc_id, status, message):
         if self.device_ref:
             self.device_ref.collection('commands').document(doc_id).update({
@@ -261,11 +286,13 @@ class DaVinciFirebaseAgent:
             return False, "No active timeline."
 
         if command == "apply_lut":
+            from bridge.tools.lut_tools import set_lut
             lut_path = payload.get("lut_path")
-            # Timeline API doesn't easily expose apply LUT globally without node graph access.
-            # For this prototype, we'll just log it. 
-            logger.info(f"Would apply LUT: {lut_path}")
-            return True, f"LUT applied."
+            if not lut_path:
+                return False, "No lut_path given."
+            ok = set_lut("", int(payload.get("track_index", 1)), int(payload.get("clip_index", 1)),
+                         int(payload.get("node_index", 1)), lut_path)
+            return ok, (f"LUT {lut_path} applied." if ok else f"Resolve could not apply {lut_path}.")
         elif command == "add_marker":
             name = payload.get("name", "AI Marker")
             color = payload.get("color", "Blue")

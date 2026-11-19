@@ -1,65 +1,47 @@
+"""lut_agent — searches Resolve's LUT folder and optionally applies the best match."""
+import json
 import logging
-import os
-import glob
-from .agent_base import AgentBase
-from bridge.tools import gallery_tools
 
-logger = logging.getLogger(__name__)
+from bridge.tools import lut_tools
+from .agent_base import AgentBase, ok, fail
+
+logger = logging.getLogger("cj_grader.agents.lut")
+
 
 class LutAgent(AgentBase):
     def __init__(self):
-        super().__init__(
-            name="LutAgent",
-            description="Searches for LUTs and applies them."
-        )
-        self.lut_dir = r"C:\ProgramData\Blackmagic Design\DaVinci Resolve\Support\LUT"
+        super().__init__(name="LUT", description="Searches for LUTs and applies them.")
+
+    @property
+    def lut_dir(self) -> str:
+        return lut_tools.lut_root()
 
     def execute(self, prompt: str, timeline_id: str = None, **kwargs) -> dict:
-        """
-        Executes a LUT search.
-        Expected kwargs:
-        - keyword: the LUT keyword to search for
-        """
-        self.emit_progress(1, 3, "Searching for LUTs...")
-        
-        keyword = kwargs.get('keyword', prompt).lower()
-        
-        if not os.path.exists(self.lut_dir):
-            error_msg = f"LUT directory not found at {self.lut_dir}"
-            self.emit_progress(1, 3, error_msg, status="ERROR")
-            return {"status": "error", "message": error_msg}
-            
-        matched_luts = []
-        try:
-            # Recursively search for .cube files
-            for root, dirs, files in os.walk(self.lut_dir):
-                for file in files:
-                    if file.lower().endswith(".cube") and keyword in file.lower():
-                        # We want the relative path from the LUT root, as that's what Resolve usually expects
-                        rel_path = os.path.relpath(os.path.join(root, file), self.lut_dir)
-                        # Replace backslashes with forward slashes for cross-platform resolve compatibility
-                        rel_path = rel_path.replace("\\", "/")
-                        matched_luts.append({
-                            "name": file.replace(".cube", ""),
-                            "path": rel_path
-                        })
-                        if len(matched_luts) >= 10: # Limit results
-                            break
-                if len(matched_luts) >= 10:
+        keyword = str(kwargs.get("keyword") or kwargs.get("lut") or prompt or "").strip()
+        apply = bool(kwargs.get("apply", "apply" in (prompt or "").lower()))
+        self.emit_progress(1, 3, f"Searching LUTs for '{keyword}'...")
+
+        if not keyword:
+            return fail("Tell me which LUT to look for (keyword).")
+        matches = lut_tools.search_luts(keyword, limit=10)
+        if not matches:
+            # retry with the most specific single word, e.g. "apply the 2383 lut" -> "2383"
+            words = [w for w in keyword.lower().split() if w not in ("apply", "the", "lut", "a", "use", "find")]
+            for w in sorted(words, key=len, reverse=True):
+                matches = lut_tools.search_luts(w, limit=10)
+                if matches:
                     break
-        except Exception as e:
-            logger.error(f"Error searching LUTs: {e}")
-            
-        if not matched_luts:
-            self.emit_progress(2, 3, f"No LUTs found matching '{keyword}'", status="DONE")
-            return {"status": "success", "message": f"No LUTs found for '{keyword}'"}
-            
-        self.emit_progress(2, 3, f"Found {len(matched_luts)} LUTs matching '{keyword}'")
-        
-        # Format the math for the Flutter visualizer
-        import json
-        lut_json = json.dumps({"luts": matched_luts})
-        detail_msg = f"[LUT_RESULTS] {lut_json}"
-        
-        self.emit_progress(3, 3, "LUT search complete.", status="DONE", detail=detail_msg)
-        return {"status": "success", "message": f"Found {len(matched_luts)} LUTs."}
+        detail = f"[LUT_RESULTS] {json.dumps({'luts': matches})}"
+        if not matches:
+            return ok(f"No LUTs in {self.lut_dir} match '{keyword}'.", detail=detail)
+
+        if not apply:
+            return ok(f"Found {len(matches)} LUT(s) matching '{keyword}'.", detail=detail)
+
+        best = matches[0]["path"]
+        self.emit_progress(2, 3, f"Applying {best}...")
+        node = int(kwargs.get("node_index", 1))
+        if lut_tools.set_lut(timeline_id or "", int(kwargs.get("track_index", 1)),
+                             int(kwargs.get("clip_index", 1)), node, best):
+            return ok(f"Applied {best} on node {node}.", detail=detail)
+        return fail(f"Found {best} but Resolve could not apply it.", detail=detail)

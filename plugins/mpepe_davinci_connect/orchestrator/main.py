@@ -1,80 +1,77 @@
 """
 CJ Grader Orchestrator — Entry Point
 
-Starts the orchestration engine that interprets user requests and 
-delegates tasks to the appropriate subagents.
+Starts the orchestration engine that interprets user requests and
+delegates tasks to the appropriate agents.
 
-Usage:
-  GEMINI_API_KEY=your_key python main.py
+Usage (from plugins/mpepe_davinci_connect):
+  GEMINI_API_KEY=your_key python -m orchestrator.main
 """
 import logging
-import sys
 import os
-import mjpeg_streamer
-import remote_host
+import sys
+from concurrent import futures
+
+_HERE = os.path.dirname(os.path.abspath(__file__))
+for _path in (os.path.dirname(_HERE), _HERE):  # package root, then generated *_pb2 modules
+    if _path not in sys.path:
+        sys.path.insert(0, _path)
 
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
-    handlers=[logging.StreamHandler(sys.stdout)]
+    handlers=[logging.StreamHandler(sys.stdout)],
 )
 logger = logging.getLogger("cj_grader.orchestrator")
 
-import grpc
-from concurrent import futures
+import grpc  # noqa: E402
 
-from .provider_abstraction import GeminiProvider
-from .director import DirectorAgent
-from .executor import Executor
-from .live_conversation_servicer import LiveConversationServicer
-import live_conversation_pb2_grpc
-import orchestrator_pb2_grpc
-import orchestrator_pb2
+from orchestrator.provider_abstraction import GeminiProvider  # noqa: E402
+from orchestrator.director import DirectorAgent  # noqa: E402
+from orchestrator.live_conversation_servicer import LiveConversationServicer  # noqa: E402
+import live_conversation_pb2_grpc  # noqa: E402
+import orchestrator_pb2_grpc  # noqa: E402
 
-class OrchestratorServicer(orchestrator_pb2_grpc.OrchestratorServicer):
-    def __init__(self, director: DirectorAgent, executor: Executor):
-        self.director = director
-        self.executor = executor
-        
-    def SubmitPrompt(self, request, context):
-        import uuid
-        import threading
-        task_id = str(uuid.uuid4())
-        plan = self.director.analyze_intent(request.prompt)
-        threading.Thread(target=self.executor.execute_plan, args=(plan, task_id), daemon=True).start()
-        return orchestrator_pb2.PromptResponse(status="success", task_id=task_id)
+
+def _start_optional_services():
+    """Preview streaming and remote control need extra packages; run without them if missing."""
+    try:
+        from orchestrator import mjpeg_streamer
+        mjpeg_streamer.start_streamer(port=int(os.environ.get("CJ_GRADER_PIP_PORT", "5000")))
+    except Exception as e:
+        logger.warning(f"Preview streamer disabled: {e}")
+    try:
+        from orchestrator import remote_host
+        remote_host.start_remote_host(port=int(os.environ.get("CJ_GRADER_REMOTE_PORT", "8080")))
+    except Exception as e:
+        logger.warning(f"Remote control host disabled: {e}")
+
 
 def run():
     api_key = os.environ.get("GEMINI_API_KEY")
     proxy_url = os.environ.get("CJ_GRADER_PROXY_URL")
-    bridge_host = os.environ.get("CJ_GRADER_BRIDGE_HOST", "localhost")
-    bridge_port = int(os.environ.get("CJ_GRADER_BRIDGE_PORT", "50051"))
     grpc_port = int(os.environ.get("CJ_GRADER_ORCHESTRATOR_PORT", "50052"))
 
     provider = GeminiProvider(api_key=api_key, proxy_url=proxy_url)
     director = DirectorAgent(provider=provider)
-    executor = Executor(bridge_host=bridge_host, bridge_port=bridge_port)
 
-    # Start the PIP Streaming server
-    mjpeg_streamer.start_streamer(port=5000)
+    # One Executor and one Orchestrator implementation shared with the bridge server,
+    # so plan streaming and step confirmations behave the same on either port.
+    from bridge.grpc_server import OrchestratorServicer, action_executor
 
-    # Start the Remote Control WebSocket Server
-    remote_host.start_remote_host(port=8080)
+    _start_optional_services()
 
     server = grpc.server(futures.ThreadPoolExecutor(max_workers=10))
-    
-    # Register the Live Conversational Service
-    live_servicer = LiveConversationServicer(provider, director, executor)
-    live_conversation_pb2_grpc.add_GeminiLiveServiceServicer_to_server(live_servicer, server)
-    
-    # Register the standard Orchestrator Service
-    orch_servicer = OrchestratorServicer(director, executor)
-    orchestrator_pb2_grpc.add_OrchestratorServicer_to_server(orch_servicer, server)
-    
-    server.add_insecure_port(f'[::]:{grpc_port}')
+    live_conversation_pb2_grpc.add_GeminiLiveServiceServicer_to_server(
+        LiveConversationServicer(provider, director, action_executor), server)
+    orchestrator_pb2_grpc.add_OrchestratorServicer_to_server(OrchestratorServicer(), server)
+
+    server.add_insecure_port(f"[::]:{grpc_port}")
     server.start()
-    logger.info(f"CJ Grader Orchestrator gRPC Server running on port {grpc_port}...")
+    logger.info(f"CJ Grader Orchestrator gRPC Server running on port {grpc_port} "
+                f"with agents: {', '.join(action_executor.agent_names)}")
     server.wait_for_termination()
+
 
 if __name__ == "__main__":
     run()

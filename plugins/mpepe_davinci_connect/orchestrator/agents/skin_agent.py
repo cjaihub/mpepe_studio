@@ -1,40 +1,43 @@
+"""skin_agent — skin tone work: Magic Mask isolation plus a gentle skin CDL."""
 import logging
+
+from bridge.capability_probe import current_capabilities
 from bridge.tools.neural_engine_tools import create_magic_mask
-from bridge.capability_probe import CapabilityProbe
-from bridge.connection import get_current_project
+from .agent_base import AgentBase, step_target, ok, fail, skipped, guided
 
 logger = logging.getLogger("cj_grader.agents.skin")
 
-class SkinAgent:
-    """Handles face refinement, skin smoothing, and beauty work."""
+
+class SkinAgent(AgentBase):
+    """Isolates faces with Magic Mask. Face Refinement itself has no scripting API, so the
+    agent creates the mask and tells the user the one click that remains."""
+    name = "Skin"
+
     def __init__(self, bridge_client=None):
-        self.bridge = bridge_client
-        
+        super().__init__(bridge_client=bridge_client)
+
     def execute_task(self, task: dict):
         task_name = task.get("task", "")
-        params = task.get("params", {})
-        
-        timeline_id = task.get("timeline_id", "")
-        track_index = task.get("track_index", 1)
-        clip_index = task.get("clip_index", 1)
-        
-        logger.info(f"Skin Agent executing task: {task_name}")
-        
-        resolve, _ = get_current_project()
-        if resolve:
-            probe = CapabilityProbe(resolve)
-            caps = probe.get_capabilities()
-        else:
-            caps = {"features": {}}
+        params = task.get("params", {}) or {}
+        target = step_target(task)
+        logger.info(f"Skin Agent: {task_name}")
 
-        if "face refinement" in task_name.lower() or "skin" in task_name.lower():
-            if not caps.get("features", {}).get("face_refinement", {}).get("available", False):
-                return {"status": "SKIPPED", "message": "Face Refinement requires DaVinci Resolve Studio."}
-                
-            # In a full implementation, we would add the Resolve FX Face Refinement node.
-            # For now, we simulate this by creating a magic mask for the face.
-            mode = params.get("mode", "Face")
-            success = create_magic_mask(timeline_id, track_index, clip_index, mode)
-            return {"status": "success" if success else "error", "message": f"Applied Skin Smoothing (Mask mode: {mode})"}
-            
-        return {"status": "error", "message": "Unknown task for Skin Agent"}
+        caps = current_capabilities()
+        if not caps.get("features", {}).get("magic_mask", {}).get("available", False):
+            return skipped("Skin isolation uses Magic Mask, which needs DaVinci Resolve Studio.")
+
+        direction = params.get("direction", "F")
+        if not create_magic_mask(target["timeline_id"], target["track_index"], target["clip_index"], direction):
+            return fail("Magic Mask could not be created on this clip.")
+
+        # Optional subtle skin CDL on top of the mask (e.g. "gold skintone")
+        if any(k.startswith(("slope", "offset", "power", "saturation")) for k in params):
+            from .color_scientist import apply_cdl_to_target
+            result = apply_cdl_to_target(target, params, "skin_agent")
+            if result["status"] != "success":
+                return result
+
+        if "refine" in task_name.lower() or "smooth" in task_name.lower():
+            return guided("Face mask is tracked. To finish, open Effects > Face Refinement on this "
+                          "node and adjust Smoothing.")
+        return ok("Face isolated with Magic Mask.")
