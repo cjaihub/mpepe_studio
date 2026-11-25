@@ -44,6 +44,9 @@ import '../upload/ai_voice_manager_screen.dart';
 import '../social_hub/unified_inbox_screen.dart';
 import '../social_hub/analytics_command_center.dart';
 import '../social_hub/tiktok_ai_assistant_screen.dart';
+import '../social_hub/feed/short_video_feed_screen.dart';
+import '../social_hub/feed/post_reel_screen.dart';
+import '../social_hub/feed/feed_controls_screen.dart';
 import '../projects/unified_projects_screen.dart';
 import '../video_production/video_dashboard_screen.dart';
 import '../video_production/video_equipment_screen.dart';
@@ -306,6 +309,22 @@ final routerProvider = Provider<GoRouter>((ref) {
         path: '/social_hub',
         redirect: _requireAuth,
         builder: (context, state) => const SocialIntegrationDashboard(),
+      ),
+      // Reels: our own short-video feed (not tied to connected platforms).
+      GoRoute(
+        path: '/social_hub/reels',
+        redirect: _requireAuth,
+        builder: (context, state) => const ShortVideoFeedScreen(),
+      ),
+      GoRoute(
+        path: '/social_hub/reels/post',
+        redirect: _requireAuth,
+        builder: (context, state) => const PostReelScreen(),
+      ),
+      GoRoute(
+        path: '/social_hub/reels/controls',
+        redirect: _requireAuth,
+        builder: (context, state) => const FeedControlsScreen(),
       ),
       GoRoute(
         path: '/social_hub/connect_wizard',

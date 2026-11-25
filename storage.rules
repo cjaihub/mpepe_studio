@@ -67,6 +67,16 @@ service firebase.storage {
       allow delete: if isOwner(uid);
     }
 
+    // ─── Reel uploads: reels/uploads/{uid}/{contentId}/original ──────────────
+    // Write-once raw upload. Only the reels worker reads it (Admin SDK); viewers
+    // get the transcoded HLS from the public reels bucket behind Cloud CDN.
+    match /reels/uploads/{uid}/{contentId}/{fileName} {
+      allow read: if false;
+      allow create: if isOwner(uid) && fileName.matches('original\\.[a-zA-Z0-9]+') &&
+                    isValidVideoType() && isUnder200MB();
+      allow update, delete: if false;
+    }
+
     // ─── Deny everything else ─────────────────────────────────────────────────
     match /{allPaths=**} {
       allow read, write: if false;

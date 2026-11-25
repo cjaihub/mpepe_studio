@@ -257,3 +257,9 @@ Return ONLY a strictly valid JSON array of 3 objects with properties: "title" (s
     throw new HttpsError('internal', 'AI request failed.');
   }
 });
+
+// Reels: upload trigger that starts the FFmpeg transcode job.
+export { onReelUploaded } from './reels';
+
+// Feed: like and view counts from telemetry, de-duplicated server side.
+export { onTelemetryEvent } from './engagement';
