@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../backend/social/services/recommendation_service.dart';
-import '../../../shared/design_system/app_colors.dart';
+import '../../shared/theme/app_theme.dart';
 
 class FeedControlsScreen extends ConsumerWidget {
   const FeedControlsScreen({super.key});

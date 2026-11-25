@@ -123,6 +123,32 @@ service cloud.firestore {
       }
     }
 
+    // ─── Content (reels, posts) ──────────────────────────────────────────────
+    // Processing fields (status, mediaUrl, mediaMetadata) are written only by
+    // the reels Cloud Function / worker via the Admin SDK, which skips rules.
+    match /content/{contentId} {
+      allow read: if isSignedIn() &&
+                  (resource.data.visibility == 'public' ||
+                   resource.data.authorId == request.auth.uid);
+      // The author creates the doc before uploading the video file.
+      allow create: if isSignedIn() &&
+                    request.resource.data.authorId == request.auth.uid &&
+                    request.resource.data.status == 'uploading' &&
+                    request.resource.data.mediaUrl == '' &&
+                    request.resource.data.viewCount == 0 &&
+                    request.resource.data.likeCount == 0 &&
+                    request.resource.data.commentCount == 0 &&
+                    request.resource.data.shareCount == 0 &&
+                    request.resource.data.saveCount == 0 &&
+                    request.resource.data.get('algorithmicScore', 0) == 0;
+      // The author may edit the caption and audience, nothing else.
+      allow update: if isOwner(resource.data.authorId) &&
+                    request.resource.data.diff(resource.data).affectedKeys()
+                      .hasOnly(['description', 'hashtags', 'mentions', 'location',
+                                'visibility', 'downloadsPermitted']);
+      allow delete: if isOwner(resource.data.authorId);
+    }
+
     // ─── Deny everything else ────────────────────────────────────────────────
     match /{document=**} {
       allow read, write: if false;

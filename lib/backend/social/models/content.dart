@@ -24,6 +24,17 @@ class MediaMetadata {
   final bool hasCaptions;
   final String? captionsUrl;
 
+  /// Tiny (about 16 px wide) JPEG as base64, shown blurred while the video
+  /// loads. Written by the reels worker, so it costs no extra download.
+  final String? tinyPreview;
+
+  /// Size in bytes of the first segment of the lowest rung. Used to budget
+  /// preloading on cellular.
+  final int? firstSegmentBytes;
+
+  /// Heights of the HLS rungs, lowest first (e.g. [640, 960, 1280]).
+  final List<int> rungHeights;
+
   MediaMetadata({
     this.aspectRatio = 9 / 16,
     this.resolutions = const [],
@@ -37,6 +48,9 @@ class MediaMetadata {
     this.filters = const [],
     this.hasCaptions = false,
     this.captionsUrl,
+    this.tinyPreview,
+    this.firstSegmentBytes,
+    this.rungHeights = const [],
   });
 
   factory MediaMetadata.fromMap(Map<String, dynamic>? data) {
@@ -54,6 +68,11 @@ class MediaMetadata {
       filters: List<String>.from(data['filters'] ?? []),
       hasCaptions: data['hasCaptions'] ?? false,
       captionsUrl: data['captionsUrl'] as String?,
+      tinyPreview: data['tinyPreview'] as String?,
+      firstSegmentBytes: (data['firstSegmentBytes'] as num?)?.toInt(),
+      rungHeights: List<num>.from(data['rungHeights'] ?? const [])
+          .map((e) => e.toInt())
+          .toList(),
     );
   }
 
@@ -71,9 +90,16 @@ class MediaMetadata {
       'filters': filters,
       'hasCaptions': hasCaptions,
       'captionsUrl': captionsUrl,
+      'tinyPreview': tinyPreview,
+      'firstSegmentBytes': firstSegmentBytes,
+      'rungHeights': rungHeights,
     };
   }
 }
+
+/// Processing state of an uploaded video. Only [ready] videos are shown in
+/// feeds. Documents written before this field existed count as [ready].
+enum ContentStatus { uploading, processing, ready, failed }
 
 class Content {
   final String id;
@@ -103,6 +129,10 @@ class Content {
 
   final DateTime createdAt;
 
+  final ContentStatus status;
+
+  bool get isReady => status == ContentStatus.ready;
+
   Content({
     required this.id,
     required this.authorId,
@@ -123,6 +153,7 @@ class Content {
     this.repostCount = 0,
     this.downloadsPermitted = true,
     required this.createdAt,
+    this.status = ContentStatus.ready,
   });
 
   factory Content.fromFirestore(DocumentSnapshot doc) {
@@ -150,6 +181,10 @@ class Content {
       repostCount: data['repostCount'] ?? 0,
       downloadsPermitted: data['downloadsPermitted'] ?? true,
       createdAt: (data['createdAt'] as Timestamp?)?.toDate() ?? DateTime.now(),
+      status: ContentStatus.values.firstWhere(
+        (e) => e.name == data['status'],
+        orElse: () => ContentStatus.ready,
+      ),
     );
   }
 
@@ -173,6 +208,7 @@ class Content {
       'repostCount': repostCount,
       'downloadsPermitted': downloadsPermitted,
       'createdAt': FieldValue.serverTimestamp(),
+      'status': status.name,
     };
   }
 }

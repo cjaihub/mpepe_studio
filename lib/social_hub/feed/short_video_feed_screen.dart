@@ -1,10 +1,15 @@
+import 'dart:convert';
+import 'dart:typed_data';
+import 'dart:ui' show ImageFilter;
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:media_kit_video/media_kit_video.dart';
-import '../../../backend/social/models/content.dart';
-import '../../../backend/social/services/video_playback_manager.dart';
-import '../../../backend/social/services/recommendation_service.dart';
-import '../../../shared/design_system/app_colors.dart';
+
+import '../../backend/social/models/content.dart';
+import '../../backend/social/services/recommendation_service.dart';
+import '../../backend/social/services/video_playback_manager.dart';
+import '../../shared/theme/app_theme.dart';
 
 class ShortVideoFeedScreen extends ConsumerStatefulWidget {
   final FeedMode initialMode;
@@ -15,51 +20,116 @@ class ShortVideoFeedScreen extends ConsumerStatefulWidget {
   ConsumerState<ShortVideoFeedScreen> createState() => _ShortVideoFeedScreenState();
 }
 
-class _ShortVideoFeedScreenState extends ConsumerState<ShortVideoFeedScreen> {
-  late PageController _pageController;
+class _ShortVideoFeedScreenState extends ConsumerState<ShortVideoFeedScreen>
+    with WidgetsBindingObserver {
+  final PageController _pageController = PageController();
+  late final VideoPlaybackManager _manager;
+  late final RecommendationService _recommendations;
+
   int _currentIndex = 0;
-  
-  FeedMode _currentMode = FeedMode.forYou;
-  List<Content> _feed = [];
+  late FeedMode _currentMode;
+  final List<Content> _feed = [];
+  final Set<String> _seenIds = {};
   bool _isLoading = true;
+  bool _loadingMore = false;
+  bool _reachedEnd = false;
 
   @override
   void initState() {
     super.initState();
+    // Read providers once here: `ref` must not be used in dispose().
+    _manager = ref.read(videoPlaybackManagerProvider);
+    _recommendations = ref.read(recommendationServiceProvider);
     _currentMode = widget.initialMode;
-    _pageController = PageController(initialPage: 0);
+    WidgetsBinding.instance.addObserver(this);
     _loadFeed();
   }
 
   Future<void> _loadFeed() async {
     setState(() => _isLoading = true);
-    final recommendations = await ref.read(recommendationServiceProvider).getFeed('currentUser', _currentMode);
-    
-    if (mounted) {
+    // Player setup (config, cache, network) runs alongside the feed query.
+    final ready = _manager.ensureReady();
+    final page = await _recommendations.getFeed(
+      'currentUser',
+      _currentMode,
+      limit: _manager.config.pageSize,
+    );
+    await ready;
+    if (!mounted) return;
+    setState(() {
+      _feed
+        ..clear()
+        ..addAll(page);
+      _seenIds
+        ..clear()
+        ..addAll(page.map((c) => c.id));
+      _isLoading = false;
+      _reachedEnd = page.isEmpty;
+    });
+    if (_feed.isNotEmpty) {
+      _manager.initializeAndPreload(_feed, 0);
+      _precachePosters(0);
+    }
+  }
+
+  /// Next page, fetched while the user still has a few videos left.
+  /// The recommendation service has no cursor yet, so this asks for a longer
+  /// ranked list and keeps only videos not already shown.
+  Future<void> _loadMore() async {
+    if (_loadingMore || _reachedEnd) return;
+    _loadingMore = true;
+    try {
+      final page = await _recommendations.getFeed(
+        'currentUser',
+        _currentMode,
+        limit: _feed.length + _manager.config.pageSize,
+      );
+      final fresh = page.where((c) => _seenIds.add(c.id)).toList();
+      if (!mounted) return;
       setState(() {
-        _feed = recommendations;
-        _isLoading = false;
+        _feed.addAll(fresh);
+        if (fresh.isEmpty) _reachedEnd = true;
       });
-      if (_feed.isNotEmpty) {
-        ref.read(videoPlaybackManagerProvider).initializeAndPreload(_feed, 0);
-      }
+      // The window may now have a "next" video it did not have before.
+      if (fresh.isNotEmpty) _manager.initializeAndPreload(_feed, _currentIndex);
+    } finally {
+      _loadingMore = false;
+    }
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      _manager.resumeCurrent();
+    } else if (state == AppLifecycleState.paused ||
+        state == AppLifecycleState.inactive ||
+        state == AppLifecycleState.hidden) {
+      _manager.pauseAll();
     }
   }
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     _pageController.dispose();
-    // In a real app we might not dispose all if navigating away but keeping in stack.
-    // We'll dispose for safety here.
-    ref.read(videoPlaybackManagerProvider).disposeAll();
+    _manager.disposeAll();
     super.dispose();
   }
 
   void _onPageChanged(int index) {
-    setState(() {
-      _currentIndex = index;
-    });
-    ref.read(videoPlaybackManagerProvider).initializeAndPreload(_feed, index);
+    setState(() => _currentIndex = index);
+    _manager.initializeAndPreload(_feed, index);
+    _precachePosters(index);
+    if (_feed.length - index <= _manager.config.prefetchPageAt) _loadMore();
+  }
+
+  /// Posters for the next two videos, so even a cold swipe shows a sharp
+  /// image at once.
+  void _precachePosters(int index) {
+    for (final c in _feed.skip(index + 1).take(2)) {
+      final url = c.mediaMetadata.posterFrameUrl ?? c.mediaMetadata.thumbnailUrl;
+      if (url != null) precacheImage(NetworkImage(url), context).ignore();
+    }
   }
 
   @override
@@ -89,7 +159,9 @@ class _ShortVideoFeedScreenState extends ConsumerState<ShortVideoFeedScreen> {
         itemBuilder: (context, index) {
           final content = _feed[index];
           return _ShortVideoItem(
+            key: ValueKey(content.id),
             content: content,
+            manager: _manager,
             isActive: index == _currentIndex,
           );
         },
@@ -100,46 +172,79 @@ class _ShortVideoFeedScreenState extends ConsumerState<ShortVideoFeedScreen> {
 
 class _ShortVideoItem extends ConsumerStatefulWidget {
   final Content content;
+  final VideoPlaybackManager manager;
   final bool isActive;
 
-  const _ShortVideoItem({required this.content, required this.isActive});
+  const _ShortVideoItem({
+    super.key,
+    required this.content,
+    required this.manager,
+    required this.isActive,
+  });
 
   @override
   ConsumerState<_ShortVideoItem> createState() => _ShortVideoItemState();
 }
 
 class _ShortVideoItemState extends ConsumerState<_ShortVideoItem> {
+  Uint8List? _tinyPreview;
 
-  void _togglePlay() {
-    ref.read(videoPlaybackManagerProvider).togglePlayPause(widget.content.id);
+  @override
+  void initState() {
+    super.initState();
+    final b64 = widget.content.mediaMetadata.tinyPreview;
+    if (b64 != null) {
+      try {
+        _tinyPreview = base64Decode(b64);
+      } catch (_) {}
+    }
   }
+
+  void _togglePlay() => widget.manager.togglePlayPause(widget.content.id);
 
   @override
   Widget build(BuildContext context) {
-    final playbackManager = ref.watch(videoPlaybackManagerProvider);
-    final controller = playbackManager.getController(widget.content.id);
-
     return GestureDetector(
       onTap: _togglePlay,
       onDoubleTap: () {
-        ref.read(recommendationServiceProvider).trackEvent('currentUser', widget.content.id, ContentInteractionType.like, {'source': 'double_tap'});
+        ref.read(recommendationServiceProvider).trackEvent('currentUser', widget.content.id,
+            ContentInteractionType.like, {'source': 'double_tap'});
       },
       onLongPress: () => _showFeedControls(context),
       child: Stack(
         fit: StackFit.expand,
         children: [
-          // Video Player
-          if (controller != null)
-            Video(
-              controller: controller,
-              fit: BoxFit.cover,
-              controls: NoVideoControls, // custom controls via overlay
-            )
-          else
-            // Placeholder/Thumbnail while preloading
-            _buildThumbnail(),
-
-          // Overlays
+          // Only the video layer listens to the manager, so overlays do not
+          // rebuild on every playback change.
+          ListenableBuilder(
+            listenable: widget.manager,
+            builder: (context, _) {
+              final controller = widget.manager.getController(widget.content.id);
+              final shown = widget.manager.isFirstFrameShown(widget.content.id);
+              return Stack(
+                fit: StackFit.expand,
+                children: [
+                  if (controller != null)
+                    Video(
+                      key: ObjectKey(controller),
+                      controller: controller,
+                      fit: BoxFit.cover,
+                      fill: Colors.black,
+                      controls: NoVideoControls,
+                    ),
+                  // Preview stays on top until a real frame is playing, then
+                  // fades out. No black flash, no spinner.
+                  IgnorePointer(
+                    child: AnimatedOpacity(
+                      opacity: shown ? 0 : 1,
+                      duration: const Duration(milliseconds: 160),
+                      child: _buildPreview(),
+                    ),
+                  ),
+                ],
+              );
+            },
+          ),
           if (widget.isActive) _buildEngagementOverlay(),
           if (widget.isActive) _buildContentInfoOverlay(),
         ],
@@ -147,14 +252,37 @@ class _ShortVideoItemState extends ConsumerState<_ShortVideoItem> {
     );
   }
 
-  Widget _buildThumbnail() {
-    if (widget.content.mediaMetadata.thumbnailUrl != null) {
-      return Image.network(
-        widget.content.mediaMetadata.thumbnailUrl!,
-        fit: BoxFit.cover,
-      );
-    }
-    return Container(color: AppColors.darkSurface);
+  /// Blurred tiny preview (inline in the Firestore doc, no download) with
+  /// the sharp poster fading in over it once loaded.
+  Widget _buildPreview() {
+    final meta = widget.content.mediaMetadata;
+    final poster = meta.posterFrameUrl ?? meta.thumbnailUrl;
+    return Stack(
+      fit: StackFit.expand,
+      children: [
+        const ColoredBox(color: AppColors.darkSurface),
+        if (_tinyPreview != null)
+          ImageFiltered(
+            imageFilter: ImageFilter.blur(sigmaX: 12, sigmaY: 12),
+            child: Image.memory(_tinyPreview!, fit: BoxFit.cover, gaplessPlayback: true),
+          ),
+        if (poster != null)
+          Image.network(
+            poster,
+            fit: BoxFit.cover,
+            gaplessPlayback: true,
+            frameBuilder: (context, child, frame, wasSyncLoaded) {
+              if (wasSyncLoaded) return child;
+              return AnimatedOpacity(
+                opacity: frame == null ? 0 : 1,
+                duration: const Duration(milliseconds: 200),
+                child: child,
+              );
+            },
+            errorBuilder: (context, error, stack) => const SizedBox.shrink(),
+          ),
+      ],
+    );
   }
 
   Widget _buildEngagementOverlay() {
@@ -241,6 +369,7 @@ class _ShortVideoItemState extends ConsumerState<_ShortVideoItem> {
   }
 
   void _showFeedControls(BuildContext context) {
+    final manager = widget.manager;
     showModalBottomSheet(
       context: context,
       backgroundColor: AppColors.darkSurface,
@@ -302,15 +431,13 @@ class _ShortVideoItemState extends ConsumerState<_ShortVideoItem> {
                 },
               ),
               ListTile(
-                leading: Icon((ref.watch(videoPlaybackManagerProvider).getController(widget.content.id)?.player.state.volume ?? 100) == 0 ? Icons.volume_off : Icons.volume_up, color: Colors.white),
-                title: Text((ref.watch(videoPlaybackManagerProvider).getController(widget.content.id)?.player.state.volume ?? 100) == 0 ? 'Unmute' : 'Mute sound', style: const TextStyle(color: Colors.white)),
+                leading: Icon(manager.isMuted ? Icons.volume_off : Icons.volume_up, color: Colors.white),
+                title: Text(manager.isMuted ? 'Unmute' : 'Mute sound', style: const TextStyle(color: Colors.white)),
                 onTap: () {
-                  final player = ref.read(videoPlaybackManagerProvider).getController(widget.content.id)?.player;
-                  if (player != null) {
-                    final newVolume = player.state.volume == 0 ? 100.0 : 0.0;
-                    player.setVolume(newVolume);
-                    ref.read(recommendationServiceProvider).trackEvent('currentUser', widget.content.id, ContentInteractionType.soundInteraction, {'volume': newVolume});
-                  }
+                  final mute = !manager.isMuted;
+                  manager.setMute(mute);
+                  ref.read(recommendationServiceProvider).trackEvent('currentUser', widget.content.id,
+                      ContentInteractionType.soundInteraction, {'volume': mute ? 0.0 : 100.0});
                   Navigator.pop(context);
                 },
               ),

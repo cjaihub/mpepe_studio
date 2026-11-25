@@ -257,3 +257,6 @@ Return ONLY a strictly valid JSON array of 3 objects with properties: "title" (s
     throw new HttpsError('internal', 'AI request failed.');
   }
 });
+
+// Reels: upload trigger that starts the FFmpeg transcode job.
+export { onReelUploaded } from './reels';

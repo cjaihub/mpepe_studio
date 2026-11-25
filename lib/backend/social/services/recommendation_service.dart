@@ -67,7 +67,12 @@ class RecommendationService {
   }
 
   Future<List<Content>> _generateCandidates(String currentUserId, FeedMode mode, {String? topic, int limit = 60}) async {
-    Query query = _firestore.collection('content').where('type', isEqualTo: ContentType.short_video.name);
+    // `visibility == public` is required by firestore.rules, which only let a
+    // user read public content (or their own).
+    Query query = _firestore
+        .collection('content')
+        .where('type', isEqualTo: ContentType.short_video.name)
+        .where('visibility', isEqualTo: 'public');
 
     switch (mode) {
       case FeedMode.forYou:
@@ -112,8 +117,9 @@ class RecommendationService {
   }
 
   List<Content> _applySafetyFiltering(List<Content> candidates) {
-    // Client-side safety pass (e.g. strict mode on devices, pending moderation)
-    return candidates; 
+    // Client-side safety pass (e.g. strict mode on devices, pending moderation).
+    // Videos still uploading or transcoding are never shown.
+    return candidates.where((c) => c.isReady && c.mediaUrl.isNotEmpty).toList();
   }
 
   Future<List<Content>> _applyFeedbackSignals(String currentUserId, List<Content> candidates) async {
