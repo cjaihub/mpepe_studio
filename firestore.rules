@@ -37,6 +37,14 @@ service cloud.firestore {
       match /youtube_accounts/{accountId} {
         allow read, write: if isOwner(uid);
       }
+
+      // Feed controls (hidden creators/topics) and per-video feedback.
+      match /preferences/{docId} {
+        allow read, write: if isOwner(uid);
+      }
+      match /interactions/{contentId} {
+        allow read, write: if isOwner(uid);
+      }
     }
 
     // ─── Notifications ───────────────────────────────────────────────────────
@@ -121,6 +129,14 @@ service cloud.firestore {
       match /commands/{commandId} {
         allow read, write: if isSignedIn();
       }
+    }
+
+    // ─── Feed telemetry ──────────────────────────────────────────────────────
+    // Write-only for the signed-in user, as themselves. Like and view counts
+    // are applied by the onTelemetryEvent function, never by the app.
+    match /telemetry_events/{eventId} {
+      allow create: if isSignedIn() && request.resource.data.userId == request.auth.uid;
+      allow read, update, delete: if false;
     }
 
     // ─── Content (reels, posts) ──────────────────────────────────────────────

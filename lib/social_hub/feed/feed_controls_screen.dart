@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import '../../../backend/social/services/recommendation_service.dart';
+import '../../backend/social/services/recommendation_service.dart';
 import '../../shared/theme/app_theme.dart';
 
 class FeedControlsScreen extends ConsumerWidget {
@@ -131,7 +131,7 @@ class FeedControlsScreen extends ConsumerWidget {
           ),
           TextButton(
             onPressed: () {
-              ref.read(recommendationServiceProvider).resetRecommendations('currentUser');
+              ref.read(recommendationServiceProvider).resetRecommendations(currentSocialUid());
               Navigator.pop(c);
               ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Recommendations have been reset.')));
             },

@@ -4,6 +4,7 @@ import 'dart:ui' show ImageFilter;
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:go_router/go_router.dart';
 import 'package:media_kit_video/media_kit_video.dart';
 
 import '../../backend/social/models/content.dart';
@@ -50,7 +51,7 @@ class _ShortVideoFeedScreenState extends ConsumerState<ShortVideoFeedScreen>
     // Player setup (config, cache, network) runs alongside the feed query.
     final ready = _manager.ensureReady();
     final page = await _recommendations.getFeed(
-      'currentUser',
+      currentSocialUid(),
       _currentMode,
       limit: _manager.config.pageSize,
     );
@@ -80,7 +81,7 @@ class _ShortVideoFeedScreenState extends ConsumerState<ShortVideoFeedScreen>
     _loadingMore = true;
     try {
       final page = await _recommendations.getFeed(
-        'currentUser',
+        currentSocialUid(),
         _currentMode,
         limit: _feed.length + _manager.config.pageSize,
       );
@@ -116,6 +117,46 @@ class _ShortVideoFeedScreenState extends ConsumerState<ShortVideoFeedScreen>
     super.dispose();
   }
 
+  /// Opens another screen over the feed: playback pauses while covered.
+  Future<void> _openOver(String route) async {
+    _manager.pauseAll();
+    await context.push(route);
+    if (!mounted) return;
+    if (_feed.isEmpty) {
+      await _loadFeed();
+    } else {
+      _manager.resumeCurrent();
+    }
+  }
+
+  Widget _topBar() {
+    return SafeArea(
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 4),
+        child: Row(
+          children: [
+            IconButton(
+              tooltip: 'Back',
+              icon: const Icon(Icons.arrow_back, color: Colors.white),
+              onPressed: () => context.canPop() ? context.pop() : context.go('/social_hub'),
+            ),
+            const Spacer(),
+            IconButton(
+              tooltip: 'Feed settings',
+              icon: const Icon(Icons.tune, color: Colors.white),
+              onPressed: () => _openOver('/social_hub/reels/controls'),
+            ),
+            IconButton(
+              tooltip: 'Post a reel',
+              icon: const Icon(Icons.add_box_outlined, color: Colors.white),
+              onPressed: () => _openOver('/social_hub/reels/post'),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
   void _onPageChanged(int index) {
     setState(() => _currentIndex = index);
     _manager.initializeAndPreload(_feed, index);
@@ -142,29 +183,53 @@ class _ShortVideoFeedScreenState extends ConsumerState<ShortVideoFeedScreen>
     }
 
     if (_feed.isEmpty) {
-      return const Scaffold(
+      return Scaffold(
         backgroundColor: AppColors.darkBackground,
-        body: Center(child: Text('No content available', style: TextStyle(color: Colors.white))),
+        body: Stack(
+          children: [
+            Center(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  const Text('No reels yet', style: TextStyle(color: Colors.white, fontSize: 18)),
+                  const SizedBox(height: 16),
+                  FilledButton.icon(
+                    style: FilledButton.styleFrom(backgroundColor: AppColors.mpepeMaroon),
+                    onPressed: () => _openOver('/social_hub/reels/post'),
+                    icon: const Icon(Icons.add),
+                    label: const Text('Post the first one'),
+                  ),
+                ],
+              ),
+            ),
+            _topBar(),
+          ],
+        ),
       );
     }
 
     return Scaffold(
       backgroundColor: AppColors.darkBackground,
       extendBodyBehindAppBar: true,
-      body: PageView.builder(
-        controller: _pageController,
-        scrollDirection: Axis.vertical,
-        onPageChanged: _onPageChanged,
-        itemCount: _feed.length,
-        itemBuilder: (context, index) {
-          final content = _feed[index];
-          return _ShortVideoItem(
-            key: ValueKey(content.id),
-            content: content,
-            manager: _manager,
-            isActive: index == _currentIndex,
-          );
-        },
+      body: Stack(
+        children: [
+          PageView.builder(
+            controller: _pageController,
+            scrollDirection: Axis.vertical,
+            onPageChanged: _onPageChanged,
+            itemCount: _feed.length,
+            itemBuilder: (context, index) {
+              final content = _feed[index];
+              return _ShortVideoItem(
+                key: ValueKey(content.id),
+                content: content,
+                manager: _manager,
+                isActive: index == _currentIndex,
+              );
+            },
+          ),
+          _topBar(),
+        ],
       ),
     );
   }
@@ -207,7 +272,7 @@ class _ShortVideoItemState extends ConsumerState<_ShortVideoItem> {
     return GestureDetector(
       onTap: _togglePlay,
       onDoubleTap: () {
-        ref.read(recommendationServiceProvider).trackEvent('currentUser', widget.content.id,
+        ref.read(recommendationServiceProvider).trackEvent(currentSocialUid(), widget.content.id,
             ContentInteractionType.like, {'source': 'double_tap'});
       },
       onLongPress: () => _showFeedControls(context),
@@ -293,19 +358,19 @@ class _ShortVideoItemState extends ConsumerState<_ShortVideoItem> {
         mainAxisSize: MainAxisSize.min,
         children: [
           _buildActionButton(Icons.favorite, widget.content.likeCount.toString(), () {
-            ref.read(recommendationServiceProvider).trackEvent('currentUser', widget.content.id, ContentInteractionType.like, {});
+            ref.read(recommendationServiceProvider).trackEvent(currentSocialUid(), widget.content.id, ContentInteractionType.like, {});
           }),
           const SizedBox(height: 20),
           _buildActionButton(Icons.chat_bubble_outline, widget.content.commentCount.toString(), () {
-            ref.read(recommendationServiceProvider).trackEvent('currentUser', widget.content.id, ContentInteractionType.comment, {});
+            ref.read(recommendationServiceProvider).trackEvent(currentSocialUid(), widget.content.id, ContentInteractionType.comment, {});
           }),
           const SizedBox(height: 20),
           _buildActionButton(Icons.bookmark_border, widget.content.saveCount.toString(), () {
-            ref.read(recommendationServiceProvider).trackEvent('currentUser', widget.content.id, ContentInteractionType.save, {});
+            ref.read(recommendationServiceProvider).trackEvent(currentSocialUid(), widget.content.id, ContentInteractionType.save, {});
           }),
           const SizedBox(height: 20),
           _buildActionButton(Icons.share, widget.content.shareCount.toString(), () {
-            ref.read(recommendationServiceProvider).trackEvent('currentUser', widget.content.id, ContentInteractionType.share, {});
+            ref.read(recommendationServiceProvider).trackEvent(currentSocialUid(), widget.content.id, ContentInteractionType.share, {});
           }),
         ],
       ),
@@ -385,7 +450,7 @@ class _ShortVideoItemState extends ConsumerState<_ShortVideoItem> {
                 leading: const Icon(Icons.visibility_off, color: Colors.white),
                 title: const Text('Not Interested', style: TextStyle(color: Colors.white)),
                 onTap: () {
-                  ref.read(recommendationServiceProvider).markNotInterested('currentUser', widget.content.id);
+                  ref.read(recommendationServiceProvider).markNotInterested(currentSocialUid(), widget.content.id);
                   Navigator.pop(context);
                   ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("We'll show fewer videos like this.")));
                 },
@@ -394,7 +459,7 @@ class _ShortVideoItemState extends ConsumerState<_ShortVideoItem> {
                 leading: const Icon(Icons.person_off, color: Colors.white),
                 title: Text('Hide @${widget.content.authorId}', style: const TextStyle(color: Colors.white)),
                 onTap: () {
-                  ref.read(recommendationServiceProvider).hideCreator('currentUser', widget.content.authorId);
+                  ref.read(recommendationServiceProvider).hideCreator(currentSocialUid(), widget.content.authorId);
                   Navigator.pop(context);
                   ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("You won't see videos from @${widget.content.authorId}.")));
                 },
@@ -404,7 +469,7 @@ class _ShortVideoItemState extends ConsumerState<_ShortVideoItem> {
                   leading: const Icon(Icons.tag_faces, color: Colors.white), // Using tag_faces as proxy for topic hide
                   title: Text('Hide #${widget.content.hashtags.first}', style: const TextStyle(color: Colors.white)),
                   onTap: () {
-                    ref.read(recommendationServiceProvider).hideTopic('currentUser', widget.content.hashtags.first);
+                    ref.read(recommendationServiceProvider).hideTopic(currentSocialUid(), widget.content.hashtags.first);
                     Navigator.pop(context);
                     ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("You won't see videos about #${widget.content.hashtags.first}.")));
                   },
@@ -436,7 +501,7 @@ class _ShortVideoItemState extends ConsumerState<_ShortVideoItem> {
                 onTap: () {
                   final mute = !manager.isMuted;
                   manager.setMute(mute);
-                  ref.read(recommendationServiceProvider).trackEvent('currentUser', widget.content.id,
+                  ref.read(recommendationServiceProvider).trackEvent(currentSocialUid(), widget.content.id,
                       ContentInteractionType.soundInteraction, {'volume': mute ? 0.0 : 100.0});
                   Navigator.pop(context);
                 },
@@ -445,7 +510,7 @@ class _ShortVideoItemState extends ConsumerState<_ShortVideoItem> {
                 leading: const Icon(Icons.flag, color: Colors.white),
                 title: const Text('Report', style: TextStyle(color: Colors.white)),
                 onTap: () {
-                  ref.read(recommendationServiceProvider).trackEvent('currentUser', widget.content.id, ContentInteractionType.report, {});
+                  ref.read(recommendationServiceProvider).trackEvent(currentSocialUid(), widget.content.id, ContentInteractionType.report, {});
                   Navigator.pop(context);
                   ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Report submitted.")));
                 },

@@ -1,3 +1,5 @@
+import 'package:firebase_auth/firebase_auth.dart';
+import 'package:flutter/foundation.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../models/content.dart';
@@ -31,6 +33,10 @@ enum ContentInteractionType {
   report,
   soundInteraction,
 }
+
+/// The signed-in user's id, or '' when signed out. The feed routes require
+/// sign-in, so '' only happens briefly around sign-out.
+String currentSocialUid() => FirebaseAuth.instance.currentUser?.uid ?? '';
 
 final recommendationServiceProvider = Provider<RecommendationService>((ref) {
   return RecommendationService(FirebaseFirestore.instance);
@@ -123,6 +129,7 @@ class RecommendationService {
   }
 
   Future<List<Content>> _applyFeedbackSignals(String currentUserId, List<Content> candidates) async {
+    if (currentUserId.isEmpty) return candidates;
     // 1. Get user's negative feedback state (hidden creators, muted topics).
     final prefsDoc = await _firestore.collection('users').doc(currentUserId).collection('preferences').doc('recommendations').get();
     final hiddenCreators = List<String>.from(prefsDoc.data()?['hiddenCreators'] ?? []);
@@ -214,21 +221,21 @@ class RecommendationService {
   Future<void> trackEvent(String currentUserId, String contentId, ContentInteractionType type, Map<String, dynamic> metadata) async {
     // Ensure we do not fake views. Views only logged via explicit viewCompletion or duration thresholds.
     if (type == ContentInteractionType.impression && metadata['faked'] == true) return;
+    if (currentUserId.isEmpty) return;
 
-    await _firestore.collection('telemetry_events').add({
-      'userId': currentUserId,
-      'contentId': contentId,
-      'eventType': type.name,
-      'metadata': metadata,
-      'timestamp': FieldValue.serverTimestamp(),
-    });
-
-    // Conditionally update canonical counts based on true verified events (in a real app via Cloud Functions)
-    if (type == ContentInteractionType.like) {
-       _firestore.collection('content').doc(contentId).update({'likeCount': FieldValue.increment(1)});
-    }
-    if (type == ContentInteractionType.viewCompletion) {
-       _firestore.collection('content').doc(contentId).update({'viewCount': FieldValue.increment(1)});
+    // Like and view counts are applied server side by the onTelemetryEvent
+    // function (de-duplicated), so the app cannot inflate them.
+    // Telemetry is best effort: callers do not await it, so never throw.
+    try {
+      await _firestore.collection('telemetry_events').add({
+        'userId': currentUserId,
+        'contentId': contentId,
+        'eventType': type.name,
+        'metadata': metadata,
+        'timestamp': FieldValue.serverTimestamp(),
+      });
+    } catch (e) {
+      debugPrint('trackEvent failed: $e');
     }
   }
 }

@@ -38,6 +38,8 @@ class SocialIntegrationDashboard extends ConsumerWidget {
                       _buildHeader(context),
                       const SizedBox(height: 24),
                       _buildConnectionStatusCard(context, hasYoutube, hasTiktok, hasFacebook, hasInstagram),
+                      const SizedBox(height: 16),
+                      _buildReelsCard(context),
                       if (hasTiktok) ...[
                         const SizedBox(height: 24),
                         const TikTokProfilePanel(),
@@ -228,6 +230,40 @@ class SocialIntegrationDashboard extends ConsumerWidget {
           borderRadius: BorderRadius.circular(2),
           color: active ? Theme.of(context).colorScheme.primary : Theme.of(context).colorScheme.outline,
         ),
+      ),
+    );
+  }
+
+  /// Our own reels feed. Always available: it does not need a connected
+  /// platform.
+  Widget _buildReelsCard(BuildContext context) {
+    final muted = Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.6);
+    return MpepeCard(
+      child: Row(
+        children: [
+          const Icon(Icons.slow_motion_video, size: 32),
+          const SizedBox(width: 14),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text('Reels', style: TextStyle(fontSize: 16, fontWeight: FontWeight.w800)),
+                const SizedBox(height: 2),
+                Text('Watch and post short videos', style: TextStyle(color: muted, fontSize: 12)),
+              ],
+            ),
+          ),
+          IconButton(
+            tooltip: 'Post a reel',
+            icon: const Icon(Icons.add_box_outlined),
+            onPressed: () => context.push('/social_hub/reels/post'),
+          ),
+          FilledButton(
+            style: FilledButton.styleFrom(backgroundColor: AppColors.mpepeMaroon),
+            onPressed: () => context.push('/social_hub/reels'),
+            child: const Text('Watch'),
+          ),
+        ],
       ),
     );
   }

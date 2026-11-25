@@ -124,7 +124,7 @@ class VideoPlaybackManager extends ChangeNotifier {
         ..start();
       _playedIds.add(current.id);
       _recommendationService.trackEvent(
-          'currentUser', current.id, ContentInteractionType.impression, {});
+          currentSocialUid(), current.id, ContentInteractionType.impression, {});
     }
 
     for (final content in window) {
@@ -183,7 +183,7 @@ class VideoPlaybackManager extends ChangeNotifier {
       final id = slot.contentId;
       if (done && id != null) {
         _recommendationService.trackEvent(
-            'currentUser', id, ContentInteractionType.viewCompletion, {});
+            currentSocialUid(), id, ContentInteractionType.viewCompletion, {});
       }
     }));
     slot.subs.add(p.stream.error.listen((e) => debugPrint('Reel player error: $e')));
@@ -227,7 +227,7 @@ class VideoPlaybackManager extends ChangeNotifier {
   void _release(_Slot slot) {
     final id = slot.contentId;
     if (id == null) return;
-    _recommendationService.trackEvent('currentUser', id, ContentInteractionType.watchDuration, {
+    _recommendationService.trackEvent(currentSocialUid(), id, ContentInteractionType.watchDuration, {
       'durationMs': slot.maxPosition.inMilliseconds,
     });
     if (_playedIds.contains(id)) {

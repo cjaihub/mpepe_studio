@@ -93,5 +93,11 @@
 		<string>Authenticate to unlock your MPEPE STUDIO account.</string>
 		<key>UIStatusBarHidden</key>
 		<false/>
-	</dict>
+		<key>NSPhotoLibraryUsageDescription</key>
+	<string>Choose photos and videos to post or send.</string>
+	<key>NSCameraUsageDescription</key>
+	<string>Record videos and take photos to post or send.</string>
+	<key>NSMicrophoneUsageDescription</key>
+	<string>Record sound with your videos.</string>
+</dict>
 </plist>
