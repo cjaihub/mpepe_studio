@@ -62,3 +62,9 @@ node_modules/
 **/node_modules/
 
 
+
+# Desktop agent (Python) local env and PyInstaller outputs
+desktop_agent/.venv/
+desktop_agent/build/
+desktop_agent/dist/
+__pycache__/
